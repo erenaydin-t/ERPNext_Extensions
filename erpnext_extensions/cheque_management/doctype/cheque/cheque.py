@@ -2,6 +2,8 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import getdate, flt
 
+from erpnext.accounts.party import get_party_account
+
 from erpnext_extensions.cheque_management.utils import (
 	ReceivableChequeStatus,
 	PayableChequeStatus,
@@ -35,10 +37,10 @@ def move_to_box(name):
 
 
 @frappe.whitelist()
-def assign_to_bank(name, posting_date=None):
+def assign_to_bank(name, posting_date=None, bank_account=None):
 	"""Whitelisted method for Assign To Bank"""
 	doc = frappe.get_doc("Cheque", name)
-	return doc.assign_to_bank(posting_date)
+	return doc.assign_to_bank(posting_date, bank_account)
 
 
 @frappe.whitelist()
@@ -185,21 +187,98 @@ def mark_as_void(name):
 
 class Cheque(Document):
 	def before_insert(self):
-		"""Set default status based on cheque_type"""
+		"""Set default status to Draft for new cheques"""
 		if not self.status:
-			if self.cheque_type == ChequeType.RECEIVABLE:
-				self.status = ReceivableChequeStatus.RECEIVED_FROM_CUSTOMER
-			elif self.cheque_type == ChequeType.PAYABLE:
-				self.status = PayableChequeStatus.PAYMENT_REQUEST_CREATED
+			# New cheques start in Draft state
+			self.status = "Draft"
 	
+	def before_save(self):
+		"""Validate before save - check status changes and required fields"""
+		# Get old status if available (from _doc_before_save or from database)
+		old_status = None
+		if self._doc_before_save and hasattr(self._doc_before_save, 'status'):
+			old_status = self._doc_before_save.status
+		elif self.name and frappe.db.exists("Cheque", self.name):
+			# If document exists, get old status from database
+			old_status = frappe.db.get_value("Cheque", self.name, "status")
+		
+		# Validate Sayad Code when status changes to Registered In Sayad
+		if (self.cheque_type == ChequeType.RECEIVABLE and 
+			self.status == ReceivableChequeStatus.REGISTERED_IN_SAYAD):
+			# Only validate if status is actually changing (not just loading existing document)
+			if old_status != ReceivableChequeStatus.REGISTERED_IN_SAYAD:
+				if not self.sayad_code:
+					# Revert status and workflow_state to previous values
+					if old_status:
+						self.status = old_status
+						if frappe.db.exists("Workflow State", old_status):
+							self.workflow_state = old_status
+					frappe.throw("Sayad Code is required when transitioning to 'Registered In Sayad'. Please enter the Sayad registration code before proceeding.")
+		
+		# Validate Bank Account when status changes to Under Collection (Assign To Bank)
+		if (self.cheque_type == ChequeType.RECEIVABLE and 
+			self.status == ReceivableChequeStatus.UNDER_COLLECTION):
+			# Only validate if status is actually changing
+			if old_status != ReceivableChequeStatus.UNDER_COLLECTION:
+				if not self.bank_account:
+					# Revert status and workflow_state to previous values
+					if old_status:
+						self.status = old_status
+						if frappe.db.exists("Workflow State", old_status):
+							self.workflow_state = old_status
+					frappe.throw("Bank Account is required when transitioning to 'Under Collection'. Please select a bank account before proceeding.")
+				# Create Under Collection JE in same save (workflow only updates status; JE must be created here)
+				self.assigned_to_bank_date = self.assigned_to_bank_date or getdate()
+				if not self.has_under_collection_entry():
+					self.create_under_collection_entry(self.assigned_to_bank_date, skip_save=True)
+		
+		# Validate Bank Account when status changes to Collected
+		if (self.cheque_type == ChequeType.RECEIVABLE and 
+			self.status == ReceivableChequeStatus.COLLECTED):
+			# Only validate if status is actually changing
+			if old_status != ReceivableChequeStatus.COLLECTED:
+				if not self.bank_account:
+					# Revert status and workflow_state to previous values
+					if old_status:
+						self.status = old_status
+						if frappe.db.exists("Workflow State", old_status):
+							self.workflow_state = old_status
+					frappe.throw("Bank Account is required when transitioning to 'Collected'. Please select a bank account before proceeding.")
+		
 	def validate(self):
 		"""Validate cheque data"""
-		# Set default status if not set
+		# Set default status to Draft if not set
 		if not self.status:
-			if self.cheque_type == ChequeType.RECEIVABLE:
-				self.status = ReceivableChequeStatus.RECEIVED_FROM_CUSTOMER
-			elif self.cheque_type == ChequeType.PAYABLE:
-				self.status = PayableChequeStatus.PAYMENT_REQUEST_CREATED
+			self.status = "Draft"
+		
+		# If status is Draft, allow it (this is the initial state)
+		if self.status == "Draft":
+			pass
+		# Validate status based on cheque_type for non-draft states
+		elif self.cheque_type == ChequeType.RECEIVABLE:
+			# If status doesn't belong to Receivable workflow, reset to Draft
+			if not ReceivableChequeStatus.is_valid(self.status) and self.status != "Draft":
+				self.status = "Draft"
+		elif self.cheque_type == ChequeType.PAYABLE:
+			# If status doesn't belong to Payable workflow, reset to Draft
+			if not PayableChequeStatus.is_valid(self.status) and self.status != "Draft":
+				self.status = "Draft"
+		
+		# Sync workflow_state with status field for backward compatibility
+		# workflow_state_field is set to "status" in workflow, so workflow_state should always match status
+		# workflow_state is a Link field to "Workflow State" doctype, and the name of Workflow State records
+		# matches the status values (e.g., "Draft", "Received From Customer", etc.)
+		# This ensures UI consistency (both fields show the same value)
+		if self.status:
+			# Check if Workflow State record exists with this name
+			if frappe.db.exists("Workflow State", self.status):
+				self.workflow_state = self.status
+			else:
+				# If Workflow State doesn't exist, log a warning but don't break
+				frappe.log_error(
+					f"Workflow State '{self.status}' not found. workflow_state not synced.",
+					"Cheque Workflow State Sync Warning"
+				)
 		
 		# Set party_type based on cheque_type if not set
 		if not self.party_type:
@@ -227,6 +306,9 @@ class Cheque(Document):
 			if not self.bank_account:
 				frappe.throw("Bank Account is required for Payable cheques")
 		
+		# Note: Status change validations are now in before_save() hook
+		# This ensures validation happens before the document is saved
+		
 		# Prevent Cheque User from manually changing status
 		# Status should only be changed through action methods
 		if self._doc_before_save and hasattr(self._doc_before_save, 'status'):
@@ -234,26 +316,57 @@ class Cheque(Document):
 				# Allow if user has submit permission (Cheque Manager)
 				if not frappe.has_permission("Cheque", "submit", self.name):
 					frappe.throw("You do not have permission to change status. Please use action buttons.", frappe.PermissionError)
+		
+		# Prevent editing important fields after submit
+		if self.docstatus == 1 and self._doc_before_save:
+			# List of fields that cannot be changed after submit
+			protected_fields = ['cheque_no', 'cheque_date', 'cheque_amount', 'party_type', 'party', 'company', 'cheque_type']
+			for field in protected_fields:
+				if hasattr(self._doc_before_save, field) and getattr(self, field) != getattr(self._doc_before_save, field):
+					frappe.throw(
+						f"Cannot change {field} after cheque is submitted. Please cancel the cheque first.",
+						frappe.ValidationError
+					)
+		
+		# Prevent editing cheque if it has Journal Entries (unless cancelling)
+		# Only allow editing if document is in draft state and has no Journal Entries
+		if self.docstatus == 0 and self.journal_references and len(self.journal_references) > 0:
+			# Check if this is a real change (not just loading the document)
+			if self._doc_before_save:
+				# Allow if user is cancelling Journal Entries or has special permission
+				if not frappe.has_permission("Cheque", "cancel", self.name):
+					frappe.throw(
+						"Cannot edit cheque that has Journal Entries. Please cancel the Journal Entries first or contact Cheque Manager.",
+						frappe.ValidationError
+					)
 	
-	def after_insert(self):
-		"""Create Journal Entry when cheque is first created"""
-		# For Receivable cheques in "Received From Customer" status, create Receive Journal Entry
-		if (self.cheque_type == ChequeType.RECEIVABLE and 
-			self.status == ReceivableChequeStatus.RECEIVED_FROM_CUSTOMER):
-			try:
-				je = self.create_receive_entry()
-				if je:
-					# Save to persist journal_references
-					self.save(ignore_permissions=True)
-					frappe.db.commit()
-					frappe.msgprint({
-						"message": f"Journal Entry <a href='/app/journal-entry/{je.name}'>{je.name}</a> created for receiving cheque.",
-						"indicator": "green"
-					})
-			except Exception as e:
-				frappe.log_error(f"Error creating Receive Journal Entry: {str(e)}", "Cheque Receive Entry Error")
-				# Don't block cheque creation if JE creation fails
-				frappe.msgprint(f"Warning: Could not create Journal Entry: {str(e)}", indicator="orange")
+	def before_submit(self):
+		"""Set received_date and create Receive JE *before* submit. If JE fails, abort submit (status stays as before)."""
+		if self.cheque_type != ChequeType.RECEIVABLE or self.has_receive_entry():
+			return
+		# Set received_date only if user left it blank (cannot change after submit)
+		if not self.received_date:
+			self.received_date = getdate()
+		posting_date = self.received_date or getdate()
+		je = self.create_receive_entry(posting_date)
+		if not je:
+			frappe.throw(
+				"Could not create Receive Journal Entry. Submit aborted; cheque status unchanged.",
+				frappe.ValidationError
+			)
+		frappe.msgprint(
+			f"Journal Entry <a href='/app/journal-entry/{je.name}'>{je.name}</a> created for receiving cheque.",
+			indicator="green"
+		)
+	
+	def on_submit(self):
+		"""Status change from Draft handled in before_submit (Receive JE) or workflow."""
+		# Change status from Draft to Received From Customer on submit (when not using workflow)
+		if self.status == "Draft":
+			if self.cheque_type == ChequeType.RECEIVABLE:
+				self.status = ReceivableChequeStatus.RECEIVED_FROM_CUSTOMER
+			elif self.cheque_type == ChequeType.PAYABLE:
+				self.status = PayableChequeStatus.PAYMENT_REQUEST_CREATED
 	
 	def get_cheque_settings(self):
 		"""Get Cheque Settings for the company"""
@@ -283,6 +396,13 @@ class Cheque(Document):
 			if ref.purpose == JournalEntryPurpose.RECEIVE:
 				return True
 		return False
+
+	def has_under_collection_entry(self):
+		"""Check if Under Collection Journal Entry already exists for this cheque"""
+		for ref in self.journal_references:
+			if ref.purpose == JournalEntryPurpose.UNDER_COLLECTION:
+				return True
+		return False
 	
 	def create_receive_entry(self, posting_date=None):
 		"""
@@ -303,14 +423,16 @@ class Cheque(Document):
 		if not settings.default_receivable_cheque_account:
 			frappe.throw("Default Receivable Cheque Account is not set in Cheque Settings")
 		
-		# Get customer account
-		party_account = frappe.db.get_value(
-			"Party Account",
-			{"parent": self.party, "company": self.company},
-			"account"
-		)
-		if not party_account:
-			frappe.throw(f"Party Account not found for {self.party_type} {self.party} in company {self.company}")
+		# Get customer account using ERPNext utility function
+		# This will create Party Account if it doesn't exist
+		try:
+			party_account = get_party_account(
+				self.party_type,
+				self.party,
+				self.company
+			)
+		except Exception as e:
+			frappe.throw(f"Could not get Party Account for {self.party_type} {self.party} in company {self.company}: {str(e)}")
 		
 		posting_date = posting_date or getdate()
 		
@@ -320,6 +442,8 @@ class Cheque(Document):
 		je.voucher_type = "Journal Entry"
 		je.cheque_no = self.cheque_no
 		je.user_remark = f"Cheque {self.cheque_no} received from customer"
+		if self.cheque_date:
+			je.cheque_date = self.cheque_date
 		
 		# Debit: Receivable Cheque Account
 		je.append("accounts", {
@@ -327,8 +451,6 @@ class Cheque(Document):
 			"debit_in_account_currency": self.cheque_amount,
 			"party_type": self.party_type,
 			"party": self.party,
-			"reference_type": "Cheque",
-			"reference_name": self.name,
 		})
 		
 		# Credit: Customer Account (Accounts Receivable)
@@ -337,70 +459,72 @@ class Cheque(Document):
 			"credit_in_account_currency": self.cheque_amount,
 			"party_type": self.party_type,
 			"party": self.party,
-			"reference_type": "Cheque",
-			"reference_name": self.name,
 		})
 		
 		je.save()
 		je.submit()
 		
-		# Add to journal references
-		self.append("journal_references", {
-			"journal_entry": je.name,
-			"purpose": JournalEntryPurpose.RECEIVE,
-			"posting_date": posting_date,
-			"amount": self.cheque_amount,
-		})
+		# Add to journal references if document exists (not during initial insert)
+		# During insert, workflow hook will handle adding the reference
+		if self.name and frappe.db.exists("Cheque", self.name):
+			self.append("journal_references", {
+				"journal_entry": je.name,
+				"purpose": JournalEntryPurpose.RECEIVE,
+				"posting_date": posting_date,
+				"amount": self.cheque_amount,
+			})
+			# Don't submit here - let the workflow hook handle it
+			# This allows the cheque to remain editable until moving to next state
 		
 		return je
 	
-	def create_under_collection_entry(self, posting_date=None):
+	def create_under_collection_entry(self, posting_date=None, skip_save=False):
 		"""
 		Create Journal Entry for moving cheque to Under Collection
-		For Receivable cheques only
+		For Receivable cheques only.
+		When skip_save=True (e.g. from before_save), only create JE and append to doc; do not save/submit doc.
 		"""
 		if self.cheque_type != ChequeType.RECEIVABLE:
 			frappe.throw("Under Collection entry is only for Receivable cheques")
-		
+		if skip_save and self.has_under_collection_entry():
+			return None
+
 		settings = self.get_cheque_settings()
-		
+
 		if not settings.default_receivable_cheque_account:
 			frappe.throw("Default Receivable Cheque Account is not set in Cheque Settings")
 		if not settings.default_under_collection_account:
 			frappe.throw("Default Under Collection Account is not set in Cheque Settings")
-		
+
 		posting_date = posting_date or getdate()
-		
+
 		je = frappe.new_doc("Journal Entry")
 		je.posting_date = posting_date
 		je.company = self.company
 		je.voucher_type = "Journal Entry"
 		je.cheque_no = self.cheque_no
 		je.user_remark = f"Cheque {self.cheque_no} moved to Under Collection"
-		
+		je.cheque_date = self.cheque_date
+
 		# Debit: Under Collection Account
 		je.append("accounts", {
 			"account": settings.default_under_collection_account,
 			"debit_in_account_currency": self.cheque_amount,
 			"party_type": self.party_type,
 			"party": self.party,
-			"reference_type": "Cheque",
-			"reference_name": self.name,
 		})
-		
+
 		# Credit: Receivable Cheque Account
 		je.append("accounts", {
 			"account": settings.default_receivable_cheque_account,
 			"credit_in_account_currency": self.cheque_amount,
 			"party_type": self.party_type,
 			"party": self.party,
-			"reference_type": "Cheque",
-			"reference_name": self.name,
 		})
-		
+
 		je.save()
 		je.submit()
-		
+
 		# Add to journal references
 		self.append("journal_references", {
 			"journal_entry": je.name,
@@ -408,10 +532,15 @@ class Cheque(Document):
 			"posting_date": posting_date,
 			"amount": self.cheque_amount,
 		})
-		
+
+		if skip_save:
+			return je
+
 		self.status = ReceivableChequeStatus.UNDER_COLLECTION
 		self.save()
-		
+		if self.docstatus == 0:
+			self.submit()
+
 		return je
 	
 	def create_collection_entry(self, posting_date=None, bank_account=None):
@@ -439,13 +568,11 @@ class Cheque(Document):
 		je.voucher_type = "Journal Entry"
 		je.cheque_no = self.cheque_no
 		je.user_remark = f"Cheque {self.cheque_no} collected"
-		
+		je.cheque_date=self.cheque_date
 		# Debit: Bank Account
 		je.append("accounts", {
 			"account": bank_account,
 			"debit_in_account_currency": self.cheque_amount,
-			"reference_type": "Cheque",
-			"reference_name": self.name,
 		})
 		
 		# Credit: Under Collection Account
@@ -454,8 +581,6 @@ class Cheque(Document):
 			"credit_in_account_currency": self.cheque_amount,
 			"party_type": self.party_type,
 			"party": self.party,
-			"reference_type": "Cheque",
-			"reference_name": self.name,
 		})
 		
 		je.save()
@@ -471,6 +596,9 @@ class Cheque(Document):
 		
 		self.status = ReceivableChequeStatus.COLLECTED
 		self.save()
+		# Submit cheque after creating Journal Entry to prevent further editing
+		if self.docstatus == 0:
+			self.submit()
 		
 		return je
 	
@@ -508,6 +636,7 @@ class Cheque(Document):
 		je.voucher_type = "Journal Entry"
 		je.cheque_no = self.cheque_no
 		je.user_remark = f"Cheque {self.cheque_no} returned"
+		je.cheque_date=self.cheque_date
 		
 		# Debit: Returned Cheque Account
 		je.append("accounts", {
@@ -515,8 +644,6 @@ class Cheque(Document):
 			"debit_in_account_currency": self.cheque_amount,
 			"party_type": self.party_type,
 			"party": self.party,
-			"reference_type": "Cheque",
-			"reference_name": self.name,
 		})
 		
 		# Credit: Source Account (Under Collection or Receivable)
@@ -525,8 +652,6 @@ class Cheque(Document):
 			"credit_in_account_currency": self.cheque_amount,
 			"party_type": self.party_type,
 			"party": self.party,
-			"reference_type": "Cheque",
-			"reference_name": self.name,
 		})
 		
 		je.save()
@@ -542,6 +667,9 @@ class Cheque(Document):
 		
 		self.status = ReceivableChequeStatus.RETURNED
 		self.save()
+		# Submit cheque after creating Journal Entry to prevent further editing
+		if self.docstatus == 0:
+			self.submit()
 		
 		return je
 	
@@ -570,23 +698,19 @@ class Cheque(Document):
 		je.voucher_type = "Journal Entry"
 		je.cheque_no = self.cheque_no
 		je.user_remark = f"Payable Cheque {self.cheque_no} issued"
-		
+		je.cheque_date=self.cheque_date
 		# Debit: Payable Cheque Account
 		je.append("accounts", {
 			"account": settings.default_payable_cheque_account,
 			"debit_in_account_currency": self.cheque_amount,
 			"party_type": self.party_type,
 			"party": self.party,
-			"reference_type": "Cheque",
-			"reference_name": self.name,
 		})
 		
 		# Credit: Bank Account
 		je.append("accounts", {
 			"account": bank_account,
 			"credit_in_account_currency": self.cheque_amount,
-			"reference_type": "Cheque",
-			"reference_name": self.name,
 		})
 		
 		je.save()
@@ -602,6 +726,9 @@ class Cheque(Document):
 		
 		self.status = PayableChequeStatus.ISSUED
 		self.save()
+		# Submit cheque after creating Journal Entry to prevent further editing
+		if self.docstatus == 0:
+			self.submit()
 		
 		return je
 	
@@ -626,23 +753,23 @@ class Cheque(Document):
 		je.voucher_type = "Journal Entry"
 		je.cheque_no = self.cheque_no
 		je.user_remark = f"Payable Cheque {self.cheque_no} cleared"
-		
-		# Debit: Party Account (Supplier)
-		party_account = frappe.db.get_value(
-			"Party Account",
-			{"parent": self.party, "company": self.company},
-			"account"
-		)
-		if not party_account:
-			frappe.throw(f"Party Account not found for {self.party_type} {self.party} in company {self.company}")
+		je.cheque_date=self.cheque_date
+		# Debit: Party Account (Supplier) using ERPNext utility function
+		# This will create Party Account if it doesn't exist
+		try:
+			party_account = get_party_account(
+				self.party_type,
+				self.party,
+				self.company
+			)
+		except Exception as e:
+			frappe.throw(f"Could not get Party Account for {self.party_type} {self.party} in company {self.company}: {str(e)}")
 		
 		je.append("accounts", {
 			"account": party_account,
 			"debit_in_account_currency": self.cheque_amount,
 			"party_type": self.party_type,
 			"party": self.party,
-			"reference_type": "Cheque",
-			"reference_name": self.name,
 		})
 		
 		# Credit: Payable Cheque Account
@@ -651,8 +778,6 @@ class Cheque(Document):
 			"credit_in_account_currency": self.cheque_amount,
 			"party_type": self.party_type,
 			"party": self.party,
-			"reference_type": "Cheque",
-			"reference_name": self.name,
 		})
 		
 		je.save()
@@ -668,6 +793,9 @@ class Cheque(Document):
 		
 		self.status = PayableChequeStatus.CLEARED
 		self.save()
+		# Submit cheque after creating Journal Entry to prevent further editing
+		if self.docstatus == 0:
+			self.submit()
 		
 		return je
 	
@@ -701,6 +829,10 @@ class Cheque(Document):
 		if self.status not in allowed_statuses:
 			frappe.throw(f"Cannot mark as Registered In Sayad from status: {self.status}")
 		
+		# Sayad Code is required when registering in Sayad
+		if not self.sayad_code:
+			frappe.throw("Sayad Code is required. Please enter the Sayad registration code before marking as Registered In Sayad.")
+		
 		self.status = ReceivableChequeStatus.REGISTERED_IN_SAYAD
 		self.save()
 		frappe.msgprint(f"Cheque {self.cheque_no} marked as Registered In Sayad")
@@ -721,7 +853,7 @@ class Cheque(Document):
 		self.save()
 		frappe.msgprint(f"Cheque {self.cheque_no} moved to Box")
 	
-	def assign_to_bank(self, posting_date=None):
+	def assign_to_bank(self, posting_date=None, bank_account=None):
 		"""Assign cheque to bank (creates Under Collection Journal Entry)"""
 		if self.cheque_type != ChequeType.RECEIVABLE:
 			frappe.throw("This action is only for Receivable cheques")
@@ -733,6 +865,18 @@ class Cheque(Document):
 		
 		if self.status not in allowed_statuses:
 			frappe.throw(f"Cannot assign to bank from status: {self.status}")
+		
+		# Bank account is required for assigning to bank
+		bank_account = bank_account or self.bank_account
+		if not bank_account:
+			frappe.throw("Bank Account is required. Please select a bank account before assigning cheque to bank.")
+		
+		# Store bank account for reference
+		self.bank_account = bank_account
+		
+		posting_date = posting_date or getdate()
+		# Set assigned to bank date
+		self.assigned_to_bank_date = posting_date
 		
 		je = self.create_under_collection_entry(posting_date)
 		frappe.msgprint({
@@ -757,6 +901,15 @@ class Cheque(Document):
 		if self.status not in allowed_statuses:
 			frappe.throw(f"Cannot mark as collected from status: {self.status}")
 		
+		# Bank account is required for collection (to add to bank balance)
+		bank_account = bank_account or self.bank_account
+		if not bank_account:
+			frappe.throw("Bank Account is required. Please select a bank account before marking cheque as collected.")
+		
+		posting_date = posting_date or getdate()
+		# Set collected date
+		self.collected_date = posting_date
+		
 		je = self.create_collection_entry(posting_date, bank_account)
 		frappe.msgprint({
 			"message": f"Cheque {self.cheque_no} marked as collected. Journal Entry <a href='/app/journal-entry/{je.name}'>{je.name}</a> created.",
@@ -775,6 +928,10 @@ class Cheque(Document):
 		
 		if self.status not in allowed_statuses:
 			frappe.throw(f"Cannot mark as returned from bank from status: {self.status}")
+		
+		posting_date = posting_date or getdate()
+		# Set returned from bank date
+		self.returned_from_bank_date = posting_date
 		
 		je = self.create_return_entry(posting_date)
 		self.status = ReceivableChequeStatus.RETURNED_FROM_BANK
@@ -797,6 +954,9 @@ class Cheque(Document):
 		
 		if self.status not in allowed_statuses:
 			frappe.throw(f"Cannot return to customer from status: {self.status}")
+		
+		# Set returned to customer date
+		self.returned_to_customer_date = getdate()
 		
 		self.status = ReceivableChequeStatus.RETURN_TO_CUSTOMER
 		self.save()
@@ -1086,96 +1246,82 @@ def on_cheque_update(doc, method=None):
 	"""
 	Hook called when Cheque document is updated
 	Handles workflow state changes and creates Journal Entries automatically
+	Note: workflow_state_field is "status", so workflow changes status directly
 	"""
-	# Only process if workflow_state has changed
+	# Only process if status has changed (workflow changes status, not workflow_state)
 	if not hasattr(doc, '_doc_before_save') or not doc._doc_before_save:
 		return
 	
-	old_workflow_state = doc._doc_before_save.get('workflow_state') if doc._doc_before_save else None
-	new_workflow_state = doc.get('workflow_state')
+	old_status = doc._doc_before_save.get('status') if doc._doc_before_save else None
+	new_status = doc.get('status')
 	
-	# If workflow_state changed, update status and create Journal Entry if needed
-	if old_workflow_state != new_workflow_state and new_workflow_state:
-		# Map workflow_state to status
-		workflow_to_status_map = {
-			"Received From Customer": ReceivableChequeStatus.RECEIVED_FROM_CUSTOMER,
-			"Waiting For Sayad": ReceivableChequeStatus.WAITING_FOR_SAYAD,
-			"Registered In Sayad": ReceivableChequeStatus.REGISTERED_IN_SAYAD,
-			"Move To Box": ReceivableChequeStatus.MOVE_TO_BOX,
-			"Under Collection": ReceivableChequeStatus.UNDER_COLLECTION,
-			"Collected": ReceivableChequeStatus.COLLECTED,
-			"Returned From Bank": ReceivableChequeStatus.RETURNED_FROM_BANK,
-			"Returned": ReceivableChequeStatus.RETURNED,
-			"Return To Customer": ReceivableChequeStatus.RETURN_TO_CUSTOMER,
-			"Retrieved From Bank": ReceivableChequeStatus.RETRIEVED_FROM_BANK,
-			"Payment Request Created": PayableChequeStatus.PAYMENT_REQUEST_CREATED,
-			"Select Bank": PayableChequeStatus.SELECT_BANK,
-			"Issued": PayableChequeStatus.ISSUED,
-			"Mark As Printed": PayableChequeStatus.MARKED_AS_PRINTED,
-			"First Signature Done": PayableChequeStatus.FIRST_SIGNATURE_DONE,
-			"Second Signature Done": PayableChequeStatus.SECOND_SIGNATURE_DONE,
-			"Notify Supplier": PayableChequeStatus.NOTIFY_SUPPLIER,
-			"Deliver To Supplier": PayableChequeStatus.DELIVER_TO_SUPPLIER,
-			"Mark Registered In Sayad": PayableChequeStatus.REGISTERED_IN_SAYAD,
-			"Mark Sayad Success": PayableChequeStatus.SAYAD_SUCCESS,
-			"Cleared": PayableChequeStatus.CLEARED,
-			"Mark As Void": PayableChequeStatus.VOID,
-		}
+	# If status changed, sync workflow_state and create Journal Entry if needed
+	if old_status != new_status and new_status:
+		# Ensure workflow_state matches status (workflow_state_field = "status")
+		# workflow_state is a Link field to "Workflow State" doctype
+		if frappe.db.exists("Workflow State", new_status):
+			doc.workflow_state = new_status
 		
-		# Update status field
-		if new_workflow_state in workflow_to_status_map:
-			doc.status = workflow_to_status_map[new_workflow_state]
-		
-		# Create Journal Entry based on workflow state change
-		create_je_for_workflow_state(doc, old_workflow_state, new_workflow_state)
+		# Create Journal Entry based on status change
+		create_je_for_status_change(doc, old_status, new_status)
 
 
-def create_je_for_workflow_state(doc, old_state, new_state):
+def create_je_for_status_change(doc, old_status, new_status):
 	"""
-	Create Journal Entry automatically when workflow state changes to specific states
+	Create Journal Entry automatically when status changes to specific states
+	Note: workflow_state_field is "status", so we check status changes
 	"""
 	try:
 		# Receivable Cheque Journal Entry creation
 		if doc.cheque_type == ChequeType.RECEIVABLE:
-			if new_state == "Under Collection" and old_state != "Under Collection":
-				# Assign to bank - create Under Collection JE
-				doc.create_under_collection_entry()
-				# Submit the document if not already submitted
-				if doc.docstatus == 0:
-					doc.submit()
+			if new_status == ReceivableChequeStatus.UNDER_COLLECTION and old_status != ReceivableChequeStatus.UNDER_COLLECTION:
+				# Under Collection JE is created in before_save when workflow updates status.
+				# If we reach here without one (e.g. transition via assign_to_bank()), create it and persist.
+				if doc.has_under_collection_entry():
+					return
+				if not doc.bank_account:
+					frappe.throw("Bank Account is required. Please select a bank account before assigning cheque to bank.")
+				doc.assigned_to_bank_date = doc.assigned_to_bank_date or getdate()
+				posting_date = doc.assigned_to_bank_date
+				if not doc.has_receive_entry():
+					frappe.log_error(
+						"Receive Journal Entry not found when moving to Under Collection. Creating it now.",
+						"Cheque Workflow Warning"
+					)
+					doc.create_receive_entry()
+				doc.create_under_collection_entry(posting_date)
 			
-			elif new_state == "Collected" and old_state != "Collected":
+			elif new_status == ReceivableChequeStatus.COLLECTED and old_status != ReceivableChequeStatus.COLLECTED:
 				# Mark as collected - create Collection JE
-				doc.create_collection_entry()
+				# Bank account is required - use the one stored in the document
+				if not doc.bank_account:
+					frappe.throw("Bank Account is required. Please select a bank account before marking cheque as collected.")
+				doc.create_collection_entry(posting_date=None, bank_account=doc.bank_account)
 				# Submit the document if not already submitted
 				if doc.docstatus == 0:
 					doc.submit()
 			
-			elif new_state == "Returned From Bank" and old_state != "Returned From Bank":
+			elif new_status == ReceivableChequeStatus.RETURNED_FROM_BANK and old_status != ReceivableChequeStatus.RETURNED_FROM_BANK:
 				# Mark as returned - create Return JE
 				doc.create_return_entry()
 				# Submit the document if not already submitted
 				if doc.docstatus == 0:
 					doc.submit()
 			
-			elif new_state == "Received From Customer" and old_state != "Received From Customer":
-				# Create Receive JE if not exists
-				if not doc.has_receive_entry():
-					doc.create_receive_entry()
-					# Submit the document if not already submitted
-					if doc.docstatus == 0:
-						doc.submit()
+			# Note: "Received From Customer" is the initial state (Doc Status 0 - Draft)
+			# Journal Entry should only be created when moving to "Under Collection"
+			# or other financial states, not when initially creating the cheque
 		
 		# Payable Cheque Journal Entry creation
 		elif doc.cheque_type == ChequeType.PAYABLE:
-			if new_state == "Issued" and old_state != "Issued":
+			if new_status == PayableChequeStatus.ISSUED and old_status != PayableChequeStatus.ISSUED:
 				# Issue cheque - create Payable Issue JE
 				doc.create_payable_issue_entry(posting_date=None, bank_account=doc.bank_account)
 				# Submit the document if not already submitted
 				if doc.docstatus == 0:
 					doc.submit()
 			
-			elif new_state == "Cleared" and old_state != "Cleared":
+			elif new_status == PayableChequeStatus.CLEARED and old_status != PayableChequeStatus.CLEARED:
 				# Clear cheque - create Payable Clear JE
 				doc.create_payable_clear_entry()
 				# Submit the document if not already submitted
@@ -1183,7 +1329,8 @@ def create_je_for_workflow_state(doc, old_state, new_state):
 					doc.submit()
 	
 	except Exception as e:
-		frappe.log_error(f"Error creating Journal Entry for workflow state change: {str(e)}", "Cheque Workflow JE Error")
+		# Title must be ≤140 chars for Error Log
+		frappe.log_error(title="Cheque Workflow JE Error", message=str(e))
 		frappe.msgprint(f"Warning: Could not create Journal Entry automatically: {str(e)}", indicator="orange")
 
 
@@ -1214,48 +1361,23 @@ def before_cheque_delete(doc, method=None):
 
 def on_cheque_update_after_submit(doc, method=None):
 	"""
-	Hook called when Cheque document is updated after submission
-	Handles workflow state changes for submitted documents
+	Hook called when Cheque document is updated after submission.
+	Workflow uses workflow_state_field = "status", so workflow only updates doc.status.
+	We must detect change via status, not workflow_state.
 	"""
-	# Only process if workflow_state has changed
-	if not hasattr(doc, '_doc_before_save') or not doc._doc_before_save:
+	if not hasattr(doc, "_doc_before_save") or not doc._doc_before_save:
 		return
-	
-	old_workflow_state = doc._doc_before_save.get('workflow_state') if doc._doc_before_save else None
-	new_workflow_state = doc.get('workflow_state')
-	
-	# If workflow_state changed, update status
-	if old_workflow_state != new_workflow_state and new_workflow_state:
-		# Map workflow_state to status
-		workflow_to_status_map = {
-			"Received From Customer": ReceivableChequeStatus.RECEIVED_FROM_CUSTOMER,
-			"Waiting For Sayad": ReceivableChequeStatus.WAITING_FOR_SAYAD,
-			"Registered In Sayad": ReceivableChequeStatus.REGISTERED_IN_SAYAD,
-			"Move To Box": ReceivableChequeStatus.MOVE_TO_BOX,
-			"Under Collection": ReceivableChequeStatus.UNDER_COLLECTION,
-			"Collected": ReceivableChequeStatus.COLLECTED,
-			"Returned From Bank": ReceivableChequeStatus.RETURNED_FROM_BANK,
-			"Returned": ReceivableChequeStatus.RETURNED,
-			"Return To Customer": ReceivableChequeStatus.RETURN_TO_CUSTOMER,
-			"Retrieved From Bank": ReceivableChequeStatus.RETRIEVED_FROM_BANK,
-			"Payment Request Created": PayableChequeStatus.PAYMENT_REQUEST_CREATED,
-			"Select Bank": PayableChequeStatus.SELECT_BANK,
-			"Issued": PayableChequeStatus.ISSUED,
-			"Mark As Printed": PayableChequeStatus.MARKED_AS_PRINTED,
-			"First Signature Done": PayableChequeStatus.FIRST_SIGNATURE_DONE,
-			"Second Signature Done": PayableChequeStatus.SECOND_SIGNATURE_DONE,
-			"Notify Supplier": PayableChequeStatus.NOTIFY_SUPPLIER,
-			"Deliver To Supplier": PayableChequeStatus.DELIVER_TO_SUPPLIER,
-			"Mark Registered In Sayad": PayableChequeStatus.REGISTERED_IN_SAYAD,
-			"Mark Sayad Success": PayableChequeStatus.SAYAD_SUCCESS,
-			"Cleared": PayableChequeStatus.CLEARED,
-			"Mark As Void": PayableChequeStatus.VOID,
-		}
-		
-		# Update status field
-		if new_workflow_state in workflow_to_status_map:
-			doc.status = workflow_to_status_map[new_workflow_state]
-		
-		# Create Journal Entry based on workflow state change
-		create_je_for_workflow_state(doc, old_workflow_state, new_workflow_state)
+
+	# Workflow updates "status" field, not "workflow_state" - so compare status
+	old_status = doc._doc_before_save.get("status") if doc._doc_before_save else None
+	new_status = doc.get("status")
+	if not new_status or old_status == new_status:
+		return
+
+	# Sync workflow_state with status (workflow_state_field is "status")
+	if frappe.db.exists("Workflow State", new_status):
+		doc.workflow_state = new_status
+
+	# Create Journal Entry when status changes (e.g. to Under Collection)
+	create_je_for_status_change(doc, old_status, new_status)
 

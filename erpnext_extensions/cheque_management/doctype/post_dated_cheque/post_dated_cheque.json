@@ -1,0 +1,367 @@
+{
+ "actions": [],
+ "allow_copy": 0,
+ "allow_guest_to_view": 0,
+ "allow_import": 1,
+ "allow_rename": 0,
+ "autoname": "naming_series:",
+ "beta": 0,
+ "creation": "2025-02-08 00:00:00.000000",
+ "custom": 0,
+ "docstatus": 0,
+ "doctype": "DocType",
+ "document_type": "Document",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "is_submittable": 1,
+ "field_order": [
+  "naming_series",
+  "cheque_direction",
+  "company",
+  "currency",
+  "section_break_cheque",
+  "cheque_no",
+  "cheque_due_date",
+  "bank_account",
+  "column_break_cheque",
+  "cheque_amount",
+  "sayad_code",
+  "sayad_registered",
+  "drawer_bank_name",
+  "section_break_reference",
+  "reference_doctype",
+  "reference_name",
+  "section_break_parties",
+  "party_type",
+  "party",
+  "account_paid_from",
+  "account_paid_to",
+  "column_break_holder",
+  "holder_party_type",
+  "holder_party",
+  "section_break_status",
+  "workflow_state",
+  "cheque_status",
+  "payment_entry",
+  "section_break_dates",
+  "received_date",
+  "cleared_date",
+  "returned_date",
+  "section_break_journal",
+  "journal_references",
+  "section_break_holder_history",
+  "holder_history"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "PDC-.YYYY.-",
+   "reqd": 1
+  },
+  {
+   "fieldname": "cheque_direction",
+   "fieldtype": "Select",
+   "label": "Cheque Direction",
+   "in_list_view": 1,
+   "options": "Receivable\nPayable",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "fetch_from": "company.default_currency"
+  },
+  {
+   "fieldname": "section_break_cheque",
+   "fieldtype": "Section Break",
+   "label": "Cheque Details"
+  },
+  {
+   "fieldname": "cheque_no",
+   "fieldtype": "Data",
+   "label": "Cheque Number",
+   "in_list_view": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "cheque_due_date",
+   "fieldtype": "Date",
+   "label": "Cheque Due Date",
+   "in_list_view": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "bank_account",
+   "fieldtype": "Link",
+   "label": "Bank Account",
+   "options": "Bank Account",
+   "description": "Mandatory for Payable on Register; for Receivable when In Clearing/Cleared"
+  },
+  {
+   "fieldname": "column_break_cheque",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "cheque_amount",
+   "fieldtype": "Currency",
+   "label": "Cheque Amount",
+   "in_list_view": 1,
+   "options": "currency",
+   "reqd": 1
+  },
+  {
+   "fieldname": "sayad_code",
+   "fieldtype": "Data",
+   "label": "Sayad Code"
+  },
+  {
+   "fieldname": "sayad_registered",
+   "fieldtype": "Check",
+   "label": "Sayad Registered",
+   "default": 0
+  },
+  {
+   "fieldname": "drawer_bank_name",
+   "fieldtype": "Data",
+   "label": "Drawer Bank Name",
+   "description": "Optional - bank that issued the cheque"
+  },
+  {
+   "fieldname": "section_break_reference",
+   "fieldtype": "Section Break",
+   "label": "Reference"
+  },
+  {
+   "fieldname": "reference_doctype",
+   "fieldtype": "Link",
+   "label": "Reference DocType",
+   "options": "DocType"
+  },
+  {
+   "fieldname": "reference_name",
+   "fieldtype": "Dynamic Link",
+   "label": "Reference Name",
+   "options": "reference_doctype"
+  },
+  {
+   "fieldname": "section_break_parties",
+   "fieldtype": "Section Break",
+   "label": "Parties"
+  },
+  {
+   "fieldname": "party_type",
+   "fieldtype": "Select",
+   "label": "Party Type",
+   "options": "Customer\nSupplier",
+   "reqd": 1,
+   "description": "Received From (Receivable) / Paid To (Payable) - immutable after submit"
+  },
+  {
+   "fieldname": "party",
+   "fieldtype": "Dynamic Link",
+   "label": "Party",
+   "in_list_view": 1,
+   "options": "party_type",
+   "reqd": 1
+  },
+  {
+   "fieldname": "account_paid_from",
+   "fieldtype": "Link",
+   "label": "Account Paid From",
+   "options": "Account",
+   "description": "دریافتی: حساب دریافتنی طرف (مشتری). پیش‌فرض از طرف یا تنظیمات مالی شرکت. قابل تغییر توسط کاربر."
+  },
+  {
+   "fieldname": "account_paid_to",
+   "fieldtype": "Link",
+   "label": "Account Paid To",
+   "options": "Account",
+   "description": "پرداختنی: حساب پرداختنی طرف (تأمین‌کننده). پیش‌فرض از طرف یا تنظیمات مالی شرکت. قابل تغییر توسط کاربر."
+  },
+  {
+   "fieldname": "column_break_holder",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "holder_party_type",
+   "fieldtype": "Select",
+   "label": "Holder Party Type",
+   "options": "Customer\nSupplier\nEmployee\nShareholder",
+   "description": "Current holder - changes on endorsement"
+  },
+  {
+   "fieldname": "holder_party",
+   "fieldtype": "Dynamic Link",
+   "label": "Holder Party",
+   "options": "holder_party_type"
+  },
+  {
+   "fieldname": "section_break_status",
+   "fieldtype": "Section Break",
+   "label": "Status"
+  },
+  {
+   "fieldname": "workflow_state",
+   "fieldtype": "Link",
+   "label": "Workflow State",
+   "options": "Workflow State",
+   "default": "Draft",
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "cheque_status",
+   "fieldtype": "Select",
+   "label": "Cheque Status",
+   "in_list_view": 1,
+   "options": "Draft\nReceived\nIn Clearing\nCleared\nBounced\nEndorsed to Third Party\nIssued\nPresented\nCancelled",
+   "read_only": 1,
+   "allow_on_submit": 1,
+   "description": "Set by system from workflow"
+  },
+  {
+   "fieldname": "payment_entry",
+   "fieldtype": "Link",
+   "label": "Payment Entry",
+   "options": "Payment Entry",
+   "read_only": 1,
+   "description": "Set when cheque is cleared/settled"
+  },
+  {
+   "fieldname": "section_break_dates",
+   "fieldtype": "Section Break",
+   "label": "Important Dates"
+  },
+  {
+   "fieldname": "received_date",
+   "fieldtype": "Date",
+   "label": "Received Date",
+   "description": "When cheque was received (receivable)"
+  },
+  {
+   "fieldname": "cleared_date",
+   "fieldtype": "Date",
+   "label": "Cleared Date",
+   "description": "When cheque was cleared/settled"
+  },
+  {
+   "fieldname": "returned_date",
+   "fieldtype": "Date",
+   "label": "Returned Date",
+   "description": "When cheque was bounced/returned"
+  },
+  {
+   "fieldname": "section_break_journal",
+   "fieldtype": "Section Break",
+   "label": "Journal References"
+  },
+  {
+   "fieldname": "journal_references",
+   "fieldtype": "Table",
+   "label": "Journal References",
+   "options": "PDC Journal Reference",
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "section_break_holder_history",
+   "fieldtype": "Section Break",
+   "label": "Holder History"
+  },
+  {
+   "fieldname": "holder_history",
+   "fieldtype": "Table",
+   "label": "Holder History",
+   "options": "PDC Holder History",
+   "read_only": 1,
+   "allow_on_submit": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-02-08 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Cheque Management",
+ "name": "Post Dated Cheque",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Cheque User",
+   "share": 0,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Cheque Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1,
+   "cancel": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

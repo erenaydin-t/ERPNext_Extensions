@@ -1,0 +1,141 @@
+{
+ "actions": [],
+ "allow_copy": 0,
+ "allow_guest_to_view": 0,
+ "allow_import": 0,
+ "allow_rename": 0,
+ "beta": 0,
+ "creation": "2025-02-08 00:00:00.000000",
+ "custom": 0,
+ "docstatus": 0,
+ "doctype": "DocType",
+ "document_type": "Setup",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "company",
+  "section_break_accounts",
+  "default_cheques_in_hand_account",
+  "default_cheques_in_clearing_account",
+  "column_break_payable",
+  "default_payable_cheque_account",
+  "default_protested_account",
+  "section_break_options",
+  "default_mode_of_payment",
+  "allow_endorsement",
+  "require_sayad_registration",
+  "default_endorsement_account"
+ ],
+ "fields": [
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "section_break_accounts",
+   "fieldtype": "Section Break",
+   "label": "Default Accounts"
+  },
+  {
+   "fieldname": "default_cheques_in_hand_account",
+   "fieldtype": "Link",
+   "label": "Cheques in Hand Account",
+   "options": "Account",
+   "description": "Notes receivable held at cashier — for recording received cheques before they are deposited or sent to the bank."
+  },
+  {
+   "fieldname": "default_cheques_in_clearing_account",
+   "fieldtype": "Link",
+   "label": "Cheques in Clearing Account",
+   "options": "Account",
+   "description": "Cheques under collection (in clearing), between hand and final bank settlement."
+  },
+  {
+   "fieldname": "column_break_payable",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "default_payable_cheque_account",
+   "fieldtype": "Link",
+   "label": "Default Payable Cheque Account",
+   "options": "Account",
+   "description": "Notes payable — default liability account for issued cheques."
+  },
+  {
+   "fieldname": "default_protested_account",
+   "fieldtype": "Link",
+   "label": "Default Protested Account",
+   "options": "Account",
+   "description": "Default account for protested or returned (bounced) cheques."
+  },
+  {
+   "fieldname": "section_break_options",
+   "fieldtype": "Section Break",
+   "label": "Options"
+  },
+  {
+   "fieldname": "default_mode_of_payment",
+   "fieldtype": "Link",
+   "label": "Default Mode of Payment",
+   "options": "Mode of Payment"
+  },
+  {
+   "fieldname": "allow_endorsement",
+   "fieldtype": "Check",
+   "label": "Allow Endorsement",
+   "default": 1
+  },
+  {
+   "fieldname": "require_sayad_registration",
+   "fieldtype": "Check",
+   "label": "Require Sayad Registration",
+   "default": 0,
+   "description": "If unchecked, Sayad fields are optional"
+  },
+  {
+   "fieldname": "default_endorsement_account",
+   "fieldtype": "Link",
+   "label": "Default Endorsement Account",
+   "options": "Account",
+   "description": "Optional - for endorsement JE (or use party receivable)"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-03-30 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Cheque Management",
+ "name": "PDC Settings",
+ "autoname": "field:company",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

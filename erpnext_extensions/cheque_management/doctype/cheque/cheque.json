@@ -13,6 +13,7 @@
  "document_type": "Document",
  "editable_grid": 1,
  "engine": "InnoDB",
+ "is_submittable": 1,
   "field_order": [
   "naming_series",
   "cheque_type",
@@ -35,6 +36,12 @@
   "section_break_5",
   "workflow_state",
   "status",
+  "section_break_7",
+  "received_date",
+  "assigned_to_bank_date",
+  "collected_date",
+  "returned_to_customer_date",
+  "returned_from_bank_date",
   "section_break_6",
   "journal_references"
  ],
@@ -117,7 +124,8 @@
    "fieldname": "bank_account",
    "fieldtype": "Link",
    "label": "Bank Account",
-   "options": "Bank Account"
+   "options": "Bank Account",
+   "allow_on_submit": 1
   },
   {
    "fieldname": "drawer_bank_name",
@@ -127,7 +135,10 @@
   {
    "fieldname": "sayad_code",
    "fieldtype": "Data",
-   "label": "Sayad Code"
+   "label": "Sayad Code",
+   "depends_on": "eval:doc.docstatus === 0 || doc.status == \"Waiting For Sayad\" || doc.status == \"Registered In Sayad\" || doc.status == \"Move To Box\" || doc.status == \"Under Collection\" || doc.workflow_state == \"Waiting For Sayad\" || doc.workflow_state == \"Registered In Sayad\" || doc.workflow_state == \"Move To Box\" || doc.workflow_state == \"Under Collection\"",
+   "mandatory_depends_on": "eval:doc.status == \"Registered In Sayad\" || doc.workflow_state == \"Registered In Sayad\"",
+   "allow_on_submit": 1
   },
   {
    "fieldname": "section_break_4",
@@ -156,14 +167,53 @@
    "fieldtype": "Link",
    "label": "Workflow State",
    "options": "Workflow State",
-   "read_only": 1
+   "read_only": 1,
+   "allow_on_submit": 1
   },
   {
    "fieldname": "status",
    "fieldtype": "Select",
    "label": "Status",
-   "options": "Received From Customer\nWaiting For Sayad\nRegistered In Sayad\nMove To Box\nUnder Collection\nCollected\nReturned From Bank\nReturned\nReturn To Customer\nReturned Not Registered\nReturned Registered To Customer\nRetrieved From Bank\nPayment Request Created\nSelect Bank\nIssued\nMark As Printed\nFirst Signature Done\nSecond Signature Done\nNotify Supplier\nDeliver To Supplier\nMark Registered In Sayad\nMark Sayad Success\nCleared\nMark As Void\nCancelled",
-   "read_only": 1
+   "options": "Draft\nReceived From Customer\nWaiting For Sayad\nRegistered In Sayad\nMove To Box\nUnder Collection\nCollected\nReturned From Bank\nReturned\nReturn To Customer\nReturned Not Registered\nReturned Registered To Customer\nRetrieved From Bank\nPayment Request Created\nSelect Bank\nIssued\nMark As Printed\nFirst Signature Done\nSecond Signature Done\nNotify Supplier\nDeliver To Supplier\nMark Registered In Sayad\nMark Sayad Success\nCleared\nMark As Void\nCancelled",
+   "read_only": 0,
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "section_break_7",
+   "fieldtype": "Section Break",
+   "label": "Important Dates"
+  },
+  {
+   "fieldname": "received_date",
+   "fieldtype": "Date",
+   "label": "Received Date",
+   "description": "Date when cheque was received from customer",
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "assigned_to_bank_date",
+   "fieldtype": "Date",
+   "label": "Assigned To Bank Date",
+   "description": "Date when cheque was assigned to bank",
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "collected_date",
+   "fieldtype": "Date",
+   "label": "Collected Date",
+   "description": "Date when cheque was collected"
+  },
+  {
+   "fieldname": "returned_to_customer_date",
+   "fieldtype": "Date",
+   "label": "Returned To Customer Date",
+   "description": "Date when cheque was returned to customer"
+  },
+  {
+   "fieldname": "returned_from_bank_date",
+   "fieldtype": "Date",
+   "label": "Returned From Bank Date",
+   "description": "Date when cheque was returned from bank"
   },
   {
    "fieldname": "section_break_6",
@@ -174,7 +224,8 @@
    "fieldname": "journal_references",
    "fieldtype": "Table",
    "label": "Journal References",
-   "options": "Cheque Journal Reference"
+   "options": "Cheque Journal Reference",
+   "allow_on_submit": 1
   }
  ],
  "index_web_pages_for_search": 1,
@@ -232,8 +283,8 @@
    "report": 1,
    "role": "Cheque User",
    "share": 0,
-   "submit": 0,
-   "write": 0
+   "submit": 1,
+   "write": 1
   },
   {
    "create": 1,
