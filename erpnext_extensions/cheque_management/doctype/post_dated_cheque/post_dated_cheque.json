@@ -34,11 +34,17 @@
   "section_break_parties",
   "party_type",
   "party",
-  "account_paid_from",
-  "account_paid_to",
   "column_break_holder",
   "holder_party_type",
   "holder_party",
+  "section_break_accounts",
+  "account_paid_from",
+  "column_break_accounts",
+  "account_paid_to",
+  "section_break_dimensions",
+  "project",
+  "column_break_dimensions",
+  "cost_center",
   "section_break_status",
   "workflow_state",
   "cheque_status",
@@ -85,7 +91,8 @@
   {
    "fieldname": "section_break_cheque",
    "fieldtype": "Section Break",
-   "label": "Cheque Details"
+   "label": "Cheque Details",
+   "collapsible": 1
   },
   {
    "fieldname": "cheque_no",
@@ -106,7 +113,8 @@
    "fieldtype": "Link",
    "label": "Bank Account",
    "options": "Bank Account",
-   "description": "Mandatory for Payable on Register; for Receivable when In Clearing/Cleared"
+   "mandatory_depends_on": "eval:doc.cheque_direction === \"Payable\"",
+   "description": "Required for Payable cheques; for Receivable required when In Clearing/Cleared."
   },
   {
    "fieldname": "column_break_cheque",
@@ -133,14 +141,17 @@
   },
   {
    "fieldname": "drawer_bank_name",
-   "fieldtype": "Data",
+   "fieldtype": "Link",
    "label": "Drawer Bank Name",
-   "description": "Optional - bank that issued the cheque"
+   "options": "Bank",
+   "mandatory_depends_on": "eval:doc.cheque_direction === \"Receivable\"",
+   "description": "Bank that issued the cheque (required for Receivable)."
   },
   {
    "fieldname": "section_break_reference",
    "fieldtype": "Section Break",
-   "label": "Reference"
+   "label": "Reference",
+   "collapsible": 1
   },
   {
    "fieldname": "reference_doctype",
@@ -157,13 +168,14 @@
   {
    "fieldname": "section_break_parties",
    "fieldtype": "Section Break",
-   "label": "Parties"
+   "label": "Parties",
+   "collapsible": 1
   },
   {
    "fieldname": "party_type",
    "fieldtype": "Select",
    "label": "Party Type",
-   "options": "Customer\nSupplier",
+   "options": "Customer\nSupplier\nEmployee\nShareholder",
    "reqd": 1,
    "description": "Received From (Receivable) / Paid To (Payable) - immutable after submit"
   },
@@ -174,20 +186,6 @@
    "in_list_view": 1,
    "options": "party_type",
    "reqd": 1
-  },
-  {
-   "fieldname": "account_paid_from",
-   "fieldtype": "Link",
-   "label": "Account Paid From",
-   "options": "Account",
-   "description": "دریافتی: حساب دریافتنی طرف (مشتری). پیش‌فرض از طرف یا تنظیمات مالی شرکت. قابل تغییر توسط کاربر."
-  },
-  {
-   "fieldname": "account_paid_to",
-   "fieldtype": "Link",
-   "label": "Account Paid To",
-   "options": "Account",
-   "description": "پرداختنی: حساب پرداختنی طرف (تأمین‌کننده). پیش‌فرض از طرف یا تنظیمات مالی شرکت. قابل تغییر توسط کاربر."
   },
   {
    "fieldname": "column_break_holder",
@@ -207,9 +205,56 @@
    "options": "holder_party_type"
   },
   {
+   "fieldname": "section_break_accounts",
+   "fieldtype": "Section Break",
+   "label": "Accounts",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "account_paid_from",
+   "fieldtype": "Link",
+   "label": "Account Paid From",
+   "options": "Account",
+   "description": "دریافتی: حساب دریافتنی طرف (مشتری). پیش‌فرض از طرف یا تنظیمات مالی شرکت. قابل تغییر توسط کاربر."
+  },
+  {
+   "fieldname": "column_break_accounts",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "account_paid_to",
+   "fieldtype": "Link",
+   "label": "Account Paid To",
+   "options": "Account",
+   "description": "پرداختنی: حساب پرداختنی طرف (تأمین‌کننده). پیش‌فرض از طرف یا تنظیمات مالی شرکت. قابل تغییر توسط کاربر."
+  },
+  {
+   "fieldname": "section_break_dimensions",
+   "fieldtype": "Section Break",
+   "label": "Accounting Dimensions",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "label": "Project",
+   "options": "Project"
+  },
+  {
+   "fieldname": "column_break_dimensions",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "cost_center",
+   "fieldtype": "Link",
+   "label": "Cost Center",
+   "options": "Cost Center"
+  },
+  {
    "fieldname": "section_break_status",
    "fieldtype": "Section Break",
-   "label": "Status"
+   "label": "Status",
+   "collapsible": 1
   },
   {
    "fieldname": "workflow_state",
@@ -241,7 +286,8 @@
   {
    "fieldname": "section_break_dates",
    "fieldtype": "Section Break",
-   "label": "Important Dates"
+   "label": "Important Dates",
+   "collapsible": 1
   },
   {
    "fieldname": "received_date",
@@ -264,7 +310,8 @@
   {
    "fieldname": "section_break_journal",
    "fieldtype": "Section Break",
-   "label": "Journal References"
+   "label": "Journal References",
+   "collapsible": 1
   },
   {
    "fieldname": "journal_references",
@@ -276,7 +323,8 @@
   {
    "fieldname": "section_break_holder_history",
    "fieldtype": "Section Break",
-   "label": "Holder History"
+   "label": "Holder History",
+   "collapsible": 1
   },
   {
    "fieldname": "holder_history",

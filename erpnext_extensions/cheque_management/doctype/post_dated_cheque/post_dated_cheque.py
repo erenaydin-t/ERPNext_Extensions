@@ -8,6 +8,12 @@ from frappe.utils import getdate
 
 def _get_party_account_or_company_default(party_type, party, company, account_kind="receivable"):
 	"""Get party account; fallback to company default. account_kind: receivable or payable."""
+	# ERPNext's party account helper is primarily designed for Customer/Supplier.
+	# For Employee/Shareholder we intentionally fallback to company defaults.
+	if party_type in ("Employee", "Shareholder"):
+		if account_kind == "receivable":
+			return frappe.get_cached_value("Company", company, "default_receivable_account")
+		return frappe.get_cached_value("Company", company, "default_payable_account")
 	try:
 		from erpnext.accounts.party import get_party_account
 		account = get_party_account(party_type, party, company)
@@ -72,7 +78,13 @@ class PostDatedCheque(Document):
 		self._set_default_party_accounts()
 		self._validate_party()
 		self._validate_duplicate_cheque_no()
+		self._validate_drawer_bank()
 		self._validate_party_immutable_after_submit()
+
+	def _validate_drawer_bank(self):
+		"""Drawer bank is required for receivable cheques."""
+		if self.cheque_direction == "Receivable" and not self.drawer_bank_name:
+			frappe.throw(frappe._("Drawer Bank Name is required for Receivable cheques."))
 
 	def _set_default_party_accounts(self):
 		"""Set Account Paid From/To from party default or company default if empty."""
@@ -94,14 +106,17 @@ class PostDatedCheque(Document):
 					self.cheque_direction or ""
 				)
 			)
-		# Optional: ensure party_type matches direction (Customer for Receivable, Supplier for Payable)
-		if self.cheque_direction == "Receivable" and self.party_type != "Customer":
+		# Optional: party_type vs direction guidance (non-blocking)
+		receivable_party_types = {"Customer", "Employee", "Shareholder"}
+		payable_party_types = {"Supplier", "Employee", "Shareholder"}
+
+		if self.cheque_direction == "Receivable" and self.party_type not in receivable_party_types:
 			frappe.msgprint(
 				frappe._("Receivable cheques typically use Party Type: Customer."),
 				indicator="orange",
 				alert=True,
 			)
-		if self.cheque_direction == "Payable" and self.party_type != "Supplier":
+		if self.cheque_direction == "Payable" and self.party_type not in payable_party_types:
 			frappe.msgprint(
 				frappe._("Payable cheques typically use Party Type: Supplier."),
 				indicator="orange",
