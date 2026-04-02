@@ -5,7 +5,6 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import getdate
 
-
 def _get_party_account_or_company_default(party_type, party, company, account_kind="receivable"):
 	"""Get party account; fallback to company default. account_kind: receivable or payable."""
 	# ERPNext's party account helper is primarily designed for Customer/Supplier.
@@ -27,20 +26,36 @@ def _get_party_account_or_company_default(party_type, party, company, account_ki
 	return frappe.get_cached_value("Company", company, "default_payable_account")
 
 
+def _get_cheques_in_hand_account_for_company(company):
+	"""PDC Settings: Cheques in Hand account for company, or None if not configured."""
+	if not company:
+		return None
+	settings_name = frappe.db.get_value("PDC Settings", {"company": company}, "name") or company
+	if not settings_name or not frappe.db.exists("PDC Settings", settings_name):
+		return None
+	return frappe.db.get_value("PDC Settings", settings_name, "default_cheques_in_hand_account")
+
+
 @frappe.whitelist()
 def get_default_party_accounts(party_type, party, company, cheque_direction):
 	"""Return default Account Paid From / Account Paid To for the given party and direction."""
-	if not all([party_type, party, company, cheque_direction]):
+	if not company or not cheque_direction:
 		return {}
 	out = {}
 	if cheque_direction == "Receivable":
-		out["account_paid_from"] = _get_party_account_or_company_default(
-			party_type, party, company, "receivable"
-		)
-	if cheque_direction == "Payable":
-		out["account_paid_to"] = _get_party_account_or_company_default(
-			party_type, party, company, "payable"
-		)
+		# Account Paid To always tracks Cheques in Hand from PDC Settings (no party required).
+		ch = _get_cheques_in_hand_account_for_company(company)
+		if ch:
+			out["account_paid_to"] = ch
+	if party_type and party and company:
+		if cheque_direction == "Receivable":
+			out["account_paid_from"] = _get_party_account_or_company_default(
+				party_type, party, company, "receivable"
+			)
+		elif cheque_direction == "Payable":
+			out["account_paid_to"] = _get_party_account_or_company_default(
+				party_type, party, company, "payable"
+			)
 	return out
 
 
@@ -75,29 +90,81 @@ class PostDatedCheque(Document):
 
 	def validate(self):
 		"""Validate PDC data and enforce immutability after submit."""
+		self._reset_party_if_party_type_changed()
 		self._set_default_party_accounts()
 		self._validate_party()
 		self._validate_duplicate_cheque_no()
 		self._validate_drawer_bank()
+		self._validate_replaces_cheque()
+		self._normalize_cheque_status()
 		self._validate_party_immutable_after_submit()
+
+	def _reset_party_if_party_type_changed(self):
+		"""If party_type changes, party must be re-selected."""
+		if not self.get("_doc_before_save"):
+			return
+		before = self._doc_before_save
+		if before.party_type != self.party_type:
+			self.party = None
 
 	def _validate_drawer_bank(self):
 		"""Drawer bank is required for receivable cheques."""
 		if self.cheque_direction == "Receivable" and not self.drawer_bank_name:
 			frappe.throw(frappe._("Drawer Bank Name is required for Receivable cheques."))
 
+	def _validate_replaces_cheque(self):
+		"""Optional link to another PDC this document replaces."""
+		if not self.replaces_cheque:
+			return
+		if self.name and self.replaces_cheque == self.name:
+			frappe.throw(frappe._("Replaces Cheque cannot point to this same Post Dated Cheque."))
+		other_company = frappe.db.get_value("Post Dated Cheque", self.replaces_cheque, "company")
+		if other_company and self.company and other_company != self.company:
+			frappe.throw(
+				frappe._("Replaces Cheque must belong to the same Company ({0}).").format(self.company)
+			)
+
+	def _normalize_cheque_status(self):
+		"""Map deprecated status labels to the current set (existing documents)."""
+		if self.cheque_status == "Received":
+			self.cheque_status = "In Hand"
+		elif self.cheque_status == "Endorsed to Third Party":
+			self.cheque_status = "Endorsed"
+		elif self.cheque_direction == "Payable":
+			if self.cheque_status == "Presented":
+				self.cheque_status = "Issued"
+			elif self.cheque_status == "Bounced":
+				self.cheque_status = "Returned from Payee"
+
 	def _set_default_party_accounts(self):
 		"""Set Account Paid From/To from party default or company default if empty."""
-		if not self.company or not self.party_type or not self.party:
+		if not self.company:
 			return
+
+		prev_direction = None
+		if self.get("_doc_before_save"):
+			prev_direction = self._doc_before_save.get("cheque_direction")
+
+		# Receivable: Account Paid To = Cheques in Hand from PDC Settings (default / direction switch).
+		if self.cheque_direction == "Receivable":
+			ch = _get_cheques_in_hand_account_for_company(self.company)
+			if ch and (not self.account_paid_to or prev_direction == "Payable"):
+				self.account_paid_to = ch
+
+		if not self.party_type or not self.party:
+			return
+
 		if self.cheque_direction == "Receivable" and not self.account_paid_from:
 			self.account_paid_from = _get_party_account_or_company_default(
 				self.party_type, self.party, self.company, "receivable"
 			)
-		if self.cheque_direction == "Payable" and not self.account_paid_to:
-			self.account_paid_to = _get_party_account_or_company_default(
-				self.party_type, self.party, self.company, "payable"
-			)
+
+		if self.cheque_direction == "Payable":
+			# After switching from Receivable, replace Cheques-in-Hand with party payable default.
+			if not self.account_paid_to or prev_direction == "Receivable":
+				self.account_paid_to = _get_party_account_or_company_default(
+					self.party_type, self.party, self.company, "payable"
+				)
 
 	def _validate_party(self):
 		if not self.party_type or not self.party:
@@ -240,7 +307,7 @@ class PostDatedCheque(Document):
 					"amount": self.cheque_amount,
 				},
 			)
-			self.cheque_status = "Received"
+			self.cheque_status = "In Hand"
 			return je
 
 		if self.cheque_direction == "Payable":

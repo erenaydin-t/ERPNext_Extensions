@@ -31,6 +31,7 @@
   "section_break_reference",
   "reference_doctype",
   "reference_name",
+  "replaces_cheque",
   "section_break_parties",
   "party_type",
   "party",
@@ -166,6 +167,13 @@
    "options": "reference_doctype"
   },
   {
+   "fieldname": "replaces_cheque",
+   "fieldtype": "Link",
+   "label": "Replaces Cheque",
+   "options": "Post Dated Cheque",
+   "description": "When this PDC replaces another Post Dated Cheque (e.g. re-issue), link the superseded document here."
+  },
+  {
    "fieldname": "section_break_parties",
    "fieldtype": "Section Break",
    "label": "Parties",
@@ -215,7 +223,7 @@
    "fieldtype": "Link",
    "label": "Account Paid From",
    "options": "Account",
-   "description": "دریافتی: حساب دریافتنی طرف (مشتری). پیش‌فرض از طرف یا تنظیمات مالی شرکت. قابل تغییر توسط کاربر."
+   "description": "Receivable: party receivable account (customer). Defaults from the party or company chart of accounts. Editable by user."
   },
   {
    "fieldname": "column_break_accounts",
@@ -226,7 +234,7 @@
    "fieldtype": "Link",
    "label": "Account Paid To",
    "options": "Account",
-   "description": "پرداختنی: حساب پرداختنی طرف (تأمین‌کننده). پیش‌فرض از طرف یا تنظیمات مالی شرکت. قابل تغییر توسط کاربر."
+   "description": "Payable: party payable account (supplier). For receivable cheques, defaults to Cheques in Hand from PDC Settings. Otherwise defaults from party or company accounts. Editable by user."
   },
   {
    "fieldname": "section_break_dimensions",
@@ -270,10 +278,10 @@
    "fieldtype": "Select",
    "label": "Cheque Status",
    "in_list_view": 1,
-   "options": "Draft\nReceived\nIn Clearing\nCleared\nBounced\nEndorsed to Third Party\nIssued\nPresented\nCancelled",
+   "options": "Draft\nIn Hand\nIn Clearing\nCleared\nBounced\nEndorsed\nReturned to Customer\nReplaced\nUnder Legal Action\nCancelled\nIssued\nReturned from Payee",
    "read_only": 1,
    "allow_on_submit": 1,
-   "description": "Set by system from workflow"
+   "description": "Operational reality of the cheque. One combined list in the DocType; which values are valid for Receivable vs Payable is enforced by business logic (not by the field options alone). Updated by the system from workflow or accounting actions."
   },
   {
    "fieldname": "payment_entry",
