@@ -19,6 +19,14 @@
   "cheque_direction",
   "company",
   "currency",
+  "section_break_allocation_mode",
+  "allocation_mode",
+  "allocation_mode_locked",
+  "effective_stage_for_advance_recognition",
+  "recognition_je_posted",
+  "clear_je_posted",
+  "instrument_dead",
+  "instrument_dead_reason",
   "section_break_cheque",
   "cheque_no",
   "cheque_due_date",
@@ -31,7 +39,11 @@
   "section_break_reference",
   "reference_doctype",
   "reference_name",
+  "allocations",
+  "allocated_amount",
+  "unallocated_amount",
   "replaces_cheque",
+  "replaced_by",
   "section_break_parties",
   "party_type",
   "party",
@@ -42,6 +54,8 @@
   "account_paid_from",
   "column_break_accounts",
   "account_paid_to",
+  "cheques_in_clearing_account",
+  "endorsement_settlement_account",
   "section_break_dimensions",
   "project",
   "column_break_dimensions",
@@ -49,11 +63,18 @@
   "section_break_status",
   "workflow_state",
   "cheque_status",
-  "payment_entry",
   "section_break_dates",
   "received_date",
+  "column_break_dates_row1_col2",
   "cleared_date",
+  "column_break_dates_row1_col3",
   "returned_date",
+  "handover_date",
+  "column_break_dates_row2_col2",
+  "bounced_date",
+  "column_break_dates_row2_col3",
+  "return_reason",
+  "sent_to_bank_date",
   "section_break_journal",
   "journal_references",
   "section_break_holder_history",
@@ -90,6 +111,64 @@
    "fetch_from": "company.default_currency"
   },
   {
+   "fieldname": "section_break_allocation_mode",
+   "fieldtype": "Section Break",
+   "label": "Allocation Mode & Instrument State",
+   "collapsible": 1,
+   "description": "Advance v1 and instrument accounting flags (business rules added in later tasks)."
+  },
+  {
+   "fieldname": "allocation_mode",
+   "fieldtype": "Select",
+   "label": "Allocation Mode",
+   "options": "direct_settlement\nadvance",
+   "default": "direct_settlement",
+   "reqd": 1
+  },
+  {
+   "fieldname": "allocation_mode_locked",
+   "fieldtype": "Check",
+   "label": "Allocation Mode Locked",
+   "default": 0,
+   "read_only": 1
+  },
+  {
+   "fieldname": "effective_stage_for_advance_recognition",
+   "fieldtype": "Select",
+   "label": "Effective Stage for Advance Recognition",
+   "options": "register\nissue",
+   "description": "Which workflow stage posts advance recognition JE (advance mode only; enforced in later tasks)."
+  },
+  {
+   "fieldname": "recognition_je_posted",
+   "fieldtype": "Check",
+   "label": "Recognition JE Posted",
+   "default": 0,
+   "read_only": 1
+  },
+  {
+   "fieldname": "clear_je_posted",
+   "fieldtype": "Check",
+   "label": "Clear JE Posted",
+   "default": 0,
+   "read_only": 1
+  },
+  {
+   "fieldname": "instrument_dead",
+   "fieldtype": "Check",
+   "label": "Instrument Dead",
+   "default": 0,
+   "read_only": 1,
+   "description": "Terminal non-allocatable / non-reusable (v1); set by lifecycle in later tasks."
+  },
+  {
+   "fieldname": "instrument_dead_reason",
+   "fieldtype": "Select",
+   "label": "Instrument Dead Reason",
+   "options": "\ncancelled\nbounced\nreversed\nreplaced\nother",
+   "read_only": 1
+  },
+  {
    "fieldname": "section_break_cheque",
    "fieldtype": "Section Break",
    "label": "Cheque Details",
@@ -115,7 +194,8 @@
    "label": "Bank Account",
    "options": "Bank Account",
    "mandatory_depends_on": "eval:doc.cheque_direction === \"Payable\"",
-   "description": "Required for Payable cheques; for Receivable required when In Clearing/Cleared."
+   "allow_on_submit": 1,
+   "description": "Required for Payable cheques; for Receivable required when In Clearing/Cleared. Editable after submit when workflow moves to Sent to Bank / Cleared (or Issued/Cleared Payable)."
   },
   {
    "fieldname": "column_break_cheque",
@@ -132,13 +212,17 @@
   {
    "fieldname": "sayad_code",
    "fieldtype": "Data",
-   "label": "Sayad Code"
+   "label": "Sayad Code",
+   "allow_on_submit": 1,
+   "read_only_depends_on": "eval:(doc.cheque_direction === \"Receivable\" && doc.workflow_state && doc.workflow_state !== \"Draft\") || (doc.cheque_direction === \"Payable\" && [\"Issued\", \"Cleared\", \"Returned\", \"Replaced\", \"Cancelled\", \"Bounced\", \"Endorsed\", \"Under Legal Action\"].includes(doc.workflow_state))"
   },
   {
    "fieldname": "sayad_registered",
    "fieldtype": "Check",
    "label": "Sayad Registered",
-   "default": 0
+   "default": 0,
+   "allow_on_submit": 1,
+   "read_only_depends_on": "eval:(doc.cheque_direction === \"Receivable\" && doc.workflow_state && doc.workflow_state !== \"Draft\") || (doc.cheque_direction === \"Payable\" && [\"Issued\", \"Cleared\", \"Returned\", \"Replaced\", \"Cancelled\", \"Bounced\", \"Endorsed\", \"Under Legal Action\"].includes(doc.workflow_state))"
   },
   {
    "fieldname": "drawer_bank_name",
@@ -167,11 +251,40 @@
    "options": "reference_doctype"
   },
   {
+   "fieldname": "allocations",
+   "fieldtype": "Table",
+   "label": "Allocations",
+   "options": "PDC Allocation"
+  },
+  {
+   "fieldname": "allocated_amount",
+   "fieldtype": "Currency",
+   "label": "Allocated Amount",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "unallocated_amount",
+   "fieldtype": "Currency",
+   "label": "Unallocated Amount",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
    "fieldname": "replaces_cheque",
    "fieldtype": "Link",
    "label": "Replaces Cheque",
    "options": "Post Dated Cheque",
-   "description": "When this PDC replaces another Post Dated Cheque (e.g. re-issue), link the superseded document here."
+   "allow_on_submit": 1,
+   "description": "Optional link to another Post Dated Cheque (cheque record) that this document supersedes, e.g. re-issue or swap."
+  },
+  {
+   "fieldname": "replaced_by",
+   "fieldtype": "Link",
+   "label": "Replaced By",
+   "options": "Post Dated Cheque",
+   "allow_on_submit": 1,
+   "description": "Optional link to the Post Dated Cheque (cheque record) that supersedes this document after replacement."
   },
   {
    "fieldname": "section_break_parties",
@@ -204,13 +317,15 @@
    "fieldtype": "Select",
    "label": "Holder Party Type",
    "options": "Customer\nSupplier\nEmployee\nShareholder",
-   "description": "Current holder - changes on endorsement"
+   "allow_on_submit": 1,
+   "description": "Current holder - changes on endorsement (Receivable). Editable after submit."
   },
   {
    "fieldname": "holder_party",
    "fieldtype": "Dynamic Link",
    "label": "Holder Party",
-   "options": "holder_party_type"
+   "options": "holder_party_type",
+   "allow_on_submit": 1
   },
   {
    "fieldname": "section_break_accounts",
@@ -235,6 +350,21 @@
    "label": "Account Paid To",
    "options": "Account",
    "description": "Payable: party payable account (supplier). For receivable cheques, defaults to Cheques in Hand from PDC Settings. Otherwise defaults from party or company accounts. Editable by user."
+  },
+  {
+   "fieldname": "cheques_in_clearing_account",
+   "fieldtype": "Link",
+   "label": "Cheques in Clearing Account",
+   "options": "Account",
+   "allow_on_submit": 1,
+   "description": "Receivable only: intermediary clearing account used when moving to Sent to Bank. Defaults from PDC Settings if empty. Editable by user."
+  },
+  {
+   "fieldname": "endorsement_settlement_account",
+   "fieldtype": "Link",
+   "label": "Endorsement Settlement Account",
+   "options": "Account",
+   "description": "Receivable only: optional GL account debited on Registered → Endorsement (claim / endorsed-to settlement). Overrides PDC Settings “Default Endorsement Account”. No party on this line. If unset, builder may debit the endorsed holder’s receivable instead (see developer guide)."
   },
   {
    "fieldname": "section_break_dimensions",
@@ -271,7 +401,8 @@
    "options": "Workflow State",
    "default": "Draft",
    "read_only": 1,
-   "allow_on_submit": 1
+   "allow_on_submit": 1,
+   "description": "Process stage for this PDC. Values are Workflow State records; transitions use the active ERPNext Workflow \"PDC Workflow\" on this DocType. Python validation in validate() is the final authority."
   },
   {
    "fieldname": "cheque_status",
@@ -279,41 +410,90 @@
    "label": "Cheque Status",
    "in_list_view": 1,
    "options": "Draft\nIn Hand\nIn Clearing\nCleared\nBounced\nEndorsed\nReturned to Customer\nReplaced\nUnder Legal Action\nCancelled\nIssued\nReturned from Payee",
+   "default": "Draft",
    "read_only": 1,
    "allow_on_submit": 1,
-   "description": "Operational reality of the cheque. One combined list in the DocType; which values are valid for Receivable vs Payable is enforced by business logic (not by the field options alone). Updated by the system from workflow or accounting actions."
-  },
-  {
-   "fieldname": "payment_entry",
-   "fieldtype": "Link",
-   "label": "Payment Entry",
-   "options": "Payment Entry",
-   "read_only": 1,
-   "description": "Set when cheque is cleared/settled"
+   "description": "Operational reality of the cheque. Single Select with all Receivable and Payable labels; per-direction validity is enforced later in server/workflow logic. Updated by the system from workflow or accounting actions."
   },
   {
    "fieldname": "section_break_dates",
    "fieldtype": "Section Break",
    "label": "Important Dates",
+   "description": "Columns: preparation & transfer → bank outcome → business return.",
    "collapsible": 1
   },
   {
    "fieldname": "received_date",
    "fieldtype": "Date",
-   "label": "Received Date",
-   "description": "When cheque was received (receivable)"
+   "label": "Received / Issued Date",
+   "allow_on_submit": 1,
+   "description": "Receivable: intake (received by company). Payable: preparation (recorded / issued internally)."
+  },
+  {
+   "fieldname": "column_break_dates_row1_col2",
+   "fieldtype": "Column Break",
+   "label": "Bank outcome"
   },
   {
    "fieldname": "cleared_date",
    "fieldtype": "Date",
    "label": "Cleared Date",
-   "description": "When cheque was cleared/settled"
+   "allow_on_submit": 1,
+   "description": "Bank settlement (cheque cleared).",
+   "mandatory_depends_on": "eval:doc.workflow_state===\"Cleared\""
+  },
+  {
+   "fieldname": "column_break_dates_row1_col3",
+   "fieldtype": "Column Break",
+   "label": "Business return"
   },
   {
    "fieldname": "returned_date",
    "fieldtype": "Date",
    "label": "Returned Date",
-   "description": "When cheque was bounced/returned"
+   "description": "Business return to party (not bank bounce).",
+   "mandatory_depends_on": "eval:doc.workflow_state===\"Returned\"",
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "handover_date",
+   "fieldtype": "Date",
+   "label": "Handover / Endorsement Date",
+   "description": "Payable: physical handover to payee. Receivable: endorsement / transfer to another party.",
+   "mandatory_depends_on": "eval:(doc.cheque_direction===\"Payable\" && doc.workflow_state===\"Issued\") || doc.workflow_state===\"Endorsed\"",
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "column_break_dates_row2_col2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "bounced_date",
+   "fieldtype": "Date",
+   "label": "Bounced Date",
+   "description": "Bank rejection / dishonour.",
+   "mandatory_depends_on": "eval:doc.workflow_state===\"Bounced\"",
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "column_break_dates_row2_col3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "return_reason",
+   "fieldtype": "Text",
+   "label": "Return Reason",
+   "description": "Why the cheque was returned (business return).",
+   "mandatory_depends_on": "eval:doc.workflow_state===\"Returned\"",
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "sent_to_bank_date",
+   "fieldtype": "Date",
+   "label": "Sent to Bank Date",
+   "description": "Receivable: delivered to bank for collection.",
+   "mandatory_depends_on": "eval:doc.cheque_direction===\"Receivable\" && doc.workflow_state===\"Sent to Bank\"",
+   "allow_on_submit": 1
   },
   {
    "fieldname": "section_break_journal",
@@ -345,7 +525,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-02-08 00:00:00.000000",
+ "modified": "2026-04-03 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Cheque Management",
  "name": "Post Dated Cheque",

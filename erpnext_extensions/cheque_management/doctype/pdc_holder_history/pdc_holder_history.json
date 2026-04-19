@@ -27,6 +27,7 @@
    "fieldtype": "Datetime",
    "in_list_view": 1,
    "label": "Date",
+   "allow_on_submit": 1,
    "reqd": 1
   },
   {
@@ -34,20 +35,23 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Previous Holder Type",
-   "options": "Customer\nSupplier"
+   "options": "Customer\nSupplier\nEmployee\nShareholder",
+   "allow_on_submit": 1
   },
   {
    "fieldname": "previous_holder",
    "fieldtype": "Dynamic Link",
    "label": "Previous Holder",
-   "options": "previous_holder_type"
+   "options": "previous_holder_type",
+   "allow_on_submit": 1
   },
   {
    "fieldname": "new_holder_type",
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "New Holder Type",
-   "options": "Customer\nSupplier",
+   "options": "Customer\nSupplier\nEmployee\nShareholder",
+   "allow_on_submit": 1,
    "reqd": 1
   },
   {
@@ -55,12 +59,14 @@
    "fieldtype": "Dynamic Link",
    "label": "New Holder",
    "options": "new_holder_type",
+   "allow_on_submit": 1,
    "reqd": 1
   },
   {
    "fieldname": "reason",
    "fieldtype": "Small Text",
    "label": "Reason",
+   "allow_on_submit": 1,
    "description": "Optional - e.g. endorsement"
   }
  ],
