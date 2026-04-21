@@ -29,7 +29,9 @@ from erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_c
 	PostDatedCheque,
 	build_pdc_journal_entry_data,
 )
+import erpnext_extensions.cheque_management.pdc_settlement_capacity as pdc_cap
 from erpnext_extensions.cheque_management import pdc_allocation as pdc_alloc
+from erpnext_extensions.cheque_management.pdc_allocation import ALLOCATION_MODE_ADVANCE, ALLOCATION_MODE_DIRECT
 from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
 	CHEQUE_DIRECTION_PAYABLE,
 	CHEQUE_DIRECTION_RECEIVABLE,
@@ -76,6 +78,20 @@ _SNAP_PR_OUT = {
 	"outstanding_amount": 1_000_000.0,
 	"status": "Requested",
 }
+_SNAP_SO = {
+	"company": "_TC",
+	"currency": "INR",
+	"customer": "C-1",
+	"docstatus": 1,
+	"status": "To Deliver",
+}
+_SNAP_PO = {
+	"company": "_TC",
+	"currency": "INR",
+	"supplier": "SUP-1",
+	"docstatus": 1,
+	"status": "To Receive",
+}
 
 POSTING = date(2026, 9, 1)
 _BANK_GL = "ACC-BANK"
@@ -89,16 +105,28 @@ _SETTINGS: dict = {
 
 
 def _alloc_row(
-	allocated_amount: float,
-	allocation_type: str,
+	amount: float,
+	allocation_mode: str,
 	reference_doctype: str | None = None,
 	reference_name: str | None = None,
+	*,
+	company: str | None = None,
+	party_type: str | None = None,
+	party: str | None = None,
+	source_doctype: str | None = None,
+	source_name: str | None = None,
 ) -> SimpleNamespace:
 	return SimpleNamespace(
-		allocated_amount=allocated_amount,
-		allocation_type=allocation_type,
+		amount=amount,
+		allocation_mode=allocation_mode,
 		reference_doctype=reference_doctype,
 		reference_name=reference_name,
+		company=company or "_TC",
+		party_type=party_type or "Customer",
+		party=party or "C-1",
+		currency="INR",
+		source_doctype=source_doctype,
+		source_name=source_name,
 	)
 
 
@@ -114,6 +142,8 @@ def _pdc(**kwargs) -> PostDatedCheque:
 		"name": "PDC-TEST-1",
 		"party_type": "Customer",
 		"party": "C-1",
+		"allocation_mode": ALLOCATION_MODE_DIRECT,
+		"allocation_mode_locked": 0,
 		"allocations": [],
 		"allocated_amount": 0.0,
 		"unallocated_amount": 1000.0,
@@ -141,19 +171,16 @@ def _allocation_ref_patches(*, payment_request_snapshot=None):
 		patch.object(pdc_alloc, "_read_sales_invoice_for_pdc_allocation", return_value=_SNAP_SI),
 		patch.object(pdc_alloc, "_read_purchase_invoice_for_pdc_allocation", return_value=_SNAP_PI),
 		patch.object(pdc_alloc, "_read_payment_request_for_pdc_allocation", return_value=pr),
-		patch.object(
-			pdc_alloc,
-			"_read_other_settlement_document",
-			return_value={
-				"company": "_TC",
-				"currency": "INR",
-				"party_type": "Customer",
-				"party": "C-1",
-				"docstatus": 1,
-			},
-		),
+		patch.object(pdc_alloc, "_read_sales_order_for_pdc_allocation", return_value=_SNAP_SO),
+		patch.object(pdc_alloc, "_read_purchase_order_for_pdc_allocation", return_value=_SNAP_PO),
 		patch.object(pdc_alloc, "get_pr_remaining_capacity", return_value=1_000_000.0),
 		patch.object(pdc_alloc, "get_invoice_remaining_capacity", return_value=1_000_000.0),
+		patch.object(pdc_alloc, "get_receivable_sales_invoice_direct_settlement_remaining_capacity", return_value=1_000_000.0),
+		# Diagnostic path calls PL for SI rows; bare unittest has no frappe.db / site.
+		patch.object(pdc_alloc, "get_invoice_ledger_outstanding", return_value=0.0),
+		# SI trace path sums pending PDC rows via DB; no voucher rows in these unit tests.
+		patch.object(pdc_alloc, "sum_effective_pdc_direct_to_invoice", return_value=0.0),
+		patch.object(pdc_alloc, "sum_effective_pdc_via_pr_to_invoice", return_value=0.0),
 	)
 
 
@@ -181,7 +208,7 @@ class TestPDCAllocationAmounts(unittest.TestCase):
 			allocations=[
 				_alloc_row(
 					1000.0,
-					"Against Invoice",
+					ALLOCATION_MODE_DIRECT,
 					"Sales Invoice",
 					"SINV-001",
 				),
@@ -194,8 +221,8 @@ class TestPDCAllocationAmounts(unittest.TestCase):
 	def test_multi_invoice_allocation(self) -> None:
 		p = _pdc(
 			allocations=[
-				_alloc_row(400.0, "Against Invoice", "Sales Invoice", "SINV-001"),
-				_alloc_row(600.0, "Against Invoice", "Sales Invoice", "SINV-002"),
+				_alloc_row(400.0, ALLOCATION_MODE_DIRECT, "Sales Invoice", "SINV-001"),
+				_alloc_row(600.0, ALLOCATION_MODE_DIRECT, "Sales Invoice", "SINV-002"),
 			],
 		)
 		_sync_and_validate(p)
@@ -206,17 +233,18 @@ class TestPDCAllocationAmounts(unittest.TestCase):
 		p = _pdc(
 			cheque_amount=1000.0,
 			allocations=[
-				_alloc_row(350.0, "Against Invoice", "Sales Invoice", "SINV-001"),
+				_alloc_row(350.0, ALLOCATION_MODE_DIRECT, "Sales Invoice", "SINV-001"),
 			],
 		)
 		_sync_and_validate(p)
 		self.assertEqual(p.allocated_amount, 350.0)
 		self.assertEqual(p.unallocated_amount, 650.0)
 
-	def test_advance_allocation_no_reference(self) -> None:
+	def test_advance_sales_order_allocation(self) -> None:
 		p = _pdc(
+			allocation_mode=ALLOCATION_MODE_ADVANCE,
 			allocations=[
-				_alloc_row(500.0, "Advance", None, None),
+				_alloc_row(500.0, ALLOCATION_MODE_ADVANCE, "Sales Order", "SO-001"),
 			],
 		)
 		_sync_and_validate(p)
@@ -228,9 +256,11 @@ class TestPDCAllocationAmounts(unittest.TestCase):
 			allocations=[
 				_alloc_row(
 					250.0,
-					"Payment Request",
-					"Payment Request",
-					"PR-ALLOC-1",
+					ALLOCATION_MODE_DIRECT,
+					"Sales Invoice",
+					"SINV-PR-1",
+					source_doctype="Payment Request",
+					source_name="PR-ALLOC-1",
 				),
 			],
 		)
@@ -248,8 +278,22 @@ class TestPDCAllocationAmounts(unittest.TestCase):
 			party_type="Supplier",
 			party="SUP-1",
 			allocations=[
-				_alloc_row(250.0, "Against Invoice", "Purchase Invoice", "PINV-001"),
-				_alloc_row(750.0, "Against Invoice", "Purchase Invoice", "PINV-002"),
+				_alloc_row(
+					250.0,
+					ALLOCATION_MODE_DIRECT,
+					"Purchase Invoice",
+					"PINV-001",
+					party_type="Supplier",
+					party="SUP-1",
+				),
+				_alloc_row(
+					750.0,
+					ALLOCATION_MODE_DIRECT,
+					"Purchase Invoice",
+					"PINV-002",
+					party_type="Supplier",
+					party="SUP-1",
+				),
 			],
 		)
 		_sync_and_validate(p)
@@ -269,7 +313,7 @@ class TestPDCAllocationAmounts(unittest.TestCase):
 class TestPDCAllocationValidation(unittest.TestCase):
 	def test_zero_amount_rejected(self) -> None:
 		p = _pdc(
-			allocations=[_alloc_row(0.0, "Against Invoice", "Sales Invoice", "SINV-1")],
+			allocations=[_alloc_row(0.0, ALLOCATION_MODE_DIRECT, "Sales Invoice", "SINV-1")],
 		)
 		PostDatedCheque._sync_allocation_summary_amounts(p)
 		with self.assertRaises(ValidationError):
@@ -277,7 +321,7 @@ class TestPDCAllocationValidation(unittest.TestCase):
 
 	def test_reference_pair_incomplete_rejected(self) -> None:
 		p = _pdc(
-			allocations=[_alloc_row(100.0, "Against Invoice", "Sales Invoice", None)],
+			allocations=[_alloc_row(100.0, ALLOCATION_MODE_DIRECT, "Sales Invoice", None)],
 		)
 		PostDatedCheque._sync_allocation_summary_amounts(p)
 		with self.assertRaises(ValidationError):
@@ -287,8 +331,8 @@ class TestPDCAllocationValidation(unittest.TestCase):
 		p = _pdc(
 			cheque_amount=100.0,
 			allocations=[
-				_alloc_row(60.0, "Against Invoice", "Sales Invoice", "A"),
-				_alloc_row(50.0, "Against Invoice", "Sales Invoice", "B"),
+				_alloc_row(60.0, ALLOCATION_MODE_DIRECT, "Sales Invoice", "A"),
+				_alloc_row(50.0, ALLOCATION_MODE_DIRECT, "Sales Invoice", "B"),
 			],
 		)
 		with _frappe_messages_identity(), self.assertRaises(ValidationError):
@@ -299,8 +343,8 @@ class TestPDCAllocationValidation(unittest.TestCase):
 		p = _pdc(
 			cheque_amount=100.0,
 			allocations=[
-				_alloc_row(60.0, "Against Invoice", "Sales Invoice", "A"),
-				_alloc_row(50.0, "Against Invoice", "Sales Invoice", "B"),
+				_alloc_row(60.0, ALLOCATION_MODE_DIRECT, "Sales Invoice", "A"),
+				_alloc_row(50.0, ALLOCATION_MODE_DIRECT, "Sales Invoice", "B"),
 			],
 		)
 		p.allocated_amount = 110.0
@@ -312,7 +356,7 @@ class TestPDCAllocationValidation(unittest.TestCase):
 		p = _pdc(
 			cheque_direction=CHEQUE_DIRECTION_RECEIVABLE,
 			allocations=[
-				_alloc_row(100.0, "Against Invoice", "Purchase Invoice", "PINV-1"),
+				_alloc_row(100.0, ALLOCATION_MODE_DIRECT, "Purchase Invoice", "PINV-1"),
 			],
 		)
 		PostDatedCheque._sync_allocation_summary_amounts(p)
@@ -325,7 +369,7 @@ class TestPDCAllocationValidation(unittest.TestCase):
 			party_type="Supplier",
 			party="SUP-1",
 			allocations=[
-				_alloc_row(100.0, "Against Invoice", "Sales Invoice", "SINV-1"),
+				_alloc_row(100.0, ALLOCATION_MODE_DIRECT, "Sales Invoice", "SINV-1"),
 			],
 		)
 		PostDatedCheque._sync_allocation_summary_amounts(p)
@@ -334,23 +378,23 @@ class TestPDCAllocationValidation(unittest.TestCase):
 
 	def test_payment_request_requires_reference(self) -> None:
 		p = _pdc(
-			allocations=[_alloc_row(10.0, "Payment Request", None, None)],
+			allocations=[_alloc_row(10.0, ALLOCATION_MODE_DIRECT, "Sales Invoice", None)],
 		)
 		PostDatedCheque._sync_allocation_summary_amounts(p)
 		with self.assertRaises(ValidationError):
 			_validate_allocations_only(p)
 
-	def test_payment_request_wrong_doctype_rejected(self) -> None:
+	def test_disallowed_reference_doctype_rejected(self) -> None:
 		p = _pdc(
-			allocations=[_alloc_row(10.0, "Payment Request", "Sales Invoice", "X")],
+			allocations=[_alloc_row(10.0, ALLOCATION_MODE_DIRECT, "Journal Entry", "JE-1")],
 		)
 		PostDatedCheque._sync_allocation_summary_amounts(p)
 		with self.assertRaises(ValidationError):
 			_validate_allocations_only(p)
 
-	def test_other_settlement_requires_reference(self) -> None:
+	def test_stock_entry_reference_rejected(self) -> None:
 		p = _pdc(
-			allocations=[_alloc_row(50.0, "Other Settlement", None, None)],
+			allocations=[_alloc_row(50.0, ALLOCATION_MODE_DIRECT, "Stock Entry", "SE-1")],
 		)
 		PostDatedCheque._sync_allocation_summary_amounts(p)
 		with self.assertRaises(ValidationError):
@@ -363,7 +407,16 @@ class TestPDCAllocationValidation(unittest.TestCase):
 			party_type="Supplier",
 			party="SUP-1",
 			workflow_state=WORKFLOW_ISSUED,
-			allocations=[_alloc_row(1000.0, "Against Invoice", "Purchase Invoice", "PINV-1")],
+			allocations=[
+				_alloc_row(
+					1000.0,
+					ALLOCATION_MODE_DIRECT,
+					"Purchase Invoice",
+					"PINV-1",
+					party_type="Supplier",
+					party="SUP-1",
+				)
+			],
 		)
 		PostDatedCheque._sync_allocation_summary_amounts(p)
 		with ExitStack() as stack:
@@ -381,7 +434,16 @@ class TestPDCAllocationValidation(unittest.TestCase):
 			party_type="Supplier",
 			party="SUP-1",
 			workflow_state=WORKFLOW_REGISTERED,
-			allocations=[_alloc_row(1000.0, "Against Invoice", "Purchase Invoice", "PINV-1")],
+			allocations=[
+				_alloc_row(
+					1000.0,
+					ALLOCATION_MODE_DIRECT,
+					"Purchase Invoice",
+					"PINV-1",
+					party_type="Supplier",
+					party="SUP-1",
+				)
+			],
 		)
 		p.get_doc_before_save = lambda: SimpleNamespace(workflow_state=WORKFLOW_DRAFT)
 		PostDatedCheque._sync_allocation_summary_amounts(p)
@@ -392,6 +454,74 @@ class TestPDCAllocationValidation(unittest.TestCase):
 			)
 			stack.enter_context(patch.object(pdc_alloc, "get_invoice_remaining_capacity", return_value=0.0))
 			PostDatedCheque._validate_allocations(p)
+
+	def test_receivable_draft_to_registered_allows_si_with_positive_outstanding_even_if_ledger_capacity_helper_is_zero(self) -> None:
+		"""Oracle parity: Draft → Registered should not fail due to pre-JE ledger capacity for Sales Invoice."""
+		p = _pdc(
+			cheque_direction=CHEQUE_DIRECTION_RECEIVABLE,
+			party_type="Customer",
+			party="C-1",
+			cheque_amount=20000.0,
+			workflow_state=WORKFLOW_REGISTERED,
+			allocations=[
+				_alloc_row(
+					20000.0,
+					ALLOCATION_MODE_DIRECT,
+					"Sales Invoice",
+					"SINV-1",
+					party_type="Customer",
+					party="C-1",
+				)
+			],
+		)
+		p.get_doc_before_save = lambda: SimpleNamespace(workflow_state=WORKFLOW_DRAFT)
+		PostDatedCheque._sync_allocation_summary_amounts(p)
+		snap = dict(_SNAP_SI)
+		snap["outstanding_amount"] = 20000.0
+		with ExitStack() as stack:
+			stack.enter_context(_frappe_messages_identity())
+			stack.enter_context(patch.object(pdc_alloc, "_read_sales_invoice_for_pdc_allocation", return_value=snap))
+			# Payment Ledger can be 0 before Register JE; capacity must still follow invoice outstanding_amount + pending PDC math.
+			stack.enter_context(patch.object(pdc_alloc, "get_invoice_ledger_outstanding", return_value=0.0))
+			# ``from capacity import f`` binds names in pdc_allocation; patch both modules.
+			stack.enter_context(patch.object(pdc_cap, "sum_effective_pdc_direct_to_invoice", return_value=0.0))
+			stack.enter_context(patch.object(pdc_cap, "sum_effective_pdc_via_pr_to_invoice", return_value=0.0))
+			stack.enter_context(patch.object(pdc_alloc, "sum_effective_pdc_direct_to_invoice", return_value=0.0))
+			stack.enter_context(patch.object(pdc_alloc, "sum_effective_pdc_via_pr_to_invoice", return_value=0.0))
+			PostDatedCheque._validate_allocations(p)
+
+	def test_receivable_draft_to_registered_blocks_si_when_outstanding_is_zero(self) -> None:
+		p = _pdc(
+			cheque_direction=CHEQUE_DIRECTION_RECEIVABLE,
+			party_type="Customer",
+			party="C-1",
+			cheque_amount=1.0,
+			workflow_state=WORKFLOW_REGISTERED,
+			allocations=[
+				_alloc_row(
+					1.0,
+					ALLOCATION_MODE_DIRECT,
+					"Sales Invoice",
+					"SINV-1",
+					party_type="Customer",
+					party="C-1",
+				)
+			],
+		)
+		p.get_doc_before_save = lambda: SimpleNamespace(workflow_state=WORKFLOW_DRAFT)
+		PostDatedCheque._sync_allocation_summary_amounts(p)
+		snap = dict(_SNAP_SI)
+		snap["outstanding_amount"] = 0.0
+		with ExitStack() as stack:
+			stack.enter_context(_frappe_messages_identity())
+			stack.enter_context(patch.object(pdc_alloc, "_read_sales_invoice_for_pdc_allocation", return_value=snap))
+			stack.enter_context(patch.object(pdc_alloc, "get_invoice_ledger_outstanding", return_value=0.0))
+			stack.enter_context(patch.object(pdc_cap, "sum_effective_pdc_direct_to_invoice", return_value=0.0))
+			stack.enter_context(patch.object(pdc_cap, "sum_effective_pdc_via_pr_to_invoice", return_value=0.0))
+			stack.enter_context(patch.object(pdc_alloc, "sum_effective_pdc_direct_to_invoice", return_value=0.0))
+			stack.enter_context(patch.object(pdc_alloc, "sum_effective_pdc_via_pr_to_invoice", return_value=0.0))
+			with self.assertRaises(ValidationError):
+				PostDatedCheque._validate_allocations(p)
 
 
 class TestPDCAllocationDoesNotDriveJournalPayloads(unittest.TestCase):
@@ -415,10 +545,15 @@ class TestPDCAllocationDoesNotDriveJournalPayloads(unittest.TestCase):
 		return SimpleNamespace(**base)
 
 	def test_register_je_identical_regardless_of_allocations(self) -> None:
+		"""When SI settlement slices are not produced (legacy path), Register JE ignores allocation rows.
+
+		If :func:`receivable_sales_invoice_settlement_slices` returns invoice splits, Draft→Registered
+		builds multi-line SI references; that path is not asserted here.
+		"""
 		heavy = self._movement_doc(
 			allocations=[
-				_alloc_row(400.0, "Against Invoice", "Sales Invoice", "S-1"),
-				_alloc_row(600.0, "Advance", None, None),
+				_alloc_row(400.0, ALLOCATION_MODE_DIRECT, "Sales Invoice", "S-1"),
+				_alloc_row(600.0, ALLOCATION_MODE_DIRECT, "Sales Invoice", "S-2"),
 			],
 		)
 		none = self._movement_doc(allocations=[])
@@ -426,6 +561,7 @@ class TestPDCAllocationDoesNotDriveJournalPayloads(unittest.TestCase):
 			patch.object(pdc_mod, "_get_pdc_settings_for_company", return_value=dict(_SETTINGS)),
 			patch.object(pdc_mod, "_get_party_account_or_company_default", return_value="ACC-AR-RES"),
 			patch.object(pdc_mod, "_pdc_bank_gl_account", return_value=_BANK_GL),
+			patch.object(pdc_mod, "receivable_sales_invoice_settlement_slices", return_value=None),
 			patch.object(pdc_mod, "frappe") as mf,
 		):
 			mf._ = lambda s: s
@@ -437,7 +573,7 @@ class TestPDCAllocationDoesNotDriveJournalPayloads(unittest.TestCase):
 	def test_subsequent_movement_jes_also_ignore_allocations(self) -> None:
 		"""Allocation edits alone must not change movement payloads at any workflow edge."""
 		heavy = self._movement_doc(
-			allocations=[_alloc_row(1000.0, "Against Invoice", "Sales Invoice", "S-9")],
+			allocations=[_alloc_row(1000.0, ALLOCATION_MODE_DIRECT, "Sales Invoice", "S-9")],
 		)
 		none = self._movement_doc(allocations=[])
 		with (

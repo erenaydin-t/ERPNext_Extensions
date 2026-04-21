@@ -40,6 +40,7 @@ from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
 	WORKFLOW_ENDORSED,
 	WORKFLOW_ISSUED,
 	WORKFLOW_REGISTERED,
+	WORKFLOW_RETURNED,
 	WORKFLOW_REPLACED,
 	WORKFLOW_SENT_TO_BANK,
 	WORKFLOW_UNDER_LEGAL_ACTION,
@@ -99,6 +100,53 @@ class TestPDCJournalEntryPayloadBuilder(unittest.TestCase):
 		self.assertEqual(cr["credit_in_account_currency"], 1000.0)
 		self.assertEqual(cr.get("party_type"), "Customer")
 		self.assertEqual(cr.get("party"), "CUST-1")
+
+	def test_receivable_draft_to_registered_splits_party_credit_per_si_when_slices_provided(self) -> None:
+		doc = _doc()
+		with (
+			patch.object(pdc, "_get_pdc_settings_for_company", return_value=dict(_SETTINGS_BASE)),
+			patch.object(pdc, "_get_party_account_or_company_default", return_value="ACC-PARTY-FALLBACK"),
+			patch.object(
+				pdc,
+				"receivable_sales_invoice_settlement_slices",
+				return_value=[("SINV-A", 400.0), ("SINV-B", 600.0)],
+			),
+			patch.object(pdc, "frappe") as mf,
+		):
+			mf._ = lambda s: s
+			je = build_pdc_journal_entry_data(doc, WORKFLOW_DRAFT, WORKFLOW_REGISTERED, POSTING)
+		assert je is not None
+		rows = je["accounts"]
+		self.assertEqual(len(rows), 3)
+		self.assertEqual(rows[0]["debit_in_account_currency"], 1000.0)
+		self.assertEqual(rows[1]["credit_in_account_currency"], 400.0)
+		self.assertEqual(rows[1].get("reference_type"), "Sales Invoice")
+		self.assertEqual(rows[1].get("reference_name"), "SINV-A")
+		self.assertEqual(rows[2]["credit_in_account_currency"], 600.0)
+		self.assertEqual(rows[2].get("reference_name"), "SINV-B")
+
+	def test_receivable_registered_to_returned_splits_party_debit_per_si_when_slices_provided(self) -> None:
+		doc = _doc()
+		with (
+			patch.object(pdc, "_get_pdc_settings_for_company", return_value=dict(_SETTINGS_BASE)),
+			patch.object(pdc, "_get_party_account_or_company_default", return_value="ACC-PARTY-FALLBACK"),
+			patch.object(
+				pdc,
+				"receivable_sales_invoice_settlement_slices",
+				return_value=[("SINV-A", 400.0), ("SINV-B", 600.0)],
+			),
+			patch.object(pdc, "frappe") as mf,
+		):
+			mf._ = lambda s: s
+			je = build_pdc_journal_entry_data(doc, WORKFLOW_REGISTERED, WORKFLOW_RETURNED, POSTING)
+		assert je is not None
+		rows = je["accounts"]
+		self.assertEqual(len(rows), 3)
+		self.assertEqual(rows[0]["debit_in_account_currency"], 400.0)
+		self.assertEqual(rows[0].get("reference_type"), "Sales Invoice")
+		self.assertEqual(rows[1]["debit_in_account_currency"], 600.0)
+		self.assertEqual(rows[1].get("reference_name"), "SINV-B")
+		self.assertEqual(rows[2]["credit_in_account_currency"], 1000.0)
 
 	def test_receivable_draft_to_registered_uses_party_fallback_when_no_paid_from(self) -> None:
 		doc = _doc(account_paid_from=None)

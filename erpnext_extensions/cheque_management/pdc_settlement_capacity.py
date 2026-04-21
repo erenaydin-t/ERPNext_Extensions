@@ -4,6 +4,10 @@
 """Shared settlement capacity: Sales / Purchase Invoice and Payment Request vs PDC allocations and Payment Entry.
 
 Used for over-allocation prevention. Does not post accounting entries.
+
+**PDC reservation rule (direct settlement):** only allocations on submitted cheques **without** a posted
+Register Journal Entry (``Receive`` / ``Payable Issue`` on ``PDC Journal Reference``) consume capacity.
+Draft cheques (``docstatus = 0``) never appear in those sums.
 """
 
 from __future__ import annotations
@@ -27,6 +31,22 @@ from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
 SETTLEMENT_REFERENCE_DOCTYPES: frozenset[str] = frozenset(
 	("Sales Invoice", "Purchase Invoice", "Payment Request")
 )
+
+
+def _effective_exclude_pdc_name(exclude_pdc: str | None) -> str:
+	"""Resolve exclude name for capacity queries.
+
+	Primary: explicit ``exclude_pdc`` argument.
+	Fallback: ``frappe.flags.pdc_settlement_exclude_pdc`` when set by a caller doing in-process validation
+	(e.g. workflow transition hooks).
+	"""
+	excl = (exclude_pdc or "").strip()
+	if excl:
+		return excl
+	try:
+		return str(getattr(getattr(frappe, "flags", None), "pdc_settlement_exclude_pdc", "") or "").strip()
+	except Exception:
+		return ""
 
 
 def _voucher_outstanding_from_payment_ledger(voucher_type: str, voucher_no: str) -> float:
@@ -172,29 +192,44 @@ def sum_effective_pdc_allocations_to_reference(
 	*,
 	exclude_pdc: str | None = None,
 ) -> float:
-	"""Sum PDC allocation amounts on other (or all) cheques that reserve settlement on this reference."""
+	"""Sum PDC allocation amounts that **reserve** settlement capacity until Register JE posts.
+
+	Includes only **submitted** Post Dated Cheques whose Register-stage Journal Entry (``Receive`` /
+	``Payable Issue`` on ``PDC Journal Reference``) is **not** yet posted (linked ``Journal Entry`` with
+	``docstatus = 1``). Once that JE exists, invoice / PR exposure is represented via Payment Ledger and
+	must not be subtracted again here (avoids double-counting vs :func:`get_invoice_ledger_outstanding`).
+
+	Draft PDCs (``docstatus = 0``) never appear here. Pass ``exclude_pdc`` to ignore the PDC currently
+	being validated (same document name).
+	"""
 	rdt = (reference_doctype or "").strip()
 	rnm = (reference_name or "").strip()
 	if not rdt or not rnm or rdt not in SETTLEMENT_REFERENCE_DOCTYPES:
 		return 0.0
-	excl = (exclude_pdc or "").strip()
+	excl = _effective_exclude_pdc_name(exclude_pdc)
 
-	rows = frappe.db.sql(
+	row = frappe.db.sql(
 		"""
-		select p.cheque_direction, p.workflow_state, coalesce(a.allocated_amount, 0)
+		select coalesce(sum(a.amount), 0)
 		from `tabPDC Allocation` a
 		inner join `tabPost Dated Cheque` p on p.name = a.parent
 		where a.reference_doctype = %s and a.reference_name = %s
 			and p.docstatus = 1
+			and coalesce(p.allocation_mode, 'direct_settlement') = 'direct_settlement'
+			and ifnull(p.workflow_state, '') not in ('Cancelled', 'Replaced')
 			and (%s = '' or p.name != %s)
+			and not exists (
+				select 1
+				from `tabPDC Journal Reference` jr
+				inner join `tabJournal Entry` je on je.name = jr.journal_entry and je.docstatus = 1
+				where jr.parent = p.name
+					and jr.parenttype = 'Post Dated Cheque'
+					and jr.purpose in ('Receive', 'Payable Issue')
+			)
 		""",
 		(rdt, rnm, excl, excl),
 	)
-	total = 0.0
-	for direction, workflow_state, amt in rows:
-		if pdc_workflow_reserves_settlement_against_reference(direction, workflow_state):
-			total += float(amt or 0)
-	return total
+	return float(row[0][0]) if row else 0.0
 
 
 def sum_effective_pdc_allocations_via_payment_request_to_invoice(
@@ -212,30 +247,38 @@ def sum_effective_pdc_allocations_via_payment_request_to_invoice(
 	nm = (invoice_name or "").strip()
 	if dt not in ("Sales Invoice", "Purchase Invoice") or not nm:
 		return 0.0
-	excl = (exclude_pdc or "").strip()
+	excl = _effective_exclude_pdc_name(exclude_pdc)
 
 	rows = frappe.db.sql(
 		"""
-		select p.cheque_direction, p.workflow_state, coalesce(a.allocated_amount, 0),
-			pr.docstatus, pr.workflow_state as pr_workflow_state
+		select pr.docstatus, pr.workflow_state, coalesce(a.amount, 0)
 		from `tabPDC Allocation` a
 		inner join `tabPost Dated Cheque` p on p.name = a.parent
 		inner join `tabPayment Request` pr on pr.name = a.reference_name
 		where a.reference_doctype = 'Payment Request'
 			and pr.reference_doctype = %s and pr.reference_name = %s
 			and p.docstatus = 1
+			and coalesce(p.allocation_mode, 'direct_settlement') = 'direct_settlement'
+			and ifnull(p.workflow_state, '') not in ('Cancelled', 'Replaced')
 			and (%s = '' or p.name != %s)
+			and not exists (
+				select 1
+				from `tabPDC Journal Reference` jr
+				inner join `tabJournal Entry` je on je.name = jr.journal_entry and je.docstatus = 1
+				where jr.parent = p.name
+					and jr.parenttype = 'Post Dated Cheque'
+					and jr.purpose in ('Receive', 'Payable Issue')
+			)
 		""",
 		(dt, nm, excl, excl),
 	)
-	total = 0.0
-	for direction, workflow_state, amt, pr_ds, pr_ws in rows:
+	out = 0.0
+	for pr_ds, pr_ws, amt in rows or []:
 		pr_row = {"docstatus": pr_ds, "workflow_state": pr_ws}
 		if not is_payment_request_settlement_eligible(pr_row):
 			continue
-		if pdc_workflow_reserves_settlement_against_reference(direction, workflow_state):
-			total += float(amt or 0)
-	return total
+		out += float(amt or 0)
+	return out
 
 
 def sum_effective_pdc_direct_to_invoice(
@@ -270,7 +313,10 @@ def get_invoice_remaining_capacity(
 ) -> float:
 	"""Remaining settlement capacity for new allocations against an invoice.
 
-	Contract: ledger outstanding minus effective PDC exposure (direct + via PR).
+	Contract: Payment Ledger outstanding minus **pending** PDC reservations (direct + via PR): sums
+	from submitted direct-settlement Post Dated Cheques whose Register Journal Entry has **not** been
+	posted yet. After Register JE posts, the invoice ledger reflects settlement and those allocations
+	stop counting here (avoids double-counting). Pass ``exclude_pdc`` to ignore the PDC being validated.
 	"""
 	dt = (invoice_doctype or "").strip()
 	nm = (invoice_name or "").strip()
@@ -280,6 +326,32 @@ def get_invoice_remaining_capacity(
 	pdc_direct = flt(sum_effective_pdc_direct_to_invoice(dt, nm, exclude_pdc=exclude_pdc))
 	pdc_via_pr = flt(sum_effective_pdc_via_pr_to_invoice(dt, nm, exclude_pdc=exclude_pdc))
 	return flt(ledger_out - pdc_direct - pdc_via_pr)
+
+
+def get_receivable_sales_invoice_direct_settlement_remaining_capacity(
+	invoice_name: str,
+	*,
+	invoice_outstanding_amount: float,
+	exclude_pdc: str | None = None,
+) -> float:
+	"""Remaining capacity for **Receivable** PDC rows against a **Sales Invoice** (direct settlement).
+
+	Uses the invoice document field ``outstanding_amount`` (same source as the Sales Invoice desk) as the
+	budget, minus pending PDC allocations (direct + via Payment Request) that have not yet posted a
+	Register Journal Entry — **not** :func:`get_invoice_ledger_outstanding`.
+
+	This avoids a real runtime failure mode where ``QueryPaymentLedger`` returns **0** during Draft →
+	Register validation (before Register JE posts), while ``tabSales Invoice.outstanding_amount`` still
+	shows the correct open amount.
+	"""
+	nm = (invoice_name or "").strip()
+	if not nm:
+		return 0.0
+	excl = _effective_exclude_pdc_name(exclude_pdc)
+	base = flt(invoice_outstanding_amount)
+	pdc_direct = flt(sum_effective_pdc_direct_to_invoice("Sales Invoice", nm, exclude_pdc=excl))
+	pdc_via_pr = flt(sum_effective_pdc_via_pr_to_invoice("Sales Invoice", nm, exclude_pdc=excl))
+	return max(0.0, base - pdc_direct - pdc_via_pr)
 
 
 def get_pr_remaining_capacity(
@@ -405,12 +477,13 @@ def get_remaining_settlement_capacity(
 ) -> float:
 	"""Return amount still available for new PDC or PE allocation against this reference.
 
-	* **Sales / Purchase Invoice:** ``remaining = ledger_outstanding - effective_pdc`` where
-	  ``ledger_outstanding`` comes from Payment Ledger (accounting source-of-truth). The ``outstanding_amount``
-	  argument is ignored so PDC is never subtracted twice if an app synchronizes the field for UI behaviour.
+	* **Sales / Purchase Invoice:** ``remaining = ledger_outstanding - pending_pdc`` where
+	  ``ledger_outstanding`` comes from Payment Ledger and ``pending_pdc`` sums direct + via-PR allocations
+	  on submitted cheques whose Register JE is **not** yet posted (see
+	  :func:`sum_effective_pdc_allocations_to_reference`). The ``outstanding_amount`` argument is ignored.
 	  Pass ``exclude_pdc`` when validating rows on the same Post Dated Cheque.
 
-	* **Payment Request:** ``remaining = grand_total - submitted_pe - effective_pdc`` (same decomposition as
+	* **Payment Request:** ``remaining = grand_total - submitted_pe - pending_pdc`` (same decomposition as
 	  :mod:`~erpnext_extensions.cheque_management.pdc_payment_request_status`). The ``outstanding_amount``
 	  argument is **ignored** for Payment Request so PDC is not subtracted twice once the PR field holds
 	  ``grand_total - PE - PDC``. Pass ``exclude_payment_entry`` when validating a **Payment Entry** that is
@@ -437,6 +510,7 @@ def get_remaining_settlement_capacity(
 
 __all__ = [
 	"SETTLEMENT_REFERENCE_DOCTYPES",
+	"get_receivable_sales_invoice_direct_settlement_remaining_capacity",
 	"get_invoice_ledger_outstanding",
 	"get_invoice_remaining_capacity",
 	"get_invoice_total_basis",

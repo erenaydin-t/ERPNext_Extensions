@@ -268,7 +268,22 @@ def create_and_submit_journal_entry_from_payload(
         )
         pdc.flags.ignore_validate_update_after_submit = True
         pdc.flags.skip_pdc_accounting_orchestration = True
-        pdc.save(ignore_permissions=True)
+        # Internal self-save after JE posting is re-entrant: it re-enters allocation validation after
+        # the JE has already settled the referenced invoice(s), so Sales Invoice outstanding can be 0.
+        # Bypass only *settlement capacity* checks for this PDC during this internal save; structural
+        # allocation validations (mode/party/company/currency/reference integrity) still run.
+        try:
+            prev_flag = getattr(frappe.flags, "skip_pdc_allocation_capacity_validation_for_pdc", None)
+        except Exception:
+            prev_flag = None
+        try:
+            frappe.flags.skip_pdc_allocation_capacity_validation_for_pdc = pdc.name
+            pdc.save(ignore_permissions=True)
+        finally:
+            try:
+                frappe.flags.skip_pdc_allocation_capacity_validation_for_pdc = prev_flag
+            except Exception:
+                pass
 
         return je.name
 

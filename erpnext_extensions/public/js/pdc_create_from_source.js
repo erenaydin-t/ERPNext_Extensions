@@ -32,7 +32,12 @@ erpnext_extensions.cheque_management.open_pdc_from_form = function (frm) {
 				});
 				return;
 			}
-			frappe.new_doc("Post Dated Cheque", payload.prefill);
+			// Ensure meta is loaded so new child fieldnames (amount/allocation_mode) are applied.
+			frappe.model.with_doctype("Post Dated Cheque", () => {
+				frappe.model.with_doctype("PDC Allocation", () => {
+					frappe.new_doc("Post Dated Cheque", payload.prefill);
+				});
+			});
 		},
 	});
 };

@@ -122,8 +122,8 @@
    "fieldtype": "Select",
    "label": "Allocation Mode",
    "options": "direct_settlement\nadvance",
-   "default": "direct_settlement",
-   "reqd": 1
+   "reqd": 1,
+   "description": "Set only via controlled creation paths (no schema default)."
   },
   {
    "fieldname": "allocation_mode_locked",
@@ -165,8 +165,9 @@
    "fieldname": "instrument_dead_reason",
    "fieldtype": "Select",
    "label": "Instrument Dead Reason",
-   "options": "\ncancelled\nbounced\nreversed\nreplaced\nother",
-   "read_only": 1
+   "options": "cancelled\nbounced\nreversed\nother",
+   "read_only": 1,
+   "description": "v1 audit classification only."
   },
   {
    "fieldname": "section_break_cheque",

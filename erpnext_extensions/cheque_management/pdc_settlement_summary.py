@@ -53,10 +53,15 @@ def get_settlement_summary_for_reference(
 	if not meta.has_field("grand_total") or not meta.has_field("outstanding_amount"):
 		return None
 
+	fields = ["grand_total", "outstanding_amount", "company", "currency", "docstatus"]
+	# Some doctypes (e.g. Sales Invoice) may not have workflow_state column in all installs.
+	if meta.has_field("workflow_state"):
+		fields.append("workflow_state")
+
 	row = frappe.db.get_value(
 		rdt,
 		rnm,
-		["grand_total", "outstanding_amount", "company", "currency", "docstatus", "workflow_state"],
+		fields,
 		as_dict=True,
 	)
 	if not row:

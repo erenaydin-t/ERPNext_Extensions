@@ -15,6 +15,8 @@
  "engine": "InnoDB",
  "field_order": [
   "post_dated_cheque",
+  "invoice_currency",
+  "pdc_currency",
   "order_doctype",
   "order_name",
   "amount",
@@ -32,6 +34,24 @@
    "label": "Post Dated Cheque",
    "options": "Post Dated Cheque",
    "reqd": 1
+  },
+  {
+   "fieldname": "invoice_currency",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Invoice Currency",
+   "options": "Currency",
+   "fetch_from": "parent.currency",
+   "description": "Denormalized from parent Purchase/Sales Invoice; authoritative currency for `amount` (invoice transaction currency)."
+  },
+  {
+   "fieldname": "pdc_currency",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "PDC Currency",
+   "options": "Currency",
+   "fetch_from": "post_dated_cheque.currency",
+   "description": "Denormalized from linked Post Dated Cheque; authoritative currency for `amount_in_pdc_currency`."
   },
   {
    "fieldname": "order_doctype",
@@ -53,9 +73,10 @@
    "fieldname": "amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Amount (Invoice Currency)",
-   "options": "currency",
-   "reqd": 1
+   "label": "Amount",
+   "options": "invoice_currency",
+   "reqd": 1,
+   "description": "Application amount in parent invoice currency (authoritative: parent.currency)."
   },
   {
    "fieldname": "amount_in_pdc_currency",
@@ -64,30 +85,14 @@
    "label": "Amount (PDC Currency)",
    "options": "pdc_currency",
    "reqd": 1,
-   "description": "Normalized amount in Post Dated Cheque currency for caps and open-advance math."
+   "description": "Canonical normalized amount in PDC instrument currency for open-advance and cap math."
   },
   {
    "fieldname": "fx_rate",
    "fieldtype": "Float",
    "label": "Exchange Rate",
    "precision": 9,
-   "description": "Required when invoice currency differs from PDC currency (direction fixed at posting time in a later task)."
-  },
-  {
-   "fieldname": "currency",
-   "fieldtype": "Link",
-   "hidden": 1,
-   "label": "Invoice Currency",
-   "options": "Currency",
-   "fetch_from": "parent.currency"
-  },
-  {
-   "fieldname": "pdc_currency",
-   "fieldtype": "Link",
-   "hidden": 1,
-   "label": "PDC Currency",
-   "options": "Currency",
-   "fetch_from": "post_dated_cheque.currency"
+   "description": "Required when invoice currency differs from PDC currency (direction defined at posting time in a later task)."
   },
   {
    "fieldname": "application_status",

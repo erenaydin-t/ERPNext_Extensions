@@ -14,6 +14,7 @@ from frappe import _
 from frappe.utils import flt
 
 from erpnext_extensions.cheque_management.pdc_payment_request_eligibility import is_payment_request_settlement_eligible
+from erpnext_extensions.cheque_management.pdc_allocation import ALLOCATION_MODE_DIRECT
 from erpnext_extensions.cheque_management.pdc_settlement_capacity import SETTLEMENT_REFERENCE_DOCTYPES
 from erpnext_extensions.cheque_management.pdc_settlement_summary import get_settlement_summary_for_reference
 
@@ -72,32 +73,58 @@ def _party_and_direction_from_source(source_doctype: str, source_name: str) -> d
 	return None
 
 
-def _allocation_child_row(source_doctype: str, source_name: str, amount: float) -> dict:
+def _allocation_child_row(
+	source_doctype: str,
+	source_name: str,
+	amount: float,
+	*,
+	company: str | None = None,
+	party_type: str | None = None,
+	party: str | None = None,
+) -> dict:
 	sdt = (source_doctype or "").strip()
 	snm = (source_name or "").strip()
+	base = {
+		"doctype": "PDC Allocation",
+		"allocation_mode": ALLOCATION_MODE_DIRECT,
+		"amount": amount,
+		"company": company,
+		"party_type": party_type,
+		"party": party,
+	}
 	if sdt == "Sales Invoice":
 		return {
-			"doctype": "PDC Allocation",
-			"allocation_type": "Against Invoice",
+			**base,
 			"reference_doctype": "Sales Invoice",
 			"reference_name": snm,
-			"allocated_amount": amount,
 		}
 	if sdt == "Purchase Invoice":
 		return {
-			"doctype": "PDC Allocation",
-			"allocation_type": "Against Invoice",
+			**base,
 			"reference_doctype": "Purchase Invoice",
 			"reference_name": snm,
-			"allocated_amount": amount,
 		}
 	if sdt == "Payment Request":
+		pr = frappe.db.get_value(
+			"Payment Request",
+			snm,
+			["reference_doctype", "reference_name"],
+			as_dict=True,
+		)
+		if (
+			not pr
+			or (pr.get("reference_doctype") or "").strip() not in ("Purchase Invoice", "Sales Invoice")
+			or not (pr.get("reference_name") or "").strip()
+		):
+			raise ValueError(
+				"payment_request_must_reference_invoice: Payment Request must reference a Purchase or Sales Invoice for PDC allocation."
+			)
 		return {
-			"doctype": "PDC Allocation",
-			"allocation_type": "Payment Request",
-			"reference_doctype": "Payment Request",
-			"reference_name": snm,
-			"allocated_amount": amount,
+			**base,
+			"reference_doctype": (pr.get("reference_doctype") or "").strip(),
+			"reference_name": (pr.get("reference_name") or "").strip(),
+			"source_doctype": "Payment Request",
+			"source_name": snm,
 		}
 	raise ValueError(sdt)
 
@@ -167,12 +194,30 @@ def prepare_post_dated_cheque_prefill_from_source(
 		return out
 
 	alloc_amt = remaining
-	child = _allocation_child_row(sdt, snm, alloc_amt)
-	allocated_sum = flt(child.get("allocated_amount") or 0)
+	try:
+		child = _allocation_child_row(
+			sdt,
+			snm,
+			alloc_amt,
+			company=summary.get("company"),
+			party_type=party["party_type"],
+			party=party["party"],
+		)
+	except ValueError:
+		out["message"] = _("Payment Request must reference a Purchase or Sales Invoice for PDC allocation.")
+		return out
+	if flt(child.get("amount")) <= 0:
+		# Debug/assertion-level safeguard: never allow a zero allocation row to be created from source prefill.
+		out["message"] = _(
+			"Source prefill error: computed allocation amount is zero. Please refresh and try again."
+		)
+		return out
+	allocated_sum = flt(child.get("amount") or 0)
 
 	prefill = {
 		"company": summary.get("company"),
 		"currency": summary.get("currency"),
+		"allocation_mode": ALLOCATION_MODE_DIRECT,
 		"cheque_direction": party["cheque_direction"],
 		"party_type": party["party_type"],
 		"party": party["party"],

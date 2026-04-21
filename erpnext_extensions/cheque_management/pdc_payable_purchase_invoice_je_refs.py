@@ -46,7 +46,7 @@ def payable_purchase_invoice_settlement_slices(doc) -> list[tuple[str, float]] |
 
 	slices: list[tuple[str, float]] = []
 	for row in allocations:
-		amt = flt(getattr(row, "allocated_amount", None) or 0)
+		amt = flt(getattr(row, "amount", None) or getattr(row, "allocated_amount", None) or 0)
 		if amt <= _EPS:
 			continue
 		rdt = (getattr(row, "reference_doctype", None) or "").strip()

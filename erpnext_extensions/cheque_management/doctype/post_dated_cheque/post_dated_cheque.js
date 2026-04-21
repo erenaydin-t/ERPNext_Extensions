@@ -62,9 +62,9 @@ function pdc_sync_single_allocation_to_cheque_amount(frm) {
 		const cdt = row.doctype || "PDC Allocation";
 		const cdn = row.name;
 		if (cdn) {
-			frappe.model.set_value(cdt, cdn, "allocated_amount", ch);
+			frappe.model.set_value(cdt, cdn, "amount", ch);
 		} else {
-			row.allocated_amount = ch;
+			row.amount = ch;
 		}
 	} finally {
 		frm._pdc_sync_alloc_from_cheque = false;
@@ -77,7 +77,7 @@ function pdc_sync_allocation_summary_client(frm) {
 	}
 	let total = 0;
 	(frm.doc.allocations || []).forEach(function (row) {
-		total += pdc_safe_flt(row.allocated_amount);
+		total += pdc_safe_flt(row.amount);
 	});
 	const cheque_amt = pdc_safe_flt(frm.doc.cheque_amount);
 	const allocated = pdc_safe_flt(total);
@@ -137,10 +137,15 @@ function pdc_normalize_prefilled_allocations(frm) {
 	incoming.forEach(function (r) {
 		const child = frappe.model.add_child(frm.doc, "PDC Allocation", "allocations");
 		[
-			"allocation_type",
+			"allocation_mode",
 			"reference_doctype",
 			"reference_name",
-			"allocated_amount",
+			"amount",
+			"company",
+			"party_type",
+			"party",
+			"source_doctype",
+			"source_name",
 		].forEach(function (fn) {
 			if (r && r[fn] !== undefined) {
 				child[fn] = r[fn];
@@ -154,8 +159,8 @@ function pdc_normalize_prefilled_allocations(frm) {
 }
 
 function pdc_allocation_row_is_effectively_empty(row) {
-	const amt = pdc_safe_flt(row && row.allocated_amount);
-	const at = row && row.allocation_type != null ? String(row.allocation_type).trim() : "";
+	const amt = pdc_safe_flt(row && row.amount);
+	const at = row && row.allocation_mode != null ? String(row.allocation_mode).trim() : "";
 	const rdt = row && row.reference_doctype != null ? String(row.reference_doctype).trim() : "";
 	const rnm = row && row.reference_name != null ? String(row.reference_name).trim() : "";
 	return amt <= 0 && !at && !rdt && !rnm;
@@ -178,27 +183,25 @@ function pdc_autofill_allocations_from_parent_source(frm) {
 		if (hasRef) {
 			return;
 		}
-		const prevAmt = pdc_safe_flt(row.allocated_amount);
+		const prevAmt = pdc_safe_flt(row.amount);
 		const cdt = row.doctype || "PDC Allocation";
 		const cdn = row.name;
-		if (!(row.allocation_type || "").trim()) {
-			if (cdn) {
-				frappe.model.set_value(cdt, cdn, "allocation_type", "Against Invoice");
-			} else {
-				row.allocation_type = "Against Invoice";
-			}
+		if (!(row.allocation_mode || "").trim()) {
+			// direct_settlement is the only valid mode when prefilled from invoice.
+			if (cdn) frappe.model.set_value(cdt, cdn, "allocation_mode", "direct_settlement");
+			else row.allocation_mode = "direct_settlement";
 		}
 		if (cdn) {
 			frappe.model.set_value(cdt, cdn, "reference_doctype", pdt);
 			frappe.model.set_value(cdt, cdn, "reference_name", pnm);
 			if (ch > 0 && prevAmt <= 0) {
-				frappe.model.set_value(cdt, cdn, "allocated_amount", ch);
+				frappe.model.set_value(cdt, cdn, "amount", ch);
 			}
 		} else {
 			row.reference_doctype = pdt;
 			row.reference_name = pnm;
 			if (ch > 0 && prevAmt <= 0) {
-				row.allocated_amount = ch;
+				row.amount = ch;
 			}
 		}
 	});
@@ -228,33 +231,8 @@ function pdc_strip_empty_allocation_rows(frm) {
 
 /** Client-side guard before ``check_mandatory`` (runs in ``validate``). */
 function pdc_validate_allocations_client(frm) {
-	if (!frm || !frm.doc) {
-		return;
-	}
-	const rows = frm.doc.allocations || [];
-	for (let i = 0; i < rows.length; i++) {
-		const row = rows[i];
-		const idx = i + 1;
-		const amt = pdc_safe_flt(row.allocated_amount);
-		const at = (row.allocation_type || "").trim();
-		const rdt = (row.reference_doctype || "").trim();
-		const rnm = (row.reference_name || "").trim();
-		if (amt > 0 && !at) {
-			frappe.throw(
-				__("Allocation row {0} is incomplete: please set Allocation Type and reference fields as required.", [idx])
-			);
-		}
-		if (amt > 0 && at && at !== "Advance" && (!rdt || !rnm)) {
-			frappe.throw(
-				__("Allocation row {0} is incomplete: please fill Reference DocType and Reference Name.", [idx])
-			);
-		}
-		if (amt > 0 && at === "Advance" && (rdt || rnm)) {
-			frappe.throw(
-				__("Allocation row {0}: Advance rows must leave Reference DocType and Reference Name empty.", [idx])
-			);
-		}
-	}
+	// v1: authoritative validation is server-side (Task 2). Client-side guards here are intentionally minimal.
+	return;
 }
 
 /**
@@ -399,7 +377,7 @@ frappe.ui.form.on("Post Dated Cheque", {
 });
 
 frappe.ui.form.on("PDC Allocation", {
-	allocated_amount(frm, cdt, cdn) {
+	amount(frm, cdt, cdn) {
 		pdc_sync_allocation_summary_client(frm);
 	},
 });

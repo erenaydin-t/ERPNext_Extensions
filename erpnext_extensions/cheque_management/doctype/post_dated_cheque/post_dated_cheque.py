@@ -70,17 +70,22 @@ from erpnext_extensions.cheque_management.pdc_receivable_accounting import (
 	receivable_intermediary_account_for_bank_clear,
 )
 from erpnext_extensions.cheque_management.pdc_allocation import (
+	apply_pdc_allocation_row_defaults_from_parent,
 	autofill_pdc_allocations_from_parent_reference,
 	is_pdc_allocation_draft_only as _is_pdc_allocation_draft_only,
 	is_pdc_allocation_effective as _is_pdc_allocation_effective,
 	pdc_allocation_effective_milestone_workflow_state,
 	sanitize_pdc_allocation_child_rows,
 	sync_pdc_allocation_summary_amounts,
+	validate_post_dated_cheque_allocation_mode_immutability,
 	validate_pdc_allocation_rows,
 	validate_pdc_allocation_workflow_milestone,
 )
 from erpnext_extensions.cheque_management.pdc_payable_purchase_invoice_je_refs import (
 	payable_purchase_invoice_settlement_slices,
+)
+from erpnext_extensions.cheque_management.pdc_receivable_sales_invoice_je_refs import (
+	receivable_sales_invoice_settlement_slices,
 )
 from erpnext_extensions.cheque_management.pdc_workflow_to_cheque_status import (
 	CHEQUE_STATUS_RETURNED_FROM_PAYEE,
@@ -570,18 +575,38 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 			if doc.cheque_no:
 				remark = f"{remark} — {doc.cheque_no}"
 			je = _base(remark)
-			je["accounts"] = [
-				{
-					"account": debit_account,
-					"debit_in_account_currency": doc.cheque_amount,
-				},
-				{
-					"account": credit_account,
-					"credit_in_account_currency": doc.cheque_amount,
-					"party_type": doc.party_type,
-					"party": doc.party,
-				},
-			]
+			slices = receivable_sales_invoice_settlement_slices(doc)
+			if slices:
+				je["accounts"] = [
+					{
+						"account": debit_account,
+						"debit_in_account_currency": doc.cheque_amount,
+					},
+				]
+				for sinv, amt in slices:
+					je["accounts"].append(
+						{
+							"account": credit_account,
+							"credit_in_account_currency": amt,
+							"party_type": doc.party_type,
+							"party": doc.party,
+							"reference_type": "Sales Invoice",
+							"reference_name": sinv,
+						}
+					)
+			else:
+				je["accounts"] = [
+					{
+						"account": debit_account,
+						"debit_in_account_currency": doc.cheque_amount,
+					},
+					{
+						"account": credit_account,
+						"credit_in_account_currency": doc.cheque_amount,
+						"party_type": doc.party_type,
+						"party": doc.party,
+					},
+				]
 			return _return_je(je)
 
 		# Registered -> Sent to Bank: Dr Clearing, Cr Cheques in Hand (``account_paid_to`` / resolver).
@@ -729,18 +754,39 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 			if doc.cheque_no:
 				remark = f"{remark} — {doc.cheque_no}"
 			je = _base(remark)
-			je["accounts"] = [
-				{
-					"account": debit_account,
-					"debit_in_account_currency": doc.cheque_amount,
-					"party_type": doc.party_type,
-					"party": doc.party,
-				},
-				{
-					"account": credit_account,
-					"credit_in_account_currency": doc.cheque_amount,
-				},
-			]
+			slices = receivable_sales_invoice_settlement_slices(doc)
+			if slices:
+				je["accounts"] = []
+				for sinv, amt in slices:
+					je["accounts"].append(
+						{
+							"account": debit_account,
+							"debit_in_account_currency": amt,
+							"party_type": doc.party_type,
+							"party": doc.party,
+							"reference_type": "Sales Invoice",
+							"reference_name": sinv,
+						}
+					)
+				je["accounts"].append(
+					{
+						"account": credit_account,
+						"credit_in_account_currency": doc.cheque_amount,
+					}
+				)
+			else:
+				je["accounts"] = [
+					{
+						"account": debit_account,
+						"debit_in_account_currency": doc.cheque_amount,
+						"party_type": doc.party_type,
+						"party": doc.party,
+					},
+					{
+						"account": credit_account,
+						"credit_in_account_currency": doc.cheque_amount,
+					},
+				]
 			return _return_je(je)
 
 		# Registered -> Endorsed: Dr settlement GL (preferred) or endorsed holder AR — Cr Cheques in Hand.
@@ -1156,6 +1202,7 @@ class PostDatedCheque(Document):
 
 	def validate(self):
 		"""Validate PDC data and enforce immutability after submit."""
+		validate_post_dated_cheque_allocation_mode_immutability(self)
 		self._reset_party_if_party_type_changed()
 		self._set_default_party_accounts()
 		self._validate_fields_not_editable_after_related_accounting()
@@ -1390,8 +1437,30 @@ class PostDatedCheque(Document):
 		"""Autofill from parent SI/PI link, drop empty rows, sync summary totals, then row rules."""
 		autofill_pdc_allocations_from_parent_reference(self)
 		sanitize_pdc_allocation_child_rows(self)
+		apply_pdc_allocation_row_defaults_from_parent(self)
 		sync_pdc_allocation_summary_amounts(self)
-		validate_pdc_allocation_rows(self)
+		# Ensure settlement-capacity helpers can exclude this cheque consistently even when invoked
+		# indirectly during workflow transitions (before_update_after_submit -> validate()).
+		#
+		# Unit tests may run without bound frappe.local; keep this defensive.
+		try:
+			flags = getattr(frappe, "flags", None)
+		except RuntimeError:
+			flags = None
+		if flags is None:
+			validate_pdc_allocation_rows(self)
+			return
+		try:
+			prev_excl = getattr(flags, "pdc_settlement_exclude_pdc", None)
+		except RuntimeError:
+			# frappe.flags is a LocalProxy and may be unbound in bare unit tests.
+			validate_pdc_allocation_rows(self)
+			return
+		try:
+			flags.pdc_settlement_exclude_pdc = self.name
+			validate_pdc_allocation_rows(self)
+		finally:
+			flags.pdc_settlement_exclude_pdc = prev_excl
 
 	def get_allocation_effective_from_workflow_state(self) -> str | None:
 		"""First workflow state at which allocations are effective; see ``pdc_allocation`` module."""

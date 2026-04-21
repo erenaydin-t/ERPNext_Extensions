@@ -39,12 +39,12 @@ def validate_payment_entry_against_pdc_settlement(doc, method=None) -> None:
 	for row in references:
 		pr = (getattr(row, "payment_request", None) or "").strip()
 		if pr:
-			pr_totals[pr] += flt(row.allocated_amount)
+			pr_totals[pr] += flt(getattr(row, "amount", None) or row.allocated_amount)
 		rdt = (row.reference_doctype or "").strip()
 		rnm = (row.reference_name or "").strip()
 		if rdt not in SETTLEMENT_REFERENCE_DOCTYPES or not rnm:
 			continue
-		totals[(rdt, rnm)] += flt(row.allocated_amount)
+		totals[(rdt, rnm)] += flt(getattr(row, "amount", None) or row.allocated_amount)
 
 	# Contract: validate Payment Request allocations via PER.payment_request ceiling.
 	for pr_name, alloc_sum in pr_totals.items():
