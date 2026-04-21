@@ -1,0 +1,135 @@
+{
+ "actions": [],
+ "allow_copy": 0,
+ "allow_guest_to_view": 0,
+ "allow_import": 0,
+ "allow_rename": 0,
+ "autoname": "hash",
+ "beta": 0,
+ "creation": "2026-04-19 00:00:00.000000",
+ "custom": 0,
+ "docstatus": 0,
+ "doctype": "DocType",
+ "document_type": "Document",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "post_dated_cheque",
+  "invoice_currency",
+  "pdc_currency",
+  "order_doctype",
+  "order_name",
+  "amount",
+  "amount_in_pdc_currency",
+  "fx_rate",
+  "application_status",
+  "posted_je",
+  "reversal_je"
+ ],
+ "fields": [
+  {
+   "fieldname": "post_dated_cheque",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Post Dated Cheque",
+   "options": "Post Dated Cheque",
+   "reqd": 1
+  },
+  {
+   "fieldname": "invoice_currency",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Invoice Currency",
+   "options": "Currency",
+   "fetch_from": "parent.currency",
+   "description": "Denormalized from parent Purchase/Sales Invoice; authoritative currency for `amount` (invoice transaction currency)."
+  },
+  {
+   "fieldname": "pdc_currency",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "PDC Currency",
+   "options": "Currency",
+   "fetch_from": "post_dated_cheque.currency",
+   "description": "Denormalized from linked Post Dated Cheque; authoritative currency for `amount_in_pdc_currency`."
+  },
+  {
+   "fieldname": "order_doctype",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Order DocType",
+   "options": "Purchase Order\nSales Order",
+   "reqd": 1
+  },
+  {
+   "fieldname": "order_name",
+   "fieldtype": "Dynamic Link",
+   "in_list_view": 1,
+   "label": "Order",
+   "options": "order_doctype",
+   "reqd": 1
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount",
+   "options": "invoice_currency",
+   "reqd": 1,
+   "description": "Application amount in parent invoice currency (authoritative: parent.currency)."
+  },
+  {
+   "fieldname": "amount_in_pdc_currency",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount (PDC Currency)",
+   "options": "pdc_currency",
+   "reqd": 1,
+   "description": "Canonical normalized amount in PDC instrument currency for open-advance and cap math."
+  },
+  {
+   "fieldname": "fx_rate",
+   "fieldtype": "Float",
+   "label": "Exchange Rate",
+   "precision": 9,
+   "description": "Required when invoice currency differs from PDC currency (direction defined at posting time in a later task)."
+  },
+  {
+   "fieldname": "application_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Application Status",
+   "options": "draft\nposted\nreversed",
+   "default": "draft",
+   "reqd": 1
+  },
+  {
+   "fieldname": "posted_je",
+   "fieldtype": "Link",
+   "label": "Posted Journal Entry",
+   "options": "Journal Entry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reversal_je",
+   "fieldtype": "Link",
+   "label": "Reversal Journal Entry",
+   "options": "Journal Entry",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-04-19 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Cheque Management",
+ "name": "PDC Invoice Application",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

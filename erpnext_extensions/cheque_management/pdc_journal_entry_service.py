@@ -1,0 +1,328 @@
+# Copyright (c) 2025, erpnext-extensions and contributors
+# For license information, please see license.txt
+
+"""Post **Journal Entry** vouchers for PDC workflow transitions (idempotent per transition key).
+
+Uses payloads from :func:`build_pdc_journal_entry_data` in ``post_dated_cheque``. Transition keys and
+duplicate detection live in ``pdc_accounting_idempotency``. For operational labels, see
+``pdc_workflow_to_cheque_status``; for allowed edges, ``pdc_workflow_state_machine``.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+import frappe
+from frappe import _
+from frappe.utils.synchronization import filelock
+
+from erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque import (
+    build_pdc_journal_entry_data,
+)
+from erpnext_extensions.cheque_management.pdc_accounting_idempotency import (
+    build_pdc_accounting_transition_key,
+    build_pdc_transition_key_suffix,
+    stored_transition_key_matches,
+    normalize_cheque_direction_for_accounting_key,
+)
+from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
+	CHEQUE_DIRECTION_PAYABLE,
+	CHEQUE_DIRECTION_RECEIVABLE,
+	WORKFLOW_BOUNCED,
+	WORKFLOW_CANCELLED,
+	WORKFLOW_CLEARED,
+	WORKFLOW_DRAFT,
+	WORKFLOW_ENDORSED,
+	WORKFLOW_ISSUED,
+	WORKFLOW_REGISTERED,
+	WORKFLOW_RETURNED,
+	WORKFLOW_REPLACED,
+	WORKFLOW_SENT_TO_BANK,
+	WORKFLOW_UNDER_LEGAL_ACTION,
+	normalize_workflow_state_value,
+)
+
+
+def build_pdc_transition_key(
+    cheque_direction: str,
+    from_state: str | None,
+    to_state: str | None,
+) -> str:
+    """``direction|from|to`` suffix (legacy); prefer :func:`build_pdc_accounting_transition_key` for the full key."""
+    return build_pdc_transition_key_suffix(cheque_direction, from_state, to_state)
+
+
+def _purpose_for_transition(
+    cheque_direction: str,
+    from_state: str | None,
+    to_state: str | None,
+) -> str:
+    """Map workflow transition to ``purpose`` on PDC Journal Reference (canonical Select values only).
+
+    Receivable:
+        Draft → Registered → Receive; Registered → Sent to Bank → Under Collection;
+        Sent to Bank → Bounced → Returned (bank dishonour; same label as party return);
+        Registered → Returned → Returned; Registered → Endorsed → Endorsement;
+        Bounced|Returned → Replaced → Receive (replacement book entry).
+
+    Payable:
+        Draft → Registered → Payable Issue (supplier settlement); Registered → Cancelled → Cancel;
+        Issued → Returned → Returned;
+        Issued → Cancelled → Cancel; Issued → Replaced → Returned (same GL pattern as return);
+        Issued → Cleared → Payable Clear;
+        Returned → Replaced → Payable Issue (re-issue).
+
+    Receivable **→Cleared** is a **Journal Entry** with purpose **Collected**; Payable **Issued → Cleared**
+    uses purpose **Payable Clear** (see ``build_pdc_journal_entry_data``).
+
+    Payment Entry is not used for PDC lifecycle in the Journal-centric architecture.
+    """
+    d = normalize_cheque_direction_for_accounting_key(cheque_direction)
+    f = normalize_workflow_state_value(from_state)
+    t = normalize_workflow_state_value(to_state)
+    if d == CHEQUE_DIRECTION_RECEIVABLE:
+        if f == WORKFLOW_DRAFT and t == WORKFLOW_REGISTERED:
+            return "Receive"
+        if f == WORKFLOW_REGISTERED and t == WORKFLOW_SENT_TO_BANK:
+            return "Under Collection"
+        if t == WORKFLOW_CLEARED and f in (
+            WORKFLOW_REGISTERED,
+            WORKFLOW_SENT_TO_BANK,
+            WORKFLOW_UNDER_LEGAL_ACTION,
+        ):
+            return "Collected"
+        if f == WORKFLOW_SENT_TO_BANK and t == WORKFLOW_BOUNCED:
+            return "Returned"
+        if f == WORKFLOW_REGISTERED and t == WORKFLOW_RETURNED:
+            return "Returned"
+        if f == WORKFLOW_REGISTERED and t == WORKFLOW_ENDORSED:
+            return "Endorsement"
+        if f in (WORKFLOW_BOUNCED, WORKFLOW_RETURNED) and t == WORKFLOW_REPLACED:
+            return "Receive"
+    else:
+        if f == WORKFLOW_DRAFT and t == WORKFLOW_REGISTERED:
+            return "Payable Issue"
+        if f == WORKFLOW_REGISTERED and t == WORKFLOW_CANCELLED:
+            return "Cancel"
+        if f == WORKFLOW_ISSUED and t == WORKFLOW_CLEARED:
+            return "Payable Clear"
+        if f == WORKFLOW_ISSUED and t == WORKFLOW_RETURNED:
+            return "Returned"
+        if f == WORKFLOW_ISSUED and t == WORKFLOW_CANCELLED:
+            return "Cancel"
+        if f == WORKFLOW_ISSUED and t == WORKFLOW_REPLACED:
+            return "Returned"
+        if f == WORKFLOW_RETURNED and t == WORKFLOW_REPLACED:
+            return "Payable Issue"
+    return "Receive" if d == CHEQUE_DIRECTION_RECEIVABLE else "Payable Issue"
+
+
+def get_existing_journal_entry_for_transition(
+    pdc_name: str,
+    cheque_direction: str,
+    from_state: str | None,
+    to_state: str | None,
+) -> str | None:
+    """Return existing Journal Entry name if this transition was already posted for the PDC.
+
+    Matches **canonical** key ``cheque_name|direction|from|to`` or **legacy** ``direction|from|to``,
+    using the same normalization as when the row was created. If no exact ``pdc_transition_key``
+    hit is found (e.g. minor historical variants), falls back to scanning ``journal_references``
+    with :func:`stored_transition_key_matches`.
+    """
+    name = (pdc_name or "").strip()
+    if not name:
+        return None
+    full = build_pdc_accounting_transition_key(name, cheque_direction, from_state, to_state)
+    legacy = build_pdc_transition_key_suffix(cheque_direction, from_state, to_state)
+    for key in (full, legacy):
+        je = frappe.db.get_value(
+            "PDC Journal Reference",
+            {"parent": name, "parenttype": "Post Dated Cheque", "pdc_transition_key": key},
+            "journal_entry",
+        )
+        if je:
+            return je
+    rows = frappe.get_all(
+        "PDC Journal Reference",
+        filters={"parent": name, "parenttype": "Post Dated Cheque"},
+        fields=["journal_entry", "pdc_transition_key"],
+    )
+    for row in rows:
+        if stored_transition_key_matches(
+            row.get("pdc_transition_key"),
+            name,
+            cheque_direction,
+            from_state,
+            to_state,
+        ):
+            return row.get("journal_entry")
+    return None
+
+
+def create_and_submit_journal_entry_from_payload(
+    pdc,
+    payload: dict[str, Any],
+    from_state: str | None,
+    to_state: str | None,
+    *,
+    purpose: str | None = None,
+) -> str:
+    """
+    Create a submitted Journal Entry from payload dict (same shape as build_pdc_journal_entry_data),
+    append one PDC Journal Reference row, return Journal Entry name.
+
+    Idempotent: if this transition already has a journal row on the PDC, returns existing JE without creating another.
+    Uses a file lock so concurrent requests cannot double-post the same transition.
+    """
+    if getattr(pdc, "meta", None) and pdc.meta.name != "Post Dated Cheque":
+        pdc = frappe.get_doc("Post Dated Cheque", pdc.name)
+    if not pdc.name:
+        frappe.throw(_("Save Post Dated Cheque before creating a Journal Entry."))
+
+    ch_dir = normalize_cheque_direction_for_accounting_key(getattr(pdc, "cheque_direction", None))
+    from_n = normalize_workflow_state_value(from_state)
+    to_n = normalize_workflow_state_value(to_state)
+    transition_key = build_pdc_accounting_transition_key(pdc.name, ch_dir, from_n, to_n)
+    lock_name = f"pdc_accounting_je_{pdc.name}"
+
+    with filelock(lock_name, timeout=120):
+        pdc.reload()
+        existing = get_existing_journal_entry_for_transition(pdc.name, ch_dir, from_n, to_n)
+        if existing:
+            return existing
+
+        purpose = purpose or _purpose_for_transition(ch_dir, from_n, to_n)
+        posting_date = payload.get("posting_date") or pdc.cheque_due_date or frappe.utils.today()
+        amount = _payload_amount(payload) or pdc.cheque_amount or 0
+
+        je = frappe.new_doc("Journal Entry")
+        je.posting_date = posting_date
+        je.company = pdc.company
+        je.voucher_type = payload.get("voucher_type") or "Journal Entry"
+        je.user_remark = payload.get("remarks") or ""
+        if pdc.cheque_no:
+            je.cheque_no = pdc.cheque_no
+        if pdc.cheque_due_date:
+            je.cheque_date = pdc.cheque_due_date
+
+        accounts = payload.get("accounts") or []
+        if not accounts:
+            frappe.throw(_("Journal Entry payload has no accounts."))
+
+        # Party-touch rule (journal-centric lifecycle):
+        #
+        # - Receivable: party is touched at Registered (settlement), Returned (reverse), and
+        #   Endorsement only when the debit is the endorsed holder’s receivable (never the drawer again).
+        # - Payable: party is touched only at Issued and its reversals (Returned/Cancelled/Replaced).
+        # - Cleared: bank vs pool only (no party) for both directions.
+        #
+        # The payload builder already follows this. This guard prevents accidental party dimensions
+        # from leaking into non-party transitions (e.g. custom payload edits).
+        receivable_non_party_transitions = {
+            (WORKFLOW_REGISTERED, WORKFLOW_SENT_TO_BANK),
+            (WORKFLOW_SENT_TO_BANK, WORKFLOW_BOUNCED),
+        }
+        bank_clear_no_party = to_n == WORKFLOW_CLEARED and ch_dir in (
+            CHEQUE_DIRECTION_RECEIVABLE,
+            CHEQUE_DIRECTION_PAYABLE,
+        )
+        receivable_non_party = (
+            ch_dir == CHEQUE_DIRECTION_RECEIVABLE and (from_n, to_n) in receivable_non_party_transitions
+        )
+        suppress_party = bank_clear_no_party or receivable_non_party
+
+        for row in accounts:
+            entry: dict[str, Any] = {"account": row["account"]}
+            if row.get("debit_in_account_currency"):
+                entry["debit_in_account_currency"] = row["debit_in_account_currency"]
+            if row.get("credit_in_account_currency"):
+                entry["credit_in_account_currency"] = row["credit_in_account_currency"]
+            # Cleared (and other non-party transitions): never post party on JE lines.
+            if not suppress_party:
+                if row.get("party_type"):
+                    entry["party_type"] = row["party_type"]
+                if row.get("party"):
+                    entry["party"] = row["party"]
+            # Purchase Invoice settlement on supplier payable (payable issue / reversals); omit on pool/bank lines.
+            if row.get("reference_type"):
+                entry["reference_type"] = row["reference_type"]
+            if row.get("reference_name"):
+                entry["reference_name"] = row["reference_name"]
+            je.append("accounts", entry)
+
+        je.flags.ignore_permissions = True
+        je.save()
+        je.submit()
+
+        pdc.reload()
+        pdc.append(
+            "journal_references",
+            {
+                "journal_entry": je.name,
+                "purpose": purpose,
+                "pdc_transition_key": transition_key,
+                "posting_date": posting_date,
+                "amount": amount,
+            },
+        )
+        pdc.flags.ignore_validate_update_after_submit = True
+        pdc.flags.skip_pdc_accounting_orchestration = True
+        # Internal self-save after JE posting is re-entrant: it re-enters allocation validation after
+        # the JE has already settled the referenced invoice(s), so Sales Invoice outstanding can be 0.
+        # Bypass only *settlement capacity* checks for this PDC during this internal save; structural
+        # allocation validations (mode/party/company/currency/reference integrity) still run.
+        try:
+            prev_flag = getattr(frappe.flags, "skip_pdc_allocation_capacity_validation_for_pdc", None)
+        except Exception:
+            prev_flag = None
+        try:
+            frappe.flags.skip_pdc_allocation_capacity_validation_for_pdc = pdc.name
+            pdc.save(ignore_permissions=True)
+        finally:
+            try:
+                frappe.flags.skip_pdc_allocation_capacity_validation_for_pdc = prev_flag
+            except Exception:
+                pass
+
+        return je.name
+
+
+def post_pdc_transition_journal_entry(
+    pdc,
+    from_state: str | None,
+    to_state: str | None,
+    *,
+    posting_date=None,
+) -> str | None:
+    """
+    Build journal payload from workflow transition and create/skip-if-exists JE.
+
+    Returns Journal Entry name, or None if build_pdc_journal_entry_data returns None (no accounting).
+    """
+    if getattr(pdc, "meta", None) and pdc.meta.name != "Post Dated Cheque":
+        pdc = frappe.get_doc("Post Dated Cheque", pdc.name)
+
+    from_n = normalize_workflow_state_value(from_state)
+    to_n = normalize_workflow_state_value(to_state)
+    ch_dir = normalize_cheque_direction_for_accounting_key(getattr(pdc, "cheque_direction", None))
+    existing = get_existing_journal_entry_for_transition(pdc.name, ch_dir, from_n, to_n)
+    if existing:
+        return existing
+
+    payload = build_pdc_journal_entry_data(pdc, from_n, to_n, posting_date=posting_date)
+    if not payload:
+        return None
+
+    if posting_date and payload.get("posting_date") != posting_date:
+        payload = dict(payload)
+        payload["posting_date"] = posting_date
+
+    return create_and_submit_journal_entry_from_payload(pdc, payload, from_n, to_n)
+
+
+def _payload_amount(payload: dict[str, Any]) -> float:
+    total_debit = 0.0
+    for row in payload.get("accounts") or []:
+        total_debit += float(row.get("debit_in_account_currency") or 0)
+    return total_debit

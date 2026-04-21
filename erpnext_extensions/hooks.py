@@ -5,6 +5,9 @@ app_description = "Extensions for ERPNext v15 — decimal precision, localizatio
 app_email = "sfarbod@gmail.com"
 app_license = "mit"
 
+# Desk boot: expose Payment Request workflow flag for client ``has_workflow`` alignment (see ``desk_boot.py``).
+boot_session = ["erpnext_extensions.desk_boot.extend_bootinfo"]
+
 # Apps
 # ------------------
 
@@ -43,7 +46,21 @@ app_license = "mit"
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
-# doctype_js = {"doctype" : "public/js/doctype.js"}
+doctype_js = {
+	"Payment Request": [
+		"public/js/pdc_create_from_source.js",
+		"public/js/pdc_settlement_summary.js",
+		"public/js/payment_request.js",
+	],
+	"Sales Invoice": [
+		"public/js/pdc_create_from_source.js",
+		"public/js/pdc_settlement_summary.js",
+	],
+	"Purchase Invoice": [
+		"public/js/pdc_create_from_source.js",
+		"public/js/pdc_settlement_summary.js",
+	],
+}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
@@ -139,14 +156,33 @@ app_license = "mit"
 
 # Document Events
 # ---------------
-# Temporarily disabled - Cheque Management module
-# doc_events = {
-# 	"Cheque": {
-# 		"on_update": "erpnext_extensions.cheque_management.doctype.cheque.cheque.on_cheque_update",
-# 		"before_delete": "erpnext_extensions.cheque_management.doctype.cheque.cheque.before_cheque_delete",
-# 		"on_update_after_submit": "erpnext_extensions.cheque_management.doctype.cheque.cheque.on_cheque_update_after_submit"
-# 	}
-# }
+# Hook on document methods and events
+
+doc_events = {
+	"Post Dated Cheque": {
+		"on_submit": [
+			"erpnext_extensions.cheque_management.pdc_payment_request_status.on_post_dated_cheque_changed",
+		],
+		"on_cancel": [
+			"erpnext_extensions.cheque_management.pdc_payment_request_status.on_post_dated_cheque_changed",
+		],
+		"on_update_after_submit": [
+			"erpnext_extensions.cheque_management.pdc_payment_request_status.on_post_dated_cheque_changed",
+		],
+	},
+	"Payment Entry": {
+		"validate": "erpnext_extensions.cheque_management.payment_entry_pdc_validation.validate_payment_entry_against_pdc_settlement",
+		"on_submit": [
+			"erpnext_extensions.cheque_management.pdc_payment_request_status.on_payment_entry_changed",
+		],
+		"on_cancel": [
+			"erpnext_extensions.cheque_management.pdc_payment_request_status.on_payment_entry_changed",
+		],
+	},
+	"Payment Request": {
+		"validate": "erpnext_extensions.cheque_management.pdc_payment_request_eligibility.validate_payment_request_invoice_ceiling_on_save",
+	},
+}
 
 # Scheduled Tasks
 # ---------------
@@ -257,15 +293,14 @@ app_license = "mit"
 #
 # The fixtures will be saved in: erpnext_extensions/fixtures/
 
-# Temporarily disabled - uncomment to enable fixtures import
-# fixtures = [
-# 	{"dt": "Custom Field"},
-# 	{"dt": "Client Script"},
-# 	{"dt": "Server Script"},
-# 	{"dt": "Property Setter"},
-# 	{"dt": "Workflow"},
-# 	{"dt": "Workflow State"},
-# 	{"dt": "Workflow Action Master"},
-# 	{"dt": "Role"},
-# ]
+fixtures = [
+	{"dt": "Custom Field"},
+	{"dt": "Client Script"},
+	{"dt": "Server Script"},
+	{"dt": "Property Setter"},
+	{"dt": "Workflow State"},
+	{"dt": "Workflow Action Master"},
+	{"dt": "Workflow"},
+	{"dt": "Role"},
+]
 

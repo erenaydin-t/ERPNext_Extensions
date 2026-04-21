@@ -1,0 +1,181 @@
+# Copyright (c) 2025, Farbod Siyahpoosh and contributors
+# For license information, please see license.txt
+
+"""Unit tests for :func:`get_pdc_workflow_transition_validation_error` (PDC workflow_state edges)."""
+
+from __future__ import annotations
+
+import unittest
+
+from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
+	CHEQUE_DIRECTION_PAYABLE,
+	CHEQUE_DIRECTION_RECEIVABLE,
+	PDC_VALIDATION_BOUNCED_REQUIRES_RECEIVABLE_SENT_TO_BANK,
+	PDC_VALIDATION_CANCELLED_IS_TERMINAL,
+	PDC_VALIDATION_CLEARED_IS_TERMINAL,
+	PDC_VALIDATION_ENDORSED_NO_BANK_CLEAR,
+	PDC_VALIDATION_ENDORSED_RECEIVABLE_ONLY,
+	PDC_VALIDATION_ISSUED_PAYABLE_ONLY,
+	PDC_VALIDATION_REPLACED_IS_TERMINAL,
+	PDC_VALIDATION_SENT_TO_BANK_RECEIVABLE_ONLY,
+	WORKFLOW_BOUNCED,
+	WORKFLOW_CANCELLED,
+	WORKFLOW_CLEARED,
+	WORKFLOW_DRAFT,
+	WORKFLOW_ENDORSED,
+	WORKFLOW_ISSUED,
+	WORKFLOW_REGISTERED,
+	WORKFLOW_REPLACED,
+	WORKFLOW_RETURNED,
+	WORKFLOW_SENT_TO_BANK,
+	WORKFLOW_UNDER_LEGAL_ACTION,
+	get_pdc_workflow_transition_validation_error,
+)
+
+
+def _err(cheque_type: str, prev: str | None, new: str | None) -> str | None:
+	return get_pdc_workflow_transition_validation_error(cheque_type, prev, new)
+
+
+class TestPDCWorkflowTransitionValidation(unittest.TestCase):
+	"""``previous`` must be non-empty for any transition away from the implicit initial Draft."""
+
+	def test_receivable_valid_transitions(self):
+		self.assertIsNone(_err(CHEQUE_DIRECTION_RECEIVABLE, None, WORKFLOW_DRAFT))
+		self.assertIsNone(_err(CHEQUE_DIRECTION_RECEIVABLE, "", WORKFLOW_DRAFT))
+		self.assertIsNone(_err(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_DRAFT, WORKFLOW_REGISTERED))
+		self.assertIsNone(
+			_err(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_REGISTERED, WORKFLOW_SENT_TO_BANK)
+		)
+		self.assertIsNone(_err(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_REGISTERED, WORKFLOW_CLEARED))
+		self.assertIsNone(_err(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_REGISTERED, WORKFLOW_RETURNED))
+		self.assertIsNone(_err(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_REGISTERED, WORKFLOW_ENDORSED))
+		self.assertIsNone(_err(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_SENT_TO_BANK, WORKFLOW_CLEARED))
+		self.assertIsNone(_err(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_SENT_TO_BANK, WORKFLOW_BOUNCED))
+		self.assertIsNone(_err(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_BOUNCED, WORKFLOW_RETURNED))
+		self.assertIsNone(
+			_err(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_UNDER_LEGAL_ACTION, WORKFLOW_CLEARED)
+		)
+
+	def test_receivable_invalid_transitions(self):
+		self.assertIsNotNone(_err(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_DRAFT, WORKFLOW_ISSUED))
+		self.assertEqual(
+			_err(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_DRAFT, WORKFLOW_ISSUED),
+			PDC_VALIDATION_ISSUED_PAYABLE_ONLY,
+		)
+		self.assertIsNotNone(_err(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_DRAFT, WORKFLOW_SENT_TO_BANK))
+		self.assertIsNotNone(_err(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_REGISTERED, WORKFLOW_ISSUED))
+		self.assertIsNotNone(_err(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_SENT_TO_BANK, WORKFLOW_REGISTERED))
+		self.assertIsNotNone(_err(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_REGISTERED, WORKFLOW_DRAFT))
+
+	def test_payable_valid_transitions(self):
+		self.assertIsNone(_err(CHEQUE_DIRECTION_PAYABLE, None, WORKFLOW_DRAFT))
+		self.assertIsNone(_err(CHEQUE_DIRECTION_PAYABLE, WORKFLOW_DRAFT, WORKFLOW_REGISTERED))
+		self.assertIsNone(_err(CHEQUE_DIRECTION_PAYABLE, WORKFLOW_REGISTERED, WORKFLOW_ISSUED))
+		self.assertIsNone(_err(CHEQUE_DIRECTION_PAYABLE, WORKFLOW_ISSUED, WORKFLOW_CLEARED))
+		self.assertIsNone(_err(CHEQUE_DIRECTION_PAYABLE, WORKFLOW_ISSUED, WORKFLOW_RETURNED))
+		self.assertIsNone(_err(CHEQUE_DIRECTION_PAYABLE, WORKFLOW_RETURNED, WORKFLOW_REPLACED))
+
+	def test_payable_invalid_transitions(self):
+		self.assertIsNotNone(_err(CHEQUE_DIRECTION_PAYABLE, WORKFLOW_DRAFT, WORKFLOW_SENT_TO_BANK))
+		self.assertEqual(
+			_err(CHEQUE_DIRECTION_PAYABLE, WORKFLOW_DRAFT, WORKFLOW_SENT_TO_BANK),
+			PDC_VALIDATION_SENT_TO_BANK_RECEIVABLE_ONLY,
+		)
+		self.assertIsNotNone(_err(CHEQUE_DIRECTION_PAYABLE, WORKFLOW_REGISTERED, WORKFLOW_ENDORSED))
+		self.assertEqual(
+			_err(CHEQUE_DIRECTION_PAYABLE, WORKFLOW_REGISTERED, WORKFLOW_ENDORSED),
+			PDC_VALIDATION_ENDORSED_RECEIVABLE_ONLY,
+		)
+		self.assertIsNotNone(_err(CHEQUE_DIRECTION_PAYABLE, WORKFLOW_REGISTERED, WORKFLOW_CLEARED))
+		self.assertIsNotNone(_err(CHEQUE_DIRECTION_PAYABLE, WORKFLOW_ISSUED, WORKFLOW_REGISTERED))
+
+	def test_bounced_only_after_sent_to_bank_receivable(self):
+		self.assertIsNone(
+			_err(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_SENT_TO_BANK, WORKFLOW_BOUNCED)
+		)
+		self.assertIsNone(_err(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_BOUNCED, WORKFLOW_BOUNCED))
+		self.assertEqual(
+			_err(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_REGISTERED, WORKFLOW_BOUNCED),
+			PDC_VALIDATION_BOUNCED_REQUIRES_RECEIVABLE_SENT_TO_BANK,
+		)
+		self.assertEqual(
+			_err(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_DRAFT, WORKFLOW_BOUNCED),
+			PDC_VALIDATION_BOUNCED_REQUIRES_RECEIVABLE_SENT_TO_BANK,
+		)
+		self.assertEqual(
+			_err(CHEQUE_DIRECTION_PAYABLE, WORKFLOW_ISSUED, WORKFLOW_BOUNCED),
+			PDC_VALIDATION_BOUNCED_REQUIRES_RECEIVABLE_SENT_TO_BANK,
+		)
+
+	def test_endorsed_only_receivable(self):
+		self.assertIsNone(
+			_err(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_REGISTERED, WORKFLOW_ENDORSED)
+		)
+		self.assertEqual(
+			_err(CHEQUE_DIRECTION_PAYABLE, WORKFLOW_REGISTERED, WORKFLOW_ENDORSED),
+			PDC_VALIDATION_ENDORSED_RECEIVABLE_ONLY,
+		)
+
+	def test_endorsed_receivable_cannot_go_to_bank_or_cleared(self):
+		self.assertEqual(
+			_err(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_ENDORSED, WORKFLOW_SENT_TO_BANK),
+			PDC_VALIDATION_ENDORSED_NO_BANK_CLEAR,
+		)
+		self.assertEqual(
+			_err(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_ENDORSED, WORKFLOW_CLEARED),
+			PDC_VALIDATION_ENDORSED_NO_BANK_CLEAR,
+		)
+		self.assertIsNone(_err(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_ENDORSED, WORKFLOW_ENDORSED))
+
+	def test_endorsed_receivable_blocks_other_transitions_generically(self):
+		self.assertIsNotNone(_err(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_ENDORSED, WORKFLOW_CANCELLED))
+		self.assertIsNotNone(_err(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_ENDORSED, WORKFLOW_RETURNED))
+
+	def test_issued_only_payable(self):
+		self.assertIsNone(_err(CHEQUE_DIRECTION_PAYABLE, WORKFLOW_REGISTERED, WORKFLOW_ISSUED))
+		self.assertEqual(
+			_err(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_REGISTERED, WORKFLOW_ISSUED),
+			PDC_VALIDATION_ISSUED_PAYABLE_ONLY,
+		)
+
+	def test_sent_to_bank_only_receivable(self):
+		self.assertIsNone(
+			_err(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_REGISTERED, WORKFLOW_SENT_TO_BANK)
+		)
+		self.assertEqual(
+			_err(CHEQUE_DIRECTION_PAYABLE, WORKFLOW_REGISTERED, WORKFLOW_SENT_TO_BANK),
+			PDC_VALIDATION_SENT_TO_BANK_RECEIVABLE_ONLY,
+		)
+
+	def test_terminal_state_protection(self):
+		for prev, err_msg in (
+			(WORKFLOW_CLEARED, PDC_VALIDATION_CLEARED_IS_TERMINAL),
+			(WORKFLOW_CANCELLED, PDC_VALIDATION_CANCELLED_IS_TERMINAL),
+			(WORKFLOW_REPLACED, PDC_VALIDATION_REPLACED_IS_TERMINAL),
+		):
+			with self.subTest(previous=prev):
+				self.assertIsNone(_err(CHEQUE_DIRECTION_RECEIVABLE, prev, prev))
+				self.assertEqual(
+					_err(CHEQUE_DIRECTION_RECEIVABLE, prev, WORKFLOW_REGISTERED),
+					err_msg,
+				)
+				self.assertEqual(
+					_err(CHEQUE_DIRECTION_PAYABLE, prev, WORKFLOW_REGISTERED),
+					err_msg,
+				)
+
+	def test_no_previous_only_draft_allowed(self):
+		self.assertIsNone(_err(CHEQUE_DIRECTION_RECEIVABLE, None, WORKFLOW_DRAFT))
+		self.assertIsNotNone(_err(CHEQUE_DIRECTION_RECEIVABLE, None, WORKFLOW_REGISTERED))
+		self.assertIn("only", (_err(CHEQUE_DIRECTION_RECEIVABLE, None, WORKFLOW_REGISTERED) or ""))
+		self.assertIn(WORKFLOW_DRAFT, _err(CHEQUE_DIRECTION_RECEIVABLE, None, WORKFLOW_REGISTERED) or "")
+
+	def test_invalid_new_label(self):
+		msg = _err(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_DRAFT, "NotARealState")
+		self.assertIsNotNone(msg)
+		self.assertIn("Invalid Workflow State", msg or "")
+
+
+if __name__ == "__main__":
+	unittest.main()

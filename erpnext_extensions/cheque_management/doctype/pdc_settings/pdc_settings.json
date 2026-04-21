@@ -1,0 +1,163 @@
+{
+ "actions": [],
+ "allow_copy": 0,
+ "allow_guest_to_view": 0,
+ "allow_import": 0,
+ "allow_rename": 0,
+ "beta": 0,
+ "creation": "2025-02-08 00:00:00.000000",
+ "custom": 0,
+ "docstatus": 0,
+ "doctype": "DocType",
+ "document_type": "Setup",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "company",
+  "section_break_accounts",
+  "default_cheques_in_hand_account",
+  "default_cheques_in_clearing_account",
+  "column_break_payable",
+  "default_payable_cheque_account",
+  "default_protested_account",
+  "section_break_options",
+  "allow_endorsement",
+  "require_sayad_registration",
+  "default_endorsement_account",
+  "section_break_payment_request",
+  "payment_request_pdc_mode_of_payment",
+  "section_break_allocation",
+  "other_settlement_allowed_doctypes"
+ ],
+ "fields": [
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "section_break_accounts",
+   "fieldtype": "Section Break",
+   "label": "Default Accounts"
+  },
+  {
+   "fieldname": "default_cheques_in_hand_account",
+   "fieldtype": "Link",
+   "label": "Default Cheques in Hand Account",
+   "options": "Account",
+   "description": "Notes receivable held at cashier — for recording received cheques before they are deposited or sent to the bank."
+  },
+  {
+   "fieldname": "default_cheques_in_clearing_account",
+   "fieldtype": "Link",
+   "label": "Default Cheques in Clearing Account",
+   "options": "Account",
+   "description": "Cheques under collection (in clearing), between hand and final bank settlement."
+  },
+  {
+   "fieldname": "column_break_payable",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "default_payable_cheque_account",
+   "fieldtype": "Link",
+   "label": "Default Payable Cheque Account",
+   "options": "Account",
+   "description": "Notes payable — default liability account for issued cheques."
+  },
+  {
+   "fieldname": "default_protested_account",
+   "fieldtype": "Link",
+   "label": "Default Protested Account",
+   "options": "Account",
+   "description": "Default account for protested or returned (bounced) cheques."
+  },
+  {
+   "fieldname": "section_break_options",
+   "fieldtype": "Section Break",
+   "label": "Options"
+  },
+  {
+   "fieldname": "allow_endorsement",
+   "fieldtype": "Check",
+   "label": "Allow Endorsement",
+   "default": 1
+  },
+  {
+   "fieldname": "require_sayad_registration",
+   "fieldtype": "Check",
+   "label": "Require Sayad Registration",
+   "default": 0,
+   "description": "If unchecked, Sayad fields are optional"
+  },
+  {
+   "fieldname": "default_endorsement_account",
+   "fieldtype": "Link",
+   "label": "Default Endorsement / Settlement Account (Receivable)",
+   "options": "Account",
+   "description": "Receivable Registered → Endorsed: GL debited instead of the endorsed party’s receivable (Dr settlement, Cr Cheques in Hand). Prefer a dedicated “endorsed cheques” or clearing account with no party. Per-PDC override: Post Dated Cheque → Endorsement Settlement Account."
+  },
+  {
+   "fieldname": "section_break_payment_request",
+   "fieldtype": "Section Break",
+   "label": "Payment Request",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "payment_request_pdc_mode_of_payment",
+   "fieldtype": "Link",
+   "label": "PDC Mode of Payment (Payment Request)",
+   "options": "Mode of Payment",
+   "description": "If a Payment Request uses this Mode of Payment, Desk recommends creating a Post Dated Cheque (deferred settlement). Any other mode follows the normal Payment Entry path. This is a path hint only—not used as the accounting source of truth."
+  },
+  {
+   "fieldname": "section_break_allocation",
+   "fieldtype": "Section Break",
+   "label": "Allocation (Phase 2)",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "other_settlement_allowed_doctypes",
+   "fieldtype": "Small Text",
+   "label": "Other Settlement — Allowed Reference DocTypes",
+   "description": "Comma or newline separated DocType names. If empty, Other Settlement allocation rows are not allowed. Configure here only; list UI is not required for validation."
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-04-11 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Cheque Management",
+ "name": "PDC Settings",
+ "autoname": "field:company",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
