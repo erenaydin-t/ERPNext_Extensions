@@ -31,6 +31,7 @@ from erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_c
 	build_pdc_journal_entry_data,
 	build_pdc_journal_entry_payload,
 )
+from erpnext_extensions.cheque_management.pdc_allocation import ALLOCATION_MODE_ADVANCE
 from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
 	CHEQUE_DIRECTION_PAYABLE,
 	CHEQUE_DIRECTION_RECEIVABLE,
@@ -231,6 +232,76 @@ class TestPDCJournalEntryPayloadBuilder(unittest.TestCase):
 		self.assertEqual(dr.get("party_type"), "Customer")
 		self.assertEqual(cr["account"], "ACC-PAY-POOL-SET")
 		self.assertNotIn("party_type", cr)
+
+	def test_advance_mode_payable_po_recognition_posts_on_register_and_sets_marker(self) -> None:
+		doc = _doc(
+			cheque_direction=CHEQUE_DIRECTION_PAYABLE,
+			allocation_mode=ALLOCATION_MODE_ADVANCE,
+			effective_stage_for_advance_recognition="register",
+			party_type="Supplier",
+			party="SUP-1",
+		)
+		with (
+			patch.object(pdc, "_get_pdc_settings_for_company", return_value=dict(_SETTINGS_BASE)),
+			patch.object(pdc, "_company_default_advance_paid_account", return_value="ACC-ADV-PAID"),
+			patch.object(pdc, "frappe") as mf,
+		):
+			mf._ = lambda s: s
+			je = build_pdc_journal_entry_data(doc, WORKFLOW_DRAFT, WORKFLOW_REGISTERED, POSTING)
+		assert je is not None
+		self.assertEqual(int(je.get("set_recognition_je_posted") or 0), 1)
+		dr, cr = je["accounts"]
+		self.assertEqual(dr["account"], "ACC-ADV-PAID")
+		self.assertEqual(dr.get("party_type"), "Supplier")
+		self.assertEqual(dr.get("party"), "SUP-1")
+		self.assertEqual(cr["account"], "ACC-PAY-POOL-SET")
+		self.assertNotIn("reference_type", dr)
+		self.assertNotIn("reference_type", cr)
+
+	def test_advance_mode_receivable_so_recognition_posts_on_register_and_sets_marker(self) -> None:
+		doc = _doc(
+			cheque_direction=CHEQUE_DIRECTION_RECEIVABLE,
+			allocation_mode=ALLOCATION_MODE_ADVANCE,
+			effective_stage_for_advance_recognition="register",
+			party_type="Customer",
+			party="CUST-1",
+		)
+		with (
+			patch.object(pdc, "_get_pdc_settings_for_company", return_value=dict(_SETTINGS_BASE)),
+			patch.object(pdc, "_company_default_advance_received_account", return_value="ACC-ADV-REC"),
+			patch.object(pdc, "_get_party_account_or_company_default", return_value="SHOULD-NOT-USE"),
+			patch.object(pdc, "frappe") as mf,
+		):
+			mf._ = lambda s: s
+			je = build_pdc_journal_entry_data(doc, WORKFLOW_DRAFT, WORKFLOW_REGISTERED, POSTING)
+		assert je is not None
+		self.assertEqual(int(je.get("set_recognition_je_posted") or 0), 1)
+		dr, cr = je["accounts"]
+		self.assertEqual(dr["account"], "ACC-CIH-DOC")
+		self.assertEqual(cr["account"], "ACC-ADV-REC")
+		self.assertEqual(cr.get("party_type"), "Customer")
+		self.assertEqual(cr.get("party"), "CUST-1")
+		self.assertNotIn("reference_type", dr)
+		self.assertNotIn("reference_type", cr)
+
+	def test_advance_mode_effective_stage_issue_posts_only_on_registered_to_issued(self) -> None:
+		doc = _doc(
+			cheque_direction=CHEQUE_DIRECTION_PAYABLE,
+			allocation_mode=ALLOCATION_MODE_ADVANCE,
+			effective_stage_for_advance_recognition="issue",
+			party_type="Supplier",
+			party="SUP-1",
+		)
+		with (
+			patch.object(pdc, "_get_pdc_settings_for_company", return_value=dict(_SETTINGS_BASE)),
+			patch.object(pdc, "_company_default_advance_paid_account", return_value="ACC-ADV-PAID"),
+			patch.object(pdc, "frappe") as mf,
+		):
+			mf._ = lambda s: s
+			j_reg = build_pdc_journal_entry_data(doc, WORKFLOW_DRAFT, WORKFLOW_REGISTERED, POSTING)
+			j_issue = build_pdc_journal_entry_data(doc, WORKFLOW_REGISTERED, WORKFLOW_ISSUED, POSTING)
+		self.assertIsNone(j_reg)
+		self.assertIsNotNone(j_issue)
 
 	def test_endorsement_uses_settings_account_when_set(self) -> None:
 		st = dict(_SETTINGS_BASE)

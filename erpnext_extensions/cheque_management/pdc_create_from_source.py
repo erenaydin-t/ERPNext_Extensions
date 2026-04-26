@@ -1,7 +1,8 @@
 # Copyright (c) 2026, Farbod Siyahpoosh and contributors
 # For license information, please see license.txt
 
-"""Prepare a new Post Dated Cheque from Sales Invoice, Purchase Invoice, or Payment Request.
+"""Prepare a new Post Dated Cheque from Sales Invoice, Purchase Invoice, Payment Request,
+or (Task 4) Purchase Order / Sales Order.
 
 Uses :func:`~erpnext_extensions.cheque_management.pdc_settlement_summary.get_settlement_summary_for_reference`
 for remaining capacity (same basis as Step 2 / Step 3). No accounting side-effects.
@@ -14,9 +15,10 @@ from frappe import _
 from frappe.utils import flt
 
 from erpnext_extensions.cheque_management.pdc_payment_request_eligibility import is_payment_request_settlement_eligible
-from erpnext_extensions.cheque_management.pdc_allocation import ALLOCATION_MODE_DIRECT
+from erpnext_extensions.cheque_management.pdc_allocation import ALLOCATION_MODE_ADVANCE, ALLOCATION_MODE_DIRECT
 from erpnext_extensions.cheque_management.pdc_settlement_capacity import SETTLEMENT_REFERENCE_DOCTYPES
 from erpnext_extensions.cheque_management.pdc_settlement_summary import get_settlement_summary_for_reference
+from erpnext_extensions.cheque_management.pdc_advance_order_capacity import get_order_remaining_advance_capacity
 
 
 def _default_payable_cheque_pool_account(company: str | None) -> str | None:
@@ -127,6 +129,141 @@ def _allocation_child_row(
 			"source_name": snm,
 		}
 	raise ValueError(sdt)
+
+
+def _order_party_company_currency(order_doctype: str, order_name: str) -> dict | None:
+	"""Return header fields from a submitted order (Task 4 create-from-order).
+
+	Supported sources:
+	- Purchase Order → Supplier / Payable
+	- Sales Order → Customer / Receivable
+	"""
+	sdt = (order_doctype or "").strip()
+	snm = (order_name or "").strip()
+	if sdt not in ("Purchase Order", "Sales Order"):
+		return None
+	if not snm or not frappe.db.exists(sdt, snm):
+		return None
+	# IMPORTANT: field lists must be DocType-aware. Sales Order does not have `supplier`.
+	fields = ["docstatus", "company", "currency", "grand_total", "advance_paid"]
+	if sdt == "Purchase Order":
+		fields.insert(3, "supplier")
+	else:
+		fields.insert(3, "customer")
+	row = frappe.db.get_value(sdt, snm, fields, as_dict=True)
+	if not row:
+		return None
+	if int(row.get("docstatus") or 0) != 1:
+		return {"error": "not_submitted"}
+	co = (row.get("company") or "").strip()
+	cur = (row.get("currency") or "").strip()
+	if sdt == "Purchase Order":
+		sup = (row.get("supplier") or "").strip()
+		if not (co and cur and sup):
+			return None
+		return {
+			"company": co,
+			"currency": cur,
+			"party_type": "Supplier",
+			"party": sup,
+			"cheque_direction": "Payable",
+			"grand_total": flt(row.get("grand_total")),
+			"advance_paid": flt(row.get("advance_paid")),
+		}
+	cust = (row.get("customer") or "").strip()
+	if not (co and cur and cust):
+		return None
+	return {
+		"company": co,
+		"currency": cur,
+		"party_type": "Customer",
+		"party": cust,
+		"cheque_direction": "Receivable",
+		"grand_total": flt(row.get("grand_total")),
+		"advance_paid": flt(row.get("advance_paid")),
+	}
+
+
+def prepare_post_dated_cheque_prefill_from_order(
+	order_doctype: str | None,
+	order_name: str | None,
+) -> dict:
+	"""Task 4: Build API response for opening a new **Advance Mode** PDC from PO/SO.
+
+	Seeds `allocation_mode=advance` and creates the first order allocation row automatically.
+	Does not compute settlement capacity (advance open is handled by Task 3 service).
+	"""
+	sdt = (order_doctype or "").strip()
+	snm = (order_name or "").strip()
+
+	out: dict = {"can_create": False}
+	if sdt not in ("Purchase Order", "Sales Order"):
+		out["message"] = _("Unsupported source document type for Advance Mode Post Dated Cheque.")
+		return out
+	if not snm or not frappe.db.exists(sdt, snm):
+		out["message"] = _("Source document was not found.")
+		return out
+
+	frappe.has_permission(sdt, "read", snm, throw=True)
+	frappe.has_permission("Post Dated Cheque", "create", throw=True)
+
+	seed = _order_party_company_currency(sdt, snm)
+	if not seed:
+		out["message"] = _("Could not resolve company / party / currency from the source order.")
+		return out
+	if seed.get("error") == "not_submitted":
+		out["message"] = _("Submit this document before creating a linked Post Dated Cheque.")
+		return out
+
+	grand_total = flt(seed.get("grand_total"))
+	advance_paid = flt(seed.get("advance_paid"))
+	suggested = max(0.0, grand_total - advance_paid) if grand_total else 0.0
+	# If the order doesn't track advance_paid, fall back to grand_total (better than zero-seeding).
+	if suggested <= 1e-9 and grand_total > 1e-9:
+		suggested = grand_total
+	remaining = get_order_remaining_advance_capacity(sdt, snm, exclude_pdc=None)
+	if remaining <= 1e-9:
+		out["message"] = _(
+			"There is no remaining advance capacity on this order. "
+			"You cannot create an Advance Mode Post Dated Cheque against it."
+		)
+		return out
+	if suggested > remaining + 1e-9:
+		suggested = remaining
+
+	child = {
+		"doctype": "PDC Allocation",
+		"allocation_mode": ALLOCATION_MODE_ADVANCE,
+		"reference_doctype": sdt,
+		"reference_name": snm,
+		"amount": suggested,
+		"company": seed["company"],
+		"party_type": seed["party_type"],
+		"party": seed["party"],
+		# Direct order-origin creation: no source trace.
+		"source_doctype": None,
+		"source_name": None,
+	}
+
+	prefill = {
+		"company": seed["company"],
+		"currency": seed["currency"],
+		"allocation_mode": ALLOCATION_MODE_ADVANCE,
+		"cheque_direction": seed["cheque_direction"],
+		"party_type": seed["party_type"],
+		"party": seed["party"],
+		"reference_doctype": sdt,
+		"reference_name": snm,
+		"cheque_amount": suggested,
+		"allocations": [child],
+		"allocated_amount": flt(suggested),
+		"unallocated_amount": 0.0,
+	}
+
+	out["can_create"] = True
+	out["prefill"] = prefill
+	out["suggested_allocation_amount"] = suggested
+	return out
 
 
 def prepare_post_dated_cheque_prefill_from_source(
@@ -251,7 +388,18 @@ def prepare_post_dated_cheque_from_source(
 	return prepare_post_dated_cheque_prefill_from_source(source_doctype, source_name)
 
 
+@frappe.whitelist()
+def prepare_post_dated_cheque_from_order(
+	order_doctype: str | None = None,
+	order_name: str | None = None,
+):
+	"""Desk: return prefill payload for an advance-mode PDC from Purchase Order / Sales Order."""
+	return prepare_post_dated_cheque_prefill_from_order(order_doctype, order_name)
+
+
 __all__ = [
 	"prepare_post_dated_cheque_from_source",
 	"prepare_post_dated_cheque_prefill_from_source",
+	"prepare_post_dated_cheque_from_order",
+	"prepare_post_dated_cheque_prefill_from_order",
 ]

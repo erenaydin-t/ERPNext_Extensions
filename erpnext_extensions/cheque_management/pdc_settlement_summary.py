@@ -24,6 +24,100 @@ from erpnext_extensions.cheque_management.pdc_settlement_capacity import (
 	sum_payment_entry_allocations_to_reference,
 )
 
+PDC_ADVANCE_APP_ROW_STATUSES = ("posted", "reversed")
+
+
+def _sum_net_pdc_advance_applied_on_invoice(invoice_doctype: str, invoice_name: str, *, company: str | None = None) -> float:
+	"""Net applied from PDC Advances on this invoice (invoice currency).
+
+	Source-of-truth: the **posted application Journal Entries** (because those are what reduce Payment Ledger).
+
+	Why not rely only on `PDC Invoice Application` rows?
+	- Runtime shows JE can post even when child row status isn't persisted (on_submit mutations).
+	- The settlement panel must reflect the economic truth that already affects `ledger_outstanding`.
+	"""
+	dt = (invoice_doctype or "").strip()
+	nm = (invoice_name or "").strip()
+	if dt not in ("Sales Invoice", "Purchase Invoice") or not nm:
+		return 0.0
+
+	co = (company or "").strip()
+	if not co:
+		try:
+			co = (frappe.db.get_value(dt, nm, "company") or "").strip()
+		except Exception:
+			co = ""
+
+	# Company default advance accounts (same ones used by posting service).
+	adv = ""
+	if dt == "Purchase Invoice":
+		adv = (frappe.db.get_value("Company", co, "default_advance_paid_account") or "").strip() if co else ""
+	else:
+		adv = (frappe.db.get_value("Company", co, "default_advance_received_account") or "").strip() if co else ""
+	if not adv:
+		return 0.0
+
+	apply_remark = f"Apply Advance Post Dated Cheque to {dt} {nm}"
+	rev_remark = f"Reverse Advance Post Dated Cheque application on {dt} {nm}"
+
+	# Net from the advance account movement on those JEs:
+	# - PI apply: credit advance_paid; reversal: debit advance_paid => net = credit - debit
+	# - SI apply: debit advance_received; reversal: credit advance_received => net = debit - credit
+	rows = frappe.db.sql(
+		"""
+		SELECT
+		  SUM(COALESCE(a.debit_in_account_currency, 0)) AS dr,
+		  SUM(COALESCE(a.credit_in_account_currency, 0)) AS cr
+		FROM `tabJournal Entry Account` a
+		INNER JOIN `tabJournal Entry` je ON je.name = a.parent
+		WHERE je.docstatus = 1
+		  AND a.account = %s
+		  AND (
+			je.user_remark LIKE %s
+			OR je.user_remark LIKE %s
+		  )
+		""",
+		(adv, f"{apply_remark}%", f"{rev_remark}%"),
+		as_dict=True,
+	)
+	r = (rows[0] if rows else {}) or {}
+	dr = flt(r.get("dr"))
+	cr = flt(r.get("cr"))
+	return flt(cr - dr) if dt == "Purchase Invoice" else flt(dr - cr)
+
+
+def _debug_dump_pdc_invoice_application_rows(invoice_name: str) -> list[dict]:
+	"""Debug helper: return raw PDC Invoice Application rows for a PI/SI invoice.
+
+	Used via bench execute to inspect runtime DB state.
+	"""
+	nm = (invoice_name or "").strip()
+	if not nm:
+		return []
+	for dt in ("Purchase Invoice", "Sales Invoice"):
+		if frappe.db.exists(dt, nm):
+			rows = frappe.get_all(
+				"PDC Invoice Application",
+				filters={"parenttype": dt, "parent": nm},
+				fields=[
+					"name",
+					"parent",
+					"parenttype",
+					"parentfield",
+					"post_dated_cheque",
+					"order_doctype",
+					"order_name",
+					"amount",
+					"amount_in_pdc_currency",
+					"application_status",
+					"posted_je",
+					"reversal_je",
+				],
+				order_by="idx asc",
+			)
+			return rows or []
+	return []
+
 
 def get_settlement_summary_for_reference(
 	reference_doctype: str | None,
@@ -141,6 +235,9 @@ def get_settlement_summary_for_reference(
 		"effective_pdc_amount_direct": pdc_direct,
 		"effective_pdc_amount_via_pr": pdc_via,
 		"effective_pdc_amount": pdc_total,
+		"pdc_advance_applied_amount": _sum_net_pdc_advance_applied_on_invoice(rdt, rnm, company=company)
+		if rdt in ("Sales Invoice", "Purchase Invoice")
+		else 0.0,
 		"ledger_outstanding": ledger_out,
 		"document_outstanding": doc_out,
 		"remaining_balance": remaining,

@@ -55,10 +55,18 @@ doctype_js = {
 	"Sales Invoice": [
 		"public/js/pdc_create_from_source.js",
 		"public/js/pdc_settlement_summary.js",
+		"public/js/pdc_advance_on_invoice.js",
 	],
 	"Purchase Invoice": [
 		"public/js/pdc_create_from_source.js",
 		"public/js/pdc_settlement_summary.js",
+		"public/js/pdc_advance_on_invoice.js",
+	],
+	"Purchase Order": [
+		"public/js/pdc_create_from_order.js",
+	],
+	"Sales Order": [
+		"public/js/pdc_create_from_order.js",
 	],
 }
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
@@ -181,6 +189,18 @@ doc_events = {
 	},
 	"Payment Request": {
 		"validate": "erpnext_extensions.cheque_management.pdc_payment_request_eligibility.validate_payment_request_invoice_ceiling_on_save",
+	},
+	"Purchase Invoice": {
+		"validate": "erpnext_extensions.cheque_management.pdc_invoice_advance_application.on_invoice_validate",
+		"before_submit": "erpnext_extensions.cheque_management.pdc_invoice_advance_application.before_invoice_submit",
+		"on_submit": "erpnext_extensions.cheque_management.pdc_invoice_advance_application.on_invoice_submit",
+		"on_cancel": "erpnext_extensions.cheque_management.pdc_invoice_advance_application.on_invoice_cancel",
+	},
+	"Sales Invoice": {
+		"validate": "erpnext_extensions.cheque_management.pdc_invoice_advance_application.on_invoice_validate",
+		"before_submit": "erpnext_extensions.cheque_management.pdc_invoice_advance_application.before_invoice_submit",
+		"on_submit": "erpnext_extensions.cheque_management.pdc_invoice_advance_application.on_invoice_submit",
+		"on_cancel": "erpnext_extensions.cheque_management.pdc_invoice_advance_application.on_invoice_cancel",
 	},
 }
 

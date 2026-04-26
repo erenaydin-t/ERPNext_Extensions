@@ -214,6 +214,7 @@ def sum_effective_pdc_allocations_to_reference(
 		from `tabPDC Allocation` a
 		inner join `tabPost Dated Cheque` p on p.name = a.parent
 		where a.reference_doctype = %s and a.reference_name = %s
+			and coalesce(a.allocation_mode, 'direct_settlement') = 'direct_settlement'
 			and p.docstatus = 1
 			and coalesce(p.allocation_mode, 'direct_settlement') = 'direct_settlement'
 			and ifnull(p.workflow_state, '') not in ('Cancelled', 'Replaced')
@@ -257,6 +258,7 @@ def sum_effective_pdc_allocations_via_payment_request_to_invoice(
 		inner join `tabPayment Request` pr on pr.name = a.reference_name
 		where a.reference_doctype = 'Payment Request'
 			and pr.reference_doctype = %s and pr.reference_name = %s
+			and coalesce(a.allocation_mode, 'direct_settlement') = 'direct_settlement'
 			and p.docstatus = 1
 			and coalesce(p.allocation_mode, 'direct_settlement') = 'direct_settlement'
 			and ifnull(p.workflow_state, '') not in ('Cancelled', 'Replaced')

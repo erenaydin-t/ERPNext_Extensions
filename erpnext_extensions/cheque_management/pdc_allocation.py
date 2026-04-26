@@ -23,6 +23,9 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt
 
+from erpnext_extensions.cheque_management.pdc_advance_order_capacity import (
+	get_order_remaining_advance_capacity,
+)
 from erpnext_extensions.cheque_management.pdc_settlement_capacity import (
 	SETTLEMENT_REFERENCE_DOCTYPES,
 	_effective_exclude_pdc_name,
@@ -689,6 +692,26 @@ def validate_pdc_allocation_rows(doc) -> None:
 			if not _party_matches_pdc_snapshot(direction, party_type, party, ref_dt, snap):
 				frappe.throw(
 					_("Allocation row {0}: Party on {1} does not match this Post Dated Cheque.").format(i, ref_dt),
+					title=_("PDC Allocation"),
+				)
+			# v1 Advance ceiling: reserve order capacity across multiple PDCs (draft included).
+			# Compare total allocated to this order in THIS doc vs remaining capacity excluding this PDC.
+			order_total_in_doc = 0.0
+			for r2 in doc.allocations or []:
+				if (getattr(r2, "allocation_mode", None) or "").strip() != ALLOCATION_MODE_ADVANCE:
+					continue
+				if (getattr(r2, "reference_doctype", None) or "").strip() != ref_dt:
+					continue
+				if (getattr(r2, "reference_name", None) or "").strip() != ref_nm:
+					continue
+				order_total_in_doc += flt(getattr(r2, "amount", None))
+			remaining = get_order_remaining_advance_capacity(ref_dt, ref_nm, exclude_pdc=parent_name)
+			if order_total_in_doc > remaining + _EPS:
+				frappe.throw(
+					_(
+						"Advance allocation exceeds remaining order capacity on {0} {1}. "
+						"Remaining advance capacity is {2}."
+					).format(ref_dt, ref_nm, remaining),
 					title=_("PDC Allocation"),
 				)
 			continue
