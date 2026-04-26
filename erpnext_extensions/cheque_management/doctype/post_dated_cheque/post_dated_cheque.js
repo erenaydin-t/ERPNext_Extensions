@@ -341,10 +341,12 @@ frappe.ui.form.on("Post Dated Cheque", {
 
 	received_date(frm) {
 		pdc_validate_lifecycle_dates(frm);
+		pdc_warn_if_future_date(frm, "received_date", __("Received / Issued Date"));
 	},
 
 	handover_date(frm) {
 		pdc_validate_lifecycle_dates(frm);
+		pdc_warn_if_future_date(frm, "handover_date", __("Handover / Endorsement Date"));
 	},
 
 	sent_to_bank_date(frm) {
@@ -353,14 +355,17 @@ frappe.ui.form.on("Post Dated Cheque", {
 
 	cleared_date(frm) {
 		pdc_validate_lifecycle_dates(frm);
+		pdc_warn_if_future_date(frm, "cleared_date", __("Cleared Date"));
 	},
 
 	bounced_date(frm) {
 		pdc_validate_lifecycle_dates(frm);
+		pdc_warn_if_future_date(frm, "bounced_date", __("Bounced Date"));
 	},
 
 	returned_date(frm) {
 		pdc_validate_lifecycle_dates(frm);
+		pdc_warn_if_future_date(frm, "returned_date", __("Returned Date"));
 	},
 
 	/** Workflow / apply_workflow updates this Link; refresh dependent visibility + mandatory stars. */
@@ -454,6 +459,27 @@ function pdc_validate_lifecycle_dates(frm) {
 			),
 			indicator: "red",
 		});
+	}
+}
+
+function pdc_warn_if_future_date(frm, fieldname, label) {
+	try {
+		if (!frm || !frm.doc) return;
+		const v = frm.doc[fieldname];
+		if (!v) return;
+		const today = frappe.datetime.get_today();
+		// Both are YYYY-MM-DD strings.
+		if (frappe.datetime.get_diff(v, today) > 0) {
+			frappe.show_alert(
+				{
+					message: __("{0} cannot be in the future.", [label]),
+					indicator: "orange",
+				},
+				6
+			);
+		}
+	} catch (e) {
+		// ignore
 	}
 }
 

@@ -176,6 +176,8 @@ def _allocation_ref_patches(*, payment_request_snapshot=None):
 		patch.object(pdc_alloc, "get_pr_remaining_capacity", return_value=1_000_000.0),
 		patch.object(pdc_alloc, "get_invoice_remaining_capacity", return_value=1_000_000.0),
 		patch.object(pdc_alloc, "get_receivable_sales_invoice_direct_settlement_remaining_capacity", return_value=1_000_000.0),
+		# Advance-mode order ceiling is DB-backed; bare unittest has no site/db.
+		patch.object(pdc_alloc, "get_order_remaining_advance_capacity", return_value=1_000_000.0),
 		# Diagnostic path calls PL for SI rows; bare unittest has no frappe.db / site.
 		patch.object(pdc_alloc, "get_invoice_ledger_outstanding", return_value=0.0),
 		# SI trace path sums pending PDC rows via DB; no voucher rows in these unit tests.

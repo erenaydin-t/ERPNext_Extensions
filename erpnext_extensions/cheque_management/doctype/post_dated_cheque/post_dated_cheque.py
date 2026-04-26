@@ -72,6 +72,7 @@ from erpnext_extensions.cheque_management.pdc_receivable_accounting import (
 from erpnext_extensions.cheque_management.pdc_allocation import (
 	apply_pdc_allocation_row_defaults_from_parent,
 	autofill_pdc_allocations_from_parent_reference,
+	ALLOCATION_MODE_ADVANCE,
 	is_pdc_allocation_draft_only as _is_pdc_allocation_draft_only,
 	is_pdc_allocation_effective as _is_pdc_allocation_effective,
 	pdc_allocation_effective_milestone_workflow_state,
@@ -205,6 +206,15 @@ def get_accounting_action(doc, previous_workflow_state: str | None) -> str:
 	to_state = normalize_workflow_state_value(getattr(doc, "workflow_state", None))
 	from_state = normalize_workflow_state_value(previous_workflow_state)
 	decision = get_pdc_accounting_decision(cheque_direction, from_state, to_state)
+	# Task 5: Advance-mode recognition may post on operational-only edges when configured (Payable issue stage).
+	if (
+		(getattr(doc, "allocation_mode", None) or "").strip() == ALLOCATION_MODE_ADVANCE
+		and (cheque_direction or "").strip() == CHEQUE_DIRECTION_PAYABLE
+		and (getattr(doc, "effective_stage_for_advance_recognition", None) or "register").strip().lower() == "issue"
+		and from_state == WORKFLOW_REGISTERED
+		and to_state == WORKFLOW_ISSUED
+	):
+		decision = PDC_ACCOUNTING_JOURNAL_ENTRY
 	# Enforce lifecycle rule: selector can only yield journal_entry or no_document.
 	return PDC_ACCOUNTING_JOURNAL_ENTRY if decision == PDC_ACCOUNTING_JOURNAL_ENTRY else PDC_ACCOUNTING_NO_DOCUMENT
 
@@ -248,6 +258,26 @@ def _get_pdc_settings_for_company(company: str):
 	if not name or not frappe.db.exists("PDC Settings", name):
 		return None
 	return frappe.get_doc("PDC Settings", name)
+
+
+def _company_default_advance_paid_account(company: str | None) -> str | None:
+	"""Company default account for supplier advances (ERPNext Company.default_advance_paid_account)."""
+	co = (company or "").strip()
+	if not co:
+		return None
+	val = frappe.db.get_value("Company", co, "default_advance_paid_account")
+	s = (val or "").strip()
+	return s or None
+
+
+def _company_default_advance_received_account(company: str | None) -> str | None:
+	"""Company default account for customer advances (ERPNext Company.default_advance_received_account)."""
+	co = (company or "").strip()
+	if not co:
+		return None
+	val = frappe.db.get_value("Company", co, "default_advance_received_account")
+	s = (val or "").strip()
+	return s or None
 
 
 def _pdc_company_policy_flags(company: str | None) -> dict[str, int]:
@@ -340,6 +370,17 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 		return None
 
 	decision = get_pdc_accounting_decision(doc.cheque_direction, from_state, to_state)
+	# Task 5: Advance-mode recognition may require posting on edges that are operational-only in the
+	# direct-settlement lifecycle (e.g. Payable Registered → Issued when effective stage is `issue`).
+	if (getattr(doc, "allocation_mode", None) or "").strip() == ALLOCATION_MODE_ADVANCE:
+		eff = (getattr(doc, "effective_stage_for_advance_recognition", None) or "register").strip().lower()
+		if (
+			(doc.cheque_direction == CHEQUE_DIRECTION_PAYABLE)
+			and eff == "issue"
+			and from_state == WORKFLOW_REGISTERED
+			and to_state == WORKFLOW_ISSUED
+		):
+			decision = "journal_entry"
 	if decision != "journal_entry":
 		# PE and no_document transitions must not go through the JE builder (avoids silent wrong accounts).
 		return None
@@ -492,6 +533,8 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 			(WORKFLOW_ISSUED, WORKFLOW_RETURNED),
 			(WORKFLOW_ISSUED, WORKFLOW_CANCELLED),
 			(WORKFLOW_ISSUED, WORKFLOW_REPLACED),
+			# Task 5: Advance-mode recognition when effective stage is `issue`.
+			(WORKFLOW_REGISTERED, WORKFLOW_ISSUED),
 		}
 		if edge in party_required_edges:
 			if not has_party:
@@ -565,6 +608,35 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 	if doc.cheque_direction == CHEQUE_DIRECTION_RECEIVABLE:
 		# Draft -> Registered: Dr Cheques in Hand (``account_paid_to``), Cr party AR (``account_paid_from`` or party receivable).
 		if from_state == WORKFLOW_DRAFT and to_state == WORKFLOW_REGISTERED:
+			# Task 5: Advance Mode recognition (Sales Order / receivable) at Register stage only.
+			if (getattr(doc, "allocation_mode", None) or "").strip() == ALLOCATION_MODE_ADVANCE:
+				if cint(getattr(doc, "recognition_je_posted", 0)):
+					return None
+				eff = (getattr(doc, "effective_stage_for_advance_recognition", None) or "register").strip().lower()
+				if eff != "register":
+					return None
+				debit_account = _strip_link_name_or_none(getattr(doc, "account_paid_to", None)) or acc["cheques_in_hand"]
+				credit_account = _company_default_advance_received_account(getattr(doc, "company", None))
+				if not debit_account or not credit_account:
+					return None
+				remark = frappe._(PDC_JE_REMARK_REGISTER_RECEIVABLE_CHEQUE)
+				if doc.cheque_no:
+					remark = f"{remark} — {doc.cheque_no}"
+				je = _base(remark)
+				je["accounts"] = [
+					{
+						"account": debit_account,
+						"debit_in_account_currency": doc.cheque_amount,
+					},
+					{
+						"account": credit_account,
+						"credit_in_account_currency": doc.cheque_amount,
+						"party_type": doc.party_type,
+						"party": doc.party,
+					},
+				]
+				je["set_recognition_je_posted"] = 1
+				return _return_je(je)
 			debit_account = _strip_link_name_or_none(getattr(doc, "account_paid_to", None)) or acc["cheques_in_hand"]
 			credit_account = _strip_link_name_or_none(getattr(doc, "account_paid_from", None)) or _get_party_account_or_company_default(
 				doc.party_type, doc.party, doc.company, "receivable"
@@ -844,6 +916,36 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 	if doc.cheque_direction == CHEQUE_DIRECTION_PAYABLE:
 		# Draft -> Registered: Dr party payable (PI refs on AP rows), Cr notes payable pool — supplier settlement.
 		if from_state == WORKFLOW_DRAFT and to_state == WORKFLOW_REGISTERED:
+			# Task 5: Advance Mode recognition (Purchase Order / payable) at Register or Issue depending on config.
+			if (getattr(doc, "allocation_mode", None) or "").strip() == ALLOCATION_MODE_ADVANCE:
+				if cint(getattr(doc, "recognition_je_posted", 0)):
+					return None
+				eff = (getattr(doc, "effective_stage_for_advance_recognition", None) or "register").strip().lower()
+				# If recognition is configured at `issue`, do not post at register.
+				if eff == "issue":
+					return None
+				debit_account = _company_default_advance_paid_account(getattr(doc, "company", None))
+				credit_account = acc.get("payable_cheque")
+				if not debit_account or not credit_account:
+					return None
+				remark = frappe._(PDC_JE_REMARK_REGISTER_PAYABLE_CHEQUE)
+				if doc.cheque_no:
+					remark = f"{remark} — {doc.cheque_no}"
+				je = _base(remark)
+				je["accounts"] = [
+					{
+						"account": debit_account,
+						"debit_in_account_currency": doc.cheque_amount,
+						"party_type": doc.party_type,
+						"party": doc.party,
+					},
+					{
+						"account": credit_account,
+						"credit_in_account_currency": doc.cheque_amount,
+					},
+				]
+				je["set_recognition_je_posted"] = 1
+				return _return_je(je)
 			if not acc["payable_cheque"]:
 				return None
 			debit_account = _strip_link_name_or_none(getattr(doc, "account_paid_to", None)) or _get_party_account_or_company_default(
@@ -862,6 +964,38 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 					"credit_in_account_currency": doc.cheque_amount,
 				}
 			]
+			return _return_je(je)
+
+		# Registered -> Issued: Task 5 advance-mode recognition when configured at `issue`.
+		if from_state == WORKFLOW_REGISTERED and to_state == WORKFLOW_ISSUED:
+			if (getattr(doc, "allocation_mode", None) or "").strip() != ALLOCATION_MODE_ADVANCE:
+				return None
+			if cint(getattr(doc, "recognition_je_posted", 0)):
+				return None
+			eff = (getattr(doc, "effective_stage_for_advance_recognition", None) or "register").strip().lower()
+			if eff != "issue":
+				return None
+			debit_account = _company_default_advance_paid_account(getattr(doc, "company", None))
+			credit_account = acc.get("payable_cheque")
+			if not debit_account or not credit_account:
+				return None
+			remark = frappe._(PDC_JE_REMARK_REGISTER_PAYABLE_CHEQUE)
+			if doc.cheque_no:
+				remark = f"{remark} — {doc.cheque_no}"
+			je = _base(remark)
+			je["accounts"] = [
+				{
+					"account": debit_account,
+					"debit_in_account_currency": doc.cheque_amount,
+					"party_type": doc.party_type,
+					"party": doc.party,
+				},
+				{
+					"account": credit_account,
+					"credit_in_account_currency": doc.cheque_amount,
+				},
+			]
+			je["set_recognition_je_posted"] = 1
 			return _return_je(je)
 
 		# Registered -> Cancelled: Dr notes payable pool, Cr party payable — reverse Draft→Registered settlement.
@@ -1208,6 +1342,7 @@ class PostDatedCheque(Document):
 		self._validate_fields_not_editable_after_related_accounting()
 		self._validate_receivable_cheques_in_hand_account_required()
 		self._validate_allocations()
+		self._validate_advance_scope_structural()
 		self._validate_party()
 		self._validate_duplicate_cheque_no()
 		self._validate_drawer_bank()
@@ -1218,6 +1353,7 @@ class PostDatedCheque(Document):
 		self._validate_allocation_status_awareness()
 		self._validate_replacement_links_when_replaced()
 		self._validate_returned_workflow_state()
+		self._validate_important_dates_not_in_future()
 		self._validate_handover_date_vs_received_date()
 		self._validate_receivable_sent_to_bank_vs_received_date()
 		self._validate_receivable_cleared_and_bounced_vs_sent_to_bank()
@@ -1225,6 +1361,105 @@ class PostDatedCheque(Document):
 		self._validate_payable_cleared_vs_handover_date()
 		self._validate_party_immutable_after_submit()
 		self._validate_sayad_registration_per_settings()
+
+	def _validate_important_dates_not_in_future(self) -> None:
+		"""Important Dates must not be in the future (backend authority)."""
+		from frappe.utils import getdate, nowdate
+
+		today = getdate(nowdate())
+		date_fields = [
+			("received_date", "Received / Issued Date"),
+			("cleared_date", "Cleared Date"),
+			("returned_date", "Returned Date"),
+			("handover_date", "Handover / Endorsement Date"),
+			("bounced_date", "Bounced Date"),
+		]
+
+		for fieldname, label in date_fields:
+			val = getattr(self, fieldname, None)
+			if not val:
+				continue
+			try:
+				dt = getdate(val)
+			except Exception:
+				# If it's not parseable, existing framework validations will catch it.
+				continue
+			if dt and dt > today:
+				frappe.throw(frappe._("{0} cannot be in the future.").format(frappe._(label)), title=frappe._("Invalid Date"))
+
+	def _validate_advance_scope_structural(self) -> None:
+		"""Advance-mode `advance_scope` structural validation (v1).
+
+		Rules:
+		- If `allocation_mode != "advance"`: `advance_scope` must not affect behavior.
+		- If `allocation_mode == "advance"`:
+		  - `advance_scope` is required (compat default: missing => order_based).
+		  - `order_based`:
+		    - allocation rows must exist
+		    - allocation rows must reference only Purchase Order / Sales Order
+		  - `general`:
+		    - allocation rows must be empty
+		  - If `advance_pool_dim_set` exists, v1 rejects any non-empty value other than:
+		    - null, "", "{}", or {} (empty JSON)
+
+		Preserves existing allocation validations by running after `_validate_allocations()`,
+		which sanitizes and validates allocation rows.
+		"""
+		if (getattr(self, "allocation_mode", None) or "").strip() != ALLOCATION_MODE_ADVANCE:
+			return
+
+		scope = (getattr(self, "advance_scope", None) or "").strip() or "order_based"
+		if scope not in ("order_based", "general"):
+			frappe.throw(frappe._("Advance Scope must be order_based or general."), title=frappe._("PDC Advance"))
+
+		# v1: dims must be empty if the field exists.
+		if hasattr(self, "advance_pool_dim_set"):
+			raw = getattr(self, "advance_pool_dim_set", None)
+			allowed = True
+			if raw is None:
+				allowed = True
+			elif isinstance(raw, dict):
+				allowed = len(raw.keys()) == 0
+			else:
+				s = str(raw).strip()
+				allowed = s in ("", "{}", "null")
+			if not allowed:
+				frappe.throw(
+					frappe._("Advance pool dimensions are not supported in v1. Leave Advance Pool Dim Set empty."),
+					title=frappe._("PDC Advance"),
+				)
+
+		alloc_rows = list(getattr(self, "allocations", None) or [])
+		if scope == "general":
+			if alloc_rows:
+				frappe.throw(
+					frappe._("General advance PDC must not have any allocation rows."),
+					title=frappe._("PDC Advance"),
+				)
+			return
+
+		# order_based
+		if not alloc_rows:
+			frappe.throw(
+				frappe._("Order-based advance PDC requires at least one allocation row."),
+				title=frappe._("PDC Advance"),
+			)
+
+		allowed_refs = {"Purchase Order", "Sales Order"}
+		for r in alloc_rows:
+			mode = (getattr(r, "allocation_mode", None) or "").strip() or ALLOCATION_MODE_ADVANCE
+			ref_dt = (getattr(r, "reference_doctype", None) or "").strip()
+			ref_nm = (getattr(r, "reference_name", None) or "").strip()
+			if mode != ALLOCATION_MODE_ADVANCE:
+				frappe.throw(
+					frappe._("Order-based advance PDC allocation rows must have allocation_mode = advance."),
+					title=frappe._("PDC Advance"),
+				)
+			if ref_dt not in allowed_refs or not ref_nm:
+				frappe.throw(
+					frappe._("Order-based advance PDC allocation rows must reference a Purchase Order or Sales Order."),
+					title=frappe._("PDC Advance"),
+				)
 
 	def _validate_handover_date_vs_received_date(self) -> None:
 		"""``handover_date`` must be on or after ``received_date`` when both are set (Payable + Receivable)."""
@@ -1497,6 +1732,7 @@ class PostDatedCheque(Document):
 		self._validate_received_date_required_for_payable_registered()
 		self._validate_received_date_required_for_payable_issued()
 		self._validate_endorsement_allowed_per_settings()
+		self._validate_advance_recognition_effective_stage_supported()
 		self._validate_bounced_workflow_state()
 		self._validate_endorsed_workflow_state()
 		# Endorsement audit + normalized holder (after transition and holder rules pass; runs on update_after_submit too).
@@ -1512,6 +1748,29 @@ class PostDatedCheque(Document):
 		self._sync_cheque_status_from_workflow_state()
 		self._validate_cheque_status_matches_workflow_state()
 		self._validate_clearing_accounting_payload()
+
+	def _validate_advance_recognition_effective_stage_supported(self) -> None:
+		"""Task 5 guardrail: do not allow silent non-working effective stage selections.
+
+		- Payable advance supports `register` and `issue`
+		- Receivable advance supports `register` only (no Issued edge in receivable workflow by design)
+		"""
+		if (getattr(self, "allocation_mode", None) or "").strip() != ALLOCATION_MODE_ADVANCE:
+			return
+		eff = (getattr(self, "effective_stage_for_advance_recognition", None) or "register").strip().lower()
+		if eff not in ("register", "issue"):
+			frappe.throw(
+				frappe._("Effective Stage for Advance Recognition must be 'register' or 'issue'."),
+				title=frappe._("Invalid Advance Recognition Stage"),
+			)
+		if (getattr(self, "cheque_direction", None) or "").strip() == CHEQUE_DIRECTION_RECEIVABLE and eff == "issue":
+			frappe.throw(
+				frappe._(
+					"Advance Recognition stage 'issue' is not supported for Receivable cheques. "
+					"Receivable advance recognition posts only at Register (Draft → Registered)."
+				),
+				title=frappe._("Unsupported Advance Recognition Stage"),
+			)
 
 	def _reset_party_if_party_type_changed(self):
 		"""If party_type changes, party must be re-selected."""

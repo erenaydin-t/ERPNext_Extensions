@@ -252,7 +252,9 @@ def create_and_submit_journal_entry_from_payload(
             je.append("accounts", entry)
 
         je.flags.ignore_permissions = True
-        je.save()
+        # IMPORTANT (UX): avoid double validation + duplicate informational warnings.
+        # `submit()` performs the save/validate cycle for new docs, so calling `save()` first causes
+        # validation (and msgprint warnings) to run twice.
         je.submit()
 
         pdc.reload()
@@ -266,6 +268,10 @@ def create_and_submit_journal_entry_from_payload(
                 "amount": amount,
             },
         )
+        # Task 5: Advance-mode recognition accounting uses the same transition idempotency key but must
+        # also flip the instrument recognition flag so Task 3 open-advance starts reporting gross/open.
+        if int(payload.get("set_recognition_je_posted") or 0):
+            pdc.recognition_je_posted = 1
         pdc.flags.ignore_validate_update_after_submit = True
         pdc.flags.skip_pdc_accounting_orchestration = True
         # Internal self-save after JE posting is re-entrant: it re-enters allocation validation after

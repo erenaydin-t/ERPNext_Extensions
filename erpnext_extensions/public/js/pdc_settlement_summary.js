@@ -189,7 +189,8 @@ function pdc_settlement_render_dashboard(frm, data, path_options) {
 	const cur = data.currency || frm.doc.currency;
 	const rows = [
 		[__("Paid by Payment Entry"), pdc_settlement_format_money(data.payment_entry_amount, cur)],
-		[__("Covered by Post Dated Cheque"), pdc_settlement_format_money(data.effective_pdc_amount, cur)],
+		[__("Covered by Direct Post Dated Cheque"), pdc_settlement_format_money(data.effective_pdc_amount, cur)],
+		[__("Applied from PDC Advances"), pdc_settlement_format_money(data.pdc_advance_applied_amount, cur)],
 		[__("Remaining balance"), pdc_settlement_format_money(data.remaining_balance, cur)],
 	];
 	const inner = rows

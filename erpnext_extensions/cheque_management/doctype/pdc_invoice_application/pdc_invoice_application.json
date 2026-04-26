@@ -15,10 +15,17 @@
  "engine": "InnoDB",
  "field_order": [
   "post_dated_cheque",
+  "advance_scope",
+  "pool_company",
+  "pool_party_type",
+  "pool_party",
+  "pool_currency",
+  "source_bucket_label",
   "invoice_currency",
   "pdc_currency",
   "order_doctype",
   "order_name",
+  "open_amount",
   "amount",
   "amount_in_pdc_currency",
   "fx_rate",
@@ -34,6 +41,54 @@
    "label": "Post Dated Cheque",
    "options": "Post Dated Cheque",
    "reqd": 1
+  },
+  {
+   "fieldname": "advance_scope",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Advance Scope",
+   "options": "order_based\ngeneral",
+   "description": "Copied from Post Dated Cheque at selection time. order_based is tied to a PO/SO bucket; general is a party pool advance."
+  },
+  {
+   "fieldname": "pool_company",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Pool Company",
+   "options": "Company",
+   "fetch_from": "parent.company",
+   "description": "Denormalized for general advance pool key."
+  },
+  {
+   "fieldname": "pool_party_type",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Pool Party Type",
+   "description": "Denormalized for general advance pool key (Supplier for PI, Customer for SI)."
+  },
+  {
+   "fieldname": "pool_party",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Pool Party",
+   "description": "Denormalized for general advance pool key."
+  },
+  {
+   "fieldname": "pool_currency",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Pool Currency",
+   "options": "Currency",
+   "fetch_from": "parent.currency",
+   "description": "Denormalized for general advance pool key (v1: invoice currency)."
+  },
+  {
+   "fieldname": "source_bucket_label",
+   "fieldtype": "Data",
+   "in_list_view": 0,
+   "label": "Source",
+   "read_only": 1,
+   "description": "UI/audit label (e.g. PO xxx, SO yyy, General Pool)."
   },
   {
    "fieldname": "invoice_currency",
@@ -59,7 +114,10 @@
    "in_list_view": 1,
    "label": "Order DocType",
    "options": "Purchase Order\nSales Order",
-   "reqd": 1
+   "reqd": 0,
+   "depends_on": "eval:doc.advance_scope!='general'",
+   "mandatory_depends_on": "eval:doc.advance_scope!='general'",
+   "read_only_depends_on": "eval:doc.advance_scope=='order_based'"
   },
   {
    "fieldname": "order_name",
@@ -67,7 +125,19 @@
    "in_list_view": 1,
    "label": "Order",
    "options": "order_doctype",
-   "reqd": 1
+   "reqd": 0,
+   "depends_on": "eval:doc.advance_scope!='general'",
+   "mandatory_depends_on": "eval:doc.advance_scope!='general'",
+   "read_only_depends_on": "eval:doc.advance_scope=='order_based'"
+  },
+  {
+   "fieldname": "open_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Open Amount",
+   "options": "pdc_currency",
+   "read_only": 1,
+   "description": "Snapshot of remaining open advance on the linked PDC/order at selection time (informational)."
   },
   {
    "fieldname": "amount",
@@ -90,6 +160,8 @@
   {
    "fieldname": "fx_rate",
    "fieldtype": "Float",
+   "hidden": 1,
+   "read_only": 1,
    "label": "Exchange Rate",
    "precision": 9,
    "description": "Required when invoice currency differs from PDC currency (direction defined at posting time in a later task)."
