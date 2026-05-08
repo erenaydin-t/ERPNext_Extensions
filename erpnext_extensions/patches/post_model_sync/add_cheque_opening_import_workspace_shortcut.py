@@ -1,4 +1,14 @@
-"""Add **Cheque Opening Import** shortcut to **Cheque Management** workspace (idempotent)."""
+"""LEGACY PATCH (workspace shortcut) — kept for migration history.
+
+Current Cheque Management navigation strategy is **sidebar-first** via `Workspace Sidebar`.
+
+This patch adds a shortcut to the "Cheque Management" Workspace **only if that Workspace exists**.
+On many sites, the Workspace may not exist (or may be intentionally unused), in which case this
+patch is a no-op.
+
+It remains in `patches.txt` for backward compatibility and historical safety; prefer sidebar
+navigation updates going forward.
+"""
 
 from __future__ import annotations
 
