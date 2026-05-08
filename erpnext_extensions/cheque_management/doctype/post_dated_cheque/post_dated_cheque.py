@@ -94,6 +94,10 @@ from erpnext_extensions.cheque_management.pdc_workflow_to_cheque_status import (
 	CHEQUE_STATUS_RETURNED_TO_CUSTOMER,
 	map_workflow_state_to_cheque_status,
 )
+from erpnext_extensions.cheque_management.utils.descriptions import (
+	PDCDescriptionContext,
+	render_pdc_je_text,
+)
 
 _pdc_accounting_logger = logging.getLogger("erpnext_extensions.cheque_management")
 
@@ -388,6 +392,7 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 
 	settings = _get_pdc_settings_for_company(doc.company)
 	acc = resolve_pdc_accounts_for_journal(doc, settings)
+	ctx = PDCDescriptionContext.from_doc(doc, from_state=from_state, to_state=to_state)
 
 	def _payable_party_issue_debit_lines(debit_account: str) -> list[dict]:
 		slices = payable_purchase_invoice_settlement_slices(doc)
@@ -620,9 +625,12 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 				credit_account = _company_default_advance_received_account(getattr(doc, "company", None))
 				if not debit_account or not credit_account:
 					return None
-				remark = frappe._(PDC_JE_REMARK_REGISTER_RECEIVABLE_CHEQUE)
-				if doc.cheque_no:
-					remark = f"{remark} — {doc.cheque_no}"
+				remark = render_pdc_je_text(
+					getattr(settings, "je_remark_register_receivable_template", None) if settings else None,
+					fallback_text=frappe._(PDC_JE_REMARK_REGISTER_RECEIVABLE_CHEQUE),
+					context=ctx,
+					append_cheque_no_suffix=True,
+				)
 				je = _base(remark)
 				je["accounts"] = [
 					{
@@ -644,9 +652,12 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 			)
 			if not debit_account or not credit_account:
 				return None
-			remark = frappe._(PDC_JE_REMARK_REGISTER_RECEIVABLE_CHEQUE)
-			if doc.cheque_no:
-				remark = f"{remark} — {doc.cheque_no}"
+			remark = render_pdc_je_text(
+				getattr(settings, "je_remark_register_receivable_template", None) if settings else None,
+				fallback_text=frappe._(PDC_JE_REMARK_REGISTER_RECEIVABLE_CHEQUE),
+				context=ctx,
+				append_cheque_no_suffix=True,
+			)
 			je = _base(remark)
 			slices = receivable_sales_invoice_settlement_slices(doc)
 			if slices:
@@ -689,9 +700,12 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 			credit_account = _strip_link_name_or_none(getattr(doc, "account_paid_to", None)) or acc["cheques_in_hand"]
 			if not credit_account:
 				return None
-			remark = frappe._(PDC_JE_REMARK_SEND_RECEIVABLE_CHEQUE_TO_BANK)
-			if doc.cheque_no:
-				remark = f"{remark} — {doc.cheque_no}"
+			remark = render_pdc_je_text(
+				getattr(settings, "je_remark_send_receivable_to_bank_template", None) if settings else None,
+				fallback_text=frappe._(PDC_JE_REMARK_SEND_RECEIVABLE_CHEQUE_TO_BANK),
+				context=ctx,
+				append_cheque_no_suffix=True,
+			)
 			je = _base(remark)
 			je["accounts"] = [
 				{
@@ -725,9 +739,19 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 				remark_base = PDC_JE_REMARK_CLEAR_RECEIVABLE_CLEARING
 			else:
 				remark_base = PDC_JE_REMARK_CLEAR_RECEIVABLE_LEGAL
-			remark = frappe._(remark_base)
-			if doc.cheque_no:
-				remark = f"{remark} — {doc.cheque_no}"
+			field = (
+				"je_remark_clear_receivable_registered_template"
+				if from_state == WORKFLOW_REGISTERED
+				else "je_remark_clear_receivable_clearing_template"
+				if from_state == WORKFLOW_SENT_TO_BANK
+				else "je_remark_clear_receivable_legal_template"
+			)
+			remark = render_pdc_je_text(
+				getattr(settings, field, None) if settings else None,
+				fallback_text=frappe._(remark_base),
+				context=ctx,
+				append_cheque_no_suffix=True,
+			)
 			je = _base(remark)
 			je["accounts"] = [
 				{
@@ -748,9 +772,12 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 			debit_account = acc["protested"] or acc["cheques_in_hand"]
 			if not debit_account:
 				return None
-			remark = frappe._(PDC_JE_REMARK_RECEIVABLE_CHEQUE_BOUNCED)
-			if doc.cheque_no:
-				remark = f"{remark} — {doc.cheque_no}"
+			remark = render_pdc_je_text(
+				getattr(settings, "je_remark_receivable_bounced_template", None) if settings else None,
+				fallback_text=frappe._(PDC_JE_REMARK_RECEIVABLE_CHEQUE_BOUNCED),
+				context=ctx,
+				append_cheque_no_suffix=True,
+			)
 			je = _base(remark)
 			je["accounts"] = [
 				{
@@ -772,9 +799,12 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 			debit_account = _strip_link_name_or_none(getattr(doc, "account_paid_to", None)) or acc["cheques_in_hand"]
 			if not debit_account:
 				return None
-			remark = frappe._(PDC_JE_REMARK_REPLACE_RECEIVABLE_AFTER_BOUNCE)
-			if doc.cheque_no:
-				remark = f"{remark} — {doc.cheque_no}"
+			remark = render_pdc_je_text(
+				getattr(settings, "je_remark_replace_receivable_after_bounce_template", None) if settings else None,
+				fallback_text=frappe._(PDC_JE_REMARK_REPLACE_RECEIVABLE_AFTER_BOUNCE),
+				context=ctx,
+				append_cheque_no_suffix=True,
+			)
 			je = _base(remark)
 			je["accounts"] = [
 				{
@@ -797,9 +827,12 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 			)
 			if not debit_account or not credit_account:
 				return None
-			remark = frappe._(PDC_JE_REMARK_REPLACE_RECEIVABLE_AFTER_RETURN)
-			if doc.cheque_no:
-				remark = f"{remark} — {doc.cheque_no}"
+			remark = render_pdc_je_text(
+				getattr(settings, "je_remark_replace_receivable_after_return_template", None) if settings else None,
+				fallback_text=frappe._(PDC_JE_REMARK_REPLACE_RECEIVABLE_AFTER_RETURN),
+				context=ctx,
+				append_cheque_no_suffix=True,
+			)
 			je = _base(remark)
 			je["accounts"] = [
 				{
@@ -823,9 +856,12 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 			credit_account = _strip_link_name_or_none(getattr(doc, "account_paid_to", None)) or acc["cheques_in_hand"]
 			if not debit_account or not credit_account:
 				return None
-			remark = frappe._(PDC_JE_REMARK_RETURN_RECEIVABLE_CHEQUE_TO_PARTY)
-			if doc.cheque_no:
-				remark = f"{remark} — {doc.cheque_no}"
+			remark = render_pdc_je_text(
+				getattr(settings, "je_remark_return_receivable_to_party_template", None) if settings else None,
+				fallback_text=frappe._(PDC_JE_REMARK_RETURN_RECEIVABLE_CHEQUE_TO_PARTY),
+				context=ctx,
+				append_cheque_no_suffix=True,
+			)
 			je = _base(remark)
 			slices = receivable_sales_invoice_settlement_slices(doc)
 			if slices:
@@ -900,9 +936,12 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 					"party_type": holder_party_type,
 					"party": holder_party,
 				}
-			remark = frappe._(PDC_JE_REMARK_ENDORSE_RECEIVABLE_CHEQUE)
-			if doc.cheque_no:
-				remark = f"{remark} — {doc.cheque_no}"
+			remark = render_pdc_je_text(
+				getattr(settings, "je_remark_endorse_receivable_template", None) if settings else None,
+				fallback_text=frappe._(PDC_JE_REMARK_ENDORSE_RECEIVABLE_CHEQUE),
+				context=ctx,
+				append_cheque_no_suffix=True,
+			)
 			je = _base(remark)
 			je["accounts"] = [
 				debit_row,
@@ -929,9 +968,12 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 				credit_account = acc.get("payable_cheque")
 				if not debit_account or not credit_account:
 					return None
-				remark = frappe._(PDC_JE_REMARK_REGISTER_PAYABLE_CHEQUE)
-				if doc.cheque_no:
-					remark = f"{remark} — {doc.cheque_no}"
+				remark = render_pdc_je_text(
+					getattr(settings, "je_remark_register_payable_template", None) if settings else None,
+					fallback_text=frappe._(PDC_JE_REMARK_REGISTER_PAYABLE_CHEQUE),
+					context=ctx,
+					append_cheque_no_suffix=True,
+				)
 				je = _base(remark)
 				je["accounts"] = [
 					{
@@ -954,9 +996,12 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 			)
 			if not debit_account:
 				return None
-			remark = frappe._(PDC_JE_REMARK_REGISTER_PAYABLE_CHEQUE)
-			if doc.cheque_no:
-				remark = f"{remark} — {doc.cheque_no}"
+			remark = render_pdc_je_text(
+				getattr(settings, "je_remark_register_payable_template", None) if settings else None,
+				fallback_text=frappe._(PDC_JE_REMARK_REGISTER_PAYABLE_CHEQUE),
+				context=ctx,
+				append_cheque_no_suffix=True,
+			)
 			je = _base(remark)
 			party_debits = _payable_party_issue_debit_lines(debit_account)
 			je["accounts"] = party_debits + [
@@ -980,9 +1025,12 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 			credit_account = acc.get("payable_cheque")
 			if not debit_account or not credit_account:
 				return None
-			remark = frappe._(PDC_JE_REMARK_REGISTER_PAYABLE_CHEQUE)
-			if doc.cheque_no:
-				remark = f"{remark} — {doc.cheque_no}"
+			remark = render_pdc_je_text(
+				getattr(settings, "je_remark_register_payable_template", None) if settings else None,
+				fallback_text=frappe._(PDC_JE_REMARK_REGISTER_PAYABLE_CHEQUE),
+				context=ctx,
+				append_cheque_no_suffix=True,
+			)
 			je = _base(remark)
 			je["accounts"] = [
 				{
@@ -1008,9 +1056,12 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 			)
 			if not credit_account:
 				return None
-			remark = frappe._(PDC_JE_REMARK_CANCEL_REGISTERED_PAYABLE_CHEQUE)
-			if doc.cheque_no:
-				remark = f"{remark} — {doc.cheque_no}"
+			remark = render_pdc_je_text(
+				getattr(settings, "je_remark_cancel_registered_payable_template", None) if settings else None,
+				fallback_text=frappe._(PDC_JE_REMARK_CANCEL_REGISTERED_PAYABLE_CHEQUE),
+				context=ctx,
+				append_cheque_no_suffix=True,
+			)
 			je = _base(remark)
 			party_credits = _payable_party_reverse_credit_lines(credit_account)
 			je["accounts"] = [
@@ -1031,9 +1082,12 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 			)
 			if not credit_account:
 				return None
-			remark = frappe._(PDC_JE_REMARK_RETURNED_PAYABLE_CHEQUE_FROM_PAYEE)
-			if doc.cheque_no:
-				remark = f"{remark} — {doc.cheque_no}"
+			remark = render_pdc_je_text(
+				getattr(settings, "je_remark_returned_payable_from_payee_template", None) if settings else None,
+				fallback_text=frappe._(PDC_JE_REMARK_RETURNED_PAYABLE_CHEQUE_FROM_PAYEE),
+				context=ctx,
+				append_cheque_no_suffix=True,
+			)
 			je = _base(remark)
 			party_credits = _payable_party_reverse_credit_lines(credit_account)
 			je["accounts"] = [
@@ -1055,9 +1109,12 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 			)
 			if not credit_account:
 				return None
-			remark = frappe._(PDC_JE_REMARK_REPLACE_ISSUED_PAYABLE_CHEQUE)
-			if doc.cheque_no:
-				remark = f"{remark} — {doc.cheque_no}"
+			remark = render_pdc_je_text(
+				getattr(settings, "je_remark_replace_issued_payable_template", None) if settings else None,
+				fallback_text=frappe._(PDC_JE_REMARK_REPLACE_ISSUED_PAYABLE_CHEQUE),
+				context=ctx,
+				append_cheque_no_suffix=True,
+			)
 			je = _base(remark)
 			party_credits = _payable_party_reverse_credit_lines(credit_account)
 			je["accounts"] = [
@@ -1079,9 +1136,12 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 			)
 			if not debit_account:
 				return None
-			remark = frappe._(PDC_JE_REMARK_REPLACE_RETURNED_PAYABLE_CHEQUE)
-			if doc.cheque_no:
-				remark = f"{remark} — {doc.cheque_no}"
+			remark = render_pdc_je_text(
+				getattr(settings, "je_remark_replace_returned_payable_template", None) if settings else None,
+				fallback_text=frappe._(PDC_JE_REMARK_REPLACE_RETURNED_PAYABLE_CHEQUE),
+				context=ctx,
+				append_cheque_no_suffix=True,
+			)
 			je = _base(remark)
 			party_debits = _payable_party_issue_debit_lines(debit_account)
 			je["accounts"] = party_debits + [
@@ -1101,9 +1161,12 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 			)
 			if not credit_account:
 				return None
-			remark = frappe._(PDC_JE_REMARK_CANCEL_ISSUED_PAYABLE_CHEQUE)
-			if doc.cheque_no:
-				remark = f"{remark} — {doc.cheque_no}"
+			remark = render_pdc_je_text(
+				getattr(settings, "je_remark_cancel_issued_payable_template", None) if settings else None,
+				fallback_text=frappe._(PDC_JE_REMARK_CANCEL_ISSUED_PAYABLE_CHEQUE),
+				context=ctx,
+				append_cheque_no_suffix=True,
+			)
 			je = _base(remark)
 			party_credits = _payable_party_reverse_credit_lines(credit_account)
 			je["accounts"] = [
@@ -1127,9 +1190,12 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 			_pdc_validate_clearing_bank_ledger_account(doc, bank_gl)
 			debit_pool = acc["payable_cheque"]
 			_pdc_validate_payable_clear_accounts_no_party_gl(debit_pool, bank_gl)
-			remark = frappe._(PDC_JE_REMARK_CLEAR_PAYABLE_CHEQUE)
-			if doc.cheque_no:
-				remark = f"{remark} — {doc.cheque_no}"
+			remark = render_pdc_je_text(
+				getattr(settings, "je_remark_clear_payable_template", None) if settings else None,
+				fallback_text=frappe._(PDC_JE_REMARK_CLEAR_PAYABLE_CHEQUE),
+				context=ctx,
+				append_cheque_no_suffix=True,
+			)
 			je = _base(remark)
 			je["accounts"] = [
 				{
@@ -3373,7 +3439,16 @@ class PostDatedCheque(Document):
 			je.voucher_type = "Journal Entry"
 			je.cheque_no = self.cheque_no
 			je.cheque_date = self.cheque_due_date
-			je.user_remark = frappe._("Cheque {0} received from party - PDC Register").format(self.cheque_no)
+			je.user_remark = render_pdc_je_text(
+				getattr(settings, "je_user_remark_register_receivable_template", None)
+				if settings
+				else None,
+				fallback_text=frappe._("Cheque {0} received from party - PDC Register").format(
+					self.cheque_no
+				),
+				context=PDCDescriptionContext.from_doc(self),
+				append_cheque_no_suffix=False,
+			)
 			je.append(
 				"accounts",
 				{
@@ -3423,7 +3498,14 @@ class PostDatedCheque(Document):
 			je.voucher_type = "Journal Entry"
 			je.cheque_no = self.cheque_no
 			je.cheque_date = self.cheque_due_date
-			je.user_remark = frappe._("Cheque {0} issued to party - PDC Register").format(self.cheque_no)
+			je.user_remark = render_pdc_je_text(
+				getattr(settings, "je_user_remark_register_payable_template", None)
+				if settings
+				else None,
+				fallback_text=frappe._("Cheque {0} issued to party - PDC Register").format(self.cheque_no),
+				context=PDCDescriptionContext.from_doc(self),
+				append_cheque_no_suffix=False,
+			)
 			je.append(
 				"accounts",
 				{

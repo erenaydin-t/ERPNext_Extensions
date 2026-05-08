@@ -24,6 +24,26 @@
   "allow_endorsement",
   "require_sayad_registration",
   "default_endorsement_account",
+  "section_break_je_descriptions",
+  "je_remark_register_receivable_template",
+  "je_remark_send_receivable_to_bank_template",
+  "je_remark_receivable_bounced_template",
+  "je_remark_return_receivable_to_party_template",
+  "je_remark_endorse_receivable_template",
+  "je_remark_register_payable_template",
+  "je_remark_cancel_registered_payable_template",
+  "je_remark_clear_payable_template",
+  "je_remark_returned_payable_from_payee_template",
+  "je_remark_cancel_issued_payable_template",
+  "je_remark_replace_receivable_after_bounce_template",
+  "je_remark_replace_receivable_after_return_template",
+  "je_remark_replace_issued_payable_template",
+  "je_remark_replace_returned_payable_template",
+  "je_remark_clear_receivable_registered_template",
+  "je_remark_clear_receivable_clearing_template",
+  "je_remark_clear_receivable_legal_template",
+  "je_user_remark_register_receivable_template",
+  "je_user_remark_register_payable_template",
   "section_break_payment_request",
   "payment_request_pdc_mode_of_payment",
   "section_break_allocation",
@@ -99,6 +119,147 @@
    "label": "Default Endorsement / Settlement Account (Receivable)",
    "options": "Account",
    "description": "Receivable Registered → Endorsed: GL debited instead of the endorsed party’s receivable (Dr settlement, Cr Cheques in Hand). Prefer a dedicated “endorsed cheques” or clearing account with no party. Per-PDC override: Post Dated Cheque → Endorsement Settlement Account."
+  },
+  {
+   "fieldname": "section_break_je_descriptions",
+   "fieldtype": "Section Break",
+   "label": "Journal Entry Descriptions",
+   "collapsible": 1,
+   "collapsed": 1,
+   "description": "Optional templates for Journal Entry narration (remarks/user remark) used by PDC posting. Leave empty to use built-in defaults."
+  },
+  {
+   "fieldname": "je_remark_register_receivable_template",
+   "fieldtype": "Small Text",
+   "label": "JE Remark — Register Receivable",
+   "default": "ثبت چک دریافتنی {cheque_no} — {party}",
+   "description": "Default: Register receivable cheque — {cheque_no}"
+  },
+  {
+   "fieldname": "je_remark_send_receivable_to_bank_template",
+   "fieldtype": "Small Text",
+   "label": "JE Remark — Send Receivable to Bank",
+   "default": "ارسال چک دریافتنی {cheque_no} به بانک",
+   "description": "Default: Send receivable cheque to bank — {cheque_no}"
+  },
+  {
+   "fieldname": "je_remark_receivable_bounced_template",
+   "fieldtype": "Small Text",
+   "label": "JE Remark — Receivable Bounced",
+   "default": "برگشت چک دریافتنی {cheque_no}",
+   "description": "Default: Receivable cheque bounced — {cheque_no}"
+  },
+  {
+   "fieldname": "je_remark_return_receivable_to_party_template",
+   "fieldtype": "Small Text",
+   "label": "JE Remark — Return Receivable to Party",
+   "default": "عودت چک دریافتنی {cheque_no} به {party}",
+   "description": "Default: Return receivable cheque to party — {cheque_no}"
+  },
+  {
+   "fieldname": "je_remark_endorse_receivable_template",
+   "fieldtype": "Small Text",
+   "label": "JE Remark — Endorse Receivable",
+   "default": "ظهرنویسی چک دریافتنی {cheque_no} — {party}",
+   "description": "Default: Endorse receivable cheque — {cheque_no}"
+  },
+  {
+   "fieldname": "je_remark_register_payable_template",
+   "fieldtype": "Small Text",
+   "label": "JE Remark — Register Payable",
+   "default": "ثبت چک پرداختنی {cheque_no} — {party}",
+   "description": "Default: Register payable cheque (supplier settlement) — {cheque_no}"
+  },
+  {
+   "fieldname": "je_remark_cancel_registered_payable_template",
+   "fieldtype": "Small Text",
+   "label": "JE Remark — Cancel Registered Payable",
+   "default": "ابطال ثبت چک پرداختنی {cheque_no} — {party}",
+   "description": "Default: Cancel registered payable cheque (reverse supplier settlement) — {cheque_no}"
+  },
+  {
+   "fieldname": "je_remark_clear_payable_template",
+   "fieldtype": "Small Text",
+   "label": "JE Remark — Clear Payable",
+   "default": "وصول چک پرداختنی {cheque_no}",
+   "description": "Default: Clear payable cheque — {cheque_no}"
+  },
+  {
+   "fieldname": "je_remark_returned_payable_from_payee_template",
+   "fieldtype": "Small Text",
+   "label": "JE Remark — Returned Payable from Payee",
+   "default": "عودت چک پرداختنی {cheque_no} از {party}",
+   "description": "Default: Returned payable cheque from payee — {cheque_no}"
+  },
+  {
+   "fieldname": "je_remark_cancel_issued_payable_template",
+   "fieldtype": "Small Text",
+   "label": "JE Remark — Cancel Issued Payable",
+   "default": "ابطال چک پرداختنی صادره {cheque_no} — {party}",
+   "description": "Default: Cancel issued payable cheque — {cheque_no}"
+  },
+  {
+   "fieldname": "je_remark_replace_receivable_after_bounce_template",
+   "fieldtype": "Small Text",
+   "label": "JE Remark — Replace Receivable after Bounce",
+   "default": "جایگزینی چک دریافتنی {cheque_no} پس از برگشت",
+   "description": "Default: Replace receivable cheque after bank bounce — {cheque_no}"
+  },
+  {
+   "fieldname": "je_remark_replace_receivable_after_return_template",
+   "fieldtype": "Small Text",
+   "label": "JE Remark — Replace Receivable after Return",
+   "default": "جایگزینی چک دریافتنی {cheque_no} پس از عودت",
+   "description": "Default: Replace receivable cheque after return — {cheque_no}"
+  },
+  {
+   "fieldname": "je_remark_replace_issued_payable_template",
+   "fieldtype": "Small Text",
+   "label": "JE Remark — Replace Issued Payable",
+   "default": "جایگزینی چک پرداختنی صادره {cheque_no} — {party}",
+   "description": "Default: Replace issued payable cheque — {cheque_no}"
+  },
+  {
+   "fieldname": "je_remark_replace_returned_payable_template",
+   "fieldtype": "Small Text",
+   "label": "JE Remark — Replace Returned Payable",
+   "default": "جایگزینی چک پرداختنی عودت‌شده {cheque_no} — {party}",
+   "description": "Default: Replace returned payable cheque — {cheque_no}"
+  },
+  {
+   "fieldname": "je_remark_clear_receivable_registered_template",
+   "fieldtype": "Small Text",
+   "label": "JE Remark — Clear Receivable (from Registered)",
+   "default": "وصول چک دریافتنی {cheque_no} (از وضعیت ثبت‌شده)",
+   "description": "Default: Receivable PDC cleared at bank vs cheques in hand (no party on clear). — {cheque_no}"
+  },
+  {
+   "fieldname": "je_remark_clear_receivable_clearing_template",
+   "fieldtype": "Small Text",
+   "label": "JE Remark — Clear Receivable (from Sent to Bank)",
+   "default": "وصول چک دریافتنی {cheque_no} (از وضعیت ارسال به بانک)",
+   "description": "Default: Receivable PDC cleared at bank vs cheques in clearing (no party on clear). — {cheque_no}"
+  },
+  {
+   "fieldname": "je_remark_clear_receivable_legal_template",
+   "fieldtype": "Small Text",
+   "label": "JE Remark — Clear Receivable (after Legal)",
+   "default": "وصول چک دریافتنی {cheque_no} پس از پیگیری حقوقی",
+   "description": "Default: Receivable PDC cleared at bank after legal follow-up vs protested/clearing/in-hand (no party on clear). — {cheque_no}"
+  },
+  {
+   "fieldname": "je_user_remark_register_receivable_template",
+   "fieldtype": "Small Text",
+   "label": "JE User Remark — Register Receivable (Legacy)",
+   "default": "چک {cheque_no} از {party} دریافت شد - ثبت چک",
+   "description": "Default: Cheque {cheque_no} received from party - PDC Register"
+  },
+  {
+   "fieldname": "je_user_remark_register_payable_template",
+   "fieldtype": "Small Text",
+   "label": "JE User Remark — Register Payable (Legacy)",
+   "default": "چک {cheque_no} به {party} پرداخت شد - ثبت چک",
+   "description": "Default: Cheque {cheque_no} issued to party - PDC Register"
   },
   {
    "fieldname": "section_break_payment_request",
