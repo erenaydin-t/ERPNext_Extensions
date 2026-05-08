@@ -56,6 +56,7 @@
   "account_paid_from",
   "column_break_accounts",
   "account_paid_to",
+  "advance_account",
   "cheques_in_clearing_account",
   "endorsement_settlement_account",
   "section_break_dimensions",
@@ -381,6 +382,14 @@
    "label": "Account Paid To",
    "options": "Account",
    "description": "Payable: party payable account (supplier). For receivable cheques, defaults to Cheques in Hand from PDC Settings. Otherwise defaults from party or company accounts. Editable by user."
+  },
+  {
+   "fieldname": "advance_account",
+   "fieldtype": "Link",
+   "label": "Advance / Prepayment Account",
+   "options": "Account",
+   "depends_on": "eval:doc.allocation_mode=='advance'",
+   "description": "Optional override for the advance/prepayment account used in PDC advance settlement. Leave empty to use company defaults."
   },
   {
    "fieldname": "cheques_in_clearing_account",

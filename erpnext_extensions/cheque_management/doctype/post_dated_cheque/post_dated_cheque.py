@@ -285,6 +285,82 @@ def _company_default_advance_received_account(company: str | None) -> str | None
 	return s or None
 
 
+def _resolve_advance_account_override(doc) -> str | None:
+	"""Return doc-level override for advance/prepayment account (if any)."""
+	return _strip_link_name_or_none(getattr(doc, "advance_account", None) if doc else None)
+
+
+def _validate_advance_account_override(doc) -> None:
+	"""Validate advance_account when user sets it (tolerant, company-aware).
+
+	We intentionally validate only basic Account invariants + root_type alignment hints:
+	- same company (unless account has no company)
+	- not disabled
+	- not a group
+	- root_type alignment:
+	  - Receivable advance typically uses a Liability (advance received)
+	  - Payable advance typically uses an Asset (advance paid)
+
+	We keep this tolerant: if root_type is empty/unknown, we do not block.
+	"""
+	acc = _resolve_advance_account_override(doc)
+	if not acc:
+		return
+
+	company = (getattr(doc, "company", None) or "").strip()
+	row = frappe.db.get_value(
+		"Account",
+		acc,
+		["company", "disabled", "is_group", "root_type"],
+		as_dict=True,
+	)
+	if not row:
+		frappe.throw(frappe._("Advance / Prepayment Account {0} does not exist.").format(acc), title=frappe._("Account"))
+
+	if cint(row.get("disabled", 0)):
+		frappe.throw(
+			frappe._("Advance / Prepayment Account {0} is disabled.").format(acc),
+			title=frappe._("Account"),
+		)
+
+	if cint(row.get("is_group", 0)):
+		frappe.throw(
+			frappe._("Advance / Prepayment Account {0} must not be a group account.").format(acc),
+			title=frappe._("Account"),
+		)
+
+	acc_company = (row.get("company") or "").strip()
+	if company and acc_company and acc_company != company:
+		frappe.throw(
+			frappe._("Advance / Prepayment Account must belong to the same Company as this Post Dated Cheque."),
+			title=frappe._("Account"),
+		)
+
+	root_type = (row.get("root_type") or "").strip()
+	if not root_type:
+		return
+
+	direction = (getattr(doc, "cheque_direction", None) or "").strip()
+	# Only validate alignment for advance mode; non-advance flows ignore this field.
+	if (getattr(doc, "allocation_mode", None) or "").strip() != ALLOCATION_MODE_ADVANCE:
+		return
+
+	if direction == CHEQUE_DIRECTION_RECEIVABLE and root_type not in ("Liability",):
+		frappe.throw(
+			frappe._(
+				"Advance / Prepayment Account root type should typically be Liability for receivable advances (advance received)."
+			),
+			title=frappe._("Account"),
+		)
+	if direction == CHEQUE_DIRECTION_PAYABLE and root_type not in ("Asset",):
+		frappe.throw(
+			frappe._(
+				"Advance / Prepayment Account root type should typically be Asset for payable advances (advance paid)."
+			),
+			title=frappe._("Account"),
+		)
+
+
 def _pdc_company_policy_flags(company: str | None) -> dict[str, int]:
 	"""Runtime flags from PDC Settings (defaults match DocType defaults when no row exists)."""
 	st = _get_pdc_settings_for_company(company) if company else None
@@ -622,7 +698,9 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 				if eff != "register":
 					return None
 				debit_account = _strip_link_name_or_none(getattr(doc, "account_paid_to", None)) or acc["cheques_in_hand"]
-				credit_account = _company_default_advance_received_account(getattr(doc, "company", None))
+				credit_account = _resolve_advance_account_override(doc) or _company_default_advance_received_account(
+					getattr(doc, "company", None)
+				)
 				if not debit_account or not credit_account:
 					return None
 				remark = render_pdc_je_text(
@@ -964,7 +1042,9 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 				# If recognition is configured at `issue`, do not post at register.
 				if eff == "issue":
 					return None
-				debit_account = _company_default_advance_paid_account(getattr(doc, "company", None))
+				debit_account = _resolve_advance_account_override(doc) or _company_default_advance_paid_account(
+					getattr(doc, "company", None)
+				)
 				credit_account = acc.get("payable_cheque")
 				if not debit_account or not credit_account:
 					return None
@@ -1021,7 +1101,9 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 			eff = (getattr(doc, "effective_stage_for_advance_recognition", None) or "register").strip().lower()
 			if eff != "issue":
 				return None
-			debit_account = _company_default_advance_paid_account(getattr(doc, "company", None))
+			debit_account = _resolve_advance_account_override(doc) or _company_default_advance_paid_account(
+				getattr(doc, "company", None)
+			)
 			credit_account = acc.get("payable_cheque")
 			if not debit_account or not credit_account:
 				return None
@@ -1490,6 +1572,7 @@ class PostDatedCheque(Document):
 		self._validate_receivable_cheques_in_hand_account_required()
 		self._validate_allocations()
 		self._validate_advance_scope_structural()
+		_validate_advance_account_override(self)
 		self._validate_party()
 		self._apply_cheque_leaf_cleanup_when_not_payable_draft()
 		self._validate_duplicate_cheque_no()
