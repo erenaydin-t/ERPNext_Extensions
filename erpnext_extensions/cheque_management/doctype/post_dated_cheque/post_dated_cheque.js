@@ -259,6 +259,7 @@ frappe.ui.form.on("Post Dated Cheque", {
 		frm._pdc_last_cheque_direction = frm.doc.cheque_direction;
 		// Track last seen **party_type** so we only clear **party** on a real user edit (not first bind from prefill).
 		frm._pdc_prev_party_type_str = (frm.doc.party_type || "").trim();
+		frm._pdc_prev_bank_account = (frm.doc.bank_account || "").trim();
 		pdc_normalize_prefilled_allocations(frm);
 		pdc_trace("setup", { company: frm.doc && frm.doc.company, __islocal: frm.doc && frm.doc.__islocal });
 	},
@@ -268,6 +269,9 @@ frappe.ui.form.on("Post Dated Cheque", {
 		pdc_normalize_prefilled_allocations(frm);
 		pdc_autofill_allocations_from_parent_source(frm);
 		pdc_schedule_initial_receivable_accounts(frm);
+		pdc_apply_cheque_leaf_ui(frm);
+		pdc_apply_cheque_leaf_behaviour(frm);
+		pdc_schedule_cheque_leaf_ui_enforcement(frm);
 		pdc_sync_allocation_summary_client(frm);
 	},
 
@@ -281,6 +285,10 @@ frappe.ui.form.on("Post Dated Cheque", {
 	refresh(frm) {
 		pdc_trace("refresh", { company: frm.doc.company, cheque_direction: frm.doc.cheque_direction, __islocal: frm.doc.__islocal });
 		pdc_apply_direction_dependent_ui(frm);
+		pdc_apply_cheque_direction_lock_ui(frm);
+		pdc_apply_payable_bank_account_lock_ui(frm);
+		pdc_apply_cheque_leaf_behaviour(frm);
+		pdc_schedule_cheque_leaf_ui_enforcement(frm);
 		pdc_normalize_prefilled_allocations(frm);
 		pdc_sync_allocation_summary_client(frm);
 		frm._pdc_last_cheque_direction = frm.doc.cheque_direction;
@@ -322,7 +330,14 @@ frappe.ui.form.on("Post Dated Cheque", {
 		const prev = frm._pdc_last_cheque_direction;
 		const done = pdc_on_cheque_direction_changed(frm, prev);
 		const finish = () => {
+			// If switching to Receivable, clear any leaf-derived data immediately.
+			pdc_cleanup_cheque_leaf_when_not_payable(frm);
+			pdc_sync_holder_to_party_for_direction(frm, prev, frm.doc.cheque_direction);
 			pdc_apply_direction_dependent_ui(frm);
+			pdc_apply_cheque_direction_lock_ui(frm);
+			pdc_apply_cheque_leaf_ui(frm);
+			pdc_apply_cheque_leaf_behaviour(frm);
+			pdc_schedule_cheque_leaf_ui_enforcement(frm);
 			frm._pdc_last_cheque_direction = frm.doc.cheque_direction;
 		};
 		if (done && typeof done.then === "function") {
@@ -335,8 +350,21 @@ frappe.ui.form.on("Post Dated Cheque", {
 	company(frm) {
 		pdc_trace("company", { company: frm.doc.company });
 		pdc_apply_direction_dependent_ui(frm);
+		pdc_apply_cheque_leaf_behaviour(frm);
+		pdc_schedule_cheque_leaf_ui_enforcement(frm);
 		pdc_schedule_initial_receivable_accounts(frm);
 		frm._pdc_last_cheque_direction = frm.doc.cheque_direction;
+	},
+
+	bank_account(frm) {
+		pdc_handle_bank_account_change_for_cheque_leaf(frm);
+		pdc_apply_cheque_leaf_behaviour(frm);
+		pdc_schedule_cheque_leaf_ui_enforcement(frm);
+	},
+
+	cheque_leaf(frm) {
+		pdc_apply_cheque_leaf_behaviour(frm);
+		pdc_schedule_cheque_leaf_ui_enforcement(frm);
 	},
 
 	received_date(frm) {
@@ -646,6 +674,9 @@ function pdc_apply_direction_dependent_ui(frm) {
 	pdc_apply_bank_account_ui(frm);
 	pdc_apply_received_date_ui(frm);
 	pdc_apply_receivable_only_fields_ui(frm);
+	pdc_apply_cheque_leaf_ui(frm);
+	pdc_apply_cheque_direction_lock_ui(frm);
+	pdc_apply_payable_bank_account_lock_ui(frm);
 	pdc_apply_sayad_code_ui(frm);
 	pdc_apply_party_type_ui(frm);
 	pdc_apply_account_fields_ui(frm);
@@ -656,6 +687,333 @@ function pdc_apply_direction_dependent_ui(frm) {
 	frm.refresh_field("drawer_bank_name");
 	frm.refresh_field("bank_account");
 	frm.refresh_field("handover_date");
+}
+
+function pdc_receivable_sent_to_bank_or_later(doc) {
+	if (!doc) return false;
+	const ws = (doc.workflow_state || "").trim();
+	const cheque_status = (doc.cheque_status || "").trim();
+
+	const ws_locked = ["Sent to Bank", "In Clearing", "Cleared", "Bounced", "Returned", "Cancelled", "Replaced"].includes(ws);
+	const status_locked = ["In Clearing", "Cleared", "Bounced", "Returned"].includes(cheque_status);
+
+	// Registered is NOT sent-to-bank-or-later from sent_to_bank_date alone (it may be prefilled early).
+	const sent_to_bank_date_set = !!doc.sent_to_bank_date;
+	const sent_to_bank_signal = sent_to_bank_date_set && ws !== "Registered";
+
+	return ws_locked || status_locked || sent_to_bank_signal;
+}
+
+function pdc_apply_payable_bank_account_lock_ui(frm) {
+	if (!frm || !frm.doc) return;
+	if (pdc_is_new_unsaved(frm)) {
+		return;
+	}
+	const dir = (frm.doc.cheque_direction || "").trim();
+	const bank_account = (frm.doc.bank_account || "").trim();
+	const ws = (frm.doc.workflow_state || "").trim();
+
+	// Keep existing Payable rule unchanged.
+	const payable_locked = dir === "Payable" && ws && ws !== "Draft";
+
+	// Receivable: lock bank_account only after true sent-to-bank-or-later (not merely Registered).
+	// IMPORTANT: if bank_account is still empty, keep it editable so user can set it (it becomes required).
+	const receivable_locked = dir === "Receivable" && bank_account && pdc_receivable_sent_to_bank_or_later(frm.doc);
+
+	if (payable_locked || receivable_locked) {
+		frm.set_df_property("bank_account", "read_only", 1);
+		frm.toggle_enable("bank_account", false);
+		// cheque_leaf: lock only for Payable (Receivable is manual and leaf is hidden anyway).
+		if (payable_locked) {
+			frm.set_df_property("cheque_leaf", "read_only", 1);
+			frm.toggle_enable("cheque_leaf", false);
+		}
+	} else {
+		// Do not override receivable behavior here; only relax payable draft.
+		if (dir === "Payable" && (ws || "Draft") === "Draft") {
+			frm.set_df_property("bank_account", "read_only", 0);
+			frm.toggle_enable("bank_account", true);
+			// cheque_leaf enablement is controlled by pdc_apply_cheque_leaf_ui.
+		}
+		// Receivable: if not locked, keep bank_account editable (before sent-to-bank, or sent-to-bank but empty).
+		if (dir === "Receivable") {
+			frm.set_df_property("bank_account", "read_only", 0);
+			frm.toggle_enable("bank_account", true);
+		}
+	}
+
+	frm.refresh_field("bank_account");
+	frm.refresh_field("cheque_leaf");
+}
+
+function pdc_apply_cheque_direction_lock_ui(frm) {
+	if (!frm || !frm.doc) return;
+	// New unsaved docs: editable
+	if (pdc_is_new_unsaved(frm)) {
+		frm.set_df_property("cheque_direction", "read_only", 0);
+		frm.toggle_enable("cheque_direction", true);
+		return;
+	}
+
+	const dir = (frm.doc.cheque_direction || "").trim();
+	const docstatus = parseInt(frm.doc.docstatus, 10) || 0;
+
+	let locked = false;
+	if (dir === "Payable") {
+		locked = true;
+	} else if (dir === "Receivable") {
+		locked = pdc_receivable_sent_to_bank_or_later(frm.doc);
+	}
+
+	// Only lock in draft/submitted contexts; if doc is cancelled, it is inherently non-editable.
+	if (docstatus === 2) {
+		locked = true;
+	}
+
+	frm.set_df_property("cheque_direction", "read_only", locked ? 1 : 0);
+	frm.toggle_enable("cheque_direction", !locked);
+	frm.refresh_field("cheque_direction");
+}
+
+function pdc_apply_cheque_leaf_ui(frm) {
+	const payable = frm.doc.cheque_direction === "Payable";
+	const has_company = !!(frm.doc.company || "").trim();
+	const has_bank = !!(frm.doc.bank_account || "").trim();
+	const leaf_editable = payable && has_company && has_bank && (frm.doc.docstatus || 0) === 0;
+
+	// Force visibility/read-only state every time; avoids stale meta flags.
+	if (!payable) {
+		frm.set_df_property("cheque_leaf", "hidden", 1);
+		frm.set_df_property("cheque_leaf", "read_only", 1);
+		frm.toggle_enable("cheque_leaf", false);
+		frm.set_df_property("cheque_leaf", "description", "");
+	} else {
+		frm.set_df_property("cheque_leaf", "hidden", 0);
+		frm.set_df_property("cheque_leaf", "read_only", leaf_editable ? 0 : 1);
+		frm.toggle_enable("cheque_leaf", !!leaf_editable);
+		frm.set_df_property(
+			"cheque_leaf",
+			"description",
+			leaf_editable ? "" : __("Select Bank Account first.")
+		);
+	}
+
+	frm.set_query("cheque_leaf", function () {
+		// Only allow leaf selection for Payable cheques, same company/bank, and Available leaves.
+		if (!payable) {
+			return { filters: { name: ["in", []] } };
+		}
+		const company = (frm.doc.company || "").trim();
+		const bank_account = (frm.doc.bank_account || "").trim();
+		if (!company || !bank_account) {
+			return { filters: { name: ["in", []] } };
+		}
+		// Server-side query: dropdown **description** = cheque_number | status | bank_account | cheque_book (sorted by cheque_number).
+		return {
+			query:
+				"erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque.pdc_cheque_leaf_link_query",
+			filters: {
+				company: company,
+				bank_account: bank_account,
+			},
+		};
+	});
+
+	// Extra hard-enable in case widget kept disabled by stale state.
+	const fld = frm.fields_dict.cheque_leaf;
+	pdc_force_cheque_leaf_widget_state(frm, leaf_editable);
+
+	frm.refresh_field("cheque_leaf");
+	pdc_debug_cheque_leaf_state(frm, leaf_editable);
+}
+
+function pdc_apply_cheque_leaf_behaviour(frm) {
+	if (!frm || !frm.doc) {
+		return;
+	}
+
+	const payable = frm.doc.cheque_direction === "Payable";
+	const has_company = !!(frm.doc.company || "").trim();
+	const has_bank = !!(frm.doc.bank_account || "").trim();
+	const leaf = (frm.doc.cheque_leaf || "").trim();
+
+	// Guard: receivable PDCs must not use cheque leaf.
+	if (!payable) {
+		pdc_cleanup_cheque_leaf_when_not_payable(frm);
+		frm.set_df_property("cheque_no", "read_only", 0);
+		frm.refresh_field("cheque_no");
+		return;
+	}
+	if (payable && (!has_company || !has_bank) && leaf) {
+		frm.set_value("cheque_leaf", "");
+		return;
+	}
+
+	// Toggle Cheque Number editability based on leaf selection.
+	frm.set_df_property("cheque_no", "read_only", leaf ? 1 : 0);
+	frm.refresh_field("cheque_no");
+
+	// If leaf is set, fetch cheque_number and sync cheque_no.
+	if (leaf) {
+		frappe.db.get_value("Cheque Leaf", leaf, ["cheque_number", "sayad_number", "company", "bank_account", "status"]).then((r) => {
+			const m = (r && r.message) || {};
+			// If company/bank mismatch (or missing), clear leaf to avoid bad link.
+			if (
+				(m.company && frm.doc.company && m.company !== frm.doc.company) ||
+				(m.bank_account && frm.doc.bank_account && m.bank_account !== frm.doc.bank_account)
+			) {
+				frm.set_value("cheque_leaf", "");
+				return;
+			}
+			if (m.cheque_number && frm.doc.cheque_no !== m.cheque_number) {
+				frm.set_value("cheque_no", m.cheque_number);
+			}
+			// Optional convenience: copy Sayad Number into PDC Sayad Code if present.
+			if (Object.prototype.hasOwnProperty.call(frm.doc || {}, "sayad_code") && (m.sayad_number || "").trim()) {
+				frm.set_value("sayad_code", m.sayad_number);
+			}
+		});
+		return;
+	}
+
+	// Leaf cleared: cheque_no becomes user-editable again (no further action).
+}
+
+function pdc_cleanup_cheque_leaf_when_not_payable(frm) {
+	if (!frm || !frm.doc) return;
+	const payable = frm.doc.cheque_direction === "Payable";
+	if (payable) return;
+
+	const leaf = (frm.doc.cheque_leaf || "").trim();
+	if (!leaf) {
+		frm.set_df_property("cheque_no", "read_only", 0);
+		return;
+	}
+	const current_no = (frm.doc.cheque_no || "").trim();
+	frappe.db.get_value("Cheque Leaf", leaf, "cheque_number").then((r) => {
+		const leaf_no = (((r || {}).message || {}).cheque_number || "").trim();
+		frm.set_value("cheque_leaf", "");
+		if (!current_no || !leaf_no || current_no === leaf_no) {
+			frm.set_value("cheque_no", "");
+		}
+		frm.set_df_property("cheque_no", "read_only", 0);
+		frm.refresh_field("cheque_leaf");
+		frm.refresh_field("cheque_no");
+	});
+}
+
+function pdc_sync_holder_to_party_for_direction(frm, prev_direction, new_direction) {
+	if (!frm || !frm.doc) return;
+	const prev = (prev_direction || "").trim();
+	const cur = (new_direction || frm.doc.cheque_direction || "").trim();
+	if (prev === cur) return;
+
+	// When switching Payable -> Receivable, holder should not keep old payee values.
+	if (cur === "Receivable") {
+		const pt = (frm.doc.party_type || "").trim();
+		const p = (frm.doc.party || "").trim();
+		if (pt && p) {
+			frm.set_value("holder_party_type", pt);
+			frm.set_value("holder_party", p);
+		} else {
+			frm.set_value("holder_party_type", "");
+			frm.set_value("holder_party", "");
+		}
+	}
+}
+
+function pdc_handle_bank_account_change_for_cheque_leaf(frm) {
+	if (!frm || !frm.doc || frm.doc.cheque_direction !== "Payable") {
+		frm._pdc_prev_bank_account = (frm && frm.doc && frm.doc.bank_account ? frm.doc.bank_account : "").trim();
+		return;
+	}
+	const prev_bank = (frm._pdc_prev_bank_account || "").trim();
+	const cur_bank = (frm.doc.bank_account || "").trim();
+	const leaf = (frm.doc.cheque_leaf || "").trim();
+
+	if (!prev_bank) {
+		frm._pdc_prev_bank_account = cur_bank;
+		return;
+	}
+	if (prev_bank === cur_bank) {
+		return;
+	}
+
+	if (leaf) {
+		frappe.db.get_value("Cheque Leaf", leaf, "cheque_number").then((r) => {
+			const old_leaf_number = (((r || {}).message || {}).cheque_number || "").trim();
+			if (old_leaf_number && (frm.doc.cheque_no || "").trim() === old_leaf_number) {
+				frm.set_value("cheque_no", "");
+			}
+			frm.set_value("cheque_leaf", "");
+		});
+	} else if (!cur_bank) {
+		// No selected leaf and bank cleared: keep cheque number manual/editable.
+	}
+
+	frm._pdc_prev_bank_account = cur_bank;
+}
+
+function pdc_force_cheque_leaf_widget_state(frm, leaf_editable) {
+	const fld = frm && frm.fields_dict ? frm.fields_dict.cheque_leaf : null;
+	if (!fld) return;
+	const wrapper = fld.$wrapper;
+	if (wrapper) {
+		wrapper.toggleClass("disabled", !leaf_editable);
+		wrapper.find("input, .awesomplete input, textarea").prop("disabled", !leaf_editable);
+	}
+	if (fld.$input) {
+		fld.$input.prop("disabled", !leaf_editable);
+	}
+}
+
+function pdc_schedule_cheque_leaf_ui_enforcement(frm) {
+	frappe.after_ajax(() => {
+		[100, 500].forEach((ms) => {
+			setTimeout(() => {
+				if (!frm || !frm.doc) return;
+				pdc_apply_cheque_leaf_ui(frm);
+				const payable = frm.doc.cheque_direction === "Payable";
+				const has_company = !!(frm.doc.company || "").trim();
+				const has_bank = !!(frm.doc.bank_account || "").trim();
+				const leaf_editable = payable && has_company && has_bank && (frm.doc.docstatus || 0) === 0;
+				pdc_force_cheque_leaf_widget_state(frm, leaf_editable);
+				pdc_debug_cheque_leaf_state(frm, leaf_editable);
+			}, ms);
+		});
+	});
+}
+
+function pdc_debug_cheque_leaf_state(frm, should_be_editable) {
+	try {
+		const fld = frm && frm.fields_dict ? frm.fields_dict.cheque_leaf : null;
+		const df = frm && frm.get_docfield ? frm.get_docfield("cheque_leaf") : null;
+		const inputDisabled =
+			!!(fld && fld.$wrapper && fld.$wrapper.find("input:disabled, .awesomplete input:disabled").length);
+		if (should_be_editable && (df && df.read_only || inputDisabled)) {
+			// temporary runtime diagnostic
+			// eslint-disable-next-line no-console
+			console.warn("[PDC cheque_leaf disabled unexpectedly]", {
+				cheque_direction: frm.doc.cheque_direction,
+				company: frm.doc.company,
+				bank_account: frm.doc.bank_account,
+				docstatus: frm.doc.docstatus,
+				df_read_only: df ? df.read_only : undefined,
+				input_disabled: inputDisabled,
+			});
+			frappe.show_alert(
+				{
+					message: __(
+						"Debug: cheque_leaf remained disabled unexpectedly. Check console for state payload."
+					),
+					indicator: "orange",
+				},
+				5
+			);
+		}
+	} catch (e) {
+		// ignore diagnostics failures
+	}
 }
 
 /**

@@ -21,6 +21,7 @@ from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
 )
 from erpnext_extensions.cheque_management.pdc_workflow_to_cheque_status import (
 	CHEQUE_STATUS_DRAFT,
+	CHEQUE_STATUS_REGISTERED,
 	PAYABLE_WORKFLOW_TO_CHEQUE_STATUS,
 	RECEIVABLE_WORKFLOW_TO_CHEQUE_STATUS,
 	get_cheque_status_for_workflow_state,
@@ -30,6 +31,12 @@ from erpnext_extensions.cheque_management.pdc_workflow_to_cheque_status import (
 
 
 class TestPDCWorkflowToChequeStatus(unittest.TestCase):
+	def test_payable_registered_maps_to_registered(self) -> None:
+		self.assertEqual(
+			map_workflow_state_to_cheque_status(CHEQUE_DIRECTION_PAYABLE, "Registered"),
+			CHEQUE_STATUS_REGISTERED,
+		)
+
 	def test_receivable_every_mapped_workflow_state(self) -> None:
 		for workflow_state, expected_cheque_status in RECEIVABLE_WORKFLOW_TO_CHEQUE_STATUS.items():
 			with self.subTest(workflow_state=workflow_state):

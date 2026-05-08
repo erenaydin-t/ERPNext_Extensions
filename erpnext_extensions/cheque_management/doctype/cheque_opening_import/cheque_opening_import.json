@@ -1,0 +1,103 @@
+{
+ "actions": [],
+ "allow_copy": 0,
+ "allow_rename": 1,
+ "autoname": "format:COI-{YYYY}-{#####}",
+ "creation": "2026-05-03 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_import",
+  "import_file",
+  "column_break_1",
+  "import_status",
+  "import_template_actions_html",
+  "section_summary",
+  "summary",
+  "section_items",
+  "items"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_import",
+   "fieldtype": "Section Break",
+   "label": "Import File"
+  },
+  {
+   "fieldname": "import_file",
+   "fieldtype": "Attach",
+   "label": "CSV or Excel",
+   "description": "Headers: cheque_direction, company, bank_account, cheque_number, cheque_due_date, cheque_amount, party_type, party, workflow_state. Optional: cheque_book, drawer_bank_name, received_date, sent_to_bank_date, handover_date, cleared_date, bounced_date, returned_date, sayad_code."
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "import_status",
+   "fieldtype": "Select",
+   "label": "Import Status",
+   "options": "Draft\nPreviewed\nCompleted\nCompleted With Errors",
+   "default": "Draft",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "import_template_actions_html",
+   "fieldtype": "HTML",
+   "label": "Template",
+   "options": "",
+   "print_hide": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_summary",
+   "fieldtype": "Section Break",
+   "label": "Result Summary",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "summary",
+   "fieldtype": "Long Text",
+   "label": "Summary",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_items",
+   "fieldtype": "Section Break",
+   "label": "Rows"
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "label": "Items",
+   "options": "Cheque Opening Import Item"
+  }
+ ],
+ "links": [],
+ "modified": "2026-05-03 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Cheque Management",
+ "name": "Cheque Opening Import",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "System Manager",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "Cheque Manager",
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
