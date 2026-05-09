@@ -47,6 +47,10 @@ boot_session = ["erpnext_extensions.desk_boot.extend_bootinfo"]
 
 # include js in doctype views
 doctype_js = {
+	# NOTE: Cheque Opening Import already autoloads its doctype JS from
+	# `cheque_management/doctype/cheque_opening_import/cheque_opening_import.js`.
+	# Keep this hook for extra assets only (avoid double-loading the same file).
+	"Cheque Opening Import": "public/js/cheque_opening_import_inline_template.js",
 	"Payment Request": [
 		"public/js/pdc_create_from_source.js",
 		"public/js/pdc_settlement_summary.js",

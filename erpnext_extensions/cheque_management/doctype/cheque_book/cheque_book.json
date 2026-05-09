@@ -1,0 +1,232 @@
+{
+ "actions": [],
+ "allow_copy": 0,
+ "allow_guest_to_view": 0,
+ "allow_import": 0,
+ "allow_rename": 0,
+ "autoname": "naming_series:",
+ "beta": 0,
+ "creation": "2026-04-28 00:00:00.000000",
+ "custom": 0,
+ "docstatus": 0,
+ "doctype": "DocType",
+ "document_type": "Document",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "company",
+  "bank_account",
+  "book_code",
+  "section_break_generation",
+  "generation_mode",
+  "prefix",
+  "column_break_generation",
+  "start_number",
+  "end_number",
+  "number_width",
+  "section_break_status",
+  "status",
+  "generated_leaves_count",
+  "available_leaves_count",
+  "used_leaves_count",
+  "reserved_leaves_count",
+  "void_leaves_count",
+  "generation_log"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "CHQBK-.YYYY.-",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "bank_account",
+   "fieldtype": "Link",
+   "label": "Bank Account",
+   "options": "Bank Account",
+   "reqd": 1,
+   "description": "Company-owned bank account for this cheque book.",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "book_code",
+   "fieldtype": "Data",
+   "label": "Book Code",
+   "description": "Optional internal identifier (e.g. Book 2026-Q2).",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "section_break_generation",
+   "fieldtype": "Section Break",
+   "label": "Leaf Generation",
+   "collapsible": 1,
+   "collapsed": 0
+  },
+  {
+   "fieldname": "generation_mode",
+   "fieldtype": "Select",
+   "label": "Generation Mode",
+   "options": "prefix_plus_sequence",
+   "default": "prefix_plus_sequence",
+   "reqd": 1
+  },
+  {
+   "fieldname": "prefix",
+   "fieldtype": "Data",
+   "label": "Prefix",
+   "description": "Prefix prepended to the numeric sequence (e.g. 212/w/)."
+  },
+  {
+   "fieldname": "column_break_generation",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "start_number",
+   "fieldtype": "Int",
+   "label": "Start Number",
+   "reqd": 1
+  },
+  {
+   "fieldname": "end_number",
+   "fieldtype": "Int",
+   "label": "End Number",
+   "reqd": 1
+  },
+  {
+   "fieldname": "number_width",
+   "fieldtype": "Int",
+   "label": "Number Width",
+   "description": "If set, left-pad numeric part to this width (e.g. 6 → 000123)."
+  },
+  {
+   "fieldname": "section_break_status",
+   "fieldtype": "Section Break",
+   "label": "Status & Counts",
+   "collapsible": 1,
+   "collapsed": 0
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Draft\nGenerated\nPartially Used\nExhausted\nClosed\nCancelled",
+   "default": "Draft",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "generated_leaves_count",
+   "fieldtype": "Int",
+   "label": "Generated Leaves Count",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "available_leaves_count",
+   "fieldtype": "Int",
+   "label": "Available Leaves Count",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "used_leaves_count",
+   "fieldtype": "Int",
+   "label": "Used Leaves Count",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "reserved_leaves_count",
+   "fieldtype": "Int",
+   "label": "Reserved Leaves Count",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "void_leaves_count",
+   "fieldtype": "Int",
+   "label": "Void Leaves Count",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "generation_log",
+   "fieldtype": "Small Text",
+   "label": "Generation Log",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [
+  {
+   "group": "Cheque Management",
+   "link_doctype": "Cheque Leaf",
+   "link_fieldname": "cheque_book"
+  }
+ ],
+ "modified": "2026-04-28 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Cheque Management",
+ "name": "Cheque Book",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "search_fields": "book_code,bank_account,company",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "write": 0
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Cheque Manager",
+   "submit": 0,
+   "cancel": 0,
+   "write": 1
+  },
+  {
+   "create": 0,
+   "delete": 0,
+   "read": 1,
+   "report": 1,
+   "role": "Cheque User",
+   "write": 0
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
+

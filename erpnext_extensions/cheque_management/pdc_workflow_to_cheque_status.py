@@ -45,7 +45,7 @@ Debug log (when mapping resolves): ``Mapping workflow_state %s to cheque_status 
 **Payable** — :data:`PAYABLE_WORKFLOW_TO_CHEQUE_STATUS`
 
 * Draft → Draft
-* Registered → Draft *(process step “registered” but instrument not yet issued — still operational Draft)*
+* Registered → Registered
 * Issued → Issued
 * Cleared → Cleared
 * Returned → Returned from Payee
@@ -94,6 +94,7 @@ CHEQUE_STATUS_REPLACED: Final = "Replaced"
 CHEQUE_STATUS_UNDER_LEGAL_ACTION: Final = "Under Legal Action"
 CHEQUE_STATUS_CANCELLED: Final = "Cancelled"
 CHEQUE_STATUS_ISSUED: Final = "Issued"
+CHEQUE_STATUS_REGISTERED: Final = "Registered"
 
 # Keys = Workflow State names; values = Cheque Status Select labels (must exist on DocType).
 RECEIVABLE_WORKFLOW_TO_CHEQUE_STATUS: Final[dict[str, str]] = {
@@ -111,8 +112,7 @@ RECEIVABLE_WORKFLOW_TO_CHEQUE_STATUS: Final[dict[str, str]] = {
 
 PAYABLE_WORKFLOW_TO_CHEQUE_STATUS: Final[dict[str, str]] = {
 	WORKFLOW_DRAFT: CHEQUE_STATUS_DRAFT,
-	# Registered: workflow step taken; physical cheque not "Issued" yet — keep operational label Draft.
-	WORKFLOW_REGISTERED: CHEQUE_STATUS_DRAFT,
+	WORKFLOW_REGISTERED: CHEQUE_STATUS_REGISTERED,
 	WORKFLOW_ISSUED: CHEQUE_STATUS_ISSUED,
 	WORKFLOW_CLEARED: CHEQUE_STATUS_CLEARED,
 	WORKFLOW_RETURNED: CHEQUE_STATUS_RETURNED_FROM_PAYEE,
@@ -191,6 +191,7 @@ __all__ = [
 	"CHEQUE_STATUS_IN_CLEARING",
 	"CHEQUE_STATUS_IN_HAND",
 	"CHEQUE_STATUS_ISSUED",
+	"CHEQUE_STATUS_REGISTERED",
 	"CHEQUE_STATUS_REPLACED",
 	"CHEQUE_STATUS_RETURNED_FROM_PAYEE",
 	"CHEQUE_STATUS_RETURNED_TO_CUSTOMER",

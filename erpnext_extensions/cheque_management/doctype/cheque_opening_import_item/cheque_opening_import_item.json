@@ -1,0 +1,72 @@
+{
+ "actions": [],
+ "allow_copy": 1,
+ "creation": "2026-05-03 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "row_number",
+  "row_status",
+  "validation_message",
+  "imported_pdc",
+  "post_dated_cheque",
+  "error_detail"
+ ],
+ "fields": [
+  {
+   "fieldname": "row_number",
+   "fieldtype": "Int",
+   "label": "Row #",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "row_status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Pending\nValid\nImported\nFailed",
+   "default": "Pending",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "validation_message",
+   "fieldtype": "Small Text",
+   "label": "Preview / Message",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "imported_pdc",
+   "fieldtype": "Link",
+   "label": "Imported PDC",
+   "options": "Post Dated Cheque",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "post_dated_cheque",
+   "fieldtype": "Link",
+   "label": "Post Dated Cheque",
+   "options": "Post Dated Cheque",
+   "read_only": 1
+  },
+  {
+   "fieldname": "error_detail",
+   "fieldtype": "Small Text",
+   "label": "Error Detail",
+   "read_only": 1
+  }
+ ],
+ "istable": 1,
+ "modified": "2026-05-03 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Cheque Management",
+ "name": "Cheque Opening Import Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "idx",
+ "sort_order": "ASC",
+ "track_changes": 0
+}

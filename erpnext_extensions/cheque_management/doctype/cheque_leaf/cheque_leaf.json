@@ -1,0 +1,189 @@
+{
+ "actions": [],
+ "allow_copy": 0,
+ "allow_guest_to_view": 0,
+ "allow_import": 0,
+ "allow_rename": 0,
+ "autoname": "naming_series:",
+ "beta": 0,
+ "creation": "2026-04-28 00:00:00.000000",
+ "custom": 0,
+ "docstatus": 0,
+ "doctype": "DocType",
+ "document_type": "Document",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "company",
+  "bank_account",
+  "cheque_book",
+  "cheque_number",
+  "sequence_no",
+  "sayad_number",
+  "status",
+  "section_break_links",
+  "linked_post_dated_cheque",
+  "reserved_by_pdc",
+  "reserved_on",
+  "used_on",
+  "voided_on",
+  "void_reason"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "CHQLF-.YYYY.-",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "in_standard_filter": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "bank_account",
+   "fieldtype": "Link",
+   "label": "Bank Account",
+   "options": "Bank Account",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "cheque_book",
+   "fieldtype": "Link",
+   "label": "Cheque Book",
+   "options": "Cheque Book",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "cheque_number",
+   "fieldtype": "Data",
+   "label": "Cheque Number",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "sequence_no",
+   "fieldtype": "Int",
+   "label": "Sequence No",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "sayad_number",
+   "fieldtype": "Data",
+   "label": "Sayad Number",
+   "description": "Optional Iranian cheque identifier (manual entry)."
+   ,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Available\nReserved\nUsed\nVoid",
+   "default": "Available",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "section_break_links",
+   "fieldtype": "Section Break",
+   "label": "Links & Audit",
+   "collapsible": 1,
+   "collapsed": 0
+  },
+  {
+   "fieldname": "linked_post_dated_cheque",
+   "fieldtype": "Link",
+   "label": "Linked Post Dated Cheque",
+   "options": "Post Dated Cheque",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "reserved_by_pdc",
+   "fieldtype": "Data",
+   "label": "Reserved By PDC",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reserved_on",
+   "fieldtype": "Datetime",
+   "label": "Reserved On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "used_on",
+   "fieldtype": "Datetime",
+   "label": "Used On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "voided_on",
+   "fieldtype": "Datetime",
+   "label": "Voided On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "void_reason",
+   "fieldtype": "Small Text",
+   "label": "Void Reason"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-04-28 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Cheque Management",
+ "name": "Cheque Leaf",
+ "search_fields": "cheque_number,sayad_number,cheque_book,bank_account,status",
+ "title_field": "cheque_number",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Cheque Manager",
+   "write": 1
+  },
+  {
+   "create": 0,
+   "delete": 0,
+   "read": 1,
+   "report": 1,
+   "role": "Cheque User",
+   "write": 0
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
+

@@ -5,6 +5,19 @@ import json
 import frappe
 
 
+"""LEGACY PATCH (workspace shortcuts) — kept for migration history.
+
+Current Cheque Management navigation strategy is **sidebar-first** via `Workspace Sidebar`
+(see `update_payments_module_sidebar_add_pdc_items.py` and refresh patches).
+
+This patch only affects the `Workspace` named "Payments" (if present). Many sites may not
+have that Workspace doc at all, in which case this patch is a no-op.
+
+It remains in `patches.txt` for backward compatibility and historical safety; do not remove
+or reorder without an explicit patch cleanup phase.
+"""
+
+
 def _ensure_workspace_shortcut(ws, label: str, link_to: str, link_type: str = "DocType"):
 	"""Add a shortcut without duplicating. Supports both `shortcuts` child table and JSON `content`."""
 	meta = frappe.get_meta("Workspace")

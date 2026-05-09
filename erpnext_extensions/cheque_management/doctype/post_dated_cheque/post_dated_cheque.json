@@ -29,9 +29,10 @@
   "instrument_dead",
   "instrument_dead_reason",
   "section_break_cheque",
+  "bank_account",
+  "cheque_leaf",
   "cheque_no",
   "cheque_due_date",
-  "bank_account",
   "column_break_cheque",
   "cheque_amount",
   "sayad_code",
@@ -55,6 +56,7 @@
   "account_paid_from",
   "column_break_accounts",
   "account_paid_to",
+  "advance_account",
   "cheques_in_clearing_account",
   "endorsement_settlement_account",
   "section_break_dimensions",
@@ -64,20 +66,24 @@
   "section_break_status",
   "workflow_state",
   "cheque_status",
+  "is_at_bank",
+  "section_break_opening_import",
+  "is_opening_import",
+  "opening_import",
+  "opening_import_row",
   "section_break_dates",
   "received_date",
+  "column_break_dates_primary_col2",
   "sent_to_bank_date",
-  "column_break_dates_flow_col2",
-  "column_break_dates_flow_col3",
-  "column_break_dates_flow_col4",
+  "section_break_dates_primary_row2",
   "cleared_date",
+  "column_break_dates_primary_row2_col2",
   "bounced_date",
   "section_break_dates_outcome",
   "returned_date",
+  "return_reason",
   "column_break_dates_outcome_col2",
   "handover_date",
-  "section_break_dates_return_reason",
-  "return_reason",
   "section_break_journal",
   "journal_references",
   "section_break_holder_history",
@@ -96,6 +102,7 @@
    "fieldtype": "Select",
    "label": "Cheque Direction",
    "in_list_view": 1,
+   "in_standard_filter": 1,
    "options": "Receivable\nPayable",
    "reqd": 1
   },
@@ -104,6 +111,8 @@
    "fieldtype": "Link",
    "label": "Company",
    "options": "Company",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
    "reqd": 1
   },
   {
@@ -188,6 +197,14 @@
    "collapsible": 1
   },
   {
+   "fieldname": "cheque_leaf",
+   "fieldtype": "Link",
+   "label": "Cheque Leaf",
+   "options": "Cheque Leaf",
+   "depends_on": "eval:doc.cheque_direction === \"Payable\"",
+   "description": "Optional: select an available cheque leaf from a generated cheque book to auto-fill Cheque Number."
+  },
+  {
    "fieldname": "cheque_no",
    "fieldtype": "Data",
    "label": "Cheque Number",
@@ -199,6 +216,7 @@
    "fieldtype": "Date",
    "label": "Cheque Due Date",
    "in_list_view": 1,
+   "in_standard_filter": 1,
    "reqd": 1
   },
   {
@@ -318,6 +336,7 @@
    "fieldtype": "Dynamic Link",
    "label": "Party",
    "in_list_view": 1,
+   "in_standard_filter": 1,
    "options": "party_type",
    "reqd": 1
   },
@@ -363,6 +382,14 @@
    "label": "Account Paid To",
    "options": "Account",
    "description": "Payable: party payable account (supplier). For receivable cheques, defaults to Cheques in Hand from PDC Settings. Otherwise defaults from party or company accounts. Editable by user."
+  },
+  {
+   "fieldname": "advance_account",
+   "fieldtype": "Link",
+   "label": "Advance / Prepayment Account",
+   "options": "Account",
+   "depends_on": "eval:doc.allocation_mode=='advance'",
+   "description": "Optional override for the advance/prepayment account used in PDC advance settlement. Leave empty to use company defaults."
   },
   {
    "fieldname": "cheques_in_clearing_account",
@@ -415,6 +442,8 @@
    "default": "Draft",
    "read_only": 1,
    "allow_on_submit": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
    "description": "Process stage for this PDC. Values are Workflow State records; transitions use the active ERPNext Workflow \"PDC Workflow\" on this DocType. Python validation in validate() is the final authority."
   },
   {
@@ -422,18 +451,60 @@
    "fieldtype": "Select",
    "label": "Cheque Status",
    "in_list_view": 1,
-   "options": "Draft\nIn Hand\nIn Clearing\nCleared\nBounced\nEndorsed\nReturned to Customer\nReplaced\nUnder Legal Action\nCancelled\nIssued\nReturned from Payee",
+   "in_standard_filter": 1,
+   "options": "Draft\nRegistered\nIn Hand\nIn Clearing\nCleared\nBounced\nEndorsed\nReturned to Customer\nReplaced\nUnder Legal Action\nCancelled\nIssued\nReturned from Payee",
    "default": "Draft",
    "read_only": 1,
    "allow_on_submit": 1,
    "description": "Operational reality of the cheque. Single Select with all Receivable and Payable labels; per-direction validity is enforced later in server/workflow logic. Updated by the system from workflow or accounting actions."
   },
   {
+   "fieldname": "is_at_bank",
+   "fieldtype": "Check",
+   "label": "Is At Bank",
+   "default": "0",
+   "read_only": 1,
+   "in_standard_filter": 1,
+   "allow_on_submit": 1,
+   "description": "Receivable only: true when workflow indicates the cheque is currently with the bank (Sent to Bank / In Clearing)."
+  },
+  {
+   "fieldname": "section_break_opening_import",
+   "fieldtype": "Section Break",
+   "label": "Opening Import",
+   "collapsible": 1,
+   "collapsed": 1
+  },
+  {
+   "fieldname": "is_opening_import",
+   "fieldtype": "Check",
+   "label": "Is Opening Import",
+   "default": "0",
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "opening_import",
+   "fieldtype": "Link",
+   "label": "Opening Import",
+   "options": "Cheque Opening Import",
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "opening_import_row",
+   "fieldtype": "Int",
+   "label": "Opening Import Row",
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
    "fieldname": "section_break_dates",
    "fieldtype": "Section Break",
    "label": "Important Dates",
    "description": "Flow: issue/intake → bank processing → outcome / exception.",
-   "collapsible": 1
+   "collapsible": 1,
+   "collapsed": 0
   },
   {
    "fieldname": "received_date",
@@ -441,6 +512,10 @@
    "label": "Received / Issued Date",
    "allow_on_submit": 1,
    "description": "Cheque intake or issue date."
+  },
+  {
+   "fieldname": "column_break_dates_primary_col2",
+   "fieldtype": "Column Break"
   },
   {
    "fieldname": "sent_to_bank_date",
@@ -451,8 +526,9 @@
    "allow_on_submit": 1
   },
   {
-   "fieldname": "column_break_dates_flow_col2",
-   "fieldtype": "Column Break"
+   "fieldname": "section_break_dates_primary_row2",
+   "fieldtype": "Section Break",
+   "label": ""
   },
   {
    "fieldname": "cleared_date",
@@ -463,7 +539,7 @@
    "mandatory_depends_on": "eval:doc.workflow_state===\"Cleared\""
   },
   {
-   "fieldname": "column_break_dates_flow_col3",
+   "fieldname": "column_break_dates_primary_row2_col2",
    "fieldtype": "Column Break"
   },
   {
@@ -475,14 +551,11 @@
    "allow_on_submit": 1
   },
   {
-   "fieldname": "column_break_dates_flow_col4",
-   "fieldtype": "Column Break"
-  },
-  {
    "fieldname": "section_break_dates_outcome",
    "fieldtype": "Section Break",
    "label": "Outcome / Exceptions",
-   "collapsible": 0
+   "collapsible": 1,
+   "collapsed": 0
   },
   {
    "fieldname": "returned_date",
@@ -505,14 +578,10 @@
    "allow_on_submit": 1
   },
   {
-   "fieldname": "section_break_dates_return_reason",
-   "fieldtype": "Section Break",
-   "label": ""
-  },
-  {
    "fieldname": "return_reason",
-   "fieldtype": "Text",
+   "fieldtype": "Small Text",
    "label": "Return Reason",
+   "rows": 3,
    "description": "Reason for business return.",
    "mandatory_depends_on": "eval:doc.workflow_state===\"Returned\"",
    "allow_on_submit": 1
