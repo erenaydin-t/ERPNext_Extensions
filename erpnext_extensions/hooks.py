@@ -114,6 +114,12 @@ doctype_js = {
 # before_install = "erpnext_extensions.install.before_install"
 # after_install = "erpnext_extensions.install.after_install"
 
+# Re-apply Cheque Management links on Payments `Workspace Sidebar` after migrate completes
+# (Frappe may remove patch-created Workspaces during orphan cleanup in the same migrate).
+after_migrate = [
+	"erpnext_extensions.cheque_management.payments_sidebar.after_migrate",
+]
+
 # Uninstallation
 # ------------
 
