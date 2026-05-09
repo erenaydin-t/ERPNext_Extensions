@@ -1,3 +1,28 @@
+"""Cheque Opening Import — broad / self-healing meta repair (first pass).
+
+Purpose
+-------
+- Tolerant recovery for **partially broken** DocType metadata (bad `idx`, hidden flags,
+  HTML field type drift) after reload from the filesystem.
+- **Full-field reindex**: normalizes `DocField.idx` for *all* fields on the doctype,
+  with the core import layout block (`REQUIRED_ORDER`) taking precedence, then any
+  remaining fields.
+- Optionally normalizes `DocType.field_order` when the framework stores it.
+
+Relationship to `fix_cheque_opening_import_field_order_and_visibility.py`
+-------------------------------------------------------------------------
+That module is a **stricter second pass**: fail-fast if required DocField rows are
+missing, then enforces exact `idx` for the **core** layout block only.
+
+**Overlap between the two patches is intentional historically** (dev sites needed a
+soft repair first, then a strict consistency check). Both remain in `patches.txt` for
+**migration safety and history**. A future **consolidation** into a single patch may
+happen only after broader confidence across installs — not done yet.
+
+Do not change execution semantics here without an explicit cleanup phase; this file is
+recovery-oriented and avoids raising when individual DocField rows are absent.
+"""
+
 from __future__ import annotations
 
 import json
@@ -33,7 +58,7 @@ def _docfields_state() -> list[dict[str, Any]]:
 
 
 def get_state() -> dict[str, Any]:
-	"""Runtime diagnosis helper (safe to call via bench execute)."""
+	"""Manual diagnostic helper (e.g. `bench execute`); **not** used by `execute()` / migrate."""
 	field_order_value = None
 	if frappe.db.has_column("DocType", "field_order"):
 		field_order_value = frappe.db.get_value("DocType", DOCTYPE, "field_order")

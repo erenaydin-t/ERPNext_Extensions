@@ -1,3 +1,26 @@
+"""Cheque Opening Import — strict verification / finalization (second pass).
+
+Purpose
+-------
+- **Fail-fast** validation: raises if any DocField in `REQUIRED_ORDER` is missing after
+  `reload_doc`, surfacing seriously incomplete schema state early.
+- **Exact ordering** for the **core import layout block** only: sets `DocField.idx`
+  sequentially (1…n) for the fields listed in `REQUIRED_ORDER`.
+- Ensures visibility and HTML field type for the same key fields as the first pass.
+
+Relationship to `fix_cheque_opening_import_meta.py`
+---------------------------------------------------
+The meta patch is a **broad, tolerant** repair (full-field reindex, optional
+`DocType.field_order`, no hard failure when individual rows are missing). This patch is
+a **stricter consistency check** intended to run **after** that softer recovery.
+
+**Overlap is intentional historically**; both stay in `patches.txt` for **migration
+safety and history**. Consolidation may be considered later after broader migration
+confidence — not part of this phase.
+
+Do not change validation or commit behavior here without an explicit cleanup phase.
+"""
+
 from __future__ import annotations
 
 import json
@@ -31,6 +54,7 @@ def _get_docfields() -> list[dict[str, Any]]:
 
 
 def diagnose() -> dict[str, Any]:
+	"""Manual diagnostic helper (e.g. `bench execute`); **not** used by `execute()` / migrate."""
 	fields = _get_docfields()
 	meta = frappe.get_meta(DOCTYPE)
 	exists = {f["fieldname"] for f in fields}
