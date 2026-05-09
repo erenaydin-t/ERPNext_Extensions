@@ -1,0 +1,166 @@
+{
+ "actions": [],
+ "allow_copy": 0,
+ "allow_rename": 0,
+ "creation": "2026-05-09 00:00:00.000000",
+ "custom": 0,
+ "docstatus": 0,
+ "doctype": "DocType",
+ "document_type": "Setup",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "default_company",
+  "section_accounts",
+  "default_petty_cash_account",
+  "default_payable_account",
+  "default_bank_account",
+  "default_cost_center",
+  "column_break_opts",
+  "allow_negative_balance",
+  "require_attachment",
+  "require_supplier",
+  "require_bill_no",
+  "section_limits",
+  "max_single_expense_amount",
+  "section_auto",
+  "block_new_request_if_pending_clearance",
+  "auto_submit_payment_entry",
+  "auto_submit_journal_entry",
+  "auto_submit_purchase_invoice"
+ ],
+ "fields": [
+  {
+   "fieldname": "default_company",
+   "fieldtype": "Link",
+   "label": "Default Company",
+   "options": "Company"
+  },
+  {
+   "fieldname": "section_accounts",
+   "fieldtype": "Section Break",
+   "label": "Default Accounts"
+  },
+  {
+   "fieldname": "default_petty_cash_account",
+   "fieldtype": "Link",
+   "label": "Default Petty Cash Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "default_payable_account",
+   "fieldtype": "Link",
+   "label": "Default Payable Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "default_bank_account",
+   "fieldtype": "Link",
+   "label": "Default Bank Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "default_cost_center",
+   "fieldtype": "Link",
+   "label": "Default Cost Center",
+   "options": "Cost Center"
+  },
+  {
+   "fieldname": "column_break_opts",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "allow_negative_balance",
+   "fieldtype": "Check",
+   "label": "Allow Negative Balance"
+  },
+  {
+   "default": "0",
+   "fieldname": "require_attachment",
+   "fieldtype": "Check",
+   "label": "Require Attachment (Clearance)"
+  },
+  {
+   "default": "0",
+   "fieldname": "require_supplier",
+   "fieldtype": "Check",
+   "label": "Require Supplier (Clearance)"
+  },
+  {
+   "default": "0",
+   "fieldname": "require_bill_no",
+   "fieldtype": "Check",
+   "label": "Require Bill No (Clearance)"
+  },
+  {
+   "fieldname": "section_limits",
+   "fieldtype": "Section Break",
+   "label": "Limits"
+  },
+  {
+   "fieldname": "max_single_expense_amount",
+   "fieldtype": "Currency",
+   "label": "Max Single Expense Amount"
+  },
+  {
+   "fieldname": "section_auto",
+   "fieldtype": "Section Break",
+   "label": "Automation"
+  },
+  {
+   "default": "0",
+   "fieldname": "block_new_request_if_pending_clearance",
+   "fieldtype": "Check",
+   "label": "Block New Request If Pending Clearance"
+  },
+  {
+   "default": "0",
+   "fieldname": "auto_submit_payment_entry",
+   "fieldtype": "Check",
+   "label": "Auto Submit Payment Entry"
+  },
+  {
+   "default": "0",
+   "fieldname": "auto_submit_journal_entry",
+   "fieldtype": "Check",
+   "label": "Auto Submit Journal Entry"
+  },
+  {
+   "default": "0",
+   "fieldname": "auto_submit_purchase_invoice",
+   "fieldtype": "Check",
+   "label": "Auto Submit Purchase Invoice"
+  }
+ ],
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-05-09 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Petty Management",
+ "name": "PM Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "read": 1,
+   "role": "System Manager",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "role": "Petty Management Admin",
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Petty Management Accountant",
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
