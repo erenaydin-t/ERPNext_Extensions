@@ -10,6 +10,7 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "section_general",
   "default_company",
   "section_accounts",
   "default_petty_cash_account",
@@ -27,11 +28,17 @@
   "block_new_request_if_pending_clearance",
   "petty_cash_payment_posting_mode",
   "require_workflow_approval",
+  "column_break_auto",
   "auto_submit_payment_entry",
   "auto_submit_journal_entry",
   "auto_submit_purchase_invoice"
  ],
  "fields": [
+  {
+   "fieldname": "section_general",
+   "fieldtype": "Section Break",
+   "label": "General"
+  },
   {
    "fieldname": "default_company",
    "fieldtype": "Link",
@@ -117,11 +124,12 @@
    "label": "Block New Request If Pending Clearance"
   },
   {
-   "default": "Payment Entry with Journal Entry Fallback",
+   "default": "Payment Entry",
+   "description": "PM Request advances post via Payment Entry only (Dr Petty Cash, Cr Bank). PM Clearance always uses Journal Entry.",
    "fieldname": "petty_cash_payment_posting_mode",
    "fieldtype": "Select",
    "label": "Petty Cash Payment Posting Mode",
-   "options": "Payment Entry\nJournal Entry\nPayment Entry with Journal Entry Fallback"
+   "options": "Payment Entry"
   },
   {
    "default": "1",
@@ -129,6 +137,10 @@
    "fieldtype": "Check",
    "label": "Require Workflow Approval Before PM Clearance Submit",
    "description": "When enabled, PM Clearance can be submitted only in workflow state Approved (workflow state must be set)."
+  },
+  {
+   "fieldname": "column_break_auto",
+   "fieldtype": "Column Break"
   },
   {
    "default": "0",

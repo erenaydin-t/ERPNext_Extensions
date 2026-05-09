@@ -11,21 +11,29 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "section_holder",
   "employee",
   "employee_name",
   "company",
+  "column_break_h",
   "petty_cash_account",
   "default_cost_center",
   "max_balance",
   "section_balances",
   "current_balance",
   "pending_clearance_amount",
+  "column_break_bal",
   "consumed_amount",
-  "section_other",
   "is_blocked",
+  "section_other",
   "remarks"
  ],
  "fields": [
+  {
+   "fieldname": "section_holder",
+   "fieldtype": "Section Break",
+   "label": "Holder"
+  },
   {
    "fieldname": "employee",
    "fieldtype": "Link",
@@ -51,6 +59,10 @@
    "label": "Company",
    "options": "Company",
    "reqd": 1
+  },
+  {
+   "fieldname": "column_break_h",
+   "fieldtype": "Column Break"
   },
   {
    "fieldname": "petty_cash_account",
@@ -89,21 +101,25 @@
    "read_only": 1
   },
   {
+   "fieldname": "column_break_bal",
+   "fieldtype": "Column Break"
+  },
+  {
    "fieldname": "consumed_amount",
    "fieldtype": "Currency",
    "label": "Consumed Amount",
    "read_only": 1
   },
   {
-   "fieldname": "section_other",
-   "fieldtype": "Section Break",
-   "label": "Other"
-  },
-  {
    "default": "0",
    "fieldname": "is_blocked",
    "fieldtype": "Check",
    "label": "Is Blocked"
+  },
+  {
+   "fieldname": "section_other",
+   "fieldtype": "Section Break",
+   "label": "Other"
   },
   {
    "fieldname": "remarks",

@@ -32,6 +32,8 @@ class PMClearance(Document):
 		self._stamp_rows()
 		self._apply_expense_type_defaults()
 		self._calc_line_totals()
+		self._validate_duplicate_purchase_invoices()
+		self._validate_and_stamp_pi_rows()
 		self._calc_parent_totals()
 		self._sync_clearance_status_from_workflow()
 		settings = get_pm_settings()
@@ -78,8 +80,55 @@ class PMClearance(Document):
 						_("Row {0}: exceeds max single expense amount").format(row.idx),
 					)
 			if flt(row.tax_amount) and not et.tax_account:
-				# Post tax into expense line by merging in build step; still validate row tax
 				pass
+
+	def _validate_duplicate_purchase_invoices(self):
+		seen = set()
+		for row in self.details:
+			if not row.purchase_invoice:
+				continue
+			if row.purchase_invoice in seen:
+				frappe.throw(
+					_("Purchase Invoice {0} cannot appear on more than one line.").format(row.purchase_invoice),
+					title=_("Duplicate Purchase Invoice"),
+				)
+			seen.add(row.purchase_invoice)
+
+	def _validate_and_stamp_pi_rows(self):
+		for row in self.details:
+			if row.reference_doctype and row.reference_doctype != "Purchase Invoice":
+				frappe.throw(
+					_("Line {0}: only Purchase Invoice is supported as settlement reference.").format(row.idx),
+				)
+			if row.purchase_invoice:
+				row.reference_doctype = "Purchase Invoice"
+				pi = frappe.get_doc("Purchase Invoice", row.purchase_invoice)
+				if pi.docstatus != 1:
+					frappe.throw(_("Row {0}: Purchase Invoice must be submitted.").format(row.idx))
+				if pi.company != self.company:
+					frappe.throw(
+						_("Line {0}: Purchase Invoice belongs to another company.").format(row.idx),
+					)
+				if flt(pi.outstanding_amount) <= 0:
+					frappe.throw(
+						_("Line {0}: Purchase Invoice has no outstanding amount to settle.").format(row.idx),
+					)
+				row.party_type = "Supplier"
+				row.party = pi.supplier
+				row.supplier = pi.supplier
+				row.outstanding_amount = flt(pi.outstanding_amount)
+				if not row.allocated_amount:
+					row.allocated_amount = row.amount_plus_tax or row.amount
+				if flt(row.allocated_amount) <= 0:
+					frappe.throw(_("Row {0}: Allocated Amount must be greater than zero.").format(row.idx))
+				if flt(row.allocated_amount) > flt(pi.outstanding_amount) + 1e-6:
+					frappe.throw(
+						_("Row {0}: allocated amount cannot exceed Purchase Invoice outstanding ({1}).").format(
+							row.idx, pi.outstanding_amount
+						),
+					)
+			elif row.reference_doctype:
+				frappe.throw(_("Line {0}: set Purchase Invoice or clear Reference DocType.").format(row.idx))
 
 	def before_submit(self):
 		if not petty_clearance_requires_workflow_approval():
@@ -97,12 +146,9 @@ class PMClearance(Document):
 			)
 
 	def on_submit(self):
+		settings = get_pm_settings()
 		je = self._create_clearance_journal_entry()
 		self.db_set("journal_entry", je.name, update_modified=False)
-		self.db_set("status", "Submitted", update_modified=False)
-		posted = frappe.db.get_value("Workflow State", {"workflow_state_name": "Posted"}, "name")
-		if posted:
-			self.db_set("workflow_state", posted, update_modified=False)
 		for row in self.details:
 			frappe.db.set_value(
 				row.doctype,
@@ -110,6 +156,11 @@ class PMClearance(Document):
 				{"generated_doctype": "Journal Entry", "generated_document": je.name},
 				update_modified=False,
 			)
+
+		self.db_set("status", "Submitted", update_modified=False)
+		posted = frappe.db.get_value("Workflow State", {"workflow_state_name": "Posted"}, "name")
+		if posted:
+			self.db_set("workflow_state", posted, update_modified=False)
 
 	def before_cancel(self):
 		if self.journal_entry:
@@ -123,18 +174,8 @@ class PMClearance(Document):
 						self.journal_entry
 					)
 				)
-		if self.purchase_invoice:
-			try:
-				pi = frappe.get_doc("Purchase Invoice", self.purchase_invoice)
-				if pi.docstatus == 1:
-					pi.cancel()
-			except frappe.ValidationError:
-				frappe.throw(
-					_("Could not cancel linked Purchase Invoice {0}.").format(self.purchase_invoice)
-				)
 
 	def on_cancel(self):
-		# Run after docstatus=2 is saved; clear links via set_value (not db_set on stale doc).
 		frappe.db.set_value(
 			"PM Clearance",
 			self.name,
@@ -153,7 +194,10 @@ class PMClearance(Document):
 			frappe.db.set_value(
 				"PM Clearance Detail",
 				row_name,
-				{"generated_doctype": None, "generated_document": None},
+				{
+					"generated_doctype": None,
+					"generated_document": None,
+				},
 				update_modified=False,
 			)
 
@@ -215,6 +259,12 @@ class PMClearance(Document):
 			self.status = "Cancelled"
 
 	def _create_clearance_journal_entry(self):
+		"""Single Journal Entry: expense/tax debits, PI payable debits with ERPNext invoice refs, one petty cash credit.
+
+		PI settlement follows the cheque_management pattern: debit supplier payable with ``party_type`` /
+		``party`` / ``reference_type`` = Purchase Invoice / ``reference_name`` = invoice id so outstanding is
+		updated via standard JE allocation (no Payment Entry on clearance).
+		"""
 		settings = get_pm_settings()
 		je = frappe.new_doc("Journal Entry")
 		je.company = self.company
@@ -227,9 +277,12 @@ class PMClearance(Document):
 		if meta.has_field("custom_pm_holder") and self.holder:
 			je.custom_pm_holder = self.holder
 
+		total_petty_credit = 0.0
+
+		expense_rows = [r for r in self.details if not r.purchase_invoice]
 		groups = defaultdict(lambda: {"amount": 0.0, "tax": 0.0})
 
-		for row in self.details:
+		for row in expense_rows:
 			et = frappe.get_cached_doc("PM Expense Type", row.expense_type)
 			exp_acc = et.expense_account
 			cc = row.cost_center or et.default_cost_center
@@ -240,7 +293,6 @@ class PMClearance(Document):
 			groups[key]["amount"] += flt(row.amount)
 			groups[key]["tax"] += flt(row.tax_amount)
 
-		total_credit = 0.0
 		for (exp_acc, cc, prj, use_split, tax_acc), sums in groups.items():
 			base = sums["amount"]
 			tax = sums["tax"]
@@ -265,7 +317,7 @@ class PMClearance(Document):
 						"project": prj or None,
 					},
 				)
-				total_credit += base + tax
+				total_petty_credit += base + tax
 			else:
 				debit_total = base + tax
 				je.append(
@@ -278,14 +330,33 @@ class PMClearance(Document):
 						"project": prj or None,
 					},
 				)
-				total_credit += debit_total
+				total_petty_credit += debit_total
+
+		for row in self.details:
+			if not row.purchase_invoice:
+				continue
+			pi = frappe.get_doc("Purchase Invoice", row.purchase_invoice)
+			alloc = flt(row.allocated_amount)
+			je.append(
+				"accounts",
+				{
+					"account": pi.credit_to,
+					"party_type": "Supplier",
+					"party": pi.supplier,
+					"reference_type": "Purchase Invoice",
+					"reference_name": pi.name,
+					"debit_in_account_currency": alloc,
+					"credit_in_account_currency": 0,
+				},
+			)
+			total_petty_credit += alloc
 
 		je.append(
 			"accounts",
 			{
 				"account": self.petty_cash_account,
 				"debit_in_account_currency": 0,
-				"credit_in_account_currency": total_credit,
+				"credit_in_account_currency": total_petty_credit,
 			},
 		)
 
@@ -297,10 +368,11 @@ class PMClearance(Document):
 
 @frappe.whitelist()
 def create_journal_entry(pm_clearance: str):
-	"""Submit the clearance if still draft; JE is created on submit."""
+	"""Submit the clearance if still draft; one Journal Entry is created on submit."""
 	doc = frappe.get_doc("PM Clearance", pm_clearance)
 	doc.check_permission("submit")
 	if doc.docstatus == 1:
 		frappe.throw(_("Already submitted"))
 	doc.submit()
+	doc.reload()
 	return doc.journal_entry

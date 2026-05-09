@@ -9,12 +9,6 @@ from frappe.utils import flt, getdate, today
 
 from erpnext.accounts.utils import get_balance_on
 
-from erpnext_extensions.petty_management.doctype.pm_settings.pm_settings import (
-	PETTY_POSTING_MODE_FALLBACK,
-	PETTY_POSTING_MODE_JOURNAL_ENTRY,
-	PETTY_POSTING_MODE_PAYMENT_ENTRY,
-	PETTY_POSTING_MODES,
-)
 from erpnext_extensions.petty_management.utils import (
 	employee_has_draft_pm_clearance,
 	get_pm_holder_name,
@@ -120,11 +114,6 @@ class PMRequest(Document):
 			frappe.throw(_("Cancel the linked Journal Entry first"))
 
 
-def _resolve_petty_posting_mode(settings):
-	raw = (settings.petty_cash_payment_posting_mode if settings else None) or PETTY_POSTING_MODE_FALLBACK
-	return raw if raw in PETTY_POSTING_MODES else PETTY_POSTING_MODE_FALLBACK
-
-
 @frappe.whitelist()
 def create_payment_entry(pm_request: str):
 	doc = frappe.get_doc("PM Request", pm_request)
@@ -152,7 +141,6 @@ def create_payment_entry(pm_request: str):
 		frappe.throw(_("Total Requested Amount must be positive"))
 
 	company_currency = frappe.db.get_value("Company", doc.company, "default_currency")
-	mode = _resolve_petty_posting_mode(settings)
 
 	def _mark_doc_paid(link_field: str, link_name: str):
 		doc.db_set(link_field, link_name, update_modified=False)
@@ -162,98 +150,41 @@ def create_payment_entry(pm_request: str):
 		if paid_state:
 			doc.db_set("workflow_state", paid_state, update_modified=False)
 
-	if mode == PETTY_POSTING_MODE_JOURNAL_ENTRY:
-		je_name = _create_bank_to_petty_je(doc, bank, amount, settings, is_fallback=False)
-		_mark_doc_paid("journal_entry", je_name)
-		return je_name
+	pe = frappe.new_doc("Payment Entry")
+	pe.payment_type = "Pay"
+	pe.company = doc.company
+	pe.posting_date = doc.transaction_date or today()
+	pe.party_type = "Employee"
+	pe.party = doc.employee
+	pe.paid_from = bank
+	pe.paid_to = doc.petty_cash_account
+	pe.paid_amount = amount
+	pe.received_amount = amount
+	pe.target_exchange_rate = 1
+	pe.source_exchange_rate = 1
+	if company_currency:
+		pe.paid_to_account_currency = company_currency
+		pe.paid_from_account_currency = company_currency
+	pe.reference_no = doc.name
+	pe.reference_date = pe.posting_date
+	pe.remarks = _("Petty cash advance for {0}").format(doc.name)
+
+	meta_pe = frappe.get_meta("Payment Entry")
+	if meta_pe.has_field("custom_pm_request"):
+		pe.custom_pm_request = doc.name
+	if meta_pe.has_field("custom_pm_holder") and doc.holder:
+		pe.custom_pm_holder = doc.holder
 
 	try:
-		pe = frappe.new_doc("Payment Entry")
-		pe.payment_type = "Pay"
-		pe.company = doc.company
-		pe.posting_date = doc.transaction_date or today()
-		pe.party_type = "Employee"
-		pe.party = doc.employee
-		pe.paid_from = bank
-		pe.paid_to = doc.petty_cash_account
-		pe.paid_amount = amount
-		pe.received_amount = amount
-		pe.target_exchange_rate = 1
-		pe.source_exchange_rate = 1
-		if company_currency:
-			pe.paid_to_account_currency = company_currency
-			pe.paid_from_account_currency = company_currency
-		pe.reference_no = doc.name
-		pe.reference_date = pe.posting_date
-		pe.remarks = _("Petty cash advance for {0}").format(doc.name)
-
-		meta_pe = frappe.get_meta("Payment Entry")
-		if meta_pe.has_field("custom_pm_request"):
-			pe.custom_pm_request = doc.name
-		if meta_pe.has_field("custom_pm_holder") and doc.holder:
-			pe.custom_pm_holder = doc.holder
-
 		pe.insert(ignore_permissions=True)
 		if settings and settings.auto_submit_payment_entry:
 			pe.submit()
-
-		_mark_doc_paid("payment_entry", pe.name)
-		return pe.name
 	except frappe.ValidationError as e:
 		frappe.db.rollback()
-		if mode == PETTY_POSTING_MODE_PAYMENT_ENTRY:
-			frappe.throw(
-				_("Payment Entry could not be created: {0}").format(str(e)),
-				title=_("Payment Entry failed"),
-			)
-		frappe.log_error(
-			message=frappe.get_traceback(),
-			title=_("Petty Management: Payment Entry fallback to Journal Entry"),
+		frappe.throw(
+			_("Payment Entry could not be created: {0}").format(str(e)),
+			title=_("Payment Entry failed"),
 		)
-		frappe.msgprint(
-			_(
-				"Payment Entry could not be created; a Journal Entry was used instead. Details were recorded in Error Log."
-			),
-			title=_("Journal Entry fallback"),
-			indicator="orange",
-		)
-		je_name = _create_bank_to_petty_je(doc, bank, amount, settings, is_fallback=True)
-		_mark_doc_paid("journal_entry", je_name)
-		return je_name
 
-
-def _create_bank_to_petty_je(doc, bank: str, amount: float, settings, *, is_fallback: bool = True) -> str:
-	"""Dr Petty Cash, Cr Bank — fund the imprest."""
-	je = frappe.new_doc("Journal Entry")
-	je.company = doc.company
-	je.posting_date = doc.transaction_date or today()
-	je.user_remark = (
-		_("Petty cash advance (JE fallback) for {0}").format(doc.name)
-		if is_fallback
-		else _("Petty cash advance for {0}").format(doc.name)
-	)
-	je.append(
-		"accounts",
-		{
-			"account": doc.petty_cash_account,
-			"debit_in_account_currency": amount,
-			"credit_in_account_currency": 0,
-		},
-	)
-	je.append(
-		"accounts",
-		{
-			"account": bank,
-			"debit_in_account_currency": 0,
-			"credit_in_account_currency": amount,
-		},
-	)
-	meta = frappe.get_meta("Journal Entry")
-	if meta.has_field("custom_pm_request"):
-		je.custom_pm_request = doc.name
-	if meta.has_field("custom_pm_holder") and doc.holder:
-		je.custom_pm_holder = doc.holder
-	je.insert(ignore_permissions=True)
-	if settings and settings.auto_submit_journal_entry:
-		je.submit()
-	return je.name
+	_mark_doc_paid("payment_entry", pe.name)
+	return pe.name

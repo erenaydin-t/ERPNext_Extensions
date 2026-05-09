@@ -14,6 +14,12 @@
   "is_tax_applicable",
   "is_non_stock_expense_type",
   "supplier",
+  "reference_doctype",
+  "purchase_invoice",
+  "party_type",
+  "party",
+  "outstanding_amount",
+  "allocated_amount",
   "project",
   "cost_center",
   "amount",
@@ -24,7 +30,8 @@
   "proof",
   "created_by_user",
   "generated_doctype",
-  "generated_document"
+  "generated_document",
+  "currency"
  ],
  "fields": [
   {
@@ -61,6 +68,50 @@
    "in_list_view": 1,
    "label": "Supplier",
    "options": "Supplier"
+  },
+  {
+   "fieldname": "reference_doctype",
+   "fieldtype": "Link",
+   "label": "Reference DocType",
+   "options": "DocType"
+  },
+  {
+   "fieldname": "purchase_invoice",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Purchase Invoice",
+   "options": "Purchase Invoice"
+  },
+  {
+   "default": "Supplier",
+   "fieldname": "party_type",
+   "fieldtype": "Select",
+   "label": "Party Type",
+   "options": "Supplier",
+   "read_only": 1
+  },
+  {
+   "fieldname": "party",
+   "fieldtype": "Dynamic Link",
+   "in_list_view": 1,
+   "label": "Party",
+   "options": "party_type",
+   "read_only": 1
+  },
+  {
+   "fieldname": "outstanding_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Outstanding Amount",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "allocated_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Allocated Amount",
+   "options": "currency"
   },
   {
    "fieldname": "project",

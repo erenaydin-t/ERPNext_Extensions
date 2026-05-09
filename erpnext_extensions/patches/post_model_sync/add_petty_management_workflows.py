@@ -26,12 +26,14 @@ def _ensure_pm_request_workflow():
 	w.document_type = "PM Request"
 	w.is_active = 1
 	w.workflow_state_field = "workflow_state"
+	# Rejected must use doc_status 1: Frappe forbids transitions where doc_status goes 1 -> 0
+	# (e.g. Pending Approval / Approved -> Rejected).
 	for state, doc_status in (
 		("Draft", "0"),
 		("Pending Approval", "1"),
 		("Approved", "1"),
 		("Paid", "1"),
-		("Rejected", "0"),
+		("Rejected", "1"),
 	):
 		w.append(
 			"states",
@@ -70,12 +72,13 @@ def _ensure_pm_clearance_workflow():
 	w.is_active = 1
 	w.workflow_state_field = "workflow_state"
 	# DocStatus 1 while in review/approval matches submittable petty clearance flow.
+	# Rejected must use doc_status 1: see PM Request workflow note (no 1 -> 0 transitions).
 	for state, doc_status in (
 		("Draft", "0"),
 		("Pending Finance Review", "1"),
 		("Approved", "1"),
 		("Posted", "1"),
-		("Rejected", "0"),
+		("Rejected", "1"),
 	):
 		w.append(
 			"states",

@@ -19,6 +19,7 @@
   "employee",
   "employee_name",
   "holder",
+  "column_break_clr",
   "project",
   "petty_cash_account",
   "currency",
@@ -28,16 +29,19 @@
   "total_expense_without_tax",
   "total_tax_amount",
   "total_expense_amount",
+  "column_break_tot",
   "total_petty_cash",
   "remaining_amount",
   "status",
   "workflow_state",
   "section_accounting",
   "journal_entry",
+  "column_break_acc",
   "purchase_invoice",
-  "remark",
   "section_details",
-  "details"
+  "details",
+  "section_remark",
+  "remark"
  ],
  "fields": [
   {
@@ -84,6 +88,10 @@
    "label": "Holder",
    "options": "PM Holder",
    "read_only": 1
+  },
+  {
+   "fieldname": "column_break_clr",
+   "fieldtype": "Column Break"
   },
   {
    "fieldname": "project",
@@ -147,6 +155,10 @@
    "read_only": 1
   },
   {
+   "fieldname": "column_break_tot",
+   "fieldtype": "Column Break"
+  },
+  {
    "fieldname": "total_petty_cash",
    "fieldtype": "Currency",
    "label": "Total Petty Cash",
@@ -196,17 +208,16 @@
    "read_only": 1
   },
   {
+   "fieldname": "column_break_acc",
+   "fieldtype": "Column Break"
+  },
+  {
    "allow_on_submit": 1,
    "fieldname": "purchase_invoice",
    "fieldtype": "Link",
    "label": "Purchase Invoice",
    "options": "Purchase Invoice",
    "read_only": 1
-  },
-  {
-   "fieldname": "remark",
-   "fieldtype": "Small Text",
-   "label": "Remark"
   },
   {
    "fieldname": "section_details",
@@ -219,6 +230,17 @@
    "label": "Details",
    "options": "PM Clearance Detail",
    "reqd": 1
+  },
+  {
+   "fieldname": "section_remark",
+   "fieldtype": "Section Break",
+   "label": "Remark",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "remark",
+   "fieldtype": "Small Text",
+   "label": "Remark"
   }
  ],
  "index_web_pages_for_search": 1,
