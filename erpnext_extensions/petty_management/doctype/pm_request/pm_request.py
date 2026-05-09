@@ -9,6 +9,12 @@ from frappe.utils import flt, getdate, today
 
 from erpnext.accounts.utils import get_balance_on
 
+from erpnext_extensions.petty_management.doctype.pm_settings.pm_settings import (
+	PETTY_POSTING_MODE_FALLBACK,
+	PETTY_POSTING_MODE_JOURNAL_ENTRY,
+	PETTY_POSTING_MODE_PAYMENT_ENTRY,
+	PETTY_POSTING_MODES,
+)
 from erpnext_extensions.petty_management.utils import (
 	employee_has_draft_pm_clearance,
 	get_pm_holder_name,
@@ -57,7 +63,7 @@ class PMRequest(Document):
 						_("Expense Type {0} belongs to another company").format(row.expense_type)
 					)
 
-		if holder_doc and holder_doc.max_balance:
+		if holder_doc and holder_doc.get("max_balance") is not None:
 			limit = flt(holder_doc.max_balance)
 			projected = flt(self.previous_balance) + flt(self.total_requested_amount)
 			allow_over = bool(settings and settings.allow_negative_balance)
@@ -114,6 +120,11 @@ class PMRequest(Document):
 			frappe.throw(_("Cancel the linked Journal Entry first"))
 
 
+def _resolve_petty_posting_mode(settings):
+	raw = (settings.petty_cash_payment_posting_mode if settings else None) or PETTY_POSTING_MODE_FALLBACK
+	return raw if raw in PETTY_POSTING_MODES else PETTY_POSTING_MODE_FALLBACK
+
+
 @frappe.whitelist()
 def create_payment_entry(pm_request: str):
 	doc = frappe.get_doc("PM Request", pm_request)
@@ -141,6 +152,7 @@ def create_payment_entry(pm_request: str):
 		frappe.throw(_("Total Requested Amount must be positive"))
 
 	company_currency = frappe.db.get_value("Company", doc.company, "default_currency")
+	mode = _resolve_petty_posting_mode(settings)
 
 	def _mark_doc_paid(link_field: str, link_name: str):
 		doc.db_set(link_field, link_name, update_modified=False)
@@ -149,6 +161,11 @@ def create_payment_entry(pm_request: str):
 		paid_state = frappe.db.get_value("Workflow State", {"workflow_state_name": "Paid"}, "name")
 		if paid_state:
 			doc.db_set("workflow_state", paid_state, update_modified=False)
+
+	if mode == PETTY_POSTING_MODE_JOURNAL_ENTRY:
+		je_name = _create_bank_to_petty_je(doc, bank, amount, settings, is_fallback=False)
+		_mark_doc_paid("journal_entry", je_name)
+		return je_name
 
 	try:
 		pe = frappe.new_doc("Payment Entry")
@@ -181,22 +198,40 @@ def create_payment_entry(pm_request: str):
 			pe.submit()
 
 		_mark_doc_paid("payment_entry", pe.name)
-		frappe.db.commit()
 		return pe.name
-	except frappe.ValidationError:
+	except frappe.ValidationError as e:
 		frappe.db.rollback()
-		je = _create_bank_to_petty_je(doc, bank, amount, settings)
-		_mark_doc_paid("journal_entry", je)
-		frappe.db.commit()
-		return je
+		if mode == PETTY_POSTING_MODE_PAYMENT_ENTRY:
+			frappe.throw(
+				_("Payment Entry could not be created: {0}").format(str(e)),
+				title=_("Payment Entry failed"),
+			)
+		frappe.log_error(
+			message=frappe.get_traceback(),
+			title=_("Petty Management: Payment Entry fallback to Journal Entry"),
+		)
+		frappe.msgprint(
+			_(
+				"Payment Entry could not be created; a Journal Entry was used instead. Details were recorded in Error Log."
+			),
+			title=_("Journal Entry fallback"),
+			indicator="orange",
+		)
+		je_name = _create_bank_to_petty_je(doc, bank, amount, settings, is_fallback=True)
+		_mark_doc_paid("journal_entry", je_name)
+		return je_name
 
 
-def _create_bank_to_petty_je(doc, bank: str, amount: float, settings) -> str:
+def _create_bank_to_petty_je(doc, bank: str, amount: float, settings, *, is_fallback: bool = True) -> str:
 	"""Dr Petty Cash, Cr Bank — fund the imprest."""
 	je = frappe.new_doc("Journal Entry")
 	je.company = doc.company
 	je.posting_date = doc.transaction_date or today()
-	je.user_remark = _("Petty cash advance (JE fallback) for {0}").format(doc.name)
+	je.user_remark = (
+		_("Petty cash advance (JE fallback) for {0}").format(doc.name)
+		if is_fallback
+		else _("Petty cash advance for {0}").format(doc.name)
+	)
 	je.append(
 		"accounts",
 		{

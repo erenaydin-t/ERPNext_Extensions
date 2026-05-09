@@ -1,6 +1,27 @@
 # Copyright (c) 2026, Farbod Siyahpoosh and contributors
 # For license information, please see license.txt
 
+"""Petty Management list and document permissions.
+
+``permission_query_conditions`` narrows **list / report** queries for users who are restricted.
+
+``has_permission`` on the document controller can **deny** access (return False); it never grants
+extra rights beyond Role Permissions.
+
+Restricted users:
+  Only **Petty Management User** when they do **not** also hold any *elevated* Petty (or break-glass)
+  role. Those users see only documents where ``employee`` matches ``User.employee``.
+
+Elevated roles (no employee-scoped list filter from this module):
+  Petty Management Manager, Admin, Accountant, Auditor, and System Manager.
+  They can see all PM Request / PM Clearance rows allowed by DocPerm.
+
+Administrator bypasses permission checks in Frappe as usual.
+
+DocPerm on PM Request / PM Clearance intentionally omits generic ERPNext Accounts roles so broad
+accounting roles do not gain access unless given a Petty Management role (or Administrator).
+"""
+
 import frappe
 
 

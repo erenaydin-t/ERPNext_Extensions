@@ -11,7 +11,11 @@ from frappe.utils import flt, getdate, today
 
 from erpnext.accounts.utils import get_balance_on
 
-from erpnext_extensions.petty_management.utils import get_pm_holder_name, get_pm_settings
+from erpnext_extensions.petty_management.utils import (
+	get_pm_holder_name,
+	get_pm_settings,
+	petty_clearance_requires_workflow_approval,
+)
 
 
 class PMClearance(Document):
@@ -78,11 +82,19 @@ class PMClearance(Document):
 				pass
 
 	def before_submit(self):
-		if not self.workflow_state:
+		if not petty_clearance_requires_workflow_approval():
 			return
+		if not self.workflow_state:
+			frappe.throw(
+				_("Workflow State is required before submit."),
+				title=_("Approval required"),
+			)
 		ws_title = frappe.db.get_value("Workflow State", self.workflow_state, "workflow_state_name")
-		if ws_title and ws_title != "Approved":
-			frappe.throw(_("Submit is only allowed when Workflow State is Approved"))
+		if ws_title != "Approved":
+			frappe.throw(
+				_("Submit is only allowed when Workflow State is Approved."),
+				title=_("Approval required"),
+			)
 
 	def on_submit(self):
 		je = self._create_clearance_journal_entry()

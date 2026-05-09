@@ -25,6 +25,8 @@
   "max_single_expense_amount",
   "section_auto",
   "block_new_request_if_pending_clearance",
+  "petty_cash_payment_posting_mode",
+  "require_workflow_approval",
   "auto_submit_payment_entry",
   "auto_submit_journal_entry",
   "auto_submit_purchase_invoice"
@@ -113,6 +115,20 @@
    "fieldname": "block_new_request_if_pending_clearance",
    "fieldtype": "Check",
    "label": "Block New Request If Pending Clearance"
+  },
+  {
+   "default": "Payment Entry with Journal Entry Fallback",
+   "fieldname": "petty_cash_payment_posting_mode",
+   "fieldtype": "Select",
+   "label": "Petty Cash Payment Posting Mode",
+   "options": "Payment Entry\nJournal Entry\nPayment Entry with Journal Entry Fallback"
+  },
+  {
+   "default": "1",
+   "fieldname": "require_workflow_approval",
+   "fieldtype": "Check",
+   "label": "Require Workflow Approval Before PM Clearance Submit",
+   "description": "When enabled, PM Clearance can be submitted only in workflow state Approved (workflow state must be set)."
   },
   {
    "default": "0",

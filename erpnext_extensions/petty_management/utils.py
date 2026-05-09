@@ -2,12 +2,16 @@
 # For license information, please see license.txt
 
 import frappe
+from frappe.utils import cint
 
 
 def get_pm_settings():
 	if not frappe.db.exists("DocType", "PM Settings"):
 		return None
-	return frappe.get_single("PM Settings")
+	try:
+		return frappe.get_single("PM Settings")
+	except Exception:
+		return None
 
 
 def get_pm_holder_name(employee: str, company: str) -> str | None:
@@ -33,3 +37,11 @@ def employee_has_draft_pm_clearance(employee: str, company: str) -> bool:
 		(employee, company),
 	)
 	return bool(r)
+
+
+def petty_clearance_requires_workflow_approval() -> bool:
+	"""When True, PM Clearance submit requires non-empty workflow_state in Approved state."""
+	s = get_pm_settings()
+	if not s:
+		return True
+	return cint(getattr(s, "require_workflow_approval", 1)) == 1
