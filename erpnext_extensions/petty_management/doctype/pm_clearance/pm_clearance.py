@@ -52,6 +52,10 @@ class PMClearance(Document):
 					_("Line {0}: stock / asset clearance is not supported in this version").format(row.idx)
 				)
 			et = frappe.get_cached_doc("PM Expense Type", row.expense_type)
+			if et.company and et.company != self.company:
+				frappe.throw(
+					_("Line {0}: Expense Type {1} belongs to another company").format(row.idx, row.expense_type)
+				)
 			if et.disabled:
 				frappe.throw(_("Expense Type {0} is disabled").format(row.expense_type))
 			if settings and settings.require_attachment and not row.proof:
@@ -95,22 +99,48 @@ class PMClearance(Document):
 				update_modified=False,
 			)
 
-	def on_cancel(self):
+	def before_cancel(self):
 		if self.journal_entry:
-			je = frappe.get_doc("Journal Entry", self.journal_entry)
-			if je.docstatus == 1:
-				je.cancel()
+			try:
+				je = frappe.get_doc("Journal Entry", self.journal_entry)
+				if je.docstatus == 1:
+					je.cancel()
+			except frappe.ValidationError:
+				frappe.throw(
+					_("Could not cancel linked Journal Entry {0}. Cancel or amend it first.").format(
+						self.journal_entry
+					)
+				)
 		if self.purchase_invoice:
-			pi = frappe.get_doc("Purchase Invoice", self.purchase_invoice)
-			if pi.docstatus == 1:
-				pi.cancel()
-		self.db_set("journal_entry", None, update_modified=False)
-		self.db_set("purchase_invoice", None, update_modified=False)
-		self.db_set("status", "Cancelled", update_modified=False)
-		for row in self.details:
+			try:
+				pi = frappe.get_doc("Purchase Invoice", self.purchase_invoice)
+				if pi.docstatus == 1:
+					pi.cancel()
+			except frappe.ValidationError:
+				frappe.throw(
+					_("Could not cancel linked Purchase Invoice {0}.").format(self.purchase_invoice)
+				)
+
+	def on_cancel(self):
+		# Run after docstatus=2 is saved; clear links via set_value (not db_set on stale doc).
+		frappe.db.set_value(
+			"PM Clearance",
+			self.name,
+			{
+				"journal_entry": None,
+				"purchase_invoice": None,
+				"status": "Cancelled",
+			},
+			update_modified=False,
+		)
+		for row_name in frappe.get_all(
+			"PM Clearance Detail",
+			filters={"parent": self.name, "parenttype": "PM Clearance"},
+			pluck="name",
+		):
 			frappe.db.set_value(
-				row.doctype,
-				row.name,
+				"PM Clearance Detail",
+				row_name,
 				{"generated_doctype": None, "generated_document": None},
 				update_modified=False,
 			)

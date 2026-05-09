@@ -106,3 +106,4 @@ def execute():
 	_ensure_pm_request_workflow()
 	_ensure_pm_clearance_workflow()
 	frappe.clear_cache(doctype="Workflow")
+	frappe.db.commit()

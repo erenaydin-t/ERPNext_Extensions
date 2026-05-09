@@ -3,16 +3,24 @@ from __future__ import annotations
 import frappe
 
 
+def _link_row_val(row, key: str):
+	if row is None:
+		return None
+	if isinstance(row, dict):
+		return row.get(key)
+	return getattr(row, key, None)
+
+
 def _append_link(ws, row: dict):
 	meta = frappe.get_meta("Workspace")
 	if not meta.has_field("links"):
 		return
 	for existing in ws.links or []:
 		if (
-			existing.get("type") == row.get("type")
-			and (existing.get("label") or "") == (row.get("label") or "")
-			and (existing.get("link_type") or "") == (row.get("link_type") or "")
-			and (existing.get("link_to") or "") == (row.get("link_to") or "")
+			_link_row_val(existing, "type") == row.get("type")
+			and (_link_row_val(existing, "label") or "") == (row.get("label") or "")
+			and (_link_row_val(existing, "link_type") or "") == (row.get("link_type") or "")
+			and (_link_row_val(existing, "link_to") or "") == (row.get("link_to") or "")
 		):
 			return
 	ws.append("links", row)
@@ -73,7 +81,7 @@ def execute():
 				"label": label,
 				"link_type": "Report",
 				"link_to": link_to,
-				"is_query_report": 0,
+				"is_query_report": 1,
 			},
 		)
 

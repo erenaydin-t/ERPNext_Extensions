@@ -28,22 +28,22 @@ def _petty_user_restricted(user: str | None = None) -> bool:
 	return "Petty Management User" in roles
 
 
-def pm_request_permission_query_conditions(user: str | None = None) -> str:
+def pm_request_permission_query_conditions(user: str | None = None, doctype: str | None = None) -> str:
 	if not _petty_user_restricted(user):
 		return ""
 	emp = _user_employee(user)
 	if not emp:
 		return "1=0"
-	return f"`tabPM Request`.employee = {frappe.db.escape(emp)}"
+	return f"`tabPM Request`.employee = {frappe.db.escape(emp, percent=False)}"
 
 
-def pm_clearance_permission_query_conditions(user: str | None = None) -> str:
+def pm_clearance_permission_query_conditions(user: str | None = None, doctype: str | None = None) -> str:
 	if not _petty_user_restricted(user):
 		return ""
 	emp = _user_employee(user)
 	if not emp:
 		return "1=0"
-	return f"`tabPM Clearance`.employee = {frappe.db.escape(emp)}"
+	return f"`tabPM Clearance`.employee = {frappe.db.escape(emp, percent=False)}"
 
 
 def has_pm_request_permission(doc, ptype=None, user=None, debug=False):
