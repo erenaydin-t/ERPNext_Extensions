@@ -146,13 +146,15 @@ doctype_js = {
 # -----------
 # Permissions evaluated in scripted ways
 
-# permission_query_conditions = {
-# 	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
-# }
-#
-# has_permission = {
-# 	"Event": "frappe.desk.doctype.event.event.has_permission",
-# }
+permission_query_conditions = {
+	"PM Request": "erpnext_extensions.petty_management.permissions.pm_request_permission_query_conditions",
+	"PM Clearance": "erpnext_extensions.petty_management.permissions.pm_clearance_permission_query_conditions",
+}
+
+has_permission = {
+	"PM Request": "erpnext_extensions.petty_management.permissions.has_pm_request_permission",
+	"PM Clearance": "erpnext_extensions.petty_management.permissions.has_pm_clearance_permission",
+}
 
 # DocType Class
 # ---------------

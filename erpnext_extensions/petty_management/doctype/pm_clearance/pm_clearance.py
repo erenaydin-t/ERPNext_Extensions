@@ -77,13 +77,16 @@ class PMClearance(Document):
 		if not self.workflow_state:
 			return
 		ws_title = frappe.db.get_value("Workflow State", self.workflow_state, "workflow_state_name")
-		if ws_title and ws_title not in ("Approved", "Posted", "Submitted/Posted"):
+		if ws_title and ws_title != "Approved":
 			frappe.throw(_("Submit is only allowed when Workflow State is Approved"))
 
 	def on_submit(self):
 		je = self._create_clearance_journal_entry()
 		self.db_set("journal_entry", je.name, update_modified=False)
 		self.db_set("status", "Submitted", update_modified=False)
+		posted = frappe.db.get_value("Workflow State", {"workflow_state_name": "Posted"}, "name")
+		if posted:
+			self.db_set("workflow_state", posted, update_modified=False)
 		for row in self.details:
 			frappe.db.set_value(
 				row.doctype,

@@ -172,6 +172,7 @@
   },
   {
    "allow_on_submit": 1,
+   "default": "Draft",
    "fieldname": "workflow_state",
    "fieldtype": "Link",
    "in_list_view": 1,
