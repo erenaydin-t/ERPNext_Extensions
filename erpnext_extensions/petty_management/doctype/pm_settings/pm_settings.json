@@ -44,6 +44,7 @@
    "label": "Defaults"
   },
   {
+   "description": "Optional default. Actual payment source is selected on PM Request.",
    "fieldname": "default_bank_account",
    "fieldtype": "Link",
    "label": "Default Bank Account",

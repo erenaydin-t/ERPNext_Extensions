@@ -58,6 +58,38 @@ class PMRequest(Document):
 					_("Advance would exceed max balance {0} (projected {1}).").format(limit, projected)
 				)
 
+		self._validate_payment_accounts()
+
+	def _validate_payment_accounts(self):
+		if not self.paid_from_account:
+			frappe.throw(_("Please select Paid From Account on PM Request."))
+		if not self.petty_cash_account:
+			return
+		if self.paid_from_account == self.petty_cash_account:
+			frappe.throw(_("Paid From Account cannot be the same as Petty Cash Account"))
+		for label, acc in (
+			("Paid From Account", self.paid_from_account),
+			("Petty Cash Account", self.petty_cash_account),
+		):
+			acc_company = frappe.db.get_value("Account", acc, "company")
+			if acc_company and acc_company != self.company:
+				frappe.throw(_("{0} must belong to company {1}").format(label, self.company))
+		acc_type = frappe.db.get_value("Account", self.paid_from_account, "account_type")
+		if acc_type and acc_type not in ("Bank", "Cash"):
+			frappe.throw(_("Paid From Account must be a Bank or Cash account"))
+		if self.employee_bank_account:
+			ba = frappe.db.get_value(
+				"Bank Account",
+				self.employee_bank_account,
+				["party_type", "party", "company"],
+				as_dict=True,
+			)
+			if ba:
+				if ba.get("company") and ba["company"] != self.company:
+					frappe.throw(_("Employee Bank Account must belong to the same company as this request"))
+				if ba.get("party_type") == "Employee" and ba.get("party") and ba["party"] != self.employee:
+					frappe.throw(_("Employee Bank Account must be for this request's employee"))
+
 	def _sync_holder_and_balances(self):
 		hname = get_pm_holder_name(self.employee, self.company)
 		self.holder = hname
@@ -128,9 +160,10 @@ def create_payment_entry(pm_request: str):
 	if not doc.petty_cash_account:
 		frappe.throw(_("Petty Cash Account is missing"))
 
-	bank = settings.default_bank_account if settings else None
-	if not bank:
-		frappe.throw(_("Set Default Bank Account in PM Settings"))
+	if not doc.paid_from_account:
+		frappe.throw(_("Please select Paid From Account on PM Request."))
+
+	paid_from = doc.paid_from_account
 
 	amount = flt(doc.total_requested_amount)
 	if amount <= 0:
@@ -152,7 +185,7 @@ def create_payment_entry(pm_request: str):
 	pe.posting_date = doc.transaction_date or today()
 	pe.party_type = "Employee"
 	pe.party = doc.employee
-	pe.paid_from = bank
+	pe.paid_from = paid_from
 	pe.paid_to = doc.petty_cash_account
 	pe.paid_amount = amount
 	pe.received_amount = amount
@@ -163,9 +196,19 @@ def create_payment_entry(pm_request: str):
 		pe.paid_from_account_currency = company_currency
 	pe.reference_no = doc.name
 	pe.reference_date = getdate(doc.transaction_date) if doc.transaction_date else pe.posting_date
-	pe.remarks = _("Petty cash advance for {0}").format(doc.name)
+	remarks = _("Petty cash advance for {0}").format(doc.name)
 
 	meta_pe = frappe.get_meta("Payment Entry")
+	if doc.employee_bank_account:
+		if meta_pe.has_field("party_bank_account"):
+			pe.party_bank_account = doc.employee_bank_account
+		else:
+			ba_ref = frappe.db.get_value("Bank Account", doc.employee_bank_account, "account_name") or str(
+				doc.employee_bank_account
+			)
+			remarks += "\n" + _("Employee Bank Account: {0}").format(ba_ref)
+	pe.remarks = remarks
+
 	if meta_pe.has_field("custom_pm_request"):
 		pe.custom_pm_request = doc.name
 	if meta_pe.has_field("custom_pm_holder") and doc.holder:

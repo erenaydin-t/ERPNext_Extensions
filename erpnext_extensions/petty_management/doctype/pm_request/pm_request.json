@@ -22,6 +22,7 @@
   "column_break_req",
   "project",
   "petty_cash_account",
+  "employee_bank_account",
   "max_balance_for_petty_cash",
   "previous_balance",
   "currency",
@@ -32,6 +33,7 @@
   "status",
   "workflow_state",
   "section_accounting",
+  "paid_from_account",
   "payment_entry",
   "column_break_acc",
   "journal_entry",
@@ -105,6 +107,13 @@
    "read_only": 1
   },
   {
+   "description": "Optional employee receiving bank account for reference only.",
+   "fieldname": "employee_bank_account",
+   "fieldtype": "Link",
+   "label": "Employee Bank Account",
+   "options": "Bank Account"
+  },
+  {
    "fieldname": "max_balance_for_petty_cash",
    "fieldtype": "Currency",
    "label": "Max Balance for Petty Cash",
@@ -176,8 +185,16 @@
   {
    "fieldname": "section_accounting",
    "fieldtype": "Section Break",
-   "label": "Accounting",
+   "label": "Accounting / Payment",
    "collapsible": 1
+  },
+  {
+   "description": "Company bank or cash account used to fund the petty cash request.",
+   "fieldname": "paid_from_account",
+   "fieldtype": "Link",
+   "label": "Paid From Account",
+   "options": "Account",
+   "reqd": 1
   },
   {
    "allow_on_submit": 1,

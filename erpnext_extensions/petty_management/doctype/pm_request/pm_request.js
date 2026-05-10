@@ -27,7 +27,13 @@ frappe.ui.form.on("PM Request", {
 		frappe.db.get_value(
 			"PM Holder",
 			{ employee: frm.doc.employee, company: frm.doc.company },
-			["name", "petty_cash_account", "max_balance", "current_balance"],
+			[
+				"name",
+				"petty_cash_account",
+				"max_balance",
+				"current_balance",
+				"default_employee_bank_account",
+			],
 			(r) => {
 				if (!r || !r.name) {
 					return;
@@ -36,8 +42,19 @@ frappe.ui.form.on("PM Request", {
 				frm.set_value("petty_cash_account", r.petty_cash_account);
 				frm.set_value("max_balance_for_petty_cash", r.max_balance);
 				frm.set_value("previous_balance", r.current_balance);
+				if (r.default_employee_bank_account) {
+					frm.set_value("employee_bank_account", r.default_employee_bank_account);
+				}
 			}
 		);
+		frappe.db.get_single_value("PM Settings", "default_bank_account").then((bank) => {
+			if (bank && !frm.doc.paid_from_account) {
+				frm.set_value("paid_from_account", bank);
+			}
+		});
+	},
+	paid_from_account(frm) {
+		frm.trigger("setup_payment_entry_buttons");
 	},
 	details_add(frm) {
 		frm.trigger("recalc_totals");
@@ -65,7 +82,8 @@ frappe.ui.form.on("PM Request", {
 			(frm.doc.payment_status || "") !== "Paid" &&
 			!frm.doc.payment_entry &&
 			!frm.doc.journal_entry &&
-			flt(frm.doc.total_requested_amount) > 0;
+			flt(frm.doc.total_requested_amount) > 0 &&
+			!!frm.doc.paid_from_account;
 
 		if (show_create) {
 			frm.add_custom_button(__("Create Payment Entry"), () => {

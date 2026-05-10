@@ -18,6 +18,7 @@
   "column_break_h",
   "petty_cash_account",
   "default_cost_center",
+  "default_employee_bank_account",
   "max_balance",
   "section_balances",
   "current_balance",
@@ -77,6 +78,13 @@
    "fieldtype": "Link",
    "label": "Default Cost Center",
    "options": "Cost Center"
+  },
+  {
+   "description": "Optional. Used only as payment information for the petty cash holder. Accounting still posts to the holder's petty cash account.",
+   "fieldname": "default_employee_bank_account",
+   "fieldtype": "Link",
+   "label": "Default Employee Bank Account",
+   "options": "Bank Account"
   },
   {
    "fieldname": "max_balance",
