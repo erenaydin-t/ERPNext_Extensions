@@ -60,11 +60,13 @@ Use a development site with **Petty Management** installed and migrated. Figures
 
 1. Create **PM Clearance** (desk label may show **Petty Invoice Settlement**): same employee/company as holder; **Pending Amount** reflects petty cash balance.
 2. Add a child line: **Purchase Invoice**, **Allocated Amount** (defaults from PI outstanding), optional **Cost Center**, **Project**, **Bill No**, **Proof**.
-3. Submit (and satisfy workflow if **Require Workflow Approval** is on).
-4. Open generated **Journal Entry**:
+3. **Submit** the clearance (this is the settlement request).
+4. Move workflow to **Approved** (finance approval).
+5. Click **Settle Petty Cash** to create the settlement **Journal Entry** and mark the clearance **Settled**.
+6. Open generated **Journal Entry**:
    - For each line: **Debit** = Purchase Invoice **credit_to**, **Party Type** = Supplier, **Party** = supplier, **Reference Type** = Purchase Invoice, **Reference Name** = PI.
    - **Credit** = petty cash account for the sum of allocated amounts.
-5. Confirm Purchase Invoice **outstanding** reduced by allocated amount.
+7. Confirm Purchase Invoice **outstanding** reduced by allocated amount.
 
 ---
 
@@ -72,7 +74,7 @@ Use a development site with **Petty Management** installed and migrated. Figures
 
 1. Use a PI with outstanding **greater** than the petty balance or greater than the amount you wish to clear.
 2. On **PM Clearance**, set **Allocated Amount** to **less than** full outstanding (but ≤ petty balance and ≤ PI outstanding).
-3. Submit and verify JE amounts and PI outstanding reduction match the **partial** allocation.
+3. **Submit**, approve workflow to **Approved**, then **Settle Petty Cash**; verify JE amounts and PI outstanding reduction match the **partial** allocation.
 
 ---
 

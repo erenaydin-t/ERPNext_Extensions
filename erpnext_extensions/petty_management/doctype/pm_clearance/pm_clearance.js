@@ -17,24 +17,41 @@ frappe.ui.form.on("PM Clearance", {
 	transaction_date(frm) {
 		frm.trigger("refresh_holder_pending");
 	},
+	workflow_state(frm) {
+		setup_settlement_buttons(frm);
+	},
+	status(frm) {
+		setup_settlement_buttons(frm);
+	},
+	docstatus(frm) {
+		setup_settlement_buttons(frm);
+	},
+	journal_entry(frm) {
+		setup_settlement_buttons(frm);
+	},
 	refresh_holder_pending(frm) {
 		if (frm.is_new() || !frm.doc.employee || !frm.doc.company) {
+			setup_settlement_buttons(frm);
 			return;
 		}
 		frappe.db.get_value(
 			"PM Holder",
 			{ employee: frm.doc.employee, company: frm.doc.company },
-			["name", "petty_cash_account", "current_balance"],
+			["name", "petty_cash_account", "current_balance", "consumed_amount"],
 			(r) => {
 				if (!r || !r.name) {
 					frm.trigger("recalc_totals");
+					setup_settlement_buttons(frm);
 					return;
 				}
 				frm.set_value("holder", r.name);
 				frm.set_value("petty_cash_account", r.petty_cash_account);
-				// Pending Amount = petty cash available (holder snapshot); server recalculates from GL on save.
 				frm.set_value("pending_amount", r.current_balance);
+				frm.set_value("current_petty_balance", r.current_balance);
+				frm.set_value("total_cleared_amount", r.consumed_amount || 0);
+				frm.set_value("total_funded_amount", flt(r.current_balance) + flt(r.consumed_amount));
 				frm.trigger("recalc_totals");
+				setup_settlement_buttons(frm);
 			}
 		);
 	},
@@ -45,25 +62,12 @@ frappe.ui.form.on("PM Clearance", {
 		frm.trigger("recalc_totals");
 	},
 	refresh(frm) {
+		frappe.workflow.setup(frm.doctype);
 		if (!frm.is_new() && frm.doc.employee && frm.doc.company) {
 			frm.trigger("refresh_holder_pending");
 		} else {
 			frm.trigger("recalc_totals");
-		}
-		if (!frm.is_new() && frm.doc.docstatus === 0 && !frm.doc.journal_entry) {
-			frm.add_custom_button(__("Create Journal Entry"), () => {
-				frappe.confirm(__("Submit clearance and generate Journal Entry?"), () => {
-					frm.save("Submit");
-				});
-			});
-		}
-
-		if (frm.doc.journal_entry) {
-			frm.add_custom_button(
-				__("View Journal Entry"),
-				() => frappe.set_route("Form", "Journal Entry", frm.doc.journal_entry),
-				__("Accounting")
-			);
+			setup_settlement_buttons(frm);
 		}
 	},
 	recalc_totals(frm) {
@@ -81,6 +85,63 @@ frappe.ui.form.on("PM Clearance", {
 		frm.refresh_field("details");
 	},
 });
+
+function setup_settlement_buttons(frm) {
+	frm.page.remove_inner_button(__("Settle Petty Cash"));
+	frm.page.remove_inner_button(__("Open Settlement Journal Entry"));
+
+	const wf = frm.doc.workflow_state;
+	const wfState = frappe.workflow.get_state ? frappe.workflow.get_state(frm.doc) : wf;
+	const isApproved = wf === "Approved" || wfState === "Approved";
+
+	const show_settle =
+		!frm.is_new() && frm.doc.docstatus === 1 && isApproved && !frm.doc.journal_entry;
+
+	if (show_settle) {
+		const $btn = frm.page.add_inner_button(
+			__("Settle Petty Cash"),
+			() => {
+				frappe.call({
+					method: "erpnext_extensions.petty_management.doctype.pm_clearance.pm_clearance.settle_petty_cash",
+					args: { pm_clearance: frm.doc.name },
+					freeze: true,
+					freeze_message: __("Settling petty cash…"),
+					callback(r) {
+						if (r.exc) return;
+						frappe.show_alert({
+							message: __("Settlement Journal Entry created"),
+							indicator: "green",
+						});
+						frm.reload_doc();
+					},
+					error(r) {
+						const msg =
+							(r && r.message) ||
+							(r && r._server_messages && frappe.utils.parse_json(r._server_messages)) ||
+							__("Could not settle petty cash");
+						frappe.msgprint({
+							title: __("Settlement failed"),
+							message: msg,
+							indicator: "red",
+						});
+					},
+				});
+			},
+			null,
+			"primary"
+		);
+		if ($btn && $btn.addClass) {
+			$btn.addClass("btn-primary");
+		}
+	}
+
+	if (frm.doc.journal_entry) {
+		frm.page.add_inner_button(
+			__("Open Settlement Journal Entry"),
+			() => frappe.set_route("Form", "Journal Entry", frm.doc.journal_entry)
+		);
+	}
+}
 
 frappe.ui.form.on("PM Clearance Detail", {
 	purchase_invoice(frm, cdt, cdn) {

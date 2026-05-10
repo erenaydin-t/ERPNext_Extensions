@@ -87,7 +87,7 @@ def _ensure_pm_clearance_workflow():
 	if frappe.db.exists("Workflow", "PM Clearance Workflow"):
 		return
 	_wf_state("Pending Finance Review")
-	_wf_state("Posted")
+	_wf_state("Approved")
 
 	w = frappe.new_doc("Workflow")
 	w.workflow_name = "PM Clearance Workflow"
@@ -100,7 +100,6 @@ def _ensure_pm_clearance_workflow():
 		("Draft", "0"),
 		("Pending Finance Review", "1"),
 		("Approved", "1"),
-		("Posted", "1"),
 		("Rejected", "1"),
 	):
 		w.append(
@@ -111,7 +110,6 @@ def _ensure_pm_clearance_workflow():
 		("Draft", "PM Submit Finance Review", "Pending Finance Review", "Petty Management User"),
 		("Pending Finance Review", "PM Approve", "Approved", "Petty Management Manager"),
 		("Pending Finance Review", "PM Reject", "Rejected", "Petty Management Manager"),
-		("Approved", "PM Post", "Posted", "Petty Management Accountant"),
 		("Approved", "PM Reject", "Rejected", "Petty Management Manager"),
 	)
 	for state, action, next_state, role in transitions:
@@ -128,14 +126,39 @@ def _ensure_pm_clearance_workflow():
 	w.insert(ignore_permissions=True)
 
 
+def _repair_pm_clearance_workflow():
+	"""Existing sites: remove Posted state/PM Post transition. Settlement is not a workflow step."""
+	name = "PM Clearance Workflow"
+	if not frappe.db.exists("Workflow", name):
+		return
+	w = frappe.get_doc("Workflow", name)
+	changed = False
+	for row in list(w.transitions):
+		if row.action == "PM Post" or row.next_state == "Posted":
+			w.remove(row)
+			changed = True
+	for row in list(w.states):
+		if row.state == "Posted":
+			w.remove(row)
+			changed = True
+	if changed:
+		w.save(ignore_permissions=True)
+
+
 def repair_pm_request_workflow():
 	"""Idempotent repair for existing sites (also called from after_migrate)."""
 	_repair_pm_request_workflow()
+
+
+def repair_pm_clearance_workflow():
+	"""Idempotent repair for existing sites (also called from after_migrate)."""
+	_repair_pm_clearance_workflow()
 
 
 def execute():
 	_ensure_pm_request_workflow()
 	_repair_pm_request_workflow()
 	_ensure_pm_clearance_workflow()
+	_repair_pm_clearance_workflow()
 	frappe.clear_cache(doctype="Workflow")
 	frappe.db.commit()

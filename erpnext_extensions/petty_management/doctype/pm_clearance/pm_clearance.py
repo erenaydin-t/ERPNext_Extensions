@@ -12,7 +12,6 @@ from erpnext.accounts.utils import get_balance_on
 from erpnext_extensions.petty_management.utils import (
 	get_pm_holder_name,
 	get_pm_settings,
-	petty_clearance_requires_workflow_approval,
 )
 
 
@@ -28,6 +27,7 @@ class PMClearance(Document):
 		self.name = prefix + getseries(prefix, 5)
 
 	def validate(self):
+		self.je_clearance_date = getdate(self.transaction_date or today())
 		self._sync_holder_and_pending()
 		self._stamp_rows()
 		self._validate_duplicate_purchase_invoices()
@@ -35,6 +35,7 @@ class PMClearance(Document):
 		self._calc_line_totals()
 		self._calc_parent_totals()
 		self._sync_clearance_status_from_workflow()
+		self._sync_funding_traceability_snapshot()
 		settings = get_pm_settings()
 
 		if not self.details:
@@ -58,36 +59,22 @@ class PMClearance(Document):
 				frappe.throw(_("Row {0}: bill number is required by PM Settings").format(row.idx))
 
 	def before_submit(self):
-		if not petty_clearance_requires_workflow_approval():
-			return
-		if not self.workflow_state:
-			frappe.throw(
-				_("Workflow State is required before submit."),
-				title=_("Approval required"),
-			)
-		ws_title = frappe.db.get_value("Workflow State", self.workflow_state, "workflow_state_name")
-		if ws_title != "Approved":
-			frappe.throw(
-				_("Submit is only allowed when Workflow State is Approved."),
-				title=_("Approval required"),
-			)
+		# Submit represents "request for settlement"; settlement JE is created later via "Settle Petty Cash".
+		# Workflow (Draft → Pending Finance Review → Approved) is for approvals only.
+		return
 
 	def on_submit(self):
-		settings = get_pm_settings()
-		je = self._create_clearance_journal_entry()
-		self.db_set("journal_entry", je.name, update_modified=False)
-		for row in self.details:
+		# No JE on submit. Persist status aligned with workflow after submit (workflow may update state).
+		refreshed = frappe.get_doc("PM Clearance", self.name)
+		refreshed._sync_clearance_status_from_workflow()
+		if refreshed.status:
 			frappe.db.set_value(
-				row.doctype,
-				row.name,
-				{"generated_doctype": "Journal Entry", "generated_document": je.name},
+				"PM Clearance",
+				self.name,
+				"status",
+				refreshed.status,
 				update_modified=False,
 			)
-
-		self.db_set("status", "Submitted", update_modified=False)
-		posted = frappe.db.get_value("Workflow State", {"workflow_state_name": "Posted"}, "name")
-		if posted:
-			self.db_set("workflow_state", posted, update_modified=False)
 
 	def before_cancel(self):
 		if self.journal_entry:
@@ -143,6 +130,22 @@ class PMClearance(Document):
 				company=self.company,
 			)
 		)
+
+	def _sync_funding_traceability_snapshot(self):
+		"""UX-only snapshot for Funding / Traceability (no change to settlement accounting)."""
+		self.current_petty_balance = flt(self.pending_amount)
+		if not self.holder:
+			return
+		hb = frappe.db.get_value(
+			"PM Holder",
+			self.holder,
+			["current_balance", "consumed_amount"],
+			as_dict=True,
+		)
+		if not hb:
+			return
+		self.total_cleared_amount = flt(hb.consumed_amount)
+		self.total_funded_amount = flt(hb.current_balance) + flt(hb.consumed_amount)
 
 	def _stamp_rows(self):
 		for row in self.details:
@@ -209,12 +212,23 @@ class PMClearance(Document):
 		self.remaining_amount = flt(self.pending_amount) - flt(self.total_expense_amount)
 
 	def _sync_clearance_status_from_workflow(self):
+		# Settlement is not a workflow action: once JE is created, status becomes Settled regardless of workflow_state.
+		if self.journal_entry:
+			self.status = "Settled"
+			return
+
 		ws = self.workflow_state
 		if not ws:
 			return
 		ws_title = frappe.db.get_value("Workflow State", ws, "workflow_state_name") or ws
-		if ws_title == "Rejected":
-			self.status = "Cancelled"
+		m = {
+			"Draft": "Draft",
+			"Pending Finance Review": "Pending Finance Review",
+			"Approved": "Approved",
+			"Rejected": "Cancelled",
+		}
+		if ws_title in m:
+			self.status = m[ws_title]
 
 	def _create_clearance_journal_entry(self):
 		"""Journal Entry: Dr Purchase Invoice credit_to (Supplier + PI ref), Cr petty cash — PI-only settlement."""
@@ -269,12 +283,61 @@ class PMClearance(Document):
 
 
 @frappe.whitelist()
-def create_journal_entry(pm_clearance: str):
-	"""Submit the clearance if still draft; one Journal Entry is created on submit."""
+def settle_petty_cash(pm_clearance: str) -> str:
+	"""Create settlement Journal Entry after workflow approval.
+
+	This is a UX/business action, not a workflow transition:
+	- Requires submitted PM Clearance + workflow Approved.
+	- Creates the Journal Entry, links it, marks status Settled.
+	- Stamps Purchase Invoice traceability custom fields if they exist and are empty.
+	"""
 	doc = frappe.get_doc("PM Clearance", pm_clearance)
+	if not frappe.has_permission("PM Clearance", "read", doc=doc):
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
 	doc.check_permission("submit")
-	if doc.docstatus == 1:
-		frappe.throw(_("Already submitted"))
-	doc.submit()
-	doc.reload()
-	return doc.journal_entry
+	if doc.docstatus != 1:
+		frappe.throw(_("Please submit PM Clearance before settling."), title=_("Submit required"))
+
+	ws_title = None
+	if doc.workflow_state:
+		ws_title = frappe.db.get_value("Workflow State", doc.workflow_state, "workflow_state_name")
+	if ws_title != "Approved":
+		frappe.throw(_("Settle is only allowed when Workflow State is Approved."), title=_("Approval required"))
+
+	if doc.journal_entry:
+		frappe.throw(_("Settlement Journal Entry already exists: {0}").format(doc.journal_entry))
+
+	je = doc._create_clearance_journal_entry()
+	doc.db_set("journal_entry", je.name, update_modified=False)
+	doc.db_set("status", "Settled", update_modified=False)
+
+	# Link back to child rows
+	for row in doc.details:
+		frappe.db.set_value(
+			row.doctype,
+			row.name,
+			{"generated_doctype": "Journal Entry", "generated_document": je.name},
+			update_modified=False,
+		)
+
+	# Purchase Invoice traceability fields (only set if fields exist and target is empty)
+	meta_pi = frappe.get_meta("Purchase Invoice")
+	has_holder = meta_pi.has_field("custom_pm_holder")
+	has_clearance = meta_pi.has_field("custom_pm_clearance")
+	if has_holder or has_clearance:
+		for row in doc.details:
+			if not row.purchase_invoice:
+				continue
+			updates = {}
+			if has_holder:
+				cur = frappe.db.get_value("Purchase Invoice", row.purchase_invoice, "custom_pm_holder")
+				if not cur and doc.holder:
+					updates["custom_pm_holder"] = doc.holder
+			if has_clearance:
+				cur = frappe.db.get_value("Purchase Invoice", row.purchase_invoice, "custom_pm_clearance")
+				if not cur:
+					updates["custom_pm_clearance"] = doc.name
+			if updates:
+				frappe.db.set_value("Purchase Invoice", row.purchase_invoice, updates, update_modified=False)
+
+	return je.name

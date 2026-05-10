@@ -18,13 +18,18 @@
   "company",
   "employee",
   "employee_name",
-  "holder",
   "column_break_clr",
   "project",
   "petty_cash_account",
   "currency",
   "pending_amount",
   "je_clearance_date",
+  "section_trace",
+  "holder",
+  "current_petty_balance",
+  "total_funded_amount",
+  "column_break_trace",
+  "total_cleared_amount",
   "section_totals",
   "total_expense_without_tax",
   "total_tax_amount",
@@ -85,7 +90,7 @@
   {
    "fieldname": "holder",
    "fieldtype": "Link",
-   "label": "Holder",
+   "label": "PM Holder",
    "options": "PM Holder",
    "read_only": 1
   },
@@ -104,6 +109,7 @@
    "fetch_from": "holder.petty_cash_account",
    "fieldname": "petty_cash_account",
    "fieldtype": "Link",
+   "hidden": 1,
    "label": "Petty Cash Account",
    "options": "Account",
    "read_only": 1
@@ -127,7 +133,40 @@
    "default": "Today",
    "fieldname": "je_clearance_date",
    "fieldtype": "Date",
-   "label": "JE Clearance Date"
+   "fetch_from": "transaction_date",
+   "label": "JE Clearance Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_trace",
+   "fieldtype": "Section Break",
+   "label": "Funding / Traceability",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "current_petty_balance",
+   "fieldtype": "Currency",
+   "label": "Current Petty Balance",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_funded_amount",
+   "fieldtype": "Currency",
+   "label": "Total Funded Amount",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_trace",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_cleared_amount",
+   "fieldtype": "Currency",
+   "label": "Total Cleared Amount",
+   "options": "currency",
+   "read_only": 1
   },
   {
    "fieldname": "section_totals",
@@ -183,7 +222,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Draft\nSubmitted\nCancelled",
+   "options": "Draft\nPending Finance Review\nApproved\nSettled\nCancelled",
    "read_only": 1
   },
   {
@@ -227,12 +266,12 @@
   {
    "fieldname": "section_details",
    "fieldtype": "Section Break",
-   "label": "Settlement Lines"
+   "label": "Purchase Invoice Settlement Lines"
   },
   {
    "fieldname": "details",
    "fieldtype": "Table",
-   "label": "Petty Invoice Settlement Detail",
+   "label": "Purchase Invoice Settlement Lines",
    "options": "PM Clearance Detail",
    "reqd": 1
   },
