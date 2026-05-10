@@ -1,3 +1,4 @@
 erpnext_extensions
 Cheque Management
+Guarantee Management
 Petty Management

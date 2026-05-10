@@ -180,6 +180,40 @@ def apply_payments_cheque_sidebar_groups() -> bool:
 	return False
 
 
+def apply_payments_guarantee_document_sidebar() -> bool:
+	"""Idempotent **Guarantee Documents** section + list link on Payments `Workspace Sidebar`."""
+	sidebar = _get_payments_sidebar()
+	if not sidebar:
+		frappe.logger("erpnext_extensions.cheque_management").warning(
+			"No public Workspace Sidebar for module Payments; skipping Guarantee Document sidebar link."
+		)
+		return False
+
+	if not frappe.db.exists("DocType", "Guarantee Document"):
+		return False
+
+	target_set = {("DocType", "Guarantee Document")}
+	section_labels = {"Guarantee Documents"}
+
+	changed = False
+	changed |= bool(_remove_existing_links(sidebar, target_set))
+	changed |= bool(_remove_section_breaks(sidebar, section_labels))
+
+	block = [
+		_native_section_break(label="Guarantee Documents", icon="shield-check", keep_closed=0),
+		_native_child_link(link_type="DocType", link_to="Guarantee Document", label="Guarantee Document"),
+	]
+	changed |= bool(_insert_block_before_first_section(sidebar, "Reports", block))
+
+	if changed:
+		_reindex_items(sidebar)
+		sidebar.save(ignore_permissions=True)
+		frappe.db.commit()
+		return True
+
+	return False
+
+
 def after_migrate() -> None:
 	"""Frappe hook: re-apply sidebar grouping after migrate (post orphan Workspace cleanup)."""
 	try:
@@ -187,5 +221,12 @@ def after_migrate() -> None:
 	except Exception:
 		frappe.log_error(
 			title="Cheque Management: after_migrate sidebar sync failed",
+			message=frappe.get_traceback(),
+		)
+	try:
+		apply_payments_guarantee_document_sidebar()
+	except Exception:
+		frappe.log_error(
+			title="Guarantee Management: after_migrate sidebar sync failed",
 			message=frappe.get_traceback(),
 		)
