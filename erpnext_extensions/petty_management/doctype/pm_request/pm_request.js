@@ -107,13 +107,12 @@ frappe.ui.form.on("PM Request", {
 	/*
 		Create Payment Entry — visible when ALL of:
 		- !frm.is_new()
-		- frm.doc.workflow_state === "Approved" OR frappe.workflow.get_state(frm.doc) === "Approved"
-		  (Link value is normally "Approved"; get_state covers odd workflow field setups)
-		- (frm.doc.payment_status || "") !== "Paid"
-		- !frm.doc.payment_entry
-		- flt(frm.doc.total_requested_amount) > 0
-		Not gated on status or docstatus for display; server enforces submit.
-		Button: inner toolbar primary (not Accounting dropdown).
+		- workflow_state == "Approved" OR status == "Payable"
+		- payment_status == "Not Paid"
+		- !payment_entry
+		- flt(total_requested_amount) > 0
+		- petty_cash_account and employee set
+		Not gated on docstatus (server requires submit on create).
 	*/
 	setup_payment_entry_buttons(frm) {
 		frm.page.remove_inner_button(__("Create Payment Entry"));
@@ -124,16 +123,29 @@ frappe.ui.form.on("PM Request", {
 			? frappe.workflow.get_state(frm.doc)
 			: wfRaw;
 		const workflowApproved = wfRaw === "Approved" || wfResolved === "Approved";
+		const payableByStatus = frm.doc.status === "Payable";
+		const approvedOrPayable = workflowApproved || payableByStatus;
 
 		const hiddenBecause = [];
 		if (frm.is_new()) {
 			hiddenBecause.push("is_new");
 		}
-		if (!workflowApproved) {
+		if (!frm.doc.employee) {
+			hiddenBecause.push("missing_employee");
+		}
+		if (!frm.doc.petty_cash_account) {
+			hiddenBecause.push("missing_petty_cash_account");
+		}
+		if (!approvedOrPayable) {
 			hiddenBecause.push(
-				`workflow_not_Approved(workflow_state=${JSON.stringify(wfRaw)}, get_state=${JSON.stringify(
-					wfResolved
-				)})`
+				`not_Approved_or_Payable(workflow_state=${JSON.stringify(
+					wfRaw
+				)}, get_state=${JSON.stringify(wfResolved)}, status=${JSON.stringify(frm.doc.status)})`
+			);
+		}
+		if (frm.doc.payment_status !== "Not Paid") {
+			hiddenBecause.push(
+				`payment_status_not_Not_Paid(current=${JSON.stringify(frm.doc.payment_status)})`
 			);
 		}
 		if (!(flt(frm.doc.total_requested_amount) > 0)) {
@@ -142,9 +154,6 @@ frappe.ui.form.on("PM Request", {
 		if (frm.doc.payment_entry) {
 			hiddenBecause.push("payment_entry_already_set");
 		}
-		if ((frm.doc.payment_status || "") === "Paid") {
-			hiddenBecause.push("payment_status_is_paid");
-		}
 
 		const showCreate = hiddenBecause.length === 0;
 
@@ -152,9 +161,12 @@ frappe.ui.form.on("PM Request", {
 			console.warn("[PM Request] Create Payment Entry hidden:", hiddenBecause, {
 				workflow_state: wfRaw,
 				workflow_get_state: wfResolved,
+				status: frm.doc.status,
 				payment_status: frm.doc.payment_status,
 				payment_entry: frm.doc.payment_entry,
 				total_requested_amount: frm.doc.total_requested_amount,
+				employee: frm.doc.employee,
+				petty_cash_account: frm.doc.petty_cash_account,
 			});
 		}
 
@@ -168,13 +180,11 @@ frappe.ui.form.on("PM Request", {
 					if (r.exc) {
 						return;
 					}
-					if (r.message) {
-						frappe.show_alert({
-							message: __("Payment Entry {0} created", [r.message]),
-							indicator: "green",
-						});
-						frm.reload_doc();
-					}
+					frappe.show_alert({
+						message: __("Payment Entry created"),
+						indicator: "green",
+					});
+					frm.reload_doc();
 				},
 				error(r) {
 					const msg =

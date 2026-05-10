@@ -19,7 +19,6 @@ def _ensure_pm_request_workflow():
 	_wf_state("Pending Approval")
 	_wf_state("Approved")
 	_wf_state("Rejected")
-	_wf_state("Paid")
 
 	w = frappe.new_doc("Workflow")
 	w.workflow_name = "PM Request Workflow"
@@ -28,11 +27,11 @@ def _ensure_pm_request_workflow():
 	w.workflow_state_field = "workflow_state"
 	# Rejected must use doc_status 1: Frappe forbids transitions where doc_status goes 1 -> 0
 	# (e.g. Pending Approval / Approved -> Rejected).
+	# Payment is not a workflow step: use Create Payment Entry on the document (status → Paid there).
 	for state, doc_status in (
 		("Draft", "0"),
 		("Pending Approval", "1"),
 		("Approved", "1"),
-		("Paid", "1"),
 		("Rejected", "1"),
 	):
 		w.append(
@@ -43,7 +42,6 @@ def _ensure_pm_request_workflow():
 		("Draft", "PM Submit for Approval", "Pending Approval", "Petty Management User"),
 		("Pending Approval", "PM Approve", "Approved", "Petty Management Manager"),
 		("Pending Approval", "PM Reject", "Rejected", "Petty Management Manager"),
-		("Approved", "PM Mark Paid", "Paid", "Petty Management Accountant"),
 		("Approved", "PM Reject", "Rejected", "Petty Management Manager"),
 	)
 	for state, action, next_state, role in transitions:
@@ -58,6 +56,31 @@ def _ensure_pm_request_workflow():
 			},
 		)
 	w.insert(ignore_permissions=True)
+
+
+def _repair_pm_request_workflow():
+	"""Existing sites: drop PM Mark Paid transition; drop Paid state if unused. Payment is PE-only."""
+	name = "PM Request Workflow"
+	if not frappe.db.exists("Workflow", name):
+		return
+	w = frappe.get_doc("Workflow", name)
+	changed = False
+	for row in list(w.transitions):
+		if row.action == "PM Mark Paid":
+			w.remove(row)
+			changed = True
+
+	still_refs_paid = any(
+		getattr(t, "next_state", None) == "Paid" for t in w.transitions
+	)
+	if not still_refs_paid:
+		for row in list(w.states):
+			if row.state == "Paid":
+				w.remove(row)
+				changed = True
+
+	if changed:
+		w.save(ignore_permissions=True)
 
 
 def _ensure_pm_clearance_workflow():
@@ -105,8 +128,14 @@ def _ensure_pm_clearance_workflow():
 	w.insert(ignore_permissions=True)
 
 
+def repair_pm_request_workflow():
+	"""Idempotent repair for existing sites (also called from after_migrate)."""
+	_repair_pm_request_workflow()
+
+
 def execute():
 	_ensure_pm_request_workflow()
+	_repair_pm_request_workflow()
 	_ensure_pm_clearance_workflow()
 	frappe.clear_cache(doctype="Workflow")
 	frappe.db.commit()

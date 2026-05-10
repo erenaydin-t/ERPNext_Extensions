@@ -154,7 +154,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Payment Status",
-   "options": "Not Paid\nPartially Paid\nPaid",
+   "options": "Not Paid\nPaid",
    "read_only": 1
   },
   {
@@ -168,7 +168,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Draft\nPending\nApproved\nRejected\nPaid\nCancelled",
+   "options": "Draft\nPending\nApproved\nPayable\nPaid\nCancelled\nRejected",
    "read_only": 1
   },
   {

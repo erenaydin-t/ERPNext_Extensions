@@ -108,6 +108,9 @@ class PMRequest(Document):
 			row.percent_of_total = (flt(row.advance_amount) / total * 100) if total else 0
 
 	def _sync_status_from_workflow(self):
+		"""Map workflow state → document status. Approval (workflow Approved) → Payable; payment is separate."""
+		if self.payment_entry or (self.payment_status or "") == "Paid" or (self.status or "") == "Paid":
+			return
 		ws = self.workflow_state
 		if not ws:
 			return
@@ -115,10 +118,11 @@ class PMRequest(Document):
 		m = {
 			"Draft": "Draft",
 			"Pending Approval": "Pending",
-			"Approved": "Approved",
+			"Approved": "Payable",
 			"Rejected": "Rejected",
-			"Paid": "Paid",
 			"Cancelled": "Cancelled",
+			# Legacy: workflow had a Paid state tied to PM Mark Paid (removed). Keep mapping if data exists.
+			"Paid": "Paid",
 		}
 		if ws_title in m:
 			self.status = m[ws_title]
@@ -209,6 +213,13 @@ def create_payment_entry(pm_request: str):
 	if doc.payment_entry or (doc.payment_status or "") == "Paid":
 		frappe.throw(_("Payment Entry already exists or this request is already marked Paid"))
 
+	ws_title = None
+	if doc.workflow_state:
+		ws_title = frappe.db.get_value("Workflow State", doc.workflow_state, "workflow_state_name")
+	payable = ws_title == "Approved" or (doc.status or "") == "Payable"
+	if not payable:
+		frappe.throw(_("Request must be approved (workflow) and Payable before creating Payment Entry."))
+
 	paid_from = settings.default_bank_account if settings else None
 	if not paid_from:
 		frappe.throw(_("Please configure Default Bank Account in PM Settings."))
@@ -223,9 +234,6 @@ def create_payment_entry(pm_request: str):
 		doc.db_set(link_field, link_name, update_modified=False)
 		doc.db_set("payment_status", "Paid", update_modified=False)
 		doc.db_set("status", "Paid", update_modified=False)
-		paid_state = frappe.db.get_value("Workflow State", {"workflow_state_name": "Paid"}, "name")
-		if paid_state:
-			doc.db_set("workflow_state", paid_state, update_modified=False)
 
 	pe = frappe.new_doc("Payment Entry")
 	pe.payment_type = "Pay"
