@@ -5,7 +5,7 @@ This module covers **only**:
 1. **Funding** petty cash holders (**PM Request** → **Payment Entry**: Dr Petty Cash, Cr Bank).
 2. **Settling submitted Purchase Invoices** from petty cash (**PM Clearance** → **Journal Entry**: Dr PI `credit_to` with Supplier + Purchase Invoice reference, Cr Petty Cash).
 
-Direct employee expense lines, non-invoice settlement, and **Dr expense / Cr petty cash** from **PM Expense Type** are **out of scope**; use **ERPNext HRMS** **Employee Advance** and **Expense Claim** for those.
+Direct employee expense lines and non-invoice settlement are **out of scope**; use **ERPNext HRMS** **Employee Advance** and **Expense Claim** for those.
 
 Use a development site with **Petty Management** installed and migrated. Figures are examples.
 
@@ -76,5 +76,5 @@ Use a development site with **Petty Management** installed and migrated. Figures
 
 | Check | Expected |
 |--------|-----------|
-| **PM Clearance** posting | **Journal Entry** only; **no** Dr expense account from PM Expense Type. |
-| **Workspace** | Setup: PM Settings, PM Holder. Transactions include PM Request, PM Clearance (Petty Invoice Settlement), Purchase Invoice, Payment Entry, Journal Entry. **PM Expense Type** not on workspace for this release. |
+| **PM Clearance** posting | **Journal Entry** only; debits are Purchase Invoice payable (`credit_to`), not arbitrary expense accounts. |
+| **Workspace** | Setup: PM Settings, PM Holder. Transactions: PM Request, PM Clearance (Petty Invoice Settlement), Purchase Invoice, Payment Entry, Journal Entry. |
