@@ -47,7 +47,7 @@
   {
    "fieldname": "section_main",
    "fieldtype": "Section Break",
-   "label": "Clearance"
+   "label": "Petty Invoice Settlement"
   },
   {
    "default": "Today",
@@ -135,6 +135,7 @@
   {
    "fieldname": "total_expense_without_tax",
    "fieldtype": "Currency",
+   "hidden": 1,
    "label": "Total Expense Without Tax",
    "options": "currency",
    "read_only": 1
@@ -142,6 +143,7 @@
   {
    "fieldname": "total_tax_amount",
    "fieldtype": "Currency",
+   "hidden": 1,
    "label": "Total Tax Amount",
    "options": "currency",
    "read_only": 1
@@ -150,7 +152,7 @@
    "fieldname": "total_expense_amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Total Expense Amount",
+   "label": "Total Settlement Amount",
    "options": "currency",
    "read_only": 1
   },
@@ -215,6 +217,7 @@
    "allow_on_submit": 1,
    "fieldname": "purchase_invoice",
    "fieldtype": "Link",
+   "hidden": 1,
    "label": "Purchase Invoice",
    "options": "Purchase Invoice",
    "read_only": 1
@@ -222,12 +225,12 @@
   {
    "fieldname": "section_details",
    "fieldtype": "Section Break",
-   "label": "Details"
+   "label": "Settlement Lines"
   },
   {
    "fieldname": "details",
    "fieldtype": "Table",
-   "label": "Details",
+   "label": "Petty Invoice Settlement Detail",
    "options": "PM Clearance Detail",
    "reqd": 1
   },

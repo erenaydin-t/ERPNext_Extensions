@@ -52,26 +52,16 @@ frappe.ui.form.on("PM Clearance", {
 				__("Accounting")
 			);
 		}
-		if (frm.doc.purchase_invoice) {
-			frm.add_custom_button(
-				__("View Purchase Invoice"),
-				() => frappe.set_route("Form", "Purchase Invoice", frm.doc.purchase_invoice),
-				__("Accounting")
-			);
-		}
 	},
 	recalc_totals(frm) {
-		let net = 0;
-		let tax = 0;
+		let total = 0;
 		(frm.doc.details || []).forEach((r) => {
-			net += flt(r.amount);
-			tax += flt(r.tax_amount);
+			total += flt(r.allocated_amount);
 			const row = locals[r.doctype][r.name];
-			row.amount_plus_tax = flt(r.amount) + flt(r.tax_amount);
+			row.amount_plus_tax = flt(r.allocated_amount);
 		});
-		frm.set_value("total_expense_without_tax", net);
-		frm.set_value("total_tax_amount", tax);
-		const total = net + tax;
+		frm.set_value("total_expense_without_tax", 0);
+		frm.set_value("total_tax_amount", 0);
 		frm.set_value("total_expense_amount", total);
 		frm.set_value("total_petty_cash", total);
 		frm.set_value("remaining_amount", flt(frm.doc.pending_amount) - total);
@@ -80,37 +70,26 @@ frappe.ui.form.on("PM Clearance", {
 });
 
 frappe.ui.form.on("PM Clearance Detail", {
-	expense_type(frm, cdt, cdn) {
+	purchase_invoice(frm, cdt, cdn) {
 		const row = locals[cdt][cdn];
-		if (!row.expense_type) {
+		if (!row.purchase_invoice) {
+			frappe.model.set_value(cdt, cdn, "supplier", "");
+			frappe.model.set_value(cdt, cdn, "outstanding_amount", 0);
+			frappe.model.set_value(cdt, cdn, "allocated_amount", 0);
+			frm.trigger("recalc_totals");
 			return;
 		}
-		frappe.db.get_value(
-			"PM Expense Type",
-			row.expense_type,
-			[
-				"is_tax_applicable",
-				"is_non_stock_expense_type",
-				"default_cost_center",
-				"requires_supplier",
-				"requires_attachment",
-			],
-			(r) => {
-				if (!r) {
-					return;
-				}
-				frappe.model.set_value(cdt, cdn, "is_tax_applicable", r.is_tax_applicable ? 1 : 0);
-				frappe.model.set_value(cdt, cdn, "is_non_stock_expense_type", r.is_non_stock_expense_type ? 1 : 0);
-				if (r.default_cost_center) {
-					frappe.model.set_value(cdt, cdn, "cost_center", r.default_cost_center);
-				}
+		frappe.db.get_doc("Purchase Invoice", row.purchase_invoice).then((pi) => {
+			frappe.model.set_value(cdt, cdn, "supplier", pi.supplier);
+			frappe.model.set_value(cdt, cdn, "outstanding_amount", pi.outstanding_amount || 0);
+			const cur = flt(row.allocated_amount);
+			if (!cur) {
+				frappe.model.set_value(cdt, cdn, "allocated_amount", pi.outstanding_amount || 0);
 			}
-		);
+			frm.trigger("recalc_totals");
+		});
 	},
-	amount(frm) {
-		frm.trigger("recalc_totals");
-	},
-	tax_amount(frm) {
+	allocated_amount(frm) {
 		frm.trigger("recalc_totals");
 	},
 });

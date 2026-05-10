@@ -49,14 +49,6 @@ class PMRequest(Document):
 					_("This employee has a pending PM Clearance; new requests are blocked by settings.")
 				)
 
-		for row in self.details:
-			if row.expense_type:
-				et_company = frappe.db.get_value("PM Expense Type", row.expense_type, "company")
-				if et_company and et_company != self.company:
-					frappe.throw(
-						_("Expense Type {0} belongs to another company").format(row.expense_type)
-					)
-
 		if holder_doc and holder_doc.get("max_balance") is not None:
 			limit = flt(holder_doc.max_balance)
 			projected = flt(self.previous_balance) + flt(self.total_requested_amount)

@@ -3,7 +3,7 @@
  "allow_copy": 0,
  "allow_import": 1,
  "allow_rename": 1,
- "autoname": "hash",
+ "autoname": "field:expense_type_name",
  "creation": "2026-05-09 00:00:00.000000",
  "custom": 0,
  "docstatus": 0,
@@ -25,6 +25,7 @@
  ],
  "fields": [
   {
+   "description": "Reserved for a future phase. Current release uses Purchase Invoice settlement only (standard ERPNext expense flows use Employee Advance / Expense Claim).",
    "fieldname": "expense_type_name",
    "fieldtype": "Data",
    "in_list_view": 1,
@@ -40,6 +41,7 @@
    "options": "Company"
   },
   {
+   "description": "Used only for non-Purchase-Invoice clearance rows. For Purchase Invoice settlement, the payable account is taken from Purchase Invoice Credit To.",
    "fieldname": "expense_account",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -143,8 +145,10 @@
    "role": "Petty Management Auditor"
   }
  ],
+ "search_fields": "expense_type_name,company,expense_account",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],
+ "title_field": "expense_type_name",
  "track_changes": 1
 }

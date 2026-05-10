@@ -94,17 +94,6 @@ frappe.ui.form.on("PM Request Detail", {
 	advance_amount(frm) {
 		frm.trigger("recalc_totals");
 	},
-	expense_type(frm, cdt, cdn) {
-		const row = locals[cdt][cdn];
-		if (!row.expense_type) {
-			return;
-		}
-		frappe.db.get_value("PM Expense Type", row.expense_type, ["default_cost_center"], (r) => {
-			if (r && r.default_cost_center) {
-				frappe.model.set_value(cdt, cdn, "cost_center", r.default_cost_center);
-			}
-		});
-	},
 });
 
 function flt(v) {

@@ -13,25 +13,18 @@
   "section_general",
   "default_company",
   "section_accounts",
-  "default_petty_cash_account",
-  "default_payable_account",
   "default_bank_account",
   "default_cost_center",
   "column_break_opts",
   "allow_negative_balance",
   "require_attachment",
-  "require_supplier",
   "require_bill_no",
-  "section_limits",
-  "max_single_expense_amount",
   "section_auto",
   "block_new_request_if_pending_clearance",
-  "petty_cash_payment_posting_mode",
   "require_workflow_approval",
   "column_break_auto",
   "auto_submit_payment_entry",
-  "auto_submit_journal_entry",
-  "auto_submit_purchase_invoice"
+  "auto_submit_journal_entry"
  ],
  "fields": [
   {
@@ -48,19 +41,7 @@
   {
    "fieldname": "section_accounts",
    "fieldtype": "Section Break",
-   "label": "Default Accounts"
-  },
-  {
-   "fieldname": "default_petty_cash_account",
-   "fieldtype": "Link",
-   "label": "Default Petty Cash Account",
-   "options": "Account"
-  },
-  {
-   "fieldname": "default_payable_account",
-   "fieldtype": "Link",
-   "label": "Default Payable Account",
-   "options": "Account"
+   "label": "Defaults"
   },
   {
    "fieldname": "default_bank_account",
@@ -92,25 +73,9 @@
   },
   {
    "default": "0",
-   "fieldname": "require_supplier",
-   "fieldtype": "Check",
-   "label": "Require Supplier (Clearance)"
-  },
-  {
-   "default": "0",
    "fieldname": "require_bill_no",
    "fieldtype": "Check",
    "label": "Require Bill No (Clearance)"
-  },
-  {
-   "fieldname": "section_limits",
-   "fieldtype": "Section Break",
-   "label": "Limits"
-  },
-  {
-   "fieldname": "max_single_expense_amount",
-   "fieldtype": "Currency",
-   "label": "Max Single Expense Amount"
   },
   {
    "fieldname": "section_auto",
@@ -124,19 +89,11 @@
    "label": "Block New Request If Pending Clearance"
   },
   {
-   "default": "Payment Entry",
-   "description": "PM Request advances post via Payment Entry only (Dr Petty Cash, Cr Bank). PM Clearance always uses Journal Entry.",
-   "fieldname": "petty_cash_payment_posting_mode",
-   "fieldtype": "Select",
-   "label": "Petty Cash Payment Posting Mode",
-   "options": "Payment Entry"
-  },
-  {
    "default": "1",
+   "description": "When enabled, PM Clearance can be submitted only in workflow state Approved (workflow state must be set).",
    "fieldname": "require_workflow_approval",
    "fieldtype": "Check",
-   "label": "Require Workflow Approval Before PM Clearance Submit",
-   "description": "When enabled, PM Clearance can be submitted only in workflow state Approved (workflow state must be set)."
+   "label": "Require Workflow Approval Before PM Clearance Submit"
   },
   {
    "fieldname": "column_break_auto",
@@ -153,12 +110,6 @@
    "fieldname": "auto_submit_journal_entry",
    "fieldtype": "Check",
    "label": "Auto Submit Journal Entry"
-  },
-  {
-   "default": "0",
-   "fieldname": "auto_submit_purchase_invoice",
-   "fieldtype": "Check",
-   "label": "Auto Submit Purchase Invoice"
   }
  ],
  "issingle": 1,

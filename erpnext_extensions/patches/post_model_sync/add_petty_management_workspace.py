@@ -26,7 +26,25 @@ def _append_link(ws, row: dict):
 	ws.append("links", row)
 
 
+def _ensure_module_def():
+	if frappe.db.exists("Module Def", {"module_name": "Petty Management"}):
+		return
+	try:
+		frappe.get_doc(
+			{
+				"doctype": "Module Def",
+				"module_name": "Petty Management",
+				"app_name": "erpnext_extensions",
+				"custom": 0,
+			}
+		).insert(ignore_permissions=True)
+	except Exception:
+		pass
+
+
 def execute():
+	_ensure_module_def()
+
 	meta = frappe.get_meta("Workspace")
 	name = "Petty Management"
 	if frappe.db.exists("Workspace", name):
@@ -41,32 +59,34 @@ def execute():
 		ws.label = name
 	if meta.has_field("module"):
 		ws.module = "Petty Management"
+	if meta.has_field("icon"):
+		ws.icon = "wallet"
 	for fn, val in (("public", 1), ("is_hidden", 0)):
 		if meta.has_field(fn):
 			ws.set(fn, val)
 	if meta.has_field("content"):
 		ws.content = "[]"
 
-	# Link cards (sections via Card Break)
-	_append_link(ws, {"type": "Card Break", "label": "Transactions", "icon": ""})
-	for label, link_to, ltype in (
-		("PM Request", "PM Request", "DocType"),
-		("PM Clearance", "PM Clearance", "DocType"),
-		("Payment Entry", "Payment Entry", "DocType"),
-		("Journal Entry", "Journal Entry", "DocType"),
-		("Purchase Invoice", "Purchase Invoice", "DocType"),
-	):
-		_append_link(ws, {"type": "Link", "label": label, "link_type": ltype, "link_to": link_to})
+	# Rebuild links so card order stays correct on every migrate (Setup → Transactions → Reports).
+	if meta.has_field("links"):
+		ws.links = []
 
 	_append_link(ws, {"type": "Card Break", "label": "Setup", "icon": ""})
 	for label, link_to in (
 		("PM Settings", "PM Settings"),
-		("PM Expense Type", "PM Expense Type"),
 		("PM Holder", "PM Holder"),
 	):
-		_append_link(
-			ws, {"type": "Link", "label": label, "link_type": "DocType", "link_to": link_to}
-		)
+		_append_link(ws, {"type": "Link", "label": label, "link_type": "DocType", "link_to": link_to})
+
+	_append_link(ws, {"type": "Card Break", "label": "Transactions", "icon": ""})
+	for label, link_to, ltype in (
+		("PM Request", "PM Request", "DocType"),
+		("Petty Invoice Settlement", "PM Clearance", "DocType"),
+		("Purchase Invoice", "Purchase Invoice", "DocType"),
+		("Payment Entry", "Payment Entry", "DocType"),
+		("Journal Entry", "Journal Entry", "DocType"),
+	):
+		_append_link(ws, {"type": "Link", "label": label, "link_type": ltype, "link_to": link_to})
 
 	_append_link(ws, {"type": "Card Break", "label": "Reports", "icon": ""})
 	for label, link_to in (

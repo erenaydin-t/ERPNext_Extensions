@@ -9,25 +9,17 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
-  "expense_type",
-  "expense_date",
-  "is_tax_applicable",
-  "is_non_stock_expense_type",
-  "supplier",
-  "reference_doctype",
   "purchase_invoice",
-  "party_type",
-  "party",
+  "supplier",
   "outstanding_amount",
   "allocated_amount",
-  "project",
   "cost_center",
-  "amount",
-  "tax_amount",
-  "amount_plus_tax",
+  "project",
   "bill_no",
-  "reference",
   "proof",
+  "amount_plus_tax",
+  "reference",
+  "reference_doctype",
   "created_by_user",
   "generated_doctype",
   "generated_document",
@@ -35,67 +27,19 @@
  ],
  "fields": [
   {
-   "fieldname": "expense_type",
+   "fieldname": "purchase_invoice",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Expense Type",
-   "options": "PM Expense Type",
+   "label": "Purchase Invoice",
+   "options": "Purchase Invoice",
    "reqd": 1
-  },
-  {
-   "default": "Today",
-   "fieldname": "expense_date",
-   "fieldtype": "Date",
-   "in_list_view": 1,
-   "label": "Expense Date",
-   "reqd": 1
-  },
-  {
-   "default": "0",
-   "fieldname": "is_tax_applicable",
-   "fieldtype": "Check",
-   "label": "Is Tax Applicable"
-  },
-  {
-   "default": "1",
-   "fieldname": "is_non_stock_expense_type",
-   "fieldtype": "Check",
-   "label": "Is Non-Stock Expense Type"
   },
   {
    "fieldname": "supplier",
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Supplier",
-   "options": "Supplier"
-  },
-  {
-   "fieldname": "reference_doctype",
-   "fieldtype": "Link",
-   "label": "Reference DocType",
-   "options": "DocType"
-  },
-  {
-   "fieldname": "purchase_invoice",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Purchase Invoice",
-   "options": "Purchase Invoice"
-  },
-  {
-   "default": "Supplier",
-   "fieldname": "party_type",
-   "fieldtype": "Select",
-   "label": "Party Type",
    "options": "Supplier",
-   "read_only": 1
-  },
-  {
-   "fieldname": "party",
-   "fieldtype": "Dynamic Link",
-   "in_list_view": 1,
-   "label": "Party",
-   "options": "party_type",
    "read_only": 1
   },
   {
@@ -111,14 +55,8 @@
    "fieldtype": "Currency",
    "in_list_view": 1,
    "label": "Allocated Amount",
-   "options": "currency"
-  },
-  {
-   "fieldname": "project",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Project",
-   "options": "Project"
+   "options": "currency",
+   "reqd": 1
   },
   {
    "fieldname": "cost_center",
@@ -128,27 +66,11 @@
    "options": "Cost Center"
   },
   {
-   "fieldname": "amount",
-   "fieldtype": "Currency",
+   "fieldname": "project",
+   "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Amount",
-   "options": "currency",
-   "reqd": 1
-  },
-  {
-   "fieldname": "tax_amount",
-   "fieldtype": "Currency",
-   "in_list_view": 1,
-   "label": "Tax Amount",
-   "options": "currency"
-  },
-  {
-   "fieldname": "amount_plus_tax",
-   "fieldtype": "Currency",
-   "in_list_view": 1,
-   "label": "Amount Plus Tax",
-   "options": "currency",
-   "read_only": 1
+   "label": "Project",
+   "options": "Project"
   },
   {
    "fieldname": "bill_no",
@@ -156,14 +78,30 @@
    "label": "Bill No"
   },
   {
-   "fieldname": "reference",
-   "fieldtype": "Data",
-   "label": "Reference"
-  },
-  {
    "fieldname": "proof",
    "fieldtype": "Attach",
    "label": "Proof"
+  },
+  {
+   "fieldname": "amount_plus_tax",
+   "fieldtype": "Currency",
+   "hidden": 1,
+   "label": "Allocated (legacy)",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reference",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Reference"
+  },
+  {
+   "fieldname": "reference_doctype",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Reference DocType",
+   "options": "DocType"
   },
   {
    "fieldname": "created_by_user",

@@ -9,22 +9,14 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
-  "expense_type",
   "advance_amount",
   "percent_of_total",
   "cost_center",
   "project",
-  "remarks"
+  "remarks",
+  "currency"
  ],
  "fields": [
-  {
-   "fieldname": "expense_type",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Expense Type",
-   "options": "PM Expense Type",
-   "reqd": 1
-  },
   {
    "fieldname": "advance_amount",
    "fieldtype": "Currency",
