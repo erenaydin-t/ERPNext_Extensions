@@ -33,7 +33,6 @@
   "status",
   "workflow_state",
   "section_accounting",
-  "paid_from_account",
   "payment_entry",
   "column_break_acc",
   "journal_entry",
@@ -111,7 +110,8 @@
    "fieldname": "employee_bank_account",
    "fieldtype": "Link",
    "label": "Employee Bank Account",
-   "options": "Bank Account"
+   "options": "Bank Account",
+   "get_query": "erpnext_extensions.petty_management.doctype.pm_request.pm_request.get_employee_bank_account_query"
   },
   {
    "fieldname": "max_balance_for_petty_cash",
@@ -189,12 +189,13 @@
    "collapsible": 1
   },
   {
-   "description": "Company bank or cash account used to fund the petty cash request.",
+   "description": "Deprecated: funding account is chosen on Payment Entry. Populated only from legacy data.",
    "fieldname": "paid_from_account",
    "fieldtype": "Link",
+   "hidden": 1,
    "label": "Paid From Account",
    "options": "Account",
-   "reqd": 1
+   "read_only": 1
   },
   {
    "allow_on_submit": 1,

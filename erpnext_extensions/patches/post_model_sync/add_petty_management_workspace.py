@@ -77,11 +77,102 @@ def _ensure_module_def():
 
 
 def _ensure_workspace_sidebar():
-	"""Persist Workspace Sidebar so boot.get_sidebar_items exposes petty-management in workspace_sidebar_item."""
+	"""Ensure generic Workspace Sidebar rows exist (v16 also needs explicit items — see _sync_petty_workspace_sidebar)."""
 	try:
 		create_workspace_sidebar_for_workspaces()
 	except Exception:
 		frappe.log_error(frappe.get_traceback(), "petty_management_workspace_sidebar")
+
+
+def _sync_petty_workspace_sidebar():
+	"""Frappe v16: boot.get_sidebar_items reads Workspace Sidebar `items`; factory only adds Home + shortcuts.
+
+	Rebuild Petty Management sidebar with Home, grouped sections, and workspace links so /app/petty-management
+	left navigation is usable (center cards unchanged).
+	"""
+	if not frappe.db.exists("Workspace", MODULE_NAME):
+		return
+	meta_sb = frappe.get_meta("Workspace Sidebar")
+	if not meta_sb:
+		return
+
+	if frappe.db.exists("Workspace Sidebar", MODULE_NAME):
+		sb = frappe.get_doc("Workspace Sidebar", MODULE_NAME)
+	else:
+		sb = frappe.new_doc("Workspace Sidebar")
+		sb.title = MODULE_NAME
+
+	if meta_sb.has_field("header_icon"):
+		sb.header_icon = "wallet"
+	if meta_sb.has_field("module"):
+		sb.module = MODULE_NAME
+	if meta_sb.has_field("standard"):
+		sb.standard = 1
+	if meta_sb.has_field("app"):
+		sb.app = APP_NAME
+	if meta_sb.has_field("for_user"):
+		sb.for_user = None
+
+	sb.items = []
+
+	counter = 0
+
+	def next_idx() -> int:
+		nonlocal counter
+		i = counter
+		counter += 1
+		return i
+
+	def add_item(row: dict) -> None:
+		row["idx"] = next_idx()
+		sb.append("items", row)
+
+	add_item(
+		{
+			"label": "Home",
+			"type": "Link",
+			"link_type": "Workspace",
+			"link_to": MODULE_NAME,
+		}
+	)
+
+	def add_section(label: str) -> None:
+		add_item(
+			{
+				"label": label,
+				"type": "Section Break",
+				"collapsible": 1,
+			}
+		)
+
+	def add_link(label: str, link_type: str, link_to: str, **extra) -> None:
+		row = {
+			"label": label,
+			"type": "Link",
+			"link_type": link_type,
+			"link_to": link_to,
+			"child": 1,
+		}
+		row.update(extra)
+		add_item(row)
+
+	add_section("Setup")
+	add_link("PM Settings", "DocType", "PM Settings")
+	add_link("PM Holder", "DocType", "PM Holder")
+
+	add_section("Transactions")
+	add_link("PM Request", "DocType", "PM Request")
+	add_link("Petty Invoice Settlement", "DocType", "PM Clearance")
+	add_link("Purchase Invoice", "DocType", "Purchase Invoice")
+	add_link("Payment Entry", "DocType", "Payment Entry")
+	add_link("Journal Entry", "DocType", "Journal Entry")
+
+	add_section("Reports")
+	add_link("PM Balance Report", "Report", "PM Balance Report")
+	add_link("PM Ledger Report", "Report", "PM Ledger Report")
+	add_link("PM Pending Clearance Report", "Report", "PM Pending Clearance Report")
+
+	sb.save(ignore_permissions=True)
 
 
 def _ensure_desktop_icon():
@@ -163,7 +254,7 @@ def execute():
 	_append_link(ws, {"type": "Card Break", "label": "Transactions", "icon": ""})
 	for label, link_to, ltype in (
 		("PM Request", "PM Request", "DocType"),
-		("PM Clearance", "PM Clearance", "DocType"),
+		("Petty Invoice Settlement", "PM Clearance", "DocType"),
 		("Purchase Invoice", "Purchase Invoice", "DocType"),
 		("Payment Entry", "Payment Entry", "DocType"),
 		("Journal Entry", "Journal Entry", "DocType"),
@@ -189,6 +280,7 @@ def execute():
 
 	ws.save(ignore_permissions=True)
 	_ensure_workspace_sidebar()
+	_sync_petty_workspace_sidebar()
 	_ensure_desktop_icon()
 	_clear_desk_caches()
 	frappe.db.commit()

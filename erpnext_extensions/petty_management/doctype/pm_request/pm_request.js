@@ -2,10 +2,26 @@
 // For license information, please see license.txt
 
 frappe.ui.form.on("PM Request", {
+	setup(frm) {
+		frm.set_query("employee_bank_account", () => {
+			if (!frm.doc.employee) {
+				return {
+					query: "erpnext_extensions.petty_management.doctype.pm_request.pm_request.get_employee_bank_account_query",
+					filters: { employee: "", company: frm.doc.company || "" },
+				};
+			}
+			return {
+				query: "erpnext_extensions.petty_management.doctype.pm_request.pm_request.get_employee_bank_account_query",
+				filters: { employee: frm.doc.employee, company: frm.doc.company || "" },
+			};
+		});
+	},
 	employee(frm) {
+		frm.set_value("employee_bank_account", null);
 		frm.trigger("refresh_holder_balances");
 	},
 	company(frm) {
+		frm.set_value("employee_bank_account", null);
 		frm.trigger("refresh_holder_balances");
 	},
 	transaction_date(frm) {
@@ -18,6 +34,9 @@ frappe.ui.form.on("PM Request", {
 		frm.trigger("setup_payment_entry_buttons");
 	},
 	payment_status(frm) {
+		frm.trigger("setup_payment_entry_buttons");
+	},
+	docstatus(frm) {
 		frm.trigger("setup_payment_entry_buttons");
 	},
 	refresh_holder_balances(frm) {
@@ -42,19 +61,37 @@ frappe.ui.form.on("PM Request", {
 				frm.set_value("petty_cash_account", r.petty_cash_account);
 				frm.set_value("max_balance_for_petty_cash", r.max_balance);
 				frm.set_value("previous_balance", r.current_balance);
+
+				const setBankFromList = () => {
+					frappe.db
+						.get_list("Bank Account", {
+							filters: {
+								party_type: "Employee",
+								party: frm.doc.employee,
+								company: frm.doc.company,
+								disabled: 0,
+							},
+							fields: ["name"],
+							limit: 2,
+						})
+						.then((rows) => {
+							if (r.default_employee_bank_account) {
+								frm.set_value("employee_bank_account", r.default_employee_bank_account);
+							} else if (rows.length === 1) {
+								frm.set_value("employee_bank_account", rows[0].name);
+							}
+							frm.trigger("setup_payment_entry_buttons");
+						});
+				};
+
 				if (r.default_employee_bank_account) {
 					frm.set_value("employee_bank_account", r.default_employee_bank_account);
+					frm.trigger("setup_payment_entry_buttons");
+				} else {
+					setBankFromList();
 				}
 			}
 		);
-		frappe.db.get_single_value("PM Settings", "default_bank_account").then((bank) => {
-			if (bank && !frm.doc.paid_from_account) {
-				frm.set_value("paid_from_account", bank);
-			}
-		});
-	},
-	paid_from_account(frm) {
-		frm.trigger("setup_payment_entry_buttons");
 	},
 	details_add(frm) {
 		frm.trigger("recalc_totals");
@@ -67,82 +104,95 @@ frappe.ui.form.on("PM Request", {
 		frm.trigger("recalc_totals");
 		frm.trigger("setup_payment_entry_buttons");
 	},
+	/*
+		Create Payment Entry — visible when ALL of:
+		- !frm.is_new()
+		- frm.doc.workflow_state === "Approved" OR frappe.workflow.get_state(frm.doc) === "Approved"
+		  (Link value is normally "Approved"; get_state covers odd workflow field setups)
+		- (frm.doc.payment_status || "") !== "Paid"
+		- !frm.doc.payment_entry
+		- flt(frm.doc.total_requested_amount) > 0
+		Not gated on status or docstatus for display; server enforces submit.
+		Button: inner toolbar primary (not Accounting dropdown).
+	*/
 	setup_payment_entry_buttons(frm) {
-		// Avoid duplicate inner buttons when refresh / workflow fires repeatedly
-		frm.remove_custom_button(__("Create Payment Entry"), __("Accounting"));
-		frm.remove_custom_button(__("Open Payment Entry"), __("Accounting"));
+		frm.page.remove_inner_button(__("Create Payment Entry"));
+		frm.page.remove_inner_button(__("Open Payment Entry"));
 
+		const wfRaw = frm.doc.workflow_state;
+		const wfResolved = frappe.workflow.get_state
+			? frappe.workflow.get_state(frm.doc)
+			: wfRaw;
+		const workflowApproved = wfRaw === "Approved" || wfResolved === "Approved";
+
+		const hiddenBecause = [];
 		if (frm.is_new()) {
-			return;
+			hiddenBecause.push("is_new");
+		}
+		if (!workflowApproved) {
+			hiddenBecause.push(
+				`workflow_not_Approved(workflow_state=${JSON.stringify(wfRaw)}, get_state=${JSON.stringify(
+					wfResolved
+				)})`
+			);
+		}
+		if (!(flt(frm.doc.total_requested_amount) > 0)) {
+			hiddenBecause.push("total_requested_amount_not_positive");
+		}
+		if (frm.doc.payment_entry) {
+			hiddenBecause.push("payment_entry_already_set");
+		}
+		if ((frm.doc.payment_status || "") === "Paid") {
+			hiddenBecause.push("payment_status_is_paid");
 		}
 
-		// status is synced from workflow on save; workflow_state is the Workflow State doc name
-		// (often same string as the state's title, e.g. "Approved" — both are accepted below).
-		const approved =
-			frm.doc.status === "Approved" || frm.doc.workflow_state === "Approved";
+		const showCreate = hiddenBecause.length === 0;
 
-		// Visibility (Create): intentionally not gated on docstatus — draft/submitted both show
-		// the button when approved; server responds with "Please submit PM Request..." if still draft.
-		// Gates: not paid, no PE yet, positive amount, bank funding account set, no stray JE on doc.
-		const show_create =
-			approved &&
-			(frm.doc.payment_status || "") !== "Paid" &&
-			!frm.doc.payment_entry &&
-			!frm.doc.journal_entry &&
-			flt(frm.doc.total_requested_amount) > 0 &&
-			!!frm.doc.paid_from_account;
-
-		if (frappe.boot.developer_mode) {
-			// Debug: if a gate fails, the Create button is hidden. Check workflow_state vs status if "Approved" mismatch.
-			console.debug("[PM Request] Create Payment Entry visibility", {
-				approved,
+		if (!showCreate) {
+			console.warn("[PM Request] Create Payment Entry hidden:", hiddenBecause, {
+				workflow_state: wfRaw,
+				workflow_get_state: wfResolved,
 				payment_status: frm.doc.payment_status,
-				has_payment_entry: !!frm.doc.payment_entry,
-				has_journal_entry: !!frm.doc.journal_entry,
+				payment_entry: frm.doc.payment_entry,
 				total_requested_amount: frm.doc.total_requested_amount,
-				has_paid_from: !!frm.doc.paid_from_account,
-				docstatus: frm.doc.docstatus,
-				status: frm.doc.status,
-				workflow_state: frm.doc.workflow_state,
-				show_create,
 			});
 		}
 
-		if (show_create) {
-			frm.add_custom_button(__("Create Payment Entry"), () => {
-				frappe.call({
-					method: "erpnext_extensions.petty_management.doctype.pm_request.pm_request.create_payment_entry",
-					args: { pm_request: frm.doc.name },
-					freeze: true,
-					freeze_message: __("Creating Payment Entry…"),
-					callback(r) {
-						if (r.exc) {
-							return;
-						}
-						if (r.message) {
-							frappe.show_alert({
-								message: __("Payment Entry {0} created", [r.message]),
-								indicator: "green",
-							});
-							frm.reload_doc();
-						}
-					},
-					error(r) {
-						const msg =
-							(r && r.message) ||
-							(r && r._server_messages && frappe.utils.parse_json(r._server_messages)) ||
-							__("Could not create Payment Entry");
-						frappe.msgprint({ title: __("Payment Entry failed"), message: msg, indicator: "red" });
-					},
-				});
-			}, __("Accounting"));
+		const runCreate = () => {
+			frappe.call({
+				method: "erpnext_extensions.petty_management.doctype.pm_request.pm_request.create_payment_entry",
+				args: { pm_request: frm.doc.name },
+				freeze: true,
+				freeze_message: __("Creating Payment Entry…"),
+				callback(r) {
+					if (r.exc) {
+						return;
+					}
+					if (r.message) {
+						frappe.show_alert({
+							message: __("Payment Entry {0} created", [r.message]),
+							indicator: "green",
+						});
+						frm.reload_doc();
+					}
+				},
+				error(r) {
+					const msg =
+						(r && r.message) ||
+						(r && r._server_messages && frappe.utils.parse_json(r._server_messages)) ||
+						__("Could not create Payment Entry");
+					frappe.msgprint({ title: __("Payment Entry failed"), message: msg, indicator: "red" });
+				},
+			});
+		};
+
+		if (showCreate) {
+			frm.page.add_inner_button(__("Create Payment Entry"), runCreate, null, "primary");
 		}
 
 		if (frm.doc.payment_entry) {
-			frm.add_custom_button(
-				__("Open Payment Entry"),
-				() => frappe.set_route("Form", "Payment Entry", frm.doc.payment_entry),
-				__("Accounting")
+			frm.page.add_inner_button(__("Open Payment Entry"), () =>
+				frappe.set_route("Form", "Payment Entry", frm.doc.payment_entry)
 			);
 		}
 	},
@@ -159,6 +209,7 @@ frappe.ui.form.on("PM Request", {
 			});
 			frm.refresh_field("details");
 		}
+		frm.trigger("setup_payment_entry_buttons");
 	},
 });
 

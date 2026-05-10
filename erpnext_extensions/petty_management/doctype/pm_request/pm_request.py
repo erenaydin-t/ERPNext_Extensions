@@ -1,8 +1,11 @@
 # Copyright (c) 2026, Farbod Siyahpoosh and contributors
 # For license information, please see license.txt
 
+import json
+
 import frappe
 from frappe import _
+from frappe.desk.reportview import get_match_cond
 from frappe.model.document import Document
 from frappe.model.naming import getseries
 from frappe.utils import flt, getdate, today
@@ -61,22 +64,11 @@ class PMRequest(Document):
 		self._validate_payment_accounts()
 
 	def _validate_payment_accounts(self):
-		if not self.paid_from_account:
-			frappe.throw(_("Please select Paid From Account on PM Request."))
 		if not self.petty_cash_account:
 			return
-		if self.paid_from_account == self.petty_cash_account:
-			frappe.throw(_("Paid From Account cannot be the same as Petty Cash Account"))
-		for label, acc in (
-			("Paid From Account", self.paid_from_account),
-			("Petty Cash Account", self.petty_cash_account),
-		):
-			acc_company = frappe.db.get_value("Account", acc, "company")
-			if acc_company and acc_company != self.company:
-				frappe.throw(_("{0} must belong to company {1}").format(label, self.company))
-		acc_type = frappe.db.get_value("Account", self.paid_from_account, "account_type")
-		if acc_type and acc_type not in ("Bank", "Cash"):
-			frappe.throw(_("Paid From Account must be a Bank or Cash account"))
+		acc_company = frappe.db.get_value("Account", self.petty_cash_account, "company")
+		if acc_company and acc_company != self.company:
+			frappe.throw(_("Petty Cash Account must belong to company {0}").format(self.company))
 		if self.employee_bank_account:
 			ba = frappe.db.get_value(
 				"Bank Account",
@@ -139,6 +131,65 @@ class PMRequest(Document):
 
 
 @frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
+def get_employee_bank_account_query(
+	doctype,
+	txt,
+	searchfield,
+	start,
+	page_len,
+	filters,
+	reference_doctype=None,
+	ignore_user_permissions=False,
+):
+	"""Link search: only Bank Account rows for the selected Employee (excludes company / other parties)."""
+	doctype = "Bank Account"
+	if isinstance(filters, str):
+		filters = json.loads(filters)
+	filters = filters or {}
+	employee = filters.get("employee")
+	company = filters.get("company")
+
+	conds = [
+		"`tabBank Account`.party_type = %(party_type)s",
+		"`tabBank Account`.docstatus != 2",
+		"IFNULL(`tabBank Account`.disabled, 0) = 0",
+	]
+	values = {
+		"party_type": "Employee",
+		"txt": f"%{txt}%",
+		"start": start,
+		"page_len": page_len,
+	}
+
+	if employee:
+		conds.append("`tabBank Account`.party = %(employee)s")
+		values["employee"] = employee
+	else:
+		conds.append("1=0")
+
+	if company:
+		conds.append("`tabBank Account`.company = %(company)s")
+		values["company"] = company
+
+	where_sql = " AND ".join(conds)
+	match_cond = get_match_cond(doctype)
+
+	return frappe.db.sql(
+		f"""
+		SELECT `tabBank Account`.name, `tabBank Account`.account_name
+		FROM `tabBank Account`
+		WHERE {where_sql}
+			AND `tabBank Account`.{searchfield} LIKE %(txt)s
+			{match_cond}
+		ORDER BY `tabBank Account`.name
+		LIMIT %(page_len)s OFFSET %(start)s
+		""",
+		values,
+	)
+
+
+@frappe.whitelist()
 def create_payment_entry(pm_request: str):
 	doc = frappe.get_doc("PM Request", pm_request)
 	if not frappe.has_permission("PM Request", "read", doc=doc):
@@ -149,23 +200,18 @@ def create_payment_entry(pm_request: str):
 		frappe.throw(_("Not permitted to create Payment Entry"), frappe.PermissionError)
 
 	settings = get_pm_settings()
-	ws_title = None
-	if doc.workflow_state:
-		ws_title = frappe.db.get_value("Workflow State", doc.workflow_state, "workflow_state_name")
-	approved = (doc.status or "") == "Approved" or ws_title == "Approved"
-	if not approved:
-		frappe.throw(_("Payment can only be created when the request is Approved"))
+
+	if not doc.employee:
+		frappe.throw(_("Employee is required"))
+	if not doc.petty_cash_account:
+		frappe.throw(_("Petty Cash Account is missing"))
 
 	if doc.payment_entry or (doc.payment_status or "") == "Paid":
 		frappe.throw(_("Payment Entry already exists or this request is already marked Paid"))
 
-	if not doc.petty_cash_account:
-		frappe.throw(_("Petty Cash Account is missing"))
-
-	if not doc.paid_from_account:
-		frappe.throw(_("Please select Paid From Account on PM Request."))
-
-	paid_from = doc.paid_from_account
+	paid_from = settings.default_bank_account if settings else None
+	if not paid_from:
+		frappe.throw(_("Please configure Default Bank Account in PM Settings."))
 
 	amount = flt(doc.total_requested_amount)
 	if amount <= 0:
