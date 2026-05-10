@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import frappe
+from frappe.desk.doctype.workspace_sidebar.workspace_sidebar import (
+	create_workspace_sidebar_for_workspaces,
+)
 
 
 MODULE_NAME = "Petty Management"
@@ -55,6 +58,48 @@ def _ensure_module_def():
 	).insert(ignore_permissions=True)
 
 
+def _ensure_workspace_sidebar():
+	"""Persist Workspace Sidebar so boot.get_sidebar_items exposes petty-management in workspace_sidebar_item."""
+	try:
+		create_workspace_sidebar_for_workspaces()
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), "petty_management_workspace_sidebar")
+
+
+def _ensure_desktop_icon():
+	"""Standard Desktop Icon rows are only created at site install; add one so /desk home shows the module tile."""
+	if not frappe.db.exists("Workspace", MODULE_NAME):
+		return
+
+	meta_di = frappe.get_meta("Desktop Icon")
+	label = MODULE_NAME
+
+	if frappe.db.exists("Desktop Icon", label):
+		icon = frappe.get_doc("Desktop Icon", label)
+	else:
+		icon = frappe.new_doc("Desktop Icon")
+		icon.label = label
+
+	icon.icon_type = "Link"
+	icon.link_type = "Workspace Sidebar"
+	icon.link_to = MODULE_NAME
+	icon.standard = 1
+	icon.hidden = 0
+	if meta_di.has_field("icon"):
+		icon.icon = "wallet"
+	if meta_di.has_field("app"):
+		icon.app = APP_NAME
+	if meta_di.has_field("idx") and not icon.idx:
+		icon.idx = 100
+
+	icon.save(ignore_permissions=True)
+
+
+def _clear_desk_caches():
+	frappe.cache.delete_key("desktop_icons")
+	frappe.cache.delete_key("bootinfo")
+
+
 def execute():
 	_ensure_module_def()
 
@@ -81,6 +126,8 @@ def execute():
 			ws.set(fn, val)
 	if meta.has_field("for_user"):
 		ws.set("for_user", "")
+	if meta.has_field("sequence_id") and not ws.get("sequence_id"):
+		ws.sequence_id = 90
 	if meta.has_field("content"):
 		ws.content = "[]"
 
@@ -123,4 +170,7 @@ def execute():
 		)
 
 	ws.save(ignore_permissions=True)
+	_ensure_workspace_sidebar()
+	_ensure_desktop_icon()
+	_clear_desk_caches()
 	frappe.db.commit()
