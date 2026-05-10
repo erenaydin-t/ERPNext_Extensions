@@ -17,6 +17,8 @@ from erpnext_extensions.petty_management.utils import (
 
 
 class PMClearance(Document):
+	"""Settles Purchase Invoices via Journal Entry against the holder Petty Cash Account (no direct PM Request link)."""
+
 	def autoname(self):
 		if not self.employee:
 			frappe.throw(_("Employee is required before naming"))

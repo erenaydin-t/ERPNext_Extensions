@@ -1,5 +1,11 @@
 // Copyright (c) 2026, Farbod Siyahpoosh and contributors
 // For license information, please see license.txt
+//
+// PM Request vs PM Clearance (no direct DocType link):
+// - PM Request funds the holder’s Petty Cash Account (Payment Entry).
+// - PM Clearance settles Purchase Invoices from that same account (Journal Entry).
+// - Connection: PM Holder + Petty Cash Account balance, not a linked PM Request field.
+// - Optional future: reference one or more PM Requests on clearance; not implemented now.
 
 frappe.ui.form.on("PM Clearance", {
 	employee(frm) {
@@ -21,11 +27,14 @@ frappe.ui.form.on("PM Clearance", {
 			["name", "petty_cash_account", "current_balance"],
 			(r) => {
 				if (!r || !r.name) {
+					frm.trigger("recalc_totals");
 					return;
 				}
 				frm.set_value("holder", r.name);
 				frm.set_value("petty_cash_account", r.petty_cash_account);
+				// Pending Amount = petty cash available (holder snapshot); server recalculates from GL on save.
 				frm.set_value("pending_amount", r.current_balance);
+				frm.trigger("recalc_totals");
 			}
 		);
 	},
@@ -36,7 +45,11 @@ frappe.ui.form.on("PM Clearance", {
 		frm.trigger("recalc_totals");
 	},
 	refresh(frm) {
-		frm.trigger("recalc_totals");
+		if (!frm.is_new() && frm.doc.employee && frm.doc.company) {
+			frm.trigger("refresh_holder_pending");
+		} else {
+			frm.trigger("recalc_totals");
+		}
 		if (!frm.is_new() && frm.doc.docstatus === 0 && !frm.doc.journal_entry) {
 			frm.add_custom_button(__("Create Journal Entry"), () => {
 				frappe.confirm(__("Submit clearance and generate Journal Entry?"), () => {

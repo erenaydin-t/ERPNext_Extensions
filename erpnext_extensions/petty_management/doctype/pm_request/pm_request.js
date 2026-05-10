@@ -1,5 +1,11 @@
 // Copyright (c) 2026, Farbod Siyahpoosh and contributors
 // For license information, please see license.txt
+//
+// PM Request vs PM Clearance (no direct DocType link):
+// - PM Request funds the holder’s Petty Cash Account (Payment Entry: Dr petty cash, Cr bank).
+// - PM Clearance consumes the same holder’s Petty Cash Account to settle Purchase Invoices (Journal Entry).
+// - They tie together via PM Holder + the same Petty Cash Account / GL balance, not a document link.
+// - Optional future: PM Clearance may reference PM Request(s); not required today.
 
 frappe.ui.form.on("PM Request", {
 	setup(frm) {
@@ -104,14 +110,16 @@ frappe.ui.form.on("PM Request", {
 		frm.trigger("recalc_totals");
 		frm.trigger("setup_payment_entry_buttons");
 	},
-	/* Create Payment Entry: client shows button with minimal gates only; server validates the rest. */
+	/* Create Payment Entry: submitted + unpaid + no PE; server is source of truth for approval/amounts. */
 	setup_payment_entry_buttons(frm) {
 		frm.page.remove_inner_button(__("Create Payment Entry"));
 		frm.page.remove_inner_button(__("Open Payment Entry"));
-		frm.page.remove_inner_button(__("Debug Payment Button"));
 
 		const showCreate =
-			!frm.is_new() && !frm.doc.payment_entry && frm.doc.payment_status !== "Paid";
+			!frm.is_new() &&
+			frm.doc.docstatus === 1 &&
+			!frm.doc.payment_entry &&
+			frm.doc.payment_status !== "Paid";
 
 		const runCreate = () => {
 			frappe.call({
@@ -150,25 +158,6 @@ frappe.ui.form.on("PM Request", {
 			frm.page.add_inner_button(__("Open Payment Entry"), () =>
 				frappe.set_route("Form", "Payment Entry", frm.doc.payment_entry)
 			);
-		}
-
-		if (frappe.boot.developer_mode) {
-			frm.page.add_inner_button(__("Debug Payment Button"), () => {
-				const lines = [
-					`docstatus: ${frm.doc.docstatus}`,
-					`workflow_state: ${frm.doc.workflow_state}`,
-					`status: ${frm.doc.status}`,
-					`payment_status: ${frm.doc.payment_status}`,
-					`payment_entry: ${frm.doc.payment_entry}`,
-					`total_requested_amount: ${frm.doc.total_requested_amount}`,
-					`employee: ${frm.doc.employee}`,
-					`petty_cash_account: ${frm.doc.petty_cash_account}`,
-				];
-				frappe.msgprint({
-					title: __("Debug Payment Button"),
-					message: lines.join("<br>"),
-				});
-			});
 		}
 	},
 	recalc_totals(frm) {

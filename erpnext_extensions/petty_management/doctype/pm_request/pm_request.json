@@ -99,6 +99,8 @@
    "options": "Project"
   },
   {
+   "description": "Fetched from PM Holder. Used as the control account for funding and settlement.",
+   "fetch_from": "holder.petty_cash_account",
    "fieldname": "petty_cash_account",
    "fieldtype": "Link",
    "label": "Petty Cash Account",

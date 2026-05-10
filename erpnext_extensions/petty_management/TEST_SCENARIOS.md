@@ -11,6 +11,17 @@ Use a development site with **Petty Management** installed and migrated. Figures
 
 ---
 
+## PM Request vs PM Clearance (relationship)
+
+| | **PM Request** | **PM Clearance** |
+|---|----------------|------------------|
+| **Purpose** | Fund the holder’s **Petty Cash Account** | Consume that same account to **settle submitted Purchase Invoices** |
+| **Posting** | **Payment Entry** (Dr Petty Cash, Cr Bank per PM Settings) | **Journal Entry** (Dr supplier payable / PI `credit_to`, Cr Petty Cash) |
+| **How they connect** | **Not** linked by a child table or dynamic link on the documents. They share the same **PM Holder** and the same **Petty Cash Account** (and thus the same GL balance). | Same |
+| **Future** | — | Optional: allow referencing one or more **PM Request** names for audit; **not required** for correct accounting today. |
+
+---
+
 ## Prerequisites
 
 | Item | Notes |

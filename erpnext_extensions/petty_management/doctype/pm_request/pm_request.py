@@ -20,6 +20,8 @@ from erpnext_extensions.petty_management.utils import (
 
 
 class PMRequest(Document):
+	"""Funds petty cash via Payment Entry; ties to PM Clearance only through PM Holder / same Petty Cash Account."""
+
 	def autoname(self):
 		if not self.employee:
 			frappe.throw(_("Employee is required before naming"))
