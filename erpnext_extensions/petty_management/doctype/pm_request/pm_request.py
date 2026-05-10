@@ -141,9 +141,11 @@ class PMRequest(Document):
 @frappe.whitelist()
 def create_payment_entry(pm_request: str):
 	doc = frappe.get_doc("PM Request", pm_request)
+	if not frappe.has_permission("PM Request", "read", doc=doc):
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
 	if doc.docstatus != 1:
-		frappe.throw(_("Submit the PM Request before creating Payment Entry"))
-	if not frappe.has_permission("PM Request", "submit", doc):
+		frappe.throw(_("Please submit PM Request before creating Payment Entry."))
+	if not frappe.has_permission("PM Request", "submit", doc=doc):
 		frappe.throw(_("Not permitted to create Payment Entry"), frappe.PermissionError)
 
 	settings = get_pm_settings()

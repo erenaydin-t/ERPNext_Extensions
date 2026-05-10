@@ -68,22 +68,45 @@ frappe.ui.form.on("PM Request", {
 		frm.trigger("setup_payment_entry_buttons");
 	},
 	setup_payment_entry_buttons(frm) {
+		// Avoid duplicate inner buttons when refresh / workflow fires repeatedly
+		frm.remove_custom_button(__("Create Payment Entry"), __("Accounting"));
+		frm.remove_custom_button(__("Open Payment Entry"), __("Accounting"));
+
 		if (frm.is_new()) {
 			return;
 		}
 
-		// status is synced from workflow on save; workflow_state is the Workflow State name (e.g. "Approved")
+		// status is synced from workflow on save; workflow_state is the Workflow State doc name
+		// (often same string as the state's title, e.g. "Approved" — both are accepted below).
 		const approved =
 			frm.doc.status === "Approved" || frm.doc.workflow_state === "Approved";
 
+		// Visibility (Create): intentionally not gated on docstatus — draft/submitted both show
+		// the button when approved; server responds with "Please submit PM Request..." if still draft.
+		// Gates: not paid, no PE yet, positive amount, bank funding account set, no stray JE on doc.
 		const show_create =
-			frm.doc.docstatus === 1 &&
 			approved &&
 			(frm.doc.payment_status || "") !== "Paid" &&
 			!frm.doc.payment_entry &&
 			!frm.doc.journal_entry &&
 			flt(frm.doc.total_requested_amount) > 0 &&
 			!!frm.doc.paid_from_account;
+
+		if (frappe.boot.developer_mode) {
+			// Debug: if a gate fails, the Create button is hidden. Check workflow_state vs status if "Approved" mismatch.
+			console.debug("[PM Request] Create Payment Entry visibility", {
+				approved,
+				payment_status: frm.doc.payment_status,
+				has_payment_entry: !!frm.doc.payment_entry,
+				has_journal_entry: !!frm.doc.journal_entry,
+				total_requested_amount: frm.doc.total_requested_amount,
+				has_paid_from: !!frm.doc.paid_from_account,
+				docstatus: frm.doc.docstatus,
+				status: frm.doc.status,
+				workflow_state: frm.doc.workflow_state,
+				show_create,
+			});
+		}
 
 		if (show_create) {
 			frm.add_custom_button(__("Create Payment Entry"), () => {

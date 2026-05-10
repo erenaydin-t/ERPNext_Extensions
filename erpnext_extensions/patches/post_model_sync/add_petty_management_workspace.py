@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import frappe
 from frappe.desk.doctype.workspace_sidebar.workspace_sidebar import (
 	create_workspace_sidebar_for_workspaces,
@@ -8,6 +10,22 @@ from frappe.desk.doctype.workspace_sidebar.workspace_sidebar import (
 
 MODULE_NAME = "Petty Management"
 APP_NAME = "erpnext_extensions"
+
+# Editor.js blocks for Desk workspace main area; card_name must match Card Break labels in links.
+_PETTY_WORKSPACE_CONTENT = [
+	{
+		"id": "pm_ws_hdr",
+		"type": "header",
+		"data": {"text": '<span class="h4"><b>Petty Management</b></span>', "col": 12},
+	},
+	{"id": "pm_ws_setup", "type": "card", "data": {"card_name": "Setup", "col": 4}},
+	{"id": "pm_ws_txn", "type": "card", "data": {"card_name": "Transactions", "col": 4}},
+	{"id": "pm_ws_rpt", "type": "card", "data": {"card_name": "Reports", "col": 4}},
+]
+
+
+def _petty_workspace_content_json() -> str:
+	return json.dumps(_PETTY_WORKSPACE_CONTENT, separators=(",", ":"))
 
 
 def _link_row_val(row, key: str):
@@ -129,7 +147,7 @@ def execute():
 	if meta.has_field("sequence_id") and not ws.get("sequence_id"):
 		ws.sequence_id = 90
 	if meta.has_field("content"):
-		ws.content = "[]"
+		ws.content = _petty_workspace_content_json()
 
 	# Rebuild links so card order stays correct on every migrate (Setup → Transactions → Reports).
 	if meta.has_field("links"):
