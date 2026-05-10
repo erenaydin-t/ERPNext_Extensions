@@ -109,17 +109,21 @@ class PMRequest(Document):
 @frappe.whitelist()
 def create_payment_entry(pm_request: str):
 	doc = frappe.get_doc("PM Request", pm_request)
-	doc.check_permission("write")
+	if doc.docstatus != 1:
+		frappe.throw(_("Submit the PM Request before creating Payment Entry"))
+	if not frappe.has_permission("PM Request", "submit", doc):
+		frappe.throw(_("Not permitted to create Payment Entry"), frappe.PermissionError)
+
 	settings = get_pm_settings()
 	ws_title = None
 	if doc.workflow_state:
 		ws_title = frappe.db.get_value("Workflow State", doc.workflow_state, "workflow_state_name")
-	approved = doc.status == "Approved" or ws_title == "Approved"
+	approved = (doc.status or "") == "Approved" or ws_title == "Approved"
 	if not approved:
 		frappe.throw(_("Payment can only be created when the request is Approved"))
 
-	if doc.payment_status == "Paid" and (doc.payment_entry or doc.journal_entry):
-		frappe.throw(_("Accounting document already linked"))
+	if doc.payment_entry or (doc.payment_status or "") == "Paid":
+		frappe.throw(_("Payment Entry already exists or this request is already marked Paid"))
 
 	if not doc.petty_cash_account:
 		frappe.throw(_("Petty Cash Account is missing"))
@@ -158,7 +162,7 @@ def create_payment_entry(pm_request: str):
 		pe.paid_to_account_currency = company_currency
 		pe.paid_from_account_currency = company_currency
 	pe.reference_no = doc.name
-	pe.reference_date = pe.posting_date
+	pe.reference_date = getdate(doc.transaction_date) if doc.transaction_date else pe.posting_date
 	pe.remarks = _("Petty cash advance for {0}").format(doc.name)
 
 	meta_pe = frappe.get_meta("Payment Entry")
@@ -171,7 +175,7 @@ def create_payment_entry(pm_request: str):
 		pe.insert(ignore_permissions=True)
 		if settings and settings.auto_submit_payment_entry:
 			pe.submit()
-	except frappe.ValidationError as e:
+	except Exception as e:
 		frappe.db.rollback()
 		frappe.throw(
 			_("Payment Entry could not be created: {0}").format(str(e)),
