@@ -3,6 +3,10 @@ from __future__ import annotations
 import frappe
 
 
+MODULE_NAME = "Petty Management"
+APP_NAME = "erpnext_extensions"
+
+
 def _link_row_val(row, key: str):
 	if row is None:
 		return None
@@ -27,43 +31,56 @@ def _append_link(ws, row: dict):
 
 
 def _ensure_module_def():
-	if frappe.db.exists("Module Def", {"module_name": "Petty Management"}):
+	"""Create or update Module Def so it appears under erpnext_extensions on Desk."""
+	if frappe.db.exists("Module Def", MODULE_NAME):
+		doc = frappe.get_doc("Module Def", MODULE_NAME)
+		changed = False
+		if doc.app_name != APP_NAME:
+			doc.app_name = APP_NAME
+			changed = True
+		if doc.custom:
+			doc.custom = 0
+			changed = True
+		if changed:
+			doc.save(ignore_permissions=True)
 		return
-	try:
-		frappe.get_doc(
-			{
-				"doctype": "Module Def",
-				"module_name": "Petty Management",
-				"app_name": "erpnext_extensions",
-				"custom": 0,
-			}
-		).insert(ignore_permissions=True)
-	except Exception:
-		pass
+
+	frappe.get_doc(
+		{
+			"doctype": "Module Def",
+			"module_name": MODULE_NAME,
+			"app_name": APP_NAME,
+			"custom": 0,
+		}
+	).insert(ignore_permissions=True)
 
 
 def execute():
 	_ensure_module_def()
 
 	meta = frappe.get_meta("Workspace")
-	name = "Petty Management"
-	if frappe.db.exists("Workspace", name):
-		ws = frappe.get_doc("Workspace", name)
+
+	if frappe.db.exists("Workspace", MODULE_NAME):
+		ws = frappe.get_doc("Workspace", MODULE_NAME)
 	else:
 		ws = frappe.new_doc("Workspace")
-		ws.name = name
+		ws.label = MODULE_NAME
 
 	if meta.has_field("title"):
-		ws.title = name
+		ws.title = MODULE_NAME
 	if meta.has_field("label"):
-		ws.label = name
+		ws.label = MODULE_NAME
 	if meta.has_field("module"):
-		ws.module = "Petty Management"
+		ws.module = MODULE_NAME
+	if meta.has_field("type"):
+		ws.type = "Workspace"
 	if meta.has_field("icon"):
 		ws.icon = "wallet"
 	for fn, val in (("public", 1), ("is_hidden", 0)):
 		if meta.has_field(fn):
 			ws.set(fn, val)
+	if meta.has_field("for_user"):
+		ws.set("for_user", "")
 	if meta.has_field("content"):
 		ws.content = "[]"
 
@@ -81,7 +98,7 @@ def execute():
 	_append_link(ws, {"type": "Card Break", "label": "Transactions", "icon": ""})
 	for label, link_to, ltype in (
 		("PM Request", "PM Request", "DocType"),
-		("Petty Invoice Settlement", "PM Clearance", "DocType"),
+		("PM Clearance", "PM Clearance", "DocType"),
 		("Purchase Invoice", "Purchase Invoice", "DocType"),
 		("Payment Entry", "Payment Entry", "DocType"),
 		("Journal Entry", "Journal Entry", "DocType"),
@@ -105,8 +122,5 @@ def execute():
 			},
 		)
 
-	if frappe.db.exists("Workspace", name):
-		ws.save(ignore_permissions=True)
-	else:
-		ws.insert(ignore_permissions=True)
+	ws.save(ignore_permissions=True)
 	frappe.db.commit()

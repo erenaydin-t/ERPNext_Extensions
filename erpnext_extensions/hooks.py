@@ -118,6 +118,7 @@ doctype_js = {
 # (Frappe may remove patch-created Workspaces during orphan cleanup in the same migrate).
 after_migrate = [
 	"erpnext_extensions.cheque_management.payments_sidebar.after_migrate",
+	"erpnext_extensions.petty_management.desk_visibility.after_migrate",
 ]
 
 # Uninstallation
