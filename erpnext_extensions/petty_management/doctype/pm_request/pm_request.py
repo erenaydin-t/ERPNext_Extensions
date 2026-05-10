@@ -216,9 +216,13 @@ def create_payment_entry(pm_request: str):
 	ws_title = None
 	if doc.workflow_state:
 		ws_title = frappe.db.get_value("Workflow State", doc.workflow_state, "workflow_state_name")
-	payable = ws_title == "Approved" or (doc.status or "") == "Payable"
+	st = doc.status or ""
+	# Workflow Approved → Payable on save; allow legacy status "Approved" until re-saved.
+	payable = ws_title == "Approved" or st in ("Payable", "Approved")
 	if not payable:
-		frappe.throw(_("Request must be approved (workflow) and Payable before creating Payment Entry."))
+		frappe.throw(
+			_("Request must be workflow-approved and Payable before creating Payment Entry.")
+		)
 
 	paid_from = settings.default_bank_account if settings else None
 	if not paid_from:
