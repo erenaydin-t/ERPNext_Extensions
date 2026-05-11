@@ -1,11 +1,10 @@
 // Copyright (c) 2026, Farbod Siyahpoosh and contributors
 // For license information, please see license.txt
 //
-// PM Request vs PM Clearance (no direct DocType link):
+// PM Request vs PM Clearance:
 // - PM Request funds the holder’s Petty Cash Account (Payment Entry: Dr petty cash, Cr bank).
-// - PM Clearance consumes the same holder’s Petty Cash Account to settle Purchase Invoices (Journal Entry).
-// - They tie together via PM Holder + the same Petty Cash Account / GL balance, not a document link.
-// - Optional future: PM Clearance may reference PM Request(s); not required today.
+// - PM Request funding is later consumed by PM Clearance through PM Clearance Request Allocation rows.
+// - Settlement posting (Journal Entry) uses Purchase Invoice lines; allocation rows are control / traceability.
 
 frappe.ui.form.on("PM Request", {
 	setup(frm) {

@@ -19,7 +19,7 @@ def get_pm_holder_name(employee: str, company: str) -> str | None:
 		return None
 	return frappe.db.get_value(
 		"PM Holder",
-		{"employee": employee, "company": company},
+		{"employee": employee, "company": company, "is_blocked": 0},
 		"name",
 	)
 

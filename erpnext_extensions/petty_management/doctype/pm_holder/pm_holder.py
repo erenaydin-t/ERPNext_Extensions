@@ -85,7 +85,8 @@ class PMHolder(Document):
 					select coalesce(sum(total_expense_amount), 0)
 					from `tabPM Clearance`
 					where employee = %s and company = %s
-						and docstatus = 0
+						and docstatus = 1
+						and ifnull(journal_entry, '') = ''
 						and ifnull(status, '') != 'Cancelled'
 					""",
 					(self.employee, self.company),
@@ -96,7 +97,10 @@ class PMHolder(Document):
 					"""
 					select coalesce(sum(total_expense_amount), 0)
 					from `tabPM Clearance`
-					where employee = %s and company = %s and docstatus = 1
+					where employee = %s and company = %s
+						and docstatus = 1
+						and ifnull(journal_entry, '') != ''
+						and ifnull(status, '') != 'Cancelled'
 					""",
 					(self.employee, self.company),
 				)[0][0]

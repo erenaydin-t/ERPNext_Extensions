@@ -100,8 +100,7 @@ class TestPdcSettlementSummaryWorkflowStateOptional(unittest.TestCase):
 		), patch(
 			"erpnext_extensions.cheque_management.pdc_settlement_summary.get_remaining_settlement_capacity",
 			return_value=20.0,
-		), patch.object(pss, "_sum_net_pdc_advance_applied_on_invoice", return_value=20000.0),
-		):
+		), patch.object(pss, "_sum_net_pdc_advance_applied_on_invoice", return_value=20000.0):
 			s = pss.get_settlement_summary_for_reference("Sales Invoice", "SINV-1")
 
 		self.assertIsNotNone(s)

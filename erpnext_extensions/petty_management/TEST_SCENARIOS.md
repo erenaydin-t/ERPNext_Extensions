@@ -3,7 +3,7 @@
 This module covers **only**:
 
 1. **Funding** petty cash holders (**PM Request** → **Payment Entry**: Dr Petty Cash, Cr Bank).
-2. **Settling submitted Purchase Invoices** from petty cash (**PM Clearance** → **Journal Entry**: Dr PI `credit_to` with Supplier + Purchase Invoice reference, Cr Petty Cash).
+2. **Settling submitted Purchase Invoices** from petty cash (**PM Clearance** → **Journal Entry**: Dr PI `credit_to` with Supplier + Purchase Invoice reference, Cr Petty Cash), with **PM Request allocation** rows for traceability and per-advance caps.
 
 Direct employee expense lines and non-invoice settlement are **out of scope**; use **ERPNext HRMS** **Employee Advance** and **Expense Claim** for those.
 
@@ -15,10 +15,9 @@ Use a development site with **Petty Management** installed and migrated. Figures
 
 | | **PM Request** | **PM Clearance** |
 |---|----------------|------------------|
-| **Purpose** | Fund the holder’s **Petty Cash Account** | Consume that same account to **settle submitted Purchase Invoices** |
-| **Posting** | **Payment Entry** (Dr Petty Cash, Cr Bank per PM Settings) | **Journal Entry** (Dr supplier payable / PI `credit_to`, Cr Petty Cash) |
-| **How they connect** | **Not** linked by a child table or dynamic link on the documents. They share the same **PM Holder** and the same **Petty Cash Account** (and thus the same GL balance). | Same |
-| **Future** | — | Optional: allow referencing one or more **PM Request** names for audit; **not required** for correct accounting today. |
+| **Purpose** | Fund the holder’s **Petty Cash Account** | **Settlement container**: which **Purchase Invoices** are cleared and which **PM Requests** fund that settlement (allocation lines) |
+| **Posting** | **Payment Entry** (Dr Petty Cash, Cr Bank per PM Settings) | **Journal Entry** only from **Purchase Invoice** lines (Dr supplier payable / PI `credit_to`, Cr Petty Cash). PM Request lines do **not** post GL. |
+| **How they connect** | Each funded request has a submitted **Payment Entry**. | **PM Clearance Request Allocation** child rows link to **PM Request**; sums must match PI line totals; availability excludes legacy migration rows and respects other submitted clearances. |
 
 ---
 
@@ -29,6 +28,20 @@ Use a development site with **Petty Management** installed and migrated. Figures
 | **Company, Chart of Accounts** | Petty cash asset account on **PM Holder**. |
 | **PM Settings** | Default company (optional), **Default Bank Account**, **Default Cost Center** (optional), policies as needed. |
 | **Supplier & items** | For **Purchase Invoice**. |
+
+---
+
+## Automated tests (PM Clearance)
+
+Python tests live in ``erpnext_extensions/petty_management/tests/test_pm_clearance.py`` (cheque_management-style layout). A thin re-export exists at ``doctype/pm_clearance/test_pm_clearance.py`` for the same ``--module`` path as DocType tests.
+
+```bash
+bench --site development.localhost run-tests \
+  --module erpnext_extensions.petty_management.tests.test_pm_clearance \
+  --skip-before-tests
+```
+
+Use ``--lightmode`` only **without** ``--app`` (otherwise the runner loads every ``test_*.py`` in the app). Sites with overlapping **Fiscal Year** definitions may fail during ERPNext accounting setup until data is corrected.
 
 ---
 
@@ -56,32 +69,48 @@ Use a development site with **Petty Management** installed and migrated. Figures
 
 ---
 
-## D. PM Clearance settles Purchase Invoice via Journal Entry reference
+## D. PM Clearance: PI lines + PM Request allocation + Journal Entry
 
-1. Create **PM Clearance** (desk label may show **Petty Invoice Settlement**): same employee/company as holder; **Pending Amount** reflects petty cash balance.
-2. Add a child line: **Purchase Invoice**, **Allocated Amount** (defaults from PI outstanding), optional **Cost Center**, **Project**, **Bill No**, **Proof**.
-3. **Submit** the clearance (this is the settlement request).
-4. Move workflow to **Approved** (finance approval).
-5. Click **Settle Petty Cash** to create the settlement **Journal Entry** and mark the clearance **Settled**.
-6. Open generated **Journal Entry**:
-   - For each line: **Debit** = Purchase Invoice **credit_to**, **Party Type** = Supplier, **Party** = supplier, **Reference Type** = Purchase Invoice, **Reference Name** = PI.
-   - **Credit** = petty cash account for the sum of allocated amounts.
-7. Confirm Purchase Invoice **outstanding** reduced by allocated amount.
+1. Create **PM Clearance** (desk label **PM Clearance**): same employee/company as holder; **Pending Amount** reflects petty cash GL balance.
+2. **Purchase Invoice lines**: add each PI, **Allocated Amount** (≤ outstanding, ≤ policy), optional cost center/project/bill/proof.
+3. **PM Request allocation lines**: add one row per **PM Request** (submitted **Payment Entry** required). Set **Allocated Amount** so the **sum equals** the sum of PI allocated amounts. Use **Preview Settlement Entry** (Actions) to review the future JE **before** submit/approval.
+4. **Submit** the clearance. Submitted clearances **without** a settlement JE **reserve** PM Request available balance (other clearances cannot over-allocate).
+5. Move workflow to **Approved** (finance approval).
+6. Click **Settle Petty Cash** to create the settlement **Journal Entry** and set status **Settled** (workflow remains **Approved**).
+7. Open generated **Journal Entry**:
+   - For each PI line: **Debit** = Purchase Invoice **credit_to**, **Party Type** = Supplier, **Party** = supplier, **Reference Type** = Purchase Invoice, **Reference Name** = PI.
+   - **Credit** = petty cash account for the **total** of allocated amounts (single credit line).
+8. Confirm Purchase Invoice **outstanding** reduced by allocated amount.
 
 ---
 
-## E. Partial settlement
+## E. Multi-request allocation example
+
+1. Fund two **PM Requests** (A and B) for the same holder so both have paid, submitted **Payment Entries**.
+2. On one **PM Clearance**, allocate PI totals across A and B such that **sum(PI) = sum(PM Request allocation)** (e.g. 40,000 + 5,440 = 45,440).
+3. Submit and settle; confirm JE still has **only** PI debit lines + one petty credit.
+
+---
+
+## F. Partial settlement
 
 1. Use a PI with outstanding **greater** than the petty balance or greater than the amount you wish to clear.
-2. On **PM Clearance**, set **Allocated Amount** to **less than** full outstanding (but ≤ petty balance and ≤ PI outstanding).
+2. On **PM Clearance**, set **Allocated Amount** on PI lines to **less than** full outstanding (but ≤ petty balance and ≤ PI outstanding). Match the same total on **PM Request allocation** lines.
 3. **Submit**, approve workflow to **Approved**, then **Settle Petty Cash**; verify JE amounts and PI outstanding reduction match the **partial** allocation.
 
 ---
 
-## F. Cancel PM Clearance and verify Purchase Invoice outstanding reverts
+## G. Cancel PM Clearance and verify Purchase Invoice outstanding reverts
 
-1. **Cancel** the submitted **PM Clearance** (linked **Journal Entry** must cancel).
+1. **Cancel** the submitted **PM Clearance** (linked **Journal Entry** must cancel first if present).
 2. Confirm Purchase Invoice **outstanding** returns to the value **before** that clearance (same as standard ERPNext behaviour when PI-referenced JE is cancelled).
+
+---
+
+## H. Legacy migration row
+
+1. After migrate, old **PM Clearance** documents without allocation children receive **one** row: **Legacy**, empty **PM Request**, **allocated_amount** = clearance total.
+2. That row does **not** affect PM Request availability math; new clearances must use real **PM Request** links (no mixing legacy + standard rows).
 
 ---
 
@@ -89,5 +118,6 @@ Use a development site with **Petty Management** installed and migrated. Figures
 
 | Check | Expected |
 |--------|-----------|
-| **PM Clearance** posting | **Journal Entry** only; debits are Purchase Invoice payable (`credit_to`), not arbitrary expense accounts. |
-| **Workspace** | Setup: PM Settings, PM Holder. Transactions: PM Request, PM Clearance (Petty Invoice Settlement), Purchase Invoice, Payment Entry, Journal Entry. |
+| **PM Clearance** posting | **Journal Entry** only; debits are Purchase Invoice payable (`credit_to`), not PM Request accounts. |
+| **Workspace** | Setup: PM Settings, PM Holder. Transactions: PM Request, **PM Clearance**, Purchase Invoice, Payment Entry, Journal Entry. |
+| **PM Holder / PM Balance Report** | **Settled Amount** = clearances with **Journal Entry**; **Pending Settlement** = submitted clearances **without** JE (not cancelled), regardless of workflow state. |

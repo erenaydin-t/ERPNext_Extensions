@@ -162,7 +162,7 @@ def _sync_petty_workspace_sidebar():
 
 	add_section("Transactions")
 	add_link("PM Request", "DocType", "PM Request")
-	add_link("Petty Invoice Settlement", "DocType", "PM Clearance")
+	add_link("PM Clearance", "DocType", "PM Clearance")
 	add_link("Purchase Invoice", "DocType", "Purchase Invoice")
 	add_link("Payment Entry", "DocType", "Payment Entry")
 	add_link("Journal Entry", "DocType", "Journal Entry")
@@ -254,7 +254,7 @@ def execute():
 	_append_link(ws, {"type": "Card Break", "label": "Transactions", "icon": ""})
 	for label, link_to, ltype in (
 		("PM Request", "PM Request", "DocType"),
-		("Petty Invoice Settlement", "PM Clearance", "DocType"),
+		("PM Clearance", "PM Clearance", "DocType"),
 		("Purchase Invoice", "Purchase Invoice", "DocType"),
 		("Payment Entry", "Payment Entry", "DocType"),
 		("Journal Entry", "Journal Entry", "DocType"),

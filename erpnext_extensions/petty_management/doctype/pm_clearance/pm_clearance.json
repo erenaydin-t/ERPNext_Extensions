@@ -45,6 +45,8 @@
   "purchase_invoice",
   "section_details",
   "details",
+  "section_request_alloc",
+  "request_allocations",
   "section_remark",
   "remark"
  ],
@@ -52,7 +54,7 @@
   {
    "fieldname": "section_main",
    "fieldtype": "Section Break",
-   "label": "Petty Invoice Settlement"
+   "label": "PM Clearance"
   },
   {
    "default": "Today",
@@ -88,6 +90,7 @@
    "read_only": 1
   },
   {
+   "description": "Auto-filled from Employee and Company (non-blocked PM Holder). Read-only.",
    "fieldname": "holder",
    "fieldtype": "Link",
    "label": "PM Holder",
@@ -105,8 +108,7 @@
    "options": "Project"
   },
   {
-   "description": "Fetched from PM Holder. Used as the control account for funding and settlement.",
-   "fetch_from": "holder.petty_cash_account",
+   "description": "Set from PM Holder on save (not fetch-only) for reliable PM Request matching.",
    "fieldname": "petty_cash_account",
    "fieldtype": "Link",
    "hidden": 1,
@@ -222,7 +224,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Draft\nPending Finance Review\nApproved\nSettled\nCancelled",
+   "options": "Draft\nPending Finance Review\nApproved\nSettled\nRejected\nCancelled",
    "read_only": 1
   },
   {
@@ -266,13 +268,25 @@
   {
    "fieldname": "section_details",
    "fieldtype": "Section Break",
-   "label": "Purchase Invoice Settlement Lines"
+   "label": "Purchase Invoice Lines / Settlement Lines"
   },
   {
    "fieldname": "details",
    "fieldtype": "Table",
-   "label": "Purchase Invoice Settlement Lines",
+   "label": "Settlement lines",
    "options": "PM Clearance Detail",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_request_alloc",
+   "fieldtype": "Section Break",
+   "label": "PM Request Allocation"
+  },
+  {
+   "fieldname": "request_allocations",
+   "fieldtype": "Table",
+   "label": "PM Request Allocation Lines",
+   "options": "PM Clearance Request Allocation",
    "reqd": 1
   },
   {

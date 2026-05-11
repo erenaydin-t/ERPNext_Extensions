@@ -19,8 +19,8 @@ def execute(filters=None):
 		{"label": _("Petty Cash Account"), "fieldname": "petty_cash_account", "fieldtype": "Link", "options": "Account", "width": 160},
 		{"label": _("Max Balance"), "fieldname": "max_balance", "fieldtype": "Currency", "width": 120},
 		{"label": _("Current Balance"), "fieldname": "current_balance", "fieldtype": "Currency", "width": 120},
-		{"label": _("Pending Clearance Amount"), "fieldname": "pending_clearance_amount", "fieldtype": "Currency", "width": 140},
-		{"label": _("Consumed Amount"), "fieldname": "consumed_amount", "fieldtype": "Currency", "width": 120},
+		{"label": _("Pending Settlement"), "fieldname": "pending_clearance_amount", "fieldtype": "Currency", "width": 140},
+		{"label": _("Settled Amount"), "fieldname": "consumed_amount", "fieldtype": "Currency", "width": 120},
 		{"label": _("Remaining Limit"), "fieldname": "remaining_limit", "fieldtype": "Currency", "width": 120},
 	]
 
@@ -47,23 +47,26 @@ def execute(filters=None):
 		cur = flt(
 			get_balance_on(account=h.petty_cash_account, date=as_on, company=h.company)
 		)
-		pending = consumed = 0.0
+		pending = settled = 0.0
 		if frappe.db.has_table("tabPM Clearance"):
 			pending = flt(
 				frappe.db.sql(
 					"""
 					select coalesce(sum(total_expense_amount), 0) from `tabPM Clearance`
-					where employee=%s and company=%s and docstatus=0
+					where employee=%s and company=%s and docstatus=1
+					and ifnull(journal_entry,'') = ''
 					and ifnull(status,'') != 'Cancelled'
 					""",
 					(h.employee, h.company),
 				)[0][0]
 			)
-			consumed = flt(
+			settled = flt(
 				frappe.db.sql(
 					"""
 					select coalesce(sum(total_expense_amount), 0) from `tabPM Clearance`
 					where employee=%s and company=%s and docstatus=1
+					and ifnull(journal_entry,'') != ''
+					and ifnull(status,'') != 'Cancelled'
 					""",
 					(h.employee, h.company),
 				)[0][0]
@@ -73,7 +76,7 @@ def execute(filters=None):
 			**h,
 			"current_balance": cur,
 			"pending_clearance_amount": pending,
-			"consumed_amount": consumed,
+			"consumed_amount": settled,
 			"remaining_limit": rem,
 		}
 		data.append(row)
