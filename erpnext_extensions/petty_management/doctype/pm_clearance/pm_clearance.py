@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import copy
 from typing import Any
 
 import frappe
@@ -843,7 +844,7 @@ def _doc_for_preview(doc=None, pm_clearance: str | None = None) -> Document:
 
 
 def _prepare_doc_for_je_preview(dobj: Document) -> None:
-	"""Rebuild settlement lines for preview without PM Request allocation validation."""
+	"""Rebuild settlement lines and allocations for preview on an isolated in-memory document."""
 	dobj._sync_holder_and_pending()
 	dobj._ensure_petty_cash_account_filled()
 	dobj._normalize_settlement_types()
@@ -852,11 +853,13 @@ def _prepare_doc_for_je_preview(dobj: Document) -> None:
 	dobj._validate_and_stamp_supplier_advance_rows()
 	dobj._calc_line_totals()
 	dobj._calc_parent_totals()
+	dobj._validate_request_allocations()
 
 
 @frappe.whitelist()
 def preview_pm_clearance_settlement(doc=None, pm_clearance: str | None = None) -> dict[str, Any]:
-	dobj = _doc_for_preview(doc=doc, pm_clearance=pm_clearance)
+	source_doc = _doc_for_preview(doc=doc, pm_clearance=pm_clearance)
+	dobj = frappe.get_doc(copy.deepcopy(source_doc.as_dict()))
 	_prepare_doc_for_je_preview(dobj)
 	accounts = build_clearance_je_accounts(dobj)
 	total_credit = sum(flt(a.get("credit_in_account_currency")) for a in accounts)

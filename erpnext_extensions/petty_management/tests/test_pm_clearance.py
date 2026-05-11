@@ -551,6 +551,105 @@ class TestPMClearanceAllocation(unittest.TestCase):
 		self.assertEqual(credit_lines[0].get("account"), petty)
 		self.assertEqual(flt(credit_lines[0].get("credit_in_account_currency")), 5_000)
 
+	def test_preview_unsaved_doc_validates_allocations_without_mutating_source(self):
+		mod = _pm()
+		emp = _make_employee()
+		self._track("Employee", emp)
+		_make_holder(emp)
+		req_name, _pe = _fund_pm_request(emp, 50_000.0)
+		self._track("PM Request", req_name)
+
+		pi = _make_pi_outstanding(6_000)
+		pi.insert()
+		pi.submit()
+		self._track("Purchase Invoice", pi.name)
+
+		cl = self._base_clearance(emp, pi, 6_000)
+		cl.append("request_allocations", {"pm_request": req_name, "allocated_amount": 6_000})
+		self.assertEqual(flt(cl.request_allocations[0].paid_amount), 0)
+
+		out = mod.preview_pm_clearance_settlement(doc=frappe.as_json(cl.as_dict()))
+		accounts = out.get("accounts") or []
+		self.assertEqual(len([a for a in accounts if flt(a.get("debit_in_account_currency")) > 0]), 1)
+		self.assertEqual(len([a for a in accounts if flt(a.get("credit_in_account_currency")) > 0]), 1)
+		self.assertEqual(flt(cl.request_allocations[0].paid_amount), 0)
+
+	def test_preview_saved_doc_does_not_create_je_or_extra_allocation_rows(self):
+		mod = _pm()
+		emp = _make_employee()
+		self._track("Employee", emp)
+		_make_holder(emp)
+		req_name, _pe = _fund_pm_request(emp, 50_000.0)
+		self._track("PM Request", req_name)
+
+		pi = _make_pi_outstanding(4_000)
+		pi.insert()
+		pi.submit()
+		self._track("Purchase Invoice", pi.name)
+
+		cl = self._base_clearance(emp, pi, 4_000)
+		cl.append("request_allocations", {"pm_request": req_name, "allocated_amount": 4_000})
+		cl.insert()
+		self._track("PM Clearance", cl.name)
+		before_rows = len(cl.request_allocations)
+		before_snapshot = (
+			flt(cl.request_allocations[0].request_amount),
+			flt(cl.request_allocations[0].paid_amount),
+			flt(cl.request_allocations[0].previously_allocated_amount),
+			flt(cl.request_allocations[0].available_amount),
+		)
+		n_before = frappe.db.count("Journal Entry")
+
+		mod.preview_pm_clearance_settlement(pm_clearance=cl.name)
+
+		cl.reload()
+		self.assertEqual(frappe.db.count("Journal Entry"), n_before)
+		self.assertEqual(len(cl.request_allocations), before_rows)
+		after_snapshot = (
+			flt(cl.request_allocations[0].request_amount),
+			flt(cl.request_allocations[0].paid_amount),
+			flt(cl.request_allocations[0].previously_allocated_amount),
+			flt(cl.request_allocations[0].available_amount),
+		)
+		self.assertEqual(after_snapshot, before_snapshot)
+
+	def test_allocation_snapshot_validation_is_idempotent(self):
+		emp = _make_employee()
+		self._track("Employee", emp)
+		_make_holder(emp)
+		req_name, _pe = _fund_pm_request(emp, 50_000.0)
+		self._track("PM Request", req_name)
+
+		pi = _make_pi_outstanding(3_000)
+		pi.insert()
+		pi.submit()
+		self._track("Purchase Invoice", pi.name)
+
+		cl = self._base_clearance(emp, pi, 3_000)
+		cl.append("request_allocations", {"pm_request": req_name, "allocated_amount": 3_000})
+		cl.insert()
+		self._track("PM Clearance", cl.name)
+		cl.reload()
+		before_rows = len(cl.request_allocations)
+		before_snapshot = (
+			flt(cl.request_allocations[0].request_amount),
+			flt(cl.request_allocations[0].paid_amount),
+			flt(cl.request_allocations[0].previously_allocated_amount),
+			flt(cl.request_allocations[0].available_amount),
+		)
+
+		cl.validate()
+		cl.validate()
+
+		self.assertEqual(len(cl.request_allocations), before_rows)
+		after_snapshot = (
+			flt(cl.request_allocations[0].request_amount),
+			flt(cl.request_allocations[0].paid_amount),
+			flt(cl.request_allocations[0].previously_allocated_amount),
+			flt(cl.request_allocations[0].available_amount),
+		)
+		self.assertEqual(after_snapshot, before_snapshot)
+
 	def test_preview_uses_same_builder_as_insert_path(self):
 		mod = _pm()
 		emp = _make_employee()
