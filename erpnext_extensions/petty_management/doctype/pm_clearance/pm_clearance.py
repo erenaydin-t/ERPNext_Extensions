@@ -187,14 +187,28 @@ def build_clearance_je_accounts(doc: Document) -> list[dict[str, Any]]:
 	petty = clearance_petty_cash_account(doc)
 	if not petty:
 		frappe.throw(_("Petty Cash Account is missing on this clearance."))
-	lines.append(
-		{
-			"account": petty,
-			"debit_in_account_currency": 0,
-			"credit_in_account_currency": total_petty_credit,
-		}
-	)
+	credit_line = {
+		"account": petty,
+		"debit_in_account_currency": 0,
+		"credit_in_account_currency": total_petty_credit,
+	}
+	if frappe.db.get_value("Account", petty, "account_type") in ("Receivable", "Payable"):
+		# ERPNext enforces party dimensions for Receivable/Payable ledgers, even when used as holder petty.
+		credit_line.update({"party_type": "Employee", "party": doc.employee})
+	lines.append(credit_line)
 	return lines
+
+
+def _clearance_is_approved(doc: Document) -> bool:
+	"""Demo-safe approval gate: accept either workflow title/value or synced status."""
+	if (getattr(doc, "status", None) or "").strip() == "Approved":
+		return True
+	ws = (getattr(doc, "workflow_state", None) or "").strip()
+	if ws == "Approved":
+		return True
+	if ws and (frappe.db.get_value("Workflow State", ws, "workflow_state_name") or ws) == "Approved":
+		return True
+	return False
 
 
 class PMClearance(Document):
@@ -661,6 +675,7 @@ class PMClearance(Document):
 		settings = get_pm_settings()
 		je = frappe.new_doc("Journal Entry")
 		je.company = self.company
+		je.voucher_type = "Journal Entry"
 		je.posting_date = getdate(self.je_clearance_date or self.transaction_date or today())
 		je.user_remark = _("Petty cash clearance {0}").format(self.name)
 
@@ -874,57 +889,60 @@ def preview_pm_clearance_settlement(doc=None, pm_clearance: str | None = None) -
 
 
 @frappe.whitelist()
-def settle_petty_cash(pm_clearance: str) -> str:
+def settle_petty_cash(pm_clearance: str) -> dict[str, str]:
 	doc = frappe.get_doc("PM Clearance", pm_clearance)
 	if not frappe.has_permission("PM Clearance", "read", doc=doc):
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
-	doc.check_permission("submit")
+	doc.check_permission("write")
 	if doc.docstatus != 1:
 		frappe.throw(_("Please submit PM Clearance before settling."), title=_("Submit required"))
 
-	ws_title = None
-	if doc.workflow_state:
-		ws_title = frappe.db.get_value("Workflow State", doc.workflow_state, "workflow_state_name")
-	if ws_title != "Approved":
-		frappe.throw(_("Settle is only allowed when Workflow State is Approved."), title=_("Approval required"))
+	if not _clearance_is_approved(doc):
+		frappe.throw(_("Settle is only allowed when PM Clearance is Approved."), title=_("Approval required"))
 
 	if doc.journal_entry:
-		frappe.throw(_("Settlement Journal Entry already exists: {0}").format(doc.journal_entry))
+		return {"journal_entry": doc.journal_entry, "status": doc.status or "Settled"}
 
 	doc.reload()
+	if not _clearance_is_approved(doc):
+		frappe.throw(_("Settle is only allowed when PM Clearance is Approved."), title=_("Approval required"))
 	doc.validate()
 
-	je = doc._create_clearance_journal_entry()
-	doc.db_set("journal_entry", je.name, update_modified=False)
-	doc.db_set("status", "Settled", update_modified=False)
+	try:
+		je = doc._create_clearance_journal_entry()
+		doc.db_set("journal_entry", je.name, update_modified=False)
+		doc.db_set("status", "Settled", update_modified=False)
 
-	for row in doc.details:
-		frappe.db.set_value(
-			row.doctype,
-			row.name,
-			{"generated_doctype": "Journal Entry", "generated_document": je.name},
-			update_modified=False,
-		)
-
-	meta_pi = frappe.get_meta("Purchase Invoice")
-	has_holder = meta_pi.has_field("custom_pm_holder")
-	has_clearance = meta_pi.has_field("custom_pm_clearance")
-	if has_holder or has_clearance:
 		for row in doc.details:
-			if (row.settlement_type or SETTLEMENT_PI).strip() != SETTLEMENT_PI:
-				continue
-			if not row.purchase_invoice:
-				continue
-			updates = {}
-			if has_holder:
-				cur = frappe.db.get_value("Purchase Invoice", row.purchase_invoice, "custom_pm_holder")
-				if not cur and doc.holder:
-					updates["custom_pm_holder"] = doc.holder
-			if has_clearance:
-				cur = frappe.db.get_value("Purchase Invoice", row.purchase_invoice, "custom_pm_clearance")
-				if not cur:
-					updates["custom_pm_clearance"] = doc.name
-			if updates:
-				frappe.db.set_value("Purchase Invoice", row.purchase_invoice, updates, update_modified=False)
+			frappe.db.set_value(
+				row.doctype,
+				row.name,
+				{"generated_doctype": "Journal Entry", "generated_document": je.name},
+				update_modified=False,
+			)
 
-	return je.name
+		meta_pi = frappe.get_meta("Purchase Invoice")
+		has_holder = meta_pi.has_field("custom_pm_holder")
+		has_clearance = meta_pi.has_field("custom_pm_clearance")
+		if has_holder or has_clearance:
+			for row in doc.details:
+				if (row.settlement_type or SETTLEMENT_PI).strip() != SETTLEMENT_PI:
+					continue
+				if not row.purchase_invoice:
+					continue
+				updates = {}
+				if has_holder:
+					cur = frappe.db.get_value("Purchase Invoice", row.purchase_invoice, "custom_pm_holder")
+					if not cur and doc.holder:
+						updates["custom_pm_holder"] = doc.holder
+				if has_clearance:
+					cur = frappe.db.get_value("Purchase Invoice", row.purchase_invoice, "custom_pm_clearance")
+					if not cur:
+						updates["custom_pm_clearance"] = doc.name
+				if updates:
+					frappe.db.set_value("Purchase Invoice", row.purchase_invoice, updates, update_modified=False)
+	except Exception as e:
+		frappe.db.rollback()
+		frappe.throw(_("Could not create settlement Journal Entry: {0}").format(str(e)))
+
+	return {"journal_entry": je.name, "status": "Settled"}

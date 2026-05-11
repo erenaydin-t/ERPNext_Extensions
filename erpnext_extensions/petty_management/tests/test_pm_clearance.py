@@ -710,7 +710,8 @@ class TestPMClearanceAllocation(unittest.TestCase):
 
 		frappe.db.set_value("PM Clearance", cl.name, "workflow_state", approved, update_modified=False)
 
-		je_name = mod.settle_petty_cash(cl.name)
+		out = mod.settle_petty_cash(cl.name)
+		je_name = out["journal_entry"]
 		self._track("Journal Entry", je_name)
 
 		cl.reload()
@@ -1007,7 +1008,8 @@ class TestPMClearanceAllocation(unittest.TestCase):
 		self._track("PM Clearance", cl.name)
 		frappe.db.set_value("PM Clearance", cl.name, "workflow_state", approved, update_modified=False)
 
-		je_name = mod.settle_petty_cash(cl.name)
+		out = mod.settle_petty_cash(cl.name)
+		je_name = out["journal_entry"]
 		self._track("Journal Entry", je_name)
 
 		je = frappe.get_doc("Journal Entry", je_name)
@@ -1077,7 +1079,8 @@ class TestPMClearanceAllocation(unittest.TestCase):
 		self._track("PM Clearance", cl.name)
 		frappe.db.set_value("PM Clearance", cl.name, "workflow_state", approved, update_modified=False)
 
-		je_name = mod.settle_petty_cash(cl.name)
+		out = mod.settle_petty_cash(cl.name)
+		je_name = out["journal_entry"]
 		self._track("Journal Entry", je_name)
 
 		je = frappe.get_doc("Journal Entry", je_name)
