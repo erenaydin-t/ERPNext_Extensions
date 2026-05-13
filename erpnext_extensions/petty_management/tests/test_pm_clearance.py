@@ -218,6 +218,16 @@ def _insert_legacy_allocation_row(parent: str, total: float) -> None:
 	)
 
 
+def _purchase_invoice_pm_scalar_values(pi_name: str) -> dict[str, str | None]:
+	meta = frappe.get_meta("Purchase Invoice")
+	fields = ("custom_pm_request", "custom_pm_clearance", "custom_pm_holder")
+	return {
+		fieldname: frappe.db.get_value("Purchase Invoice", pi_name, fieldname)
+		for fieldname in fields
+		if meta.has_field(fieldname)
+	}
+
+
 def _default_warehouse_for_company() -> str | None:
 	w = frappe.db.get_value("Company", COMPANY, "default_warehouse")
 	if w and frappe.db.exists("Warehouse", w):
@@ -359,6 +369,11 @@ class TestPMClearanceAllocation(unittest.TestCase):
 
 	def test_pm_request_allocation_context_stamps_paid_request_snapshot(self):
 		mod = _pm()
+		from erpnext_extensions.petty_management.services import allocation_service
+
+		frappe.is_whitelisted(mod.get_pm_request_allocation_context)
+		frappe.is_whitelisted(allocation_service.get_pm_request_allocation_context)
+
 		emp = _make_employee()
 		self._track("Employee", emp)
 		holder = _make_holder(emp)
@@ -395,6 +410,55 @@ class TestPMClearanceAllocation(unittest.TestCase):
 		self.assertEqual(flt(row.request_amount), 25_000)
 		self.assertGreater(flt(row.paid_amount), 0)
 		self.assertGreater(flt(row.available_amount), 0)
+
+	def test_shared_petty_cash_account_allowed_for_two_holders(self):
+		emp_a = _make_employee()
+		emp_b = _make_employee()
+		self._track("Employee", emp_a)
+		self._track("Employee", emp_b)
+
+		holder_a = _make_holder(emp_a)
+		holder_b = _make_holder(emp_b)
+		petty_a = frappe.db.get_value("PM Holder", holder_a, "petty_cash_account")
+		petty_b = frappe.db.get_value("PM Holder", holder_b, "petty_cash_account")
+
+		self.assertNotEqual(holder_a, holder_b)
+		self.assertEqual(petty_a, petty_b)
+
+	def test_pm_request_availability_is_request_based_with_shared_account(self):
+		from erpnext_extensions.petty_management.services.allocation_service import (
+			get_pm_request_available_amount,
+		)
+
+		emp_a = _make_employee()
+		emp_b = _make_employee()
+		self._track("Employee", emp_a)
+		self._track("Employee", emp_b)
+		holder_a = _make_holder(emp_a)
+		holder_b = _make_holder(emp_b)
+		self.assertEqual(
+			frappe.db.get_value("PM Holder", holder_a, "petty_cash_account"),
+			frappe.db.get_value("PM Holder", holder_b, "petty_cash_account"),
+		)
+
+		req_a, _pe_a = _fund_pm_request(emp_a, 10_000.0)
+		req_b, _pe_b = _fund_pm_request(emp_b, 20_000.0)
+		self._track("PM Request", req_a)
+		self._track("PM Request", req_b)
+
+		pi = _make_pi_outstanding(4_000)
+		pi.insert()
+		pi.submit()
+		self._track("Purchase Invoice", pi.name)
+
+		cl = self._base_clearance(emp_a, pi, 4_000)
+		cl.append("request_allocations", {"pm_request": req_a, "allocated_amount": 4_000})
+		cl.insert()
+		cl.submit()
+		self._track("PM Clearance", cl.name)
+
+		self.assertEqual(flt(get_pm_request_available_amount(req_a)), 6_000)
+		self.assertEqual(flt(get_pm_request_available_amount(req_b)), 20_000)
 
 	def test_pm_request_query_exact_docname_uses_alias_safe_search(self):
 		mod = _pm()
@@ -714,14 +778,26 @@ class TestPMClearanceAllocation(unittest.TestCase):
 		je_name = out["journal_entry"]
 		self._track("Journal Entry", je_name)
 
+		from erpnext_extensions.petty_management.utils import get_pm_settings
+
+		settings = get_pm_settings()
+		auto_submit = bool(settings and settings.auto_submit_journal_entry)
+
 		cl.reload()
-		self.assertEqual(cl.status, "Settled")
+		je = frappe.get_doc("Journal Entry", je_name)
+		self.assertEqual(je.docstatus, 1 if auto_submit else 0)
+		if auto_submit:
+			self.assertEqual(cl.status, "Settled")
+		else:
+			self.assertEqual(cl.status, "Pending Journal Entry Submission")
+			if je.docstatus == 0:
+				je.submit()
+			cl.reload()
+			self.assertEqual(cl.status, "Settled")
+
 		self.assertEqual(cl.journal_entry, je_name)
 
 		je = frappe.get_doc("Journal Entry", je_name)
-		if je.docstatus == 0:
-			je.submit()
-
 		rows = je.get("accounts") or []
 		dr = [r for r in rows if flt(r.debit_in_account_currency) > 0]
 		cr = [r for r in rows if flt(r.credit_in_account_currency) > 0]
@@ -736,17 +812,40 @@ class TestPMClearanceAllocation(unittest.TestCase):
 		pi.reload()
 		self.assertLess(flt(pi.outstanding_amount), outstanding_before)
 
-		meta_pi = frappe.get_meta("Purchase Invoice")
-		if meta_pi.has_field("custom_pm_clearance"):
-			self.assertEqual(
-				frappe.db.get_value("Purchase Invoice", pi.name, "custom_pm_clearance"),
-				cl.name,
-			)
-		if meta_pi.has_field("custom_pm_holder"):
-			self.assertEqual(
-				frappe.db.get_value("Purchase Invoice", pi.name, "custom_pm_holder"),
-				cl.holder,
-			)
+		self.assertTrue(all(not value for value in _purchase_invoice_pm_scalar_values(pi.name).values()))
+
+	def test_duplicate_settle_returns_existing_journal_entry(self):
+		mod = _pm()
+		approved = _workflow_state_for("PM Clearance", "Approved")
+		if not approved:
+			self.skipTest("Active PM Clearance workflow with Approved state not found.")
+
+		emp = _make_employee()
+		self._track("Employee", emp)
+		_make_holder(emp)
+		req_name, _pe = _fund_pm_request(emp, 10_000.0)
+		self._track("PM Request", req_name)
+
+		pi = _make_pi_outstanding(10_000)
+		pi.insert()
+		pi.submit()
+		self._track("Purchase Invoice", pi.name)
+
+		cl = self._base_clearance(emp, pi, 10_000)
+		cl.append("request_allocations", {"pm_request": req_name, "allocated_amount": 10_000})
+		cl.insert()
+		cl.submit()
+		self._track("PM Clearance", cl.name)
+		frappe.db.set_value("PM Clearance", cl.name, "workflow_state", approved, update_modified=False)
+
+		first = mod.settle_petty_cash(cl.name)
+		self._track("Journal Entry", first["journal_entry"])
+		before_count = frappe.db.count("Journal Entry")
+		second = mod.settle_petty_cash(cl.name)
+		after_count = frappe.db.count("Journal Entry")
+
+		self.assertEqual(first["journal_entry"], second["journal_entry"])
+		self.assertEqual(before_count, after_count)
 
 	def test_pm_request_query_excludes_other_employee_requests(self):
 		mod = _pm()
@@ -1145,6 +1244,157 @@ class TestPMClearanceAllocation(unittest.TestCase):
 
 		doc = frappe.get_doc("PM Clearance", cl.name)
 		doc.validate()
+
+	def test_pm_settlement_ledger_shows_separate_settlement_and_funding_rows(self):
+		from erpnext_extensions.petty_management.report.pm_settlement_ledger import (
+			pm_settlement_ledger as report,
+		)
+
+		emp = _make_employee()
+		self._track("Employee", emp)
+		_make_holder(emp)
+		req_name, pe_name = _fund_pm_request(emp, 5_000)
+		self._track("PM Request", req_name)
+
+		pi = _make_pi_outstanding(5_000)
+		pi.insert()
+		pi.submit()
+		self._track("Purchase Invoice", pi.name)
+
+		cl = self._base_clearance(emp, pi, 5_000)
+		cl.append("request_allocations", {"pm_request": req_name, "allocated_amount": 5_000})
+		cl.insert()
+		self._track("PM Clearance", cl.name)
+
+		_columns, data = report.execute({"pm_clearance": cl.name})
+		settlement_rows = [row for row in data if row.row_type == "Settlement Line"]
+		funding_rows = [row for row in data if row.row_type == "Funding Allocation Line"]
+
+		self.assertEqual(len(settlement_rows), 1)
+		self.assertEqual(settlement_rows[0].purchase_invoice, pi.name)
+		self.assertEqual(flt(settlement_rows[0].settlement_amount), 5_000)
+		self.assertFalse(settlement_rows[0].pm_request)
+
+		self.assertEqual(len(funding_rows), 1)
+		self.assertEqual(funding_rows[0].pm_request, req_name)
+		self.assertEqual(funding_rows[0].payment_entry, pe_name)
+		self.assertEqual(flt(funding_rows[0].pm_request_allocated_amount), 5_000)
+		self.assertFalse(funding_rows[0].purchase_invoice)
+
+	def test_pm_settlement_ledger_does_not_multiply_multiple_lines_and_allocations(self):
+		from erpnext_extensions.petty_management.report.pm_settlement_ledger import (
+			pm_settlement_ledger as report,
+		)
+
+		emp = _make_employee()
+		self._track("Employee", emp)
+		_make_holder(emp)
+		req_a, _pe_a = _fund_pm_request(emp, 1_500)
+		self._track("PM Request", req_a)
+		req_b, _pe_b = _fund_pm_request(emp, 2_500)
+		self._track("PM Request", req_b)
+
+		pi_a = _make_pi_outstanding(1_500)
+		pi_a.insert()
+		pi_a.submit()
+		self._track("Purchase Invoice", pi_a.name)
+		pi_b = _make_pi_outstanding(2_500)
+		pi_b.insert()
+		pi_b.submit()
+		self._track("Purchase Invoice", pi_b.name)
+
+		cl = self._base_clearance(emp, pi_a, 1_500)
+		cl.append(
+			"details",
+			{
+				"settlement_type": "Purchase Invoice",
+				"purchase_invoice": pi_b.name,
+				"allocated_amount": 2_500,
+			},
+		)
+		cl.append("request_allocations", {"pm_request": req_a, "allocated_amount": 1_500})
+		cl.append("request_allocations", {"pm_request": req_b, "allocated_amount": 2_500})
+		cl.insert()
+		self._track("PM Clearance", cl.name)
+
+		_columns, data = report.execute({"pm_clearance": cl.name})
+		settlement_rows = [row for row in data if row.row_type == "Settlement Line"]
+		funding_rows = [row for row in data if row.row_type == "Funding Allocation Line"]
+
+		self.assertEqual(len(settlement_rows), 2)
+		self.assertEqual(len(funding_rows), 2)
+		self.assertEqual(sum(flt(row.settlement_amount) for row in settlement_rows), 4_000)
+		self.assertEqual(sum(flt(row.pm_request_allocated_amount) for row in funding_rows), 4_000)
+
+	def test_multiple_clearances_can_reference_same_pi_without_pi_scalar_overwrite(self):
+		mod = _pm()
+		approved = _workflow_state_for("PM Clearance", "Approved")
+		if not approved:
+			self.skipTest("Active PM Clearance workflow with Approved state not found.")
+
+		emp = _make_employee()
+		self._track("Employee", emp)
+		_make_holder(emp)
+		req_a, _pe_a = _fund_pm_request(emp, 2_000)
+		self._track("PM Request", req_a)
+		req_b, _pe_b = _fund_pm_request(emp, 3_000)
+		self._track("PM Request", req_b)
+
+		pi = _make_pi_outstanding(10_000)
+		pi.insert()
+		pi.submit()
+		self._track("Purchase Invoice", pi.name)
+
+		cl_a = self._base_clearance(emp, pi, 2_000)
+		cl_a.append("request_allocations", {"pm_request": req_a, "allocated_amount": 2_000})
+		cl_a.insert()
+		cl_a.submit()
+		self._track("PM Clearance", cl_a.name)
+		frappe.db.set_value("PM Clearance", cl_a.name, "workflow_state", approved, update_modified=False)
+		out_a = mod.settle_petty_cash(cl_a.name)
+		self._track("Journal Entry", out_a["journal_entry"])
+
+		cl_b = self._base_clearance(emp, pi, 3_000)
+		cl_b.append("request_allocations", {"pm_request": req_b, "allocated_amount": 3_000})
+		cl_b.insert()
+		cl_b.submit()
+		self._track("PM Clearance", cl_b.name)
+		frappe.db.set_value("PM Clearance", cl_b.name, "workflow_state", approved, update_modified=False)
+		out_b = mod.settle_petty_cash(cl_b.name)
+		self._track("Journal Entry", out_b["journal_entry"])
+
+		self.assertTrue(all(not value for value in _purchase_invoice_pm_scalar_values(pi.name).values()))
+		self.assertEqual(
+			frappe.db.sql(
+				"""
+				select count(*)
+				from `tabPM Clearance Detail`
+				where purchase_invoice=%s and parent in (%s, %s)
+				""",
+				(pi.name, cl_a.name, cl_b.name),
+			)[0][0],
+			2,
+		)
+
+	def test_preview_includes_line_type_and_auto_submit_flag(self):
+		mod = _pm()
+		emp = _make_employee()
+		self._track("Employee", emp)
+		_make_holder(emp)
+		req_name, _pe = _fund_pm_request(emp, 20_000.0)
+		pi = _make_pi_outstanding(5_000)
+		pi.insert()
+		pi.submit()
+		self._track("Purchase Invoice", pi.name)
+		cl = self._base_clearance(emp, pi, 5_000)
+		cl.append("request_allocations", {"pm_request": req_name, "allocated_amount": 5_000})
+		cl.insert()
+		self._track("PM Clearance", cl.name)
+		out = mod.preview_pm_clearance_settlement(pm_clearance=cl.name)
+		self.assertIn("auto_submit_journal_entry", out)
+		self.assertEqual(out.get("pm_clearance"), cl.name)
+		for row in out.get("accounts") or []:
+			self.assertIn(row.get("line_type"), ("Debit", "Credit", ""))
 
 
 if __name__ == "__main__":

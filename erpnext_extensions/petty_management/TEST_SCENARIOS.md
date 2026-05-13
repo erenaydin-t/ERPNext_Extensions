@@ -3,7 +3,7 @@
 This module covers **only**:
 
 1. **Funding** petty cash holders (**PM Request** → **Payment Entry**: Dr Petty Cash, Cr Bank).
-2. **Settling submitted Purchase Invoices** from petty cash (**PM Clearance** → **Journal Entry**: Dr PI `credit_to` with Supplier + Purchase Invoice reference, Cr Petty Cash), with **PM Request allocation** rows for traceability and per-advance caps.
+2. **Settling submitted Purchase Invoices** or **Supplier Advances** from petty cash (**PM Clearance** → **Journal Entry**: Dr PI `credit_to` with Supplier + Purchase Invoice reference, or Dr supplier advance account, Cr Petty Cash), with **PM Request allocation** rows for traceability and per-advance caps.
 
 Direct employee expense lines and non-invoice settlement are **out of scope**; use **ERPNext HRMS** **Employee Advance** and **Expense Claim** for those.
 
@@ -19,13 +19,15 @@ Use a development site with **Petty Management** installed and migrated. Figures
 | **Posting** | **Payment Entry** (Dr Petty Cash, Cr Bank per PM Settings) | **Journal Entry** only from **Purchase Invoice** lines (Dr supplier payable / PI `credit_to`, Cr Petty Cash). PM Request lines do **not** post GL. |
 | **How they connect** | Each funded request has a submitted **Payment Entry**. | **PM Clearance Request Allocation** child rows link to **PM Request**; sums must match PI line totals; availability excludes legacy migration rows and respects other submitted clearances. |
 
+**Traceability rule:** **Purchase Invoice is not the source of PM settlement truth.** One PI can be partially settled by multiple PM Clearances, and one clearance can be funded by multiple PM Requests. Use **PM Clearance Detail** for business settlement lines, **PM Clearance Request Allocation** for funding/control, and **Journal Entry / Journal Entry Account** rows for accounting truth. Do not store or rely on scalar PM links on Purchase Invoice.
+
 ---
 
 ## Prerequisites
 
 | Item | Notes |
 |------|--------|
-| **Company, Chart of Accounts** | Petty cash asset account on **PM Holder**. |
+| **Company, Chart of Accounts** | Petty cash asset account on **PM Holder**. One GL account may be shared by multiple holders. |
 | **PM Settings** | Default company (optional), **Default Bank Account**, **Default Cost Center** (optional), policies as needed. |
 | **Supplier & items** | For **Purchase Invoice**. |
 
@@ -49,6 +51,7 @@ Use ``--lightmode`` only **without** ``--app`` (otherwise the runner loads every
 
 1. Create **PM Holder** for an **Employee** and **Company** with a **Petty Cash Account** (and optional max balance).
 2. Save. Confirm the holder is selectable once **Employee** + **Company** match on **PM Request** / **PM Clearance**.
+3. A second holder in the same company may use the same **Petty Cash Account**. In that case, the account GL balance is account-level only; holder availability comes from paid **PM Requests** minus **PM Clearance Request Allocation** rows.
 
 ---
 
@@ -81,6 +84,7 @@ Use ``--lightmode`` only **without** ``--app`` (otherwise the runner loads every
    - For each PI line: **Debit** = Purchase Invoice **credit_to**, **Party Type** = Supplier, **Party** = supplier, **Reference Type** = Purchase Invoice, **Reference Name** = PI.
    - **Credit** = petty cash account for the **total** of allocated amounts (single credit line).
 8. Confirm Purchase Invoice **outstanding** reduced by allocated amount.
+9. Use **PM Settlement Ledger** to review settlement rows and funding allocation rows without multiplying PI lines by PM Request allocations.
 
 ---
 
@@ -121,3 +125,4 @@ Use ``--lightmode`` only **without** ``--app`` (otherwise the runner loads every
 | **PM Clearance** posting | **Journal Entry** only; debits are Purchase Invoice payable (`credit_to`), not PM Request accounts. |
 | **Workspace** | Setup: PM Settings, PM Holder. Transactions: PM Request, **PM Clearance**, Purchase Invoice, Payment Entry, Journal Entry. |
 | **PM Holder / PM Balance Report** | **Settled Amount** = clearances with **Journal Entry**; **Pending Settlement** = submitted clearances **without** JE (not cancelled), regardless of workflow state. |
+| **Shared petty account** | **Account GL Balance** is shared at account level. **Holder Available** and **PM Request Availability Report** are request/allocation based and must not divide or infer holder balances from GL alone. |

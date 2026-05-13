@@ -94,11 +94,15 @@ frappe.ui.form.on("PM Clearance", {
 				}
 			});
 		}
-		frappe.db.get_value(
-			"PM Holder",
-			{ employee: frm.doc.employee, company: frm.doc.company, is_blocked: 0 },
-			["name", "petty_cash_account", "current_balance", "consumed_amount", "pending_clearance_amount"],
-			(r) => {
+		frappe.call({
+			method: "erpnext_extensions.petty_management.doctype.pm_clearance.pm_clearance.get_pm_clearance_holder_context",
+			args: {
+				employee: frm.doc.employee,
+				company: frm.doc.company,
+				posting_date: frm.doc.transaction_date,
+			},
+			callback(resp) {
+				const r = resp.message || {};
 				if (!can_mutate_derived_fields(frm)) {
 					setup_settlement_buttons(frm);
 					return;
@@ -147,11 +151,11 @@ frappe.ui.form.on("PM Clearance", {
 				set_form_value_if_changed(frm, "pending_amount", r.current_balance);
 				set_form_value_if_changed(frm, "current_petty_balance", r.current_balance);
 				set_form_value_if_changed(frm, "total_cleared_amount", r.consumed_amount || 0);
-				set_form_value_if_changed(frm, "total_funded_amount", flt(r.current_balance) + flt(r.consumed_amount));
+				set_form_value_if_changed(frm, "total_funded_amount", r.total_funded_amount || 0);
 				frm.trigger("recalc_totals");
 				setup_settlement_buttons(frm);
-			}
-		);
+			},
+		});
 	},
 	details_add(frm) {
 		frm.trigger("recalc_totals");
@@ -162,6 +166,8 @@ frappe.ui.form.on("PM Clearance", {
 	refresh(frm) {
 		pm_clearance_debug(frm, "refresh fired");
 		frappe.workflow.setup(frm.doctype);
+		setup_settlement_buttons(frm);
+		setTimeout(() => setup_settlement_buttons(frm), 120);
 		if (frm.doc.employee && frm.doc.company && can_mutate_derived_fields(frm)) {
 			frm.trigger("refresh_holder_pending");
 		} else if ((!frm.doc.employee || !frm.doc.company) && can_mutate_derived_fields(frm)) {
@@ -342,7 +348,9 @@ function preview_settlement_entry(frm) {
 		return;
 	}
 	const preview_args =
-		frm.is_new() || form_is_dirty(frm) ? { doc: frm.doc } : { pm_clearance: frm.doc.name };
+		frm.is_new() || form_is_dirty(frm)
+			? { doc: JSON.stringify(frm.doc) }
+			: { pm_clearance: frm.doc.name };
 	frappe.call({
 		method: "erpnext_extensions.petty_management.doctype.pm_clearance.pm_clearance.preview_pm_clearance_settlement",
 		args: preview_args,
@@ -351,103 +359,171 @@ function preview_settlement_entry(frm) {
 		callback(r) {
 			if (!r.message) return;
 			const d = r.message;
-			let html =
+			const auto = d.auto_submit_journal_entry;
+			const jeNote = auto
+				? __("If you run Settle now, the Journal Entry will be created and submitted (per PM Settings).")
+				: __(
+						"If you run Settle now, the Journal Entry will be created as Draft until it is submitted manually."
+				  );
+
+			let html = '<div class="small">';
+			html +=
 				"<p><strong>" +
 				__("Company") +
 				"</strong>: " +
 				escape_html(d.company) +
-				" &nbsp;|&nbsp; <strong>" +
+				"</p>";
+			html +=
+				"<p><strong>" +
 				__("Posting Date") +
 				"</strong>: " +
 				escape_html(d.posting_date) +
 				"</p>";
-			html += '<table class="table table-bordered"><thead><tr>';
+			html +=
+				"<p><strong>" +
+				__("PM Clearance") +
+				"</strong>: " +
+				escape_html(d.pm_clearance || frm.doc.name || "") +
+				"</p>";
+			html +=
+				"<p><strong>" +
+				__("Total Debit") +
+				"</strong>: " +
+				format_currency(d.total_debit) +
+				" &nbsp;|&nbsp; <strong>" +
+				__("Total Credit") +
+				"</strong>: " +
+				format_currency(d.total_credit) +
+				"</p>";
+			html += '<p class="text-warning">' + escape_html(jeNote) + "</p>";
+			html += "</div>";
+
+			html += '<table class="table table-bordered table-sm"><thead><tr>';
 			html +=
 				"<th>" +
+				__("Type") +
+				"</th><th>" +
 				__("Account") +
+				"</th><th>" +
+				__("Party Type") +
 				"</th><th>" +
 				__("Party") +
 				"</th><th>" +
-				__("Reference") +
+				__("Reference Type") +
+				"</th><th>" +
+				__("Reference Name") +
 				"</th><th class='text-end'>" +
 				__("Debit") +
 				"</th><th class='text-end'>" +
 				__("Credit") +
+				"</th><th>" +
+				__("Cost Center") +
+				"</th><th>" +
+				__("Project") +
 				"</th></tr></thead><tbody>";
 			(d.accounts || []).forEach((a) => {
-				const ref =
-					(a.reference_type && a.reference_name
-						? a.reference_type + " / " + a.reference_name
-						: "") || "";
 				html +=
 					"<tr><td>" +
+					escape_html(a.line_type || "") +
+					"</td><td>" +
 					escape_html(a.account || "") +
 					"</td><td>" +
-					escape_html((a.party_type ? a.party_type + ": " : "") + (a.party || "")) +
+					escape_html(a.party_type || "") +
 					"</td><td>" +
-					escape_html(ref) +
+					escape_html(a.party || "") +
+					"</td><td>" +
+					escape_html(a.reference_type || "") +
+					"</td><td>" +
+					escape_html(a.reference_name || "") +
 					"</td><td class='text-end'>" +
 					format_currency(a.debit_in_account_currency) +
 					"</td><td class='text-end'>" +
 					format_currency(a.credit_in_account_currency) +
+					"</td><td>" +
+					escape_html(a.cost_center || "") +
+					"</td><td>" +
+					escape_html(a.project || "") +
 					"</td></tr>";
 			});
 			html +=
-				"<tr><td colspan='3' class='text-end'><strong>" +
+				"<tr><td colspan='6' class='text-end'><strong>" +
 				__("Totals") +
 				"</strong></td><td class='text-end'><strong>" +
 				format_currency(d.total_debit) +
 				"</strong></td><td class='text-end'><strong>" +
 				format_currency(d.total_credit) +
-				"</strong></td></tr>";
+				"</strong></td><td colspan='2'></td></tr>";
 			html += "</tbody></table>";
 			html +=
 				"<p class='text-muted'>" +
 				__("This is a preview only; no Journal Entry was created.") +
 				"</p>";
-			frappe.msgprint({ title: __("Preview Settlement Entry"), message: html, wide: true });
+
+			frappe.msgprint({
+				title: __("Settlement Journal Entry Preview"),
+				message: html,
+				wide: true,
+			});
 		},
 	});
 }
 
+function remove_pm_clearance_toolbar_buttons(frm) {
+	const labels = ["Preview Settlement Entry", "Settle Petty Cash", "Open Settlement Journal Entry"];
+	labels.forEach((raw) => {
+		const L = __(raw);
+		frm.remove_custom_button(L);
+		frm.page.remove_inner_button(L);
+		frm.page.remove_inner_button(raw);
+	});
+}
 function setup_settlement_buttons(frm) {
 	pm_clearance_debug(frm, "setup_settlement_buttons fired");
-	frm.page.remove_inner_button(__("Preview Settlement Entry"));
-	frm.page.remove_inner_button(__("Settle Petty Cash"));
-	frm.page.remove_inner_button(__("Open Settlement Journal Entry"));
+	remove_pm_clearance_toolbar_buttons(frm);
 
-	const wf = frm.doc.workflow_state;
+	const docstatus = frm.doc.docstatus;
+	const status = frm.doc.status;
+	const workflow_state = frm.doc.workflow_state;
+	const journal_entry = frm.doc.journal_entry;
+	const wf = workflow_state;
 	const wfState = frappe.workflow.get_state ? frappe.workflow.get_state(frm.doc) : wf;
-	const isApproved = wf === "Approved" || wfState === "Approved" || frm.doc.status === "Approved";
-	const settlementTotal = settlement_lines_total(frm);
-	const allocationTotal = request_allocations_total(frm);
-	const hasSettlementLines = (frm.doc.details || []).length > 0 && settlementTotal > 0;
-	const hasAllocationLines = (frm.doc.request_allocations || []).length > 0 && allocationTotal > 0;
-	const totalsMatch = Math.abs(settlementTotal - allocationTotal) <= 0.005;
+	const isApproved = wf === "Approved" || wfState === "Approved" || status === "Approved";
+	const settlement_total = settlement_lines_total(frm);
+	const allocation_total = request_allocations_total(frm);
+	const has_settlement_lines = (frm.doc.details || []).length > 0 && settlement_total > 0;
+	const has_allocation_lines =
+		(frm.doc.request_allocations || []).length > 0 && allocation_total > 0;
+	const totals_match = Math.abs(settlement_total - allocation_total) <= 0.005;
+	const show_preview = !frm.is_new();
 
-	if (hasSettlementLines && hasAllocationLines && totalsMatch) {
-		pm_clearance_debug(frm, "button added", { button: "Preview Settlement Entry" });
-		frm.page.add_inner_button(
-			__("Preview Settlement Entry"),
-			() => preview_settlement_entry(frm)
-		);
-	}
-	const show_settle =
-		!frm.is_new() && frm.doc.docstatus === 1 && isApproved && !frm.doc.journal_entry;
-
-	if (frappe.boot.developer_mode && isApproved && !show_settle && !frm.doc.journal_entry) {
-		console.warn("PM Clearance Settle Petty Cash button hidden", {
-			docstatus: frm.doc.docstatus,
-			workflow_state: frm.doc.workflow_state,
-			status: frm.doc.status,
-			journal_entry: frm.doc.journal_entry,
-			total_expense_amount: frm.doc.total_expense_amount,
+	if (frappe.boot && frappe.boot.developer_mode) {
+		console.debug("[PM Clearance buttons]", {
+			name: frm.doc.name,
+			is_new: frm.is_new(),
+			docstatus,
+			status,
+			workflow_state,
+			details_length: (frm.doc.details || []).length,
+			request_allocations_length: (frm.doc.request_allocations || []).length,
+			settlement_total,
+			allocation_total,
+			totals_match,
+			has_settlement_lines,
+			has_allocation_lines,
 		});
 	}
 
+	if (show_preview) {
+		pm_clearance_debug(frm, "button added", { button: "Preview Settlement Entry" });
+		const run_preview = () => preview_settlement_entry(frm);
+		frm.add_custom_button(__("Preview Settlement Entry"), run_preview);
+	}
+	const show_settle =
+		!frm.is_new() && docstatus === 1 && isApproved && !journal_entry;
+
 	if (show_settle) {
 		pm_clearance_debug(frm, "button added", { button: "Settle Petty Cash" });
-		const $btn = frm.page.add_inner_button(
+		frm.add_custom_button(
 			__("Settle Petty Cash"),
 			() => {
 				pm_clearance_debug(frm, "settle clicked");
@@ -480,19 +556,17 @@ function setup_settlement_buttons(frm) {
 					},
 				});
 			},
-			null,
-			"primary"
+			null
 		);
-		if ($btn && $btn.addClass) {
-			$btn.addClass("btn-primary");
+		if (frm.change_custom_button_type) {
+			frm.change_custom_button_type(__("Settle Petty Cash"), null, "primary");
 		}
 	}
 
-	if (frm.doc.journal_entry) {
+	if (journal_entry) {
 		pm_clearance_debug(frm, "button added", { button: "Open Settlement Journal Entry" });
-		frm.page.add_inner_button(
-			__("Open Settlement Journal Entry"),
-			() => frappe.set_route("Form", "Journal Entry", frm.doc.journal_entry)
+		frm.add_custom_button(__("Open Settlement Journal Entry"), () =>
+			frappe.set_route("Form", "Journal Entry", journal_entry)
 		);
 	}
 }
@@ -631,5 +705,6 @@ frappe.ui.form.on("PM Clearance Request Allocation", {
 });
 
 function flt(v) {
-	return frappe.utils.flt(v);
+	const parsed = parseFloat(v);
+	return Number.isFinite(parsed) ? parsed : 0;
 }

@@ -72,7 +72,6 @@ def execute():
 	mapping = {
 		"Payment Entry": common,
 		"Journal Entry": common,
-		"Purchase Invoice": common,
 		"Expense Claim": ec_fields,
 	}
 	to_create = {dt: rows for dt, rows in mapping.items() if frappe.db.exists("DocType", dt)}
@@ -80,6 +79,5 @@ def execute():
 		create_custom_fields(to_create, update=True)
 	frappe.clear_cache(doctype="Payment Entry")
 	frappe.clear_cache(doctype="Journal Entry")
-	frappe.clear_cache(doctype="Purchase Invoice")
 	if frappe.db.exists("DocType", "Expense Claim"):
 		frappe.clear_cache(doctype="Expense Claim")

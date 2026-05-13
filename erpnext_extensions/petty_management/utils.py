@@ -25,7 +25,7 @@ def get_pm_holder_name(employee: str, company: str) -> str | None:
 
 
 def employee_has_draft_pm_clearance(employee: str, company: str) -> bool:
-	if not frappe.db.has_table("tabPM Clearance"):
+	if not frappe.db.has_table("PM Clearance"):
 		return False
 	r = frappe.db.sql(
 		"""

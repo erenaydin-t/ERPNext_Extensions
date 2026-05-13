@@ -224,7 +224,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Draft\nPending Finance Review\nApproved\nSettled\nRejected\nCancelled",
+   "options": "Draft\nPending Finance Review\nApproved\nPending Journal Entry Submission\nSettled\nRejected\nCancelled",
    "read_only": 1
   },
   {

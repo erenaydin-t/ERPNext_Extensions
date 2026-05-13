@@ -21,6 +21,7 @@
   "default_employee_bank_account",
   "max_balance",
   "section_balances",
+  "account_gl_balance",
   "current_balance",
   "pending_clearance_amount",
   "column_break_bal",
@@ -66,6 +67,7 @@
    "fieldtype": "Column Break"
   },
   {
+   "description": "May be shared by multiple PM Holders. GL balance is account-level; holder availability is calculated from PM Requests and PM Clearance allocations.",
    "fieldname": "petty_cash_account",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -97,15 +99,23 @@
    "label": "Balances"
   },
   {
+   "description": "Balance of the linked petty cash account from GL (may be shared across holders).",
+   "fieldname": "account_gl_balance",
+   "fieldtype": "Currency",
+   "label": "Account GL Balance",
+   "read_only": 1
+  },
+  {
+   "description": "Paid PM Requests minus amounts reserved on submitted PM Clearances (availability, not GL).",
    "fieldname": "current_balance",
    "fieldtype": "Currency",
-   "label": "Current Balance",
+   "label": "Holder Available Amount",
    "read_only": 1
   },
   {
    "fieldname": "pending_clearance_amount",
    "fieldtype": "Currency",
-   "label": "Pending Settlement",
+   "label": "Pending Settlement Amount",
    "read_only": 1
   },
   {

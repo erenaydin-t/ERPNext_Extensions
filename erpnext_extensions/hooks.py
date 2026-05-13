@@ -180,6 +180,9 @@ has_permission = {
 # Hook on document methods and events
 
 doc_events = {
+	"Journal Entry": {
+		"on_submit": "erpnext_extensions.petty_management.journal_entry_hooks.on_journal_entry_submit",
+	},
 	"Post Dated Cheque": {
 		"on_submit": [
 			"erpnext_extensions.cheque_management.pdc_payment_request_status.on_post_dated_cheque_changed",

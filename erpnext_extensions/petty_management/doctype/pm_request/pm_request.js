@@ -45,20 +45,18 @@ frappe.ui.form.on("PM Request", {
 		frm.trigger("setup_payment_entry_buttons");
 	},
 	refresh_holder_balances(frm) {
-		if (frm.is_new() || !frm.doc.employee || !frm.doc.company) {
+		if (!frm.doc.employee || !frm.doc.company) {
 			return;
 		}
-		frappe.db.get_value(
-			"PM Holder",
-			{ employee: frm.doc.employee, company: frm.doc.company },
-			[
-				"name",
-				"petty_cash_account",
-				"max_balance",
-				"current_balance",
-				"default_employee_bank_account",
-			],
-			(r) => {
+		frappe.call({
+			method: "erpnext_extensions.petty_management.doctype.pm_request.pm_request.get_pm_request_holder_context",
+			args: {
+				employee: frm.doc.employee,
+				company: frm.doc.company,
+				posting_date: frm.doc.transaction_date,
+			},
+			callback(resp) {
+				const r = resp.message || {};
 				if (!r || !r.name) {
 					return;
 				}
@@ -95,8 +93,8 @@ frappe.ui.form.on("PM Request", {
 				} else {
 					setBankFromList();
 				}
-			}
-		);
+			},
+		});
 	},
 	details_add(frm) {
 		frm.trigger("recalc_totals");
@@ -183,5 +181,6 @@ frappe.ui.form.on("PM Request Detail", {
 });
 
 function flt(v) {
-	return frappe.utils.flt(v);
+	const parsed = parseFloat(v);
+	return Number.isFinite(parsed) ? parsed : 0;
 }

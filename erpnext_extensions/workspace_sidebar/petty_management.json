@@ -156,9 +156,31 @@
    "link_type": "Report",
    "show_arrow": 0,
    "type": "Link"
+  },
+  {
+   "child": 1,
+   "collapsible": 1,
+   "indent": 0,
+   "keep_closed": 0,
+   "label": "PM Settlement Ledger",
+   "link_to": "PM Settlement Ledger",
+   "link_type": "Report",
+   "show_arrow": 0,
+   "type": "Link"
+  },
+  {
+   "child": 1,
+   "collapsible": 1,
+   "indent": 0,
+   "keep_closed": 0,
+   "label": "PM Request Availability Report",
+   "link_to": "PM Request Availability Report",
+   "link_type": "Report",
+   "show_arrow": 0,
+   "type": "Link"
   }
  ],
- "modified": "2026-05-11 14:56:34.138448",
+ "modified": "2026-05-13 12:06:10.945739",
  "modified_by": "Administrator",
  "module": "Petty Management",
  "name": "Petty Management",

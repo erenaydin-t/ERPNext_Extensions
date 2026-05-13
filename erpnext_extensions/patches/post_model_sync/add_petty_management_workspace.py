@@ -171,6 +171,8 @@ def _sync_petty_workspace_sidebar():
 	add_link("PM Balance Report", "Report", "PM Balance Report")
 	add_link("PM Ledger Report", "Report", "PM Ledger Report")
 	add_link("PM Pending Clearance Report", "Report", "PM Pending Clearance Report")
+	add_link("PM Settlement Ledger", "Report", "PM Settlement Ledger")
+	add_link("PM Request Availability Report", "Report", "PM Request Availability Report")
 
 	sb.save(ignore_permissions=True)
 
@@ -266,6 +268,8 @@ def execute():
 		("PM Balance Report", "PM Balance Report"),
 		("PM Ledger Report", "PM Ledger Report"),
 		("PM Pending Clearance Report", "PM Pending Clearance Report"),
+		("PM Settlement Ledger", "PM Settlement Ledger"),
+		("PM Request Availability Report", "PM Request Availability Report"),
 	):
 		_append_link(
 			ws,

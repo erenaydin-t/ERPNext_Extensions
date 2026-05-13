@@ -1,0 +1,142 @@
+from __future__ import annotations
+
+import frappe
+from frappe import _
+from frappe.model.document import Document
+from frappe.utils import flt, getdate, today
+
+from erpnext_extensions.petty_management.services.clearance_service import (
+	clearance_is_approved,
+	validate_clearance,
+)
+from erpnext_extensions.petty_management.services.constants import SETTLEMENT_PI, SETTLEMENT_SA
+from erpnext_extensions.petty_management.services.holder_service import clearance_petty_cash_account
+from erpnext_extensions.petty_management.utils import get_pm_settings
+
+
+def build_clearance_je_accounts(doc: Document) -> list[dict]:
+	lines: list[dict] = []
+	total_petty_credit = 0.0
+
+	for row in doc.details:
+		settlement_type = (getattr(row, "settlement_type", None) or SETTLEMENT_PI).strip()
+		alloc = flt(row.allocated_amount)
+		cost_center = row.cost_center or None
+		project = row.project or doc.project or None
+
+		if settlement_type == SETTLEMENT_SA:
+			line = build_supplier_advance_debit_line(row, alloc)
+		else:
+			line = build_purchase_invoice_debit_line(row, alloc)
+
+		if cost_center:
+			line["cost_center"] = cost_center
+		if project:
+			line["project"] = project
+		lines.append(line)
+		total_petty_credit += alloc
+
+	lines.append(build_petty_cash_credit_line(doc, total_petty_credit))
+	return lines
+
+
+def build_supplier_advance_debit_line(row: Document, amount: float) -> dict:
+	if not row.supplier_advance_account:
+		frappe.throw(_("Row {0}: Supplier Advance Account is required for Supplier Advance.").format(row.idx))
+	return {
+		"account": row.supplier_advance_account,
+		"party_type": "Supplier",
+		"party": row.supplier,
+		"reference_type": "Purchase Order",
+		"reference_name": row.purchase_order,
+		"debit_in_account_currency": amount,
+		"credit_in_account_currency": 0,
+	}
+
+
+def build_purchase_invoice_debit_line(row: Document, amount: float) -> dict:
+	pi = frappe.get_doc("Purchase Invoice", row.purchase_invoice)
+	return {
+		"account": pi.credit_to,
+		"party_type": "Supplier",
+		"party": pi.supplier,
+		"reference_type": "Purchase Invoice",
+		"reference_name": pi.name,
+		"debit_in_account_currency": amount,
+		"credit_in_account_currency": 0,
+	}
+
+
+def build_petty_cash_credit_line(doc: Document, amount: float) -> dict:
+	petty = clearance_petty_cash_account(doc)
+	if not petty:
+		frappe.throw(_("Petty Cash Account is missing on this clearance."))
+	line = {
+		"account": petty,
+		"debit_in_account_currency": 0,
+		"credit_in_account_currency": amount,
+	}
+	if frappe.db.get_value("Account", petty, "account_type") in ("Receivable", "Payable"):
+		line.update({"party_type": "Employee", "party": doc.employee})
+	return line
+
+
+def create_clearance_journal_entry(doc: Document) -> Document:
+	settings = get_pm_settings()
+	je = frappe.new_doc("Journal Entry")
+	je.company = doc.company
+	je.voucher_type = "Journal Entry"
+	je.posting_date = getdate(doc.je_clearance_date or doc.transaction_date or today())
+	je.user_remark = _("Petty cash clearance {0}").format(doc.name)
+
+	meta = frappe.get_meta("Journal Entry")
+	if meta.has_field("custom_pm_clearance"):
+		je.custom_pm_clearance = doc.name
+	if meta.has_field("custom_pm_holder") and doc.holder:
+		je.custom_pm_holder = doc.holder
+
+	for line in build_clearance_je_accounts(doc):
+		je.append("accounts", line)
+
+	je.insert(ignore_permissions=True)
+	if settings and settings.auto_submit_journal_entry:
+		je.submit()
+	return je
+
+
+def settle_petty_cash(pm_clearance: str) -> dict[str, str]:
+	doc = frappe.get_doc("PM Clearance", pm_clearance)
+	if not frappe.has_permission("PM Clearance", "read", doc=doc):
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
+	doc.check_permission("write")
+	if doc.docstatus != 1:
+		frappe.throw(_("Please submit PM Clearance before settling."), title=_("Submit required"))
+	if not clearance_is_approved(doc):
+		frappe.throw(_("Settle is only allowed when PM Clearance is Approved."), title=_("Approval required"))
+	if doc.journal_entry:
+		return {"journal_entry": doc.journal_entry, "status": doc.status or ""}
+
+	doc.reload()
+	if not clearance_is_approved(doc):
+		frappe.throw(_("Settle is only allowed when PM Clearance is Approved."), title=_("Approval required"))
+	validate_clearance(doc)
+
+	try:
+		je = create_clearance_journal_entry(doc)
+		doc.db_set("journal_entry", je.name, update_modified=False)
+		je.reload()
+		next_status = "Settled" if je.docstatus == 1 else "Pending Journal Entry Submission"
+		doc.db_set("status", next_status, update_modified=False)
+		for row in doc.details:
+			frappe.db.set_value(
+				row.doctype,
+				row.name,
+				{"generated_doctype": "Journal Entry", "generated_document": je.name},
+				update_modified=False,
+			)
+	except Exception as e:
+		frappe.db.rollback()
+		frappe.throw(_("Could not create settlement Journal Entry: {0}").format(str(e)))
+
+	return {"journal_entry": je.name, "status": next_status}
+
