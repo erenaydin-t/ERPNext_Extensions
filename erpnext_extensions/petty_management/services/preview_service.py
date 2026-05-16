@@ -31,10 +31,14 @@ def preview_pm_clearance_settlement(doc=None, pm_clearance: str | None = None) -
 			row["line_type"] = ""
 	total_credit = sum(flt(a.get("credit_in_account_currency")) for a in accounts)
 	total_debit = sum(flt(a.get("debit_in_account_currency")) for a in accounts)
+	diff = abs(total_debit - total_credit)
+	is_balanced = diff < 0.005
 	return {
 		"accounts": accounts,
 		"total_debit": total_debit,
 		"total_credit": total_credit,
+		"debit_credit_difference": diff,
+		"is_balanced": is_balanced,
 		"company": dobj.company,
 		"posting_date": str(getdate(dobj.je_clearance_date or dobj.transaction_date or today())),
 		"pm_clearance": dobj.name or "",

@@ -164,7 +164,6 @@ frappe.ui.form.on("PM Clearance", {
 		frm.trigger("recalc_totals");
 	},
 	refresh(frm) {
-		pm_clearance_debug(frm, "refresh fired");
 		frappe.workflow.setup(frm.doctype);
 		setup_settlement_buttons(frm);
 		setTimeout(() => setup_settlement_buttons(frm), 120);
@@ -211,25 +210,6 @@ frappe.ui.form.on("PM Clearance", {
 		setup_settlement_buttons(frm);
 	},
 });
-
-function pm_clearance_debug(frm, message, data) {
-	if (frappe.boot && frappe.boot.developer_mode) {
-		console.warn(
-			"[PM Clearance]",
-			message,
-			Object.assign(
-				{
-					name: frm.doc && frm.doc.name,
-					docstatus: frm.doc && frm.doc.docstatus,
-					workflow_state: frm.doc && frm.doc.workflow_state,
-					status: frm.doc && frm.doc.status,
-					journal_entry: frm.doc && frm.doc.journal_entry,
-				},
-				data || {}
-			)
-		);
-	}
-}
 
 function update_settlement_balance_intro(frm, settled_total, req_total) {
 	frm.set_intro(null);
@@ -341,7 +321,6 @@ function clear_allocation_row(row) {
 }
 
 function preview_settlement_entry(frm) {
-	pm_clearance_debug(frm, "preview clicked");
 	const settled = (frm.doc.details || []).reduce((s, r) => s + flt(r.allocated_amount), 0);
 	if (!frm.doc.details || frm.doc.details.length === 0 || settled <= 0) {
 		frappe.msgprint(__("Add at least one settlement line with amount to preview."));
@@ -395,7 +374,15 @@ function preview_settlement_entry(frm) {
 				"</strong>: " +
 				format_currency(d.total_credit) +
 				"</p>";
-			html += '<p class="text-warning">' + escape_html(jeNote) + "</p>";
+			if (d.is_balanced === false) {
+				html +=
+					'<div class="alert alert-danger small">' +
+					__("Debit and credit totals do not match (difference {0}).").format(
+						format_currency(d.debit_credit_difference || 0)
+					) +
+					"</div>";
+			}
+			html += '<p class="alert alert-warning small mb-0">' + escape_html(jeNote) + "</p>";
 			html += "</div>";
 
 			html += '<table class="table table-bordered table-sm"><thead><tr>';
@@ -478,7 +465,6 @@ function remove_pm_clearance_toolbar_buttons(frm) {
 	});
 }
 function setup_settlement_buttons(frm) {
-	pm_clearance_debug(frm, "setup_settlement_buttons fired");
 	remove_pm_clearance_toolbar_buttons(frm);
 
 	const docstatus = frm.doc.docstatus;
@@ -487,7 +473,11 @@ function setup_settlement_buttons(frm) {
 	const journal_entry = frm.doc.journal_entry;
 	const wf = workflow_state;
 	const wfState = frappe.workflow.get_state ? frappe.workflow.get_state(frm.doc) : wf;
-	const isApproved = wf === "Approved" || wfState === "Approved" || status === "Approved";
+	const isApproved =
+		wf === "Approved" ||
+		wfState === "Approved" ||
+		status === "Approved";
+	const isTerminalBad = ["Rejected", "Cancelled"].includes((status || "").trim());
 	const settlement_total = settlement_lines_total(frm);
 	const allocation_total = request_allocations_total(frm);
 	const has_settlement_lines = (frm.doc.details || []).length > 0 && settlement_total > 0;
@@ -496,37 +486,21 @@ function setup_settlement_buttons(frm) {
 	const totals_match = Math.abs(settlement_total - allocation_total) <= 0.005;
 	const show_preview = !frm.is_new();
 
-	if (frappe.boot && frappe.boot.developer_mode) {
-		console.debug("[PM Clearance buttons]", {
-			name: frm.doc.name,
-			is_new: frm.is_new(),
-			docstatus,
-			status,
-			workflow_state,
-			details_length: (frm.doc.details || []).length,
-			request_allocations_length: (frm.doc.request_allocations || []).length,
-			settlement_total,
-			allocation_total,
-			totals_match,
-			has_settlement_lines,
-			has_allocation_lines,
-		});
-	}
-
 	if (show_preview) {
-		pm_clearance_debug(frm, "button added", { button: "Preview Settlement Entry" });
 		const run_preview = () => preview_settlement_entry(frm);
 		frm.add_custom_button(__("Preview Settlement Entry"), run_preview);
 	}
 	const show_settle =
-		!frm.is_new() && docstatus === 1 && isApproved && !journal_entry;
+		!frm.is_new() &&
+		docstatus === 1 &&
+		isApproved &&
+		!journal_entry &&
+		!isTerminalBad;
 
 	if (show_settle) {
-		pm_clearance_debug(frm, "button added", { button: "Settle Petty Cash" });
 		frm.add_custom_button(
 			__("Settle Petty Cash"),
 			() => {
-				pm_clearance_debug(frm, "settle clicked");
 				frappe.call({
 					method: "erpnext_extensions.petty_management.doctype.pm_clearance.pm_clearance.settle_petty_cash",
 					args: { pm_clearance: frm.doc.name },
@@ -564,7 +538,6 @@ function setup_settlement_buttons(frm) {
 	}
 
 	if (journal_entry) {
-		pm_clearance_debug(frm, "button added", { button: "Open Settlement Journal Entry" });
 		frm.add_custom_button(__("Open Settlement Journal Entry"), () =>
 			frappe.set_route("Form", "Journal Entry", journal_entry)
 		);

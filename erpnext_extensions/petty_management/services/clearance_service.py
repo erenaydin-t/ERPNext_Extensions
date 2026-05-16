@@ -82,14 +82,15 @@ def on_submit_clearance(doc: Document) -> None:
 
 
 def before_cancel_clearance(doc: Document) -> None:
+	"""Accounting-safe cancel: never auto-cancel GL. User must cancel JE first."""
 	if not doc.journal_entry:
 		return
-	try:
-		je = frappe.get_doc("Journal Entry", doc.journal_entry)
-		if je.docstatus == 1:
-			je.cancel()
-	except frappe.ValidationError:
-		frappe.throw(_("Could not cancel linked Journal Entry {0}. Cancel or amend it first.").format(doc.journal_entry))
+	je_ds = cint(frappe.db.get_value("Journal Entry", doc.journal_entry, "docstatus"))
+	if je_ds == 1:
+		frappe.throw(
+			_("Cancel the settlement Journal Entry ({0}) before cancelling this clearance.").format(doc.journal_entry),
+			title=_("Journal Entry submitted"),
+		)
 
 
 def on_cancel_clearance(doc: Document) -> None:
@@ -239,7 +240,10 @@ def sync_clearance_status_from_workflow(doc: Document) -> None:
 
 
 def clearance_is_approved(doc: Document) -> bool:
-	if (getattr(doc, "status", None) or "").strip() == "Approved":
+	st = (getattr(doc, "status", None) or "").strip()
+	if st in ("Rejected", "Cancelled"):
+		return False
+	if st == "Approved":
 		return True
 	ws = (getattr(doc, "workflow_state", None) or "").strip()
 	if ws == "Approved":

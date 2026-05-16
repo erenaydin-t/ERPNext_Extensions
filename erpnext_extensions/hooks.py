@@ -182,6 +182,18 @@ has_permission = {
 doc_events = {
 	"Journal Entry": {
 		"on_submit": "erpnext_extensions.petty_management.journal_entry_hooks.on_journal_entry_submit",
+		"before_cancel": "erpnext_extensions.petty_management.journal_entry_hooks.on_journal_entry_before_cancel",
+	},
+	"Payment Entry": {
+		"validate": "erpnext_extensions.cheque_management.payment_entry_pdc_validation.validate_payment_entry_against_pdc_settlement",
+		"on_submit": [
+			"erpnext_extensions.cheque_management.pdc_payment_request_status.on_payment_entry_changed",
+			"erpnext_extensions.petty_management.payment_entry_hooks.on_payment_entry_submit",
+		],
+		"on_cancel": [
+			"erpnext_extensions.cheque_management.pdc_payment_request_status.on_payment_entry_changed",
+			"erpnext_extensions.petty_management.payment_entry_hooks.on_payment_entry_cancel",
+		],
 	},
 	"Post Dated Cheque": {
 		"on_submit": [
@@ -192,15 +204,6 @@ doc_events = {
 		],
 		"on_update_after_submit": [
 			"erpnext_extensions.cheque_management.pdc_payment_request_status.on_post_dated_cheque_changed",
-		],
-	},
-	"Payment Entry": {
-		"validate": "erpnext_extensions.cheque_management.payment_entry_pdc_validation.validate_payment_entry_against_pdc_settlement",
-		"on_submit": [
-			"erpnext_extensions.cheque_management.pdc_payment_request_status.on_payment_entry_changed",
-		],
-		"on_cancel": [
-			"erpnext_extensions.cheque_management.pdc_payment_request_status.on_payment_entry_changed",
 		],
 	},
 	"Payment Request": {

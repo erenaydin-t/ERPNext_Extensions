@@ -105,16 +105,21 @@ def create_clearance_journal_entry(doc: Document) -> Document:
 
 
 def settle_petty_cash(pm_clearance: str) -> dict[str, str]:
-	doc = frappe.get_doc("PM Clearance", pm_clearance)
+	doc = frappe.get_doc("PM Clearance", pm_clearance, for_update=True)
 	if not frappe.has_permission("PM Clearance", "read", doc=doc):
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
 	doc.check_permission("write")
 	if doc.docstatus != 1:
 		frappe.throw(_("Please submit PM Clearance before settling."), title=_("Submit required"))
+	if (getattr(doc, "status", None) or "").strip() in ("Rejected", "Cancelled"):
+		frappe.throw(_("A rejected or cancelled clearance cannot be settled."), title=_("Not allowed"))
 	if not clearance_is_approved(doc):
 		frappe.throw(_("Settle is only allowed when PM Clearance is Approved."), title=_("Approval required"))
-	if doc.journal_entry:
-		return {"journal_entry": doc.journal_entry, "status": doc.status or ""}
+
+	existing_je = frappe.db.get_value("PM Clearance", pm_clearance, "journal_entry")
+	if existing_je:
+		st = frappe.db.get_value("PM Clearance", pm_clearance, "status") or ""
+		return {"journal_entry": existing_je, "status": st}
 
 	doc.reload()
 	if not clearance_is_approved(doc):
@@ -134,6 +139,21 @@ def settle_petty_cash(pm_clearance: str) -> dict[str, str]:
 				{"generated_doctype": "Journal Entry", "generated_document": je.name},
 				update_modified=False,
 			)
+		try:
+			from erpnext_extensions.petty_management import petty_audit
+
+			petty_audit.log_event(
+				"pm_clearance_settled",
+				pm_clearance=doc.name,
+				journal_entry=je.name,
+				holder=doc.holder,
+				employee=doc.employee,
+				amount=sum(float(getattr(r, "allocated_amount", 0) or 0) for r in (doc.details or [])),
+				company=doc.company,
+				je_docstatus=je.docstatus,
+			)
+		except Exception:
+			pass
 	except Exception as e:
 		frappe.db.rollback()
 		frappe.throw(_("Could not create settlement Journal Entry: {0}").format(str(e)))

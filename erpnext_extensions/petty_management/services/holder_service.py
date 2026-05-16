@@ -194,9 +194,12 @@ def get_holder_paid_amount(holder: str) -> float:
 def get_holder_allocated_amount(holder: str) -> float:
 	if not frappe.db.has_table("PM Clearance Request Allocation"):
 		return 0.0
+	from erpnext_extensions.petty_management.services.allocation_service import clearance_reserves_pm_request_balance_sql
+
+	res = clearance_reserves_pm_request_balance_sql("cl")
 	return flt(
 		frappe.db.sql(
-			"""
+			f"""
 			select coalesce(sum(a.allocated_amount), 0)
 			from `tabPM Clearance Request Allocation` a
 			inner join `tabPM Request` pr on pr.name = a.pm_request
@@ -204,8 +207,7 @@ def get_holder_allocated_amount(holder: str) -> float:
 			where pr.holder = %s
 				and a.parentfield = 'request_allocations'
 				and ifnull(a.is_legacy_row, 0) = 0
-				and cl.docstatus = 1
-				and ifnull(cl.status, '') not in ('Cancelled', 'Rejected')
+				and {res}
 			""",
 			holder,
 		)[0][0]

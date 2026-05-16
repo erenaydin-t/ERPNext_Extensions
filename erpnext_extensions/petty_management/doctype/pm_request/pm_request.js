@@ -106,18 +106,14 @@ frappe.ui.form.on("PM Request", {
 		frappe.workflow.setup(frm.doctype);
 		frm.trigger("recalc_totals");
 		frm.trigger("setup_payment_entry_buttons");
+		setTimeout(() => frm.trigger("setup_payment_entry_buttons"), 120);
 	},
-	/* Create Payment Entry: submitted + unpaid + no PE; server is source of truth for approval/amounts. */
+	/* Toolbar: server-side flags = source of truth (workflow + PE state). */
 	setup_payment_entry_buttons(frm) {
-		frm.page.remove_inner_button(__("Create Payment Entry"));
-		frm.page.remove_inner_button(__("Open Payment Entry"));
-
-		const showCreate =
-			!frm.is_new() &&
-			frm.doc.docstatus === 1 &&
-			!frm.doc.payment_entry &&
-			frm.doc.payment_status !== "Paid";
-
+		remove_pm_request_toolbar_buttons(frm);
+		if (frm.is_new() || !frm.doc.name) {
+			return;
+		}
 		const runCreate = () => {
 			frappe.call({
 				method: "erpnext_extensions.petty_management.doctype.pm_request.pm_request.create_payment_entry",
@@ -144,18 +140,24 @@ frappe.ui.form.on("PM Request", {
 			});
 		};
 
-		if (showCreate) {
-			const $btn = frm.page.add_inner_button(__("Create Payment Entry"), runCreate, null, "primary");
-			if ($btn && $btn.addClass) {
-				$btn.addClass("btn-primary");
-			}
-		}
-
-		if (frm.doc.payment_entry) {
-			frm.page.add_inner_button(__("Open Payment Entry"), () =>
-				frappe.set_route("Form", "Payment Entry", frm.doc.payment_entry)
-			);
-		}
+		frappe.call({
+			method: "erpnext_extensions.petty_management.doctype.pm_request.pm_request.get_pm_request_action_flags",
+			args: { pm_request: frm.doc.name },
+			callback(r) {
+				const f = r.message || {};
+				if (f.can_create_payment_entry) {
+					frm.add_custom_button(__("Create Payment Entry"), runCreate, null);
+					if (frm.change_custom_button_type) {
+						frm.change_custom_button_type(__("Create Payment Entry"), null, "primary");
+					}
+				}
+				if (f.can_open_payment_entry && frm.doc.payment_entry) {
+					frm.add_custom_button(__("Open Payment Entry"), () =>
+						frappe.set_route("Form", "Payment Entry", frm.doc.payment_entry)
+					);
+				}
+			},
+		});
 	},
 	recalc_totals(frm) {
 		let t = 0;
@@ -173,6 +175,15 @@ frappe.ui.form.on("PM Request", {
 		frm.trigger("setup_payment_entry_buttons");
 	},
 });
+
+function remove_pm_request_toolbar_buttons(frm) {
+	["Create Payment Entry", "Open Payment Entry"].forEach((raw) => {
+		const L = __(raw);
+		frm.remove_custom_button(L);
+		frm.page.remove_inner_button(L);
+		frm.page.remove_inner_button(raw);
+	});
+}
 
 frappe.ui.form.on("PM Request Detail", {
 	advance_amount(frm) {

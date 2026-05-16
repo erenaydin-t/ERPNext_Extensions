@@ -13,6 +13,7 @@ from frappe.utils import getdate, today
 from erpnext_extensions.petty_management.services.holder_service import get_holder_context
 from erpnext_extensions.petty_management.services.request_service import (
 	create_payment_entry as create_payment_entry_service,
+	get_pm_request_action_flags as get_pm_request_action_flags_service,
 	validate_request,
 	validate_request_cancel,
 )
@@ -103,3 +104,8 @@ def get_pm_request_holder_context(employee: str | None = None, company: str | No
 @frappe.whitelist()
 def create_payment_entry(pm_request: str):
 	return create_payment_entry_service(pm_request)
+
+
+@frappe.whitelist()
+def get_pm_request_action_flags(pm_request: str):
+	return get_pm_request_action_flags_service(pm_request)

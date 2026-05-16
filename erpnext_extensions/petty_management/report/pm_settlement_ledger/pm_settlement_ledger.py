@@ -106,6 +106,7 @@ def get_settlement_rows(filters):
 		left join `tabPurchase Invoice` pi on pi.name = d.purchase_invoice
 		left join `tabPurchase Order` po on po.name = d.purchase_order
 		where 1=1 {conditions}
+			and cl.docstatus = 1
 		order by posting_date, cl.name, d.idx
 		""",
 		params,
@@ -149,6 +150,7 @@ def get_funding_rows(filters):
 		left join `tabPM Request` pr on pr.name = a.pm_request
 		left join `tabJournal Entry` je on je.name = cl.journal_entry
 		where 1=1 {conditions}
+			and cl.docstatus = 1
 		order by posting_date, cl.name, a.idx
 		""",
 		params,

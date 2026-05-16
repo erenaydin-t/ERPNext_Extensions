@@ -3,7 +3,7 @@ from __future__ import annotations
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import flt, getdate, today
+from frappe.utils import cint, flt, getdate, today
 
 from erpnext_extensions.petty_management.services.holder_service import (
 	sync_request_holder_fields,
@@ -15,10 +15,43 @@ from erpnext_extensions.petty_management.utils import (
 )
 
 
+def workflow_state_title(doc: Document) -> str:
+	if not getattr(doc, "workflow_state", None):
+		return ""
+	return (
+		frappe.db.get_value("Workflow State", doc.workflow_state, "workflow_state_name") or doc.workflow_state or ""
+	)
+
+
+def reconcile_payment_entry_link(doc: Document) -> None:
+	"""Clear stale Payment Entry links (missing or cancelled PE)."""
+	if not getattr(doc, "payment_entry", None):
+		return
+	if not frappe.db.exists("Payment Entry", doc.payment_entry):
+		doc.payment_entry = None
+		return
+	ds = cint(frappe.db.get_value("Payment Entry", doc.payment_entry, "docstatus"))
+	if ds == 2:
+		doc.payment_entry = None
+
+
+def derive_payment_status(doc: Document) -> None:
+	"""payment_status reflects accounting truth: Paid only when linked PE is submitted."""
+	if not getattr(doc, "payment_entry", None):
+		doc.payment_status = "Not Paid"
+		return
+	ds = cint(frappe.db.get_value("Payment Entry", doc.payment_entry, "docstatus"))
+	doc.payment_status = "Paid" if ds == 1 else "Not Paid"
+
+
 def validate_request(doc: Document) -> None:
+	reconcile_payment_entry_link(doc)
+	derive_payment_status(doc)
+
 	holder = sync_request_holder_fields(doc)
 	compute_totals(doc)
 	sync_request_status_from_workflow(doc)
+	enforce_request_state_machine(doc)
 
 	settings = get_pm_settings()
 	if not doc.details:
@@ -44,6 +77,37 @@ def validate_request(doc: Document) -> None:
 	validate_payment_accounts(doc)
 
 
+def enforce_request_state_machine(doc: Document) -> None:
+	"""Disallow impossible combinations (rejected + funded, paid without PE, etc.)."""
+	ws_title = workflow_state_title(doc)
+	st = (doc.status or "").strip()
+	rejected = ws_title == "Rejected" or st == "Rejected"
+
+	if rejected:
+		if doc.payment_entry:
+			pe_ds = cint(frappe.db.get_value("Payment Entry", doc.payment_entry, "docstatus"))
+			if pe_ds == 1:
+				frappe.throw(
+					_("Rejected PM Request cannot have a submitted Payment Entry. Cancel the Payment Entry first."),
+					title=_("Invalid state"),
+				)
+			if pe_ds == 0:
+				frappe.throw(
+					_("Rejected PM Request cannot have a draft Payment Entry. Cancel the Payment Entry first."),
+					title=_("Invalid state"),
+				)
+
+	if doc.payment_status == "Paid" and not doc.payment_entry:
+		frappe.throw(_("Payment Status cannot be Paid without a Payment Entry."), title=_("Invalid state"))
+
+	if doc.payment_entry:
+		pe_ds = cint(frappe.db.get_value("Payment Entry", doc.payment_entry, "docstatus"))
+		if pe_ds == 1 and doc.payment_status != "Paid":
+			frappe.throw(_("Payment Status must be Paid when Payment Entry is submitted."), title=_("Invalid state"))
+		if pe_ds != 1 and doc.payment_status == "Paid":
+			frappe.throw(_("Payment Status Paid requires a submitted Payment Entry."), title=_("Invalid state"))
+
+
 def compute_totals(doc: Document) -> None:
 	total = 0.0
 	for row in doc.details:
@@ -54,17 +118,26 @@ def compute_totals(doc: Document) -> None:
 
 
 def sync_request_status_from_workflow(doc: Document) -> None:
-	if doc.payment_entry or (doc.payment_status or "") == "Paid" or (doc.status or "") == "Paid":
+	"""Map workflow + accounting into status; rejected and paid are terminal for workflow mapping."""
+	ws_title = workflow_state_title(doc)
+
+	if ws_title == "Rejected" or (doc.status or "") == "Rejected":
+		doc.status = "Rejected"
 		return
-	ws = doc.workflow_state
-	if not ws:
+
+	if doc.payment_status == "Paid":
+		doc.status = "Paid"
 		return
-	ws_title = frappe.db.get_value("Workflow State", ws, "workflow_state_name") or ws
+
+	if not ws_title:
+		return
+
 	mapping = {
 		"Draft": "Draft",
 		"Pending Approval": "Pending",
+		"Pending": "Pending",
+		"Pending Finance Review": "Pending",
 		"Approved": "Payable",
-		"Rejected": "Rejected",
 		"Cancelled": "Cancelled",
 		"Paid": "Paid",
 	}
@@ -93,14 +166,55 @@ def validate_payment_accounts(doc: Document) -> None:
 def validate_request_cancel(doc: Document) -> None:
 	if doc.payment_entry and frappe.db.get_value("Payment Entry", doc.payment_entry, "docstatus") == 1:
 		frappe.throw(_("Cancel the linked Payment Entry first"))
-	if doc.journal_entry and frappe.db.get_value("Journal Entry", doc.journal_entry, "docstatus") == 1:
+	if getattr(doc, "journal_entry", None) and frappe.db.get_value("Journal Entry", doc.journal_entry, "docstatus") == 1:
 		frappe.throw(_("Cancel the linked Journal Entry first"))
+	alloc_refs = frappe.db.sql(
+		"""
+		select count(*) from `tabPM Clearance Request Allocation` a
+		inner join `tabPM Clearance` cl on cl.name = a.parent and a.parenttype = 'PM Clearance'
+		where a.parentfield = 'request_allocations'
+			and ifnull(a.is_legacy_row, 0) = 0
+			and a.pm_request = %s
+			and cl.docstatus = 1
+			and ifnull(cl.status, '') not in ('Cancelled', 'Rejected')
+		""",
+		doc.name,
+	)[0][0]
+	if alloc_refs:
+		frappe.throw(
+			_("Cannot cancel: this PM Request is still referenced on submitted PM Clearance allocation lines.")
+		)
+
+
+def request_ready_for_payment_entry(doc: Document) -> tuple[bool, str]:
+	"""Single source of truth for funding eligibility."""
+	if doc.docstatus != 1:
+		return False, _("Submit the PM Request first.")
+	reconcile_payment_entry_link(doc)
+	derive_payment_status(doc)
+
+	ws_title = workflow_state_title(doc)
+	if ws_title == "Rejected" or (doc.status or "").strip() == "Rejected":
+		return False, _("This request was rejected.")
+	if ws_title != "Approved":
+		return False, _("Payment Entry is only available after workflow approval (Approved state).")
+
+	if doc.payment_status == "Paid":
+		return False, _("This request is already funded.")
+	if doc.payment_entry:
+		ds = cint(frappe.db.get_value("Payment Entry", doc.payment_entry, "docstatus"))
+		if ds == 0:
+			return False, _("A draft Payment Entry already exists. Submit or cancel it before creating another.")
+		if ds == 1:
+			return False, _("A submitted Payment Entry already exists.")
+	return True, ""
 
 
 def create_payment_entry(pm_request: str) -> str:
-	doc = frappe.get_doc("PM Request", pm_request)
+	doc = frappe.get_doc("PM Request", pm_request, for_update=True)
 	if not frappe.has_permission("PM Request", "read", doc=doc):
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
+	doc.check_permission("write")
 	if doc.docstatus != 1:
 		frappe.throw(_("Please submit PM Request before creating Payment Entry."))
 	if not frappe.has_permission("PM Request", "submit", doc=doc):
@@ -111,13 +225,23 @@ def create_payment_entry(pm_request: str) -> str:
 		frappe.throw(_("Employee is required"))
 	if not doc.petty_cash_account:
 		frappe.throw(_("Petty Cash Account is missing"))
-	if doc.payment_entry or (doc.payment_status or "") == "Paid":
-		frappe.throw(_("Payment Entry already exists or this request is already marked Paid"))
 
-	ws_title = frappe.db.get_value("Workflow State", doc.workflow_state, "workflow_state_name") if doc.workflow_state else None
-	payable = ws_title == "Approved" or (doc.status or "") in ("Payable", "Approved")
-	if not payable:
-		frappe.throw(_("Request must be workflow-approved and Payable before creating Payment Entry."))
+	ok, reason = request_ready_for_payment_entry(doc)
+	if not ok:
+		frappe.throw(reason, title=_("Cannot create Payment Entry"))
+
+	for pe_name, in frappe.db.sql(
+		"""
+		select name from `tabPayment Entry`
+		where reference_no = %s and docstatus in (0, 1)
+		""",
+		doc.name,
+	):
+		if pe_name != (doc.payment_entry or None):
+			frappe.throw(
+				_("Another Payment Entry already exists for this PM Request ({0}).").format(pe_name),
+				title=_("Duplicate funding Payment Entry"),
+			)
 
 	paid_from = settings.default_bank_account if settings else None
 	if not paid_from:
@@ -137,8 +261,30 @@ def create_payment_entry(pm_request: str) -> str:
 		frappe.throw(_("Payment Entry could not be created: {0}").format(str(e)), title=_("Payment Entry failed"))
 
 	doc.db_set("payment_entry", pe.name, update_modified=False)
-	doc.db_set("payment_status", "Paid", update_modified=False)
-	doc.db_set("status", "Paid", update_modified=False)
+	doc.payment_entry = pe.name
+	derive_payment_status(doc)
+	sync_request_status_from_workflow(doc)
+	frappe.db.set_value(
+		"PM Request",
+		doc.name,
+		{"payment_status": doc.payment_status, "status": doc.status},
+		update_modified=False,
+	)
+	try:
+		from erpnext_extensions.petty_management import petty_audit
+
+		petty_audit.log_event(
+			"pm_payment_entry_created",
+			pm_request=doc.name,
+			payment_entry=pe.name,
+			holder=doc.holder,
+			employee=doc.employee,
+			amount=amount,
+			company=doc.company,
+			auto_submit=bool(settings and settings.auto_submit_payment_entry),
+		)
+	except Exception:
+		pass
 	return pe.name
 
 
@@ -181,3 +327,18 @@ def _build_payment_entry(doc: Document, paid_from: str, amount: float) -> Docume
 		pe.custom_pm_holder = doc.holder
 	return pe
 
+
+def get_pm_request_action_flags(pm_request: str) -> dict:
+	"""Desk UI: toolbar guards aligned with server rules."""
+	doc = frappe.get_doc("PM Request", pm_request)
+	if not frappe.has_permission("PM Request", "read", doc=doc):
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
+	can_create, reason = request_ready_for_payment_entry(doc)
+	can_open = bool(doc.payment_entry)
+	return {
+		"can_create_payment_entry": bool(can_create),
+		"can_open_payment_entry": can_open,
+		"reason": reason or "",
+		"workflow_state_title": workflow_state_title(doc),
+		"payment_status": doc.payment_status or "",
+	}

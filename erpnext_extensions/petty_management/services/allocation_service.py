@@ -17,6 +17,30 @@ from erpnext_extensions.petty_management.utils import get_pm_holder_name
 _EPS = 1e-6
 
 
+def clearance_reserves_pm_request_balance_sql(table_alias: str = "p") -> str:
+	"""SQL predicate for clearances whose PM Request allocation rows reserve funding.
+
+	Draft clearances (docstatus 0) do not reserve. Rejected/Cancelled do not reserve.
+	Submitted clearances reserve only after approval: ``status`` is Approved or a
+	later settlement lifecycle state, or the linked Workflow State title is *Approved*.
+	This matches :func:`clearance_is_approved` for workflow-approved submissions.
+	"""
+	p = table_alias
+	return f"""
+		{p}.docstatus = 1
+		AND IFNULL({p}.status, '') NOT IN ('Cancelled', 'Rejected')
+		AND (
+			IFNULL({p}.status, '') IN ('Approved', 'Pending Journal Entry Submission', 'Settled')
+			OR IFNULL({p}.workflow_state, '') = 'Approved'
+			OR EXISTS (
+				SELECT 1 FROM `tabWorkflow State` ws
+				WHERE ws.name = {p}.workflow_state
+				AND IFNULL(ws.workflow_state_name, '') = 'Approved'
+			)
+		)
+	"""
+
+
 def get_pm_request_paid_amount(pm_request: str) -> float:
 	req = frappe.db.get_value(
 		"PM Request",
@@ -49,6 +73,8 @@ def sum_prior_pm_request_allocations(pm_request: str, exclude_clearance_name: st
 		excl_sql = " AND p.name != %s "
 		params.append(exclude_clearance_name)
 
+	res_clause = clearance_reserves_pm_request_balance_sql("p")
+
 	return flt(
 		frappe.db.sql(
 			f"""
@@ -58,8 +84,7 @@ def sum_prior_pm_request_allocations(pm_request: str, exclude_clearance_name: st
 			WHERE c.parentfield = 'request_allocations'
 				AND IFNULL(c.is_legacy_row, 0) = 0
 				AND c.pm_request = %s
-				AND p.docstatus = 1
-				AND IFNULL(p.status, '') != 'Cancelled'
+				AND {res_clause}
 				{excl_sql}
 			""",
 			tuple(params),

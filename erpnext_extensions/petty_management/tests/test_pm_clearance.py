@@ -39,7 +39,9 @@ import unittest
 
 import frappe
 from frappe.exceptions import ValidationError
-from frappe.utils import flt, today
+from frappe.utils import cint, flt, today
+
+from erpnext_extensions.petty_management.utils import get_pm_settings
 
 # Resolved in ``_ensure_company_context`` (setUpClass).
 COMPANY = ""
@@ -67,7 +69,7 @@ def _ensure_company_context() -> None:
 			return
 		COMPANY = names[0]
 	abbr = frappe.db.get_value("Company", COMPANY, "abbr")
-	PETTY_ACCOUNT = f"Petty Cash PM Test - {abbr}"
+	PETTY_ACCOUNT = f"Petty Cash PM Test Payable - {abbr}"
 	BANK_ACCOUNT = frappe.db.get_value("Company", COMPANY, "default_bank_account")
 	if not BANK_ACCOUNT:
 		row = frappe.db.sql(
@@ -83,29 +85,57 @@ def _ensure_company_context() -> None:
 
 def _petty_parent_account() -> str:
 	abbr = frappe.db.get_value("Company", COMPANY, "abbr")
-	cand = f"Current Assets - {abbr}"
-	if frappe.db.exists("Account", cand):
-		return cand
-	return (
-		f"Application of Funds (Assets) - {abbr}"
-		if frappe.db.exists("Account", f"Application of Funds (Assets) - {abbr}")
-		else cand
+	for name in (
+		f"Current Assets - {abbr}",
+		f"Application of Funds (Assets) - {abbr}",
+	):
+		if frappe.db.exists("Account", name):
+			return name
+	parent_from_bank = frappe.db.sql(
+		"""
+		select parent_account from `tabAccount`
+		where company=%s and account_type in ('Bank', 'Cash') and ifnull(is_group,0)=0 and disabled=0
+		limit 1
+		""",
+		COMPANY,
 	)
+	if parent_from_bank and parent_from_bank[0][0] and frappe.db.exists("Account", parent_from_bank[0][0]):
+		return parent_from_bank[0][0]
+	group = frappe.db.sql(
+		"""
+		select name from `tabAccount`
+		where company=%s and ifnull(is_group,0)=1 and disabled=0
+		order by lft asc
+		limit 1
+		""",
+		COMPANY,
+	)
+	if group:
+		return group[0][0]
+	return f"Current Assets - {abbr}"
+
+
+def _insert_leaf_account(account_name: str, parent_account: str, account_type: str) -> str:
+	"""Create a leaf Account without importing ``test_account`` (avoids BootStrapTestData / fiscal-year bootstrap)."""
+	abbr = frappe.db.get_value("Company", COMPANY, "abbr")
+	full_name = f"{account_name} - {abbr}"
+	if frappe.db.exists("Account", full_name):
+		return full_name
+	doc = frappe.new_doc("Account")
+	doc.account_name = account_name
+	doc.parent_account = parent_account
+	doc.company = COMPANY
+	doc.account_type = account_type
+	doc.is_group = 0
+	doc.insert(ignore_permissions=True)
+	return doc.name
 
 
 def _ensure_petty_account() -> str:
 	if frappe.db.exists("Account", PETTY_ACCOUNT):
 		return PETTY_ACCOUNT
-	from erpnext.accounts.doctype.account.test_account import create_account
-
 	parent = _petty_parent_account()
-	create_account(
-		account_name="Petty Cash PM Test",
-		parent_account=parent,
-		company=COMPANY,
-		account_type="Cash",
-	)
-	return PETTY_ACCOUNT
+	return _insert_leaf_account("Petty Cash PM Test Payable", parent, "Payable")
 
 
 def _workflow_state_for(document_type: str, state_title: str) -> str | None:
@@ -124,27 +154,124 @@ def _workflow_state_for(document_type: str, state_title: str) -> str | None:
 	return None
 
 
-def _make_employee() -> str:
-	from erpnext.setup.doctype.employee.test_employee import make_employee
+def _approve_pm_clearance_for_reservation(cl_name: str) -> None:
+	"""Submitted clearance must be workflow-approved for funding reservation (shared SQL predicate)."""
+	st = _workflow_state_for("PM Clearance", "Approved")
+	if st:
+		frappe.db.set_value("PM Clearance", cl_name, "workflow_state", st, update_modified=False)
+	frappe.db.set_value("PM Clearance", cl_name, "status", "Approved", update_modified=False)
 
-	email = frappe.generate_hash(length=8) + "_pm_clearance_test@example.com"
-	return make_employee(email, company=COMPANY)
+
+def _default_cost_center() -> str | None:
+	cc = frappe.db.get_value("Company", COMPANY, "cost_center")
+	if cc and frappe.db.exists("Cost Center", cc):
+		return cc
+	r = frappe.get_all(
+		"Cost Center",
+		filters={"company": COMPANY, "disabled": 0, "is_group": 0},
+		pluck="name",
+		limit=1,
+	)
+	return r[0] if r else None
+
+
+def _default_expense_account_for_item(item_code: str) -> str | None:
+	row = frappe.db.sql(
+		"select expense_account from `tabItem Default` where parent=%s and company=%s limit 1",
+		(item_code, COMPANY),
+	)
+	if row and row[0][0]:
+		return row[0][0]
+	row2 = frappe.db.sql("select default_expense_account from `tabCompany` where name=%s", (COMPANY,))
+	return row2[0][0] if row2 and row2[0][0] else None
+
+
+def _company_fallback_expense_account() -> str | None:
+	"""Leaf expense account when Item Default / Company.default_expense_account are empty."""
+	row = frappe.db.sql(
+		"""
+		select name from `tabAccount`
+		where company=%s and ifnull(disabled,0)=0 and ifnull(is_group,0)=0
+			and account_type in ('Expense Account', 'Cost of Goods Sold')
+		limit 1
+		""",
+		(COMPANY,),
+	)
+	return row[0][0] if row else None
+
+
+def _first_department_for_company() -> str | None:
+	r = frappe.get_all("Department", filters={"company": COMPANY}, pluck="name", limit=1)
+	if r:
+		return r[0]
+	row = frappe.db.sql("select name from `tabDepartment` limit 1")
+	return row[0][0] if row else None
+
+
+def _make_employee() -> str:
+	"""Create Employee without ERPNext ``test_employee`` (that import pulls in BootStrapTestData / fiscal-year seeding)."""
+	dept = _first_department_for_company()
+	if not dept:
+		raise unittest.SkipTest("No Department found; cannot create test Employee.")
+	key = (frappe.generate_hash(length=8) + "_pm")[:20]
+	doc = frappe.new_doc("Employee")
+	doc.first_name = key
+	doc.company = COMPANY
+	doc.department = dept
+	doc.date_of_joining = today()
+	doc.date_of_birth = "1990-01-01"
+	doc.status = "Active"
+	doc.gender = "Male"
+	doc.insert(ignore_permissions=True)
+	return doc.name
+
+
+def _pm_holder_primary_key(employee: str, company: str) -> str:
+	"""Match ``PMHolder.autoname`` (employee-company, max 120)."""
+	base = f"{employee}-{company}"
+	return base[:120] if len(base) > 120 else base
+
+
+def _sync_holder_petty_and_balance(name: str) -> None:
+	mb = frappe.db.get_value("PM Holder", name, "max_balance")
+	if mb is None or flt(mb) <= 0:
+		frappe.db.set_value("PM Holder", name, "max_balance", 100_000_000, update_modified=False)
+	petty_cur = (frappe.db.get_value("PM Holder", name, "petty_cash_account") or "").strip()
+	if petty_cur != PETTY_ACCOUNT:
+		frappe.db.set_value("PM Holder", name, "petty_cash_account", PETTY_ACCOUNT, update_modified=False)
 
 
 def _make_holder(employee: str) -> str:
 	petty = _ensure_petty_account()
+	pk = _pm_holder_primary_key(employee, COMPANY)
+	if frappe.db.exists("PM Holder", pk):
+		_sync_holder_petty_and_balance(pk)
+		return pk
 	if frappe.db.exists("PM Holder", {"employee": employee, "company": COMPANY}):
-		return frappe.db.get_value("PM Holder", {"employee": employee, "company": COMPANY}, "name")
+		name = frappe.db.get_value("PM Holder", {"employee": employee, "company": COMPANY}, "name")
+		_sync_holder_petty_and_balance(name)
+		return name
 	h = frappe.new_doc("PM Holder")
 	h.employee = employee
 	h.company = COMPANY
 	h.petty_cash_account = petty
-	h.insert()
+	h.max_balance = 100_000_000
+	try:
+		h.insert()
+	except Exception as exc:
+		if "duplicate entry" not in str(exc).lower():
+			raise
+		row = frappe.db.sql("select name from `tabPM Holder` where name=%s", (pk,))
+		name = row[0][0] if row else frappe.db.get_value("PM Holder", {"employee": employee, "company": COMPANY}, "name")
+		if not name:
+			raise
+		_sync_holder_petty_and_balance(name)
+		return name
 	return h.name
 
 
 def _fund_pm_request(employee: str, amount: float) -> tuple[str, str]:
-	from erpnext.accounts.doctype.payment_entry.test_payment_entry import create_payment_entry
+	from erpnext_extensions.petty_management.services.request_service import _build_payment_entry
 
 	petty = _ensure_petty_account()
 	req = frappe.new_doc("PM Request")
@@ -154,26 +281,25 @@ def _fund_pm_request(employee: str, amount: float) -> tuple[str, str]:
 	req.append("details", {"advance_amount": amount})
 	req.insert()
 	req.submit()
-
-	pe = create_payment_entry(
-		company=COMPANY,
-		party_type="Employee",
-		party=employee,
-		paid_from=BANK_ACCOUNT,
-		paid_to=petty,
-		paid_amount=amount,
-		save=True,
-		submit=True,
-	)
 	req.reload()
+
+	pe = _build_payment_entry(req, BANK_ACCOUNT, amount)
+	pe.insert(ignore_permissions=True)
+	pe.submit()
+
 	req.db_set("payment_entry", pe.name, update_modified=False)
 	req.db_set("payment_status", "Paid", update_modified=False)
 	req.db_set("status", "Paid", update_modified=False)
+	# Commit + cache flush: holder paid SQL joins PM Request + submitted PE; rare
+	# cross-request timing in heavy suites could read ``holder``/``paid`` as zero before flush.
+	frappe.db.commit()
+	frappe.clear_cache(doctype="PM Request")
+	frappe.clear_cache(doctype="Payment Entry")
 	return req.name, pe.name
 
 
 def _make_pi_outstanding(amount: float):
-	from erpnext.accounts.doctype.purchase_invoice.test_purchase_invoice import make_purchase_invoice
+	"""Build a draft Purchase Invoice without importing ERPNext ``test_purchase_invoice``."""
 
 	supplier = "_Test Supplier" if frappe.db.exists("Supplier", "_Test Supplier") else None
 	if not supplier:
@@ -181,21 +307,44 @@ def _make_pi_outstanding(amount: float):
 		if not suppliers:
 			raise unittest.SkipTest("No Supplier on site; cannot create Purchase Invoice.")
 		supplier = suppliers[0]
-	item_code = "_Test Item" if frappe.db.exists("Item", "_Test Item") else None
-	if not item_code:
-		items = frappe.get_all("Item", filters={"disabled": 0}, pluck="name", limit=1)
-		if not items:
-			raise unittest.SkipTest("No Item on site; cannot create Purchase Invoice.")
-		item_code = items[0]
+	item_code = _purchase_item_code()
 
-	return make_purchase_invoice(
-		company=COMPANY,
-		supplier=supplier,
-		item_code=item_code,
-		qty=1,
-		rate=amount,
-		do_not_submit=True,
+	wh = _default_warehouse_for_company()
+	if not wh:
+		raise unittest.SkipTest("No warehouse for Purchase Invoice in this company.")
+
+	expense_account = _default_expense_account_for_item(item_code) or _company_fallback_expense_account()
+	if not expense_account:
+		raise unittest.SkipTest("No expense account resolved for item/company; cannot create Purchase Invoice.")
+
+	cc = _default_cost_center()
+	item_doc = frappe.get_cached_doc("Item", item_code)
+	uom = item_doc.stock_uom or "Nos"
+
+	pi = frappe.new_doc("Purchase Invoice")
+	pi.company = COMPANY
+	pi.supplier = supplier
+	pi.posting_date = today()
+	pi.currency = frappe.db.get_value("Company", COMPANY, "default_currency") or "IRR"
+	pi.conversion_rate = 1
+	pi.bill_no = "PM-PI-" + frappe.generate_hash(length=8)
+	if cc:
+		pi.cost_center = cc
+	pi.append(
+		"items",
+		{
+			"item_code": item_code,
+			"qty": 1,
+			"rate": amount,
+			"warehouse": wh,
+			"expense_account": expense_account,
+			"cost_center": cc,
+			"uom": uom,
+			"stock_uom": uom,
+			"conversion_factor": 1,
+		},
 	)
+	return pi
 
 
 def _insert_legacy_allocation_row(parent: str, total: float) -> None:
@@ -229,9 +378,10 @@ def _purchase_invoice_pm_scalar_values(pi_name: str) -> dict[str, str | None]:
 
 
 def _default_warehouse_for_company() -> str | None:
-	w = frappe.db.get_value("Company", COMPANY, "default_warehouse")
-	if w and frappe.db.exists("Warehouse", w):
-		return w
+	if frappe.db.has_column("Company", "default_warehouse"):
+		w = frappe.db.get_value("Company", COMPANY, "default_warehouse")
+		if w and frappe.db.exists("Warehouse", w):
+			return w
 	row = frappe.db.sql(
 		"""
 		select name from `tabWarehouse`
@@ -243,28 +393,34 @@ def _default_warehouse_for_company() -> str | None:
 	return row[0][0] if row else None
 
 
+def _purchase_item_code() -> str:
+	"""Pick an Item that can appear on Purchase Order / Purchase Invoice."""
+	if frappe.db.exists("Item", "_Test Item") and cint(frappe.db.get_value("Item", "_Test Item", "is_purchase_item")):
+		return "_Test Item"
+	items = frappe.get_all(
+		"Item",
+		filters={"disabled": 0, "is_purchase_item": 1},
+		pluck="name",
+		limit=1,
+	)
+	if not items:
+		raise unittest.SkipTest("No purchase-enabled Item on site.")
+	return items[0]
+
+
 def _supplier_advance_test_account() -> str:
 	acc = frappe.db.get_value("Company", COMPANY, "default_advance_paid_account")
 	if acc:
 		return acc
-	from erpnext.accounts.doctype.account.test_account import create_account
-
 	abbr = frappe.db.get_value("Company", COMPANY, "abbr")
 	for label in ("Creditors", "Accounts Payable"):
 		parent = f"{label} - {abbr}"
 		if frappe.db.exists("Account", parent):
-			return create_account(
-				account_name="PM Test Supplier Advance",
-				parent_account=parent,
-				company=COMPANY,
-				account_type="Payable",
-			)
+			return _insert_leaf_account("PM Test Supplier Advance", parent, "Payable")
 	raise unittest.SkipTest("No default_advance_paid_account and no Creditors parent for test advance account.")
 
 
 def _make_purchase_order_for_company(qty: float = 5, rate: float = 1000):
-	from erpnext.buying.doctype.purchase_order.test_purchase_order import create_purchase_order
-
 	wh = _default_warehouse_for_company()
 	if not wh:
 		raise unittest.SkipTest("No warehouse for Purchase Order in this company.")
@@ -275,21 +431,72 @@ def _make_purchase_order_for_company(qty: float = 5, rate: float = 1000):
 		if not suppliers:
 			raise unittest.SkipTest("No Supplier on site.")
 		supplier = suppliers[0]
-	item_code = "_Test Item" if frappe.db.exists("Item", "_Test Item") else None
-	if not item_code:
-		items = frappe.get_all("Item", filters={"disabled": 0}, pluck="name", limit=1)
-		if not items:
-			raise unittest.SkipTest("No Item on site.")
-		item_code = items[0]
+	item_code = _purchase_item_code()
 
-	return create_purchase_order(
-		company=COMPANY,
-		supplier=supplier,
-		item=item_code,
-		warehouse=wh,
-		qty=qty,
-		rate=rate,
+	item_doc = frappe.get_cached_doc("Item", item_code)
+	uom = item_doc.stock_uom or "Nos"
+	po = frappe.new_doc("Purchase Order")
+	po.company = COMPANY
+	po.supplier = supplier
+	po.transaction_date = today()
+	po.schedule_date = today()
+	po.append(
+		"items",
+		{
+			"item_code": item_code,
+			"warehouse": wh,
+			"qty": qty,
+			"rate": rate,
+			"schedule_date": today(),
+			"uom": uom,
+			"stock_uom": uom,
+		},
 	)
+	po.insert(ignore_permissions=True)
+	po.submit()
+	return po
+
+
+def _pm_clearance_detail_policy_fields() -> dict:
+	"""Bill no / proof when PM Settings require them (site-specific)."""
+	extras: dict = {}
+	s = get_pm_settings()
+	if not s:
+		return extras
+	if cint(getattr(s, "require_bill_no", 0)):
+		extras["bill_no"] = f"PM-TEST-{frappe.generate_hash(length=8)}"
+	if cint(getattr(s, "require_attachment", 0)):
+		from frappe.utils.file_manager import save_file
+
+		att = save_file(
+			f"pm-proof-{frappe.generate_hash(length=6)}.txt",
+			b"pm",
+			"",
+			"",
+			is_private=0,
+		)
+		extras["proof"] = att.file_url
+	return extras
+
+
+def _append_pm_clearance_detail_row(doc, row: dict) -> None:
+	doc.append("details", {**row, **_pm_clearance_detail_policy_fields()})
+
+
+def _reconciliation_errors_touching_refs(company: str, refs: set[str]):
+	"""Return error-level reconciliation issues whose ``references`` intersect ``refs``."""
+	from erpnext_extensions.petty_management.services.reconciliation_service import reconcile
+
+	res = reconcile(apply_safe_fixes=False, company=company)
+	bad = []
+	for issue in res.issues:
+		if issue.severity != "error":
+			continue
+		for v in (issue.references or {}).values():
+			if isinstance(v, str) and v in refs:
+				bad.append(issue)
+				break
+	return bad
 
 
 class TestPMClearanceAllocation(unittest.TestCase):
@@ -344,8 +551,8 @@ class TestPMClearanceAllocation(unittest.TestCase):
 		cl.company = COMPANY
 		cl.employee = employee
 		cl.transaction_date = today()
-		cl.append(
-			"details",
+		_append_pm_clearance_detail_row(
+			cl,
 			{
 				"settlement_type": "Purchase Invoice",
 				"purchase_invoice": pi.name,
@@ -456,6 +663,7 @@ class TestPMClearanceAllocation(unittest.TestCase):
 		cl.insert()
 		cl.submit()
 		self._track("PM Clearance", cl.name)
+		_approve_pm_clearance_for_reservation(cl.name)
 
 		self.assertEqual(flt(get_pm_request_available_amount(req_a)), 6_000)
 		self.assertEqual(flt(get_pm_request_available_amount(req_b)), 20_000)
@@ -567,6 +775,7 @@ class TestPMClearanceAllocation(unittest.TestCase):
 		cl1.insert()
 		cl1.submit()
 		self._track("PM Clearance", cl1.name)
+		_approve_pm_clearance_for_reservation(cl1.name)
 
 		pi2 = _make_pi_outstanding(25_000)
 		pi2.insert()
@@ -814,6 +1023,72 @@ class TestPMClearanceAllocation(unittest.TestCase):
 
 		self.assertTrue(all(not value for value in _purchase_invoice_pm_scalar_values(pi.name).values()))
 
+	def test_settle_je_cancel_then_clearance_cancel_roll_back_reservation(self):
+		"""Settlement JE cancel clears clearance link; reservation stays until clearance is cancelled."""
+		mod = _pm()
+		approved = _workflow_state_for("PM Clearance", "Approved")
+		if not approved:
+			self.skipTest("Active PM Clearance workflow with Approved state not found.")
+
+		from erpnext_extensions.petty_management.services.allocation_service import sum_prior_pm_request_allocations
+		from erpnext_extensions.petty_management.services.holder_service import get_holder_settled_amount
+
+		emp = _make_employee()
+		self._track("Employee", emp)
+		holder_name = _make_holder(emp)
+		req_name, pe_name = _fund_pm_request(emp, 10_000.0)
+		self._track("PM Request", req_name)
+
+		pi = _make_pi_outstanding(3_000)
+		pi.insert()
+		pi.submit()
+		self._track("Purchase Invoice", pi.name)
+
+		cl = self._base_clearance(emp, pi, 3_000)
+		cl.append("request_allocations", {"pm_request": req_name, "allocated_amount": 3_000})
+		cl.insert()
+		cl.submit()
+		self._track("PM Clearance", cl.name)
+
+		self.assertLess(flt(sum_prior_pm_request_allocations(req_name, None)), 1e-3)
+
+		_approve_pm_clearance_for_reservation(cl.name)
+		self.assertGreaterEqual(flt(sum_prior_pm_request_allocations(req_name, None)), 3_000.0 - 1e-3)
+
+		frappe.db.set_value("PM Clearance", cl.name, "workflow_state", approved, update_modified=False)
+		out = mod.settle_petty_cash(cl.name)
+		je_name = out["journal_entry"]
+		self._track("Journal Entry", je_name)
+
+		cl.reload()
+		self.assertEqual(cl.status, "Settled")
+		self.assertTrue((cl.journal_entry or "").strip())
+		self.assertGreaterEqual(get_holder_settled_amount(holder_name), 3_000.0 - 1e-3)
+
+		je = frappe.get_doc("Journal Entry", je_name)
+		if je.docstatus == 0:
+			je.submit()
+			je.reload()
+		je.cancel()
+
+		cl.reload()
+		self.assertNotEqual(cl.status, "Settled")
+		self.assertFalse((cl.journal_entry or "").strip())
+		self.assertGreaterEqual(flt(sum_prior_pm_request_allocations(req_name, None)), 3_000.0 - 1e-3)
+		self.assertLess(get_holder_settled_amount(holder_name), 1e-3)
+
+		cl = frappe.get_doc("PM Clearance", cl.name)
+		cl.cancel()
+
+		self.assertLess(flt(sum_prior_pm_request_allocations(req_name, None)), 1e-3)
+
+		refs = {req_name, cl.name, je_name, pi.name, holder_name, pe_name}
+		bad = _reconciliation_errors_touching_refs(COMPANY, refs)
+		self.assertFalse(
+			bad,
+			msg="; ".join(f"{i.code}: {i.detail}" for i in bad) or "reconciliation errors",
+		)
+
 	def test_duplicate_settle_returns_existing_journal_entry(self):
 		mod = _pm()
 		approved = _workflow_state_for("PM Clearance", "Approved")
@@ -941,16 +1216,16 @@ class TestPMClearanceAllocation(unittest.TestCase):
 		cl.company = COMPANY
 		cl.employee = emp
 		cl.transaction_date = today()
-		cl.append(
-			"details",
+		_append_pm_clearance_detail_row(
+			cl,
 			{
 				"settlement_type": "Purchase Invoice",
 				"purchase_invoice": pi.name,
 				"allocated_amount": 10_000,
 			},
 		)
-		cl.append(
-			"details",
+		_append_pm_clearance_detail_row(
+			cl,
 			{
 				"settlement_type": "Supplier Advance",
 				"purchase_order": po.name,
@@ -980,8 +1255,8 @@ class TestPMClearanceAllocation(unittest.TestCase):
 		cl.company = COMPANY
 		cl.employee = emp
 		cl.transaction_date = today()
-		cl.append(
-			"details",
+		_append_pm_clearance_detail_row(
+			cl,
 			{
 				"settlement_type": "Supplier Advance",
 				"purchase_order": po.name,
@@ -1030,16 +1305,16 @@ class TestPMClearanceAllocation(unittest.TestCase):
 		cl.company = COMPANY
 		cl.employee = emp
 		cl.transaction_date = today()
-		cl.append(
-			"details",
+		_append_pm_clearance_detail_row(
+			cl,
 			{
 				"settlement_type": "Purchase Invoice",
 				"purchase_invoice": pi.name,
 				"allocated_amount": pi_alloc,
 			},
 		)
-		cl.append(
-			"details",
+		_append_pm_clearance_detail_row(
+			cl,
 			{
 				"settlement_type": "Supplier Advance",
 				"purchase_order": po.name,
@@ -1092,8 +1367,8 @@ class TestPMClearanceAllocation(unittest.TestCase):
 		cl.company = COMPANY
 		cl.employee = emp
 		cl.transaction_date = today()
-		cl.append(
-			"details",
+		_append_pm_clearance_detail_row(
+			cl,
 			{
 				"settlement_type": "Supplier Advance",
 				"purchase_order": po.name,
@@ -1155,16 +1430,16 @@ class TestPMClearanceAllocation(unittest.TestCase):
 		cl.company = COMPANY
 		cl.employee = emp
 		cl.transaction_date = today()
-		cl.append(
-			"details",
+		_append_pm_clearance_detail_row(
+			cl,
 			{
 				"settlement_type": "Purchase Invoice",
 				"purchase_invoice": pi.name,
 				"allocated_amount": pi_alloc,
 			},
 		)
-		cl.append(
-			"details",
+		_append_pm_clearance_detail_row(
+			cl,
 			{
 				"settlement_type": "Supplier Advance",
 				"purchase_order": po.name,
@@ -1265,6 +1540,8 @@ class TestPMClearanceAllocation(unittest.TestCase):
 		cl.append("request_allocations", {"pm_request": req_name, "allocated_amount": 5_000})
 		cl.insert()
 		self._track("PM Clearance", cl.name)
+		cl.submit()
+		_approve_pm_clearance_for_reservation(cl.name)
 
 		_columns, data = report.execute({"pm_clearance": cl.name})
 		settlement_rows = [row for row in data if row.row_type == "Settlement Line"]
@@ -1304,8 +1581,8 @@ class TestPMClearanceAllocation(unittest.TestCase):
 		self._track("Purchase Invoice", pi_b.name)
 
 		cl = self._base_clearance(emp, pi_a, 1_500)
-		cl.append(
-			"details",
+		_append_pm_clearance_detail_row(
+			cl,
 			{
 				"settlement_type": "Purchase Invoice",
 				"purchase_invoice": pi_b.name,
@@ -1316,6 +1593,8 @@ class TestPMClearanceAllocation(unittest.TestCase):
 		cl.append("request_allocations", {"pm_request": req_b, "allocated_amount": 2_500})
 		cl.insert()
 		self._track("PM Clearance", cl.name)
+		cl.submit()
+		_approve_pm_clearance_for_reservation(cl.name)
 
 		_columns, data = report.execute({"pm_clearance": cl.name})
 		settlement_rows = [row for row in data if row.row_type == "Settlement Line"]
@@ -1393,6 +1672,8 @@ class TestPMClearanceAllocation(unittest.TestCase):
 		out = mod.preview_pm_clearance_settlement(pm_clearance=cl.name)
 		self.assertIn("auto_submit_journal_entry", out)
 		self.assertEqual(out.get("pm_clearance"), cl.name)
+		self.assertIn("is_balanced", out)
+		self.assertTrue(out.get("is_balanced"))
 		for row in out.get("accounts") or []:
 			self.assertIn(row.get("line_type"), ("Debit", "Credit", ""))
 
