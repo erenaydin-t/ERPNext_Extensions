@@ -230,13 +230,12 @@ function update_settlement_balance_intro(frm, settled_total, req_total) {
 			"red"
 		);
 	} else {
-		frm.set_intro(
-			__(
-				"Settlement lines and PM Request allocation totals match ({0}).",
-				[format_currency(settled_total)]
-			),
-			"green"
-		);
+		const amt = flt(settled_total);
+		const msg =
+			amt > 0
+				? __("Settlement lines and PM Request allocation totals match ({0}).", [format_currency(amt)])
+				: __("Settlement lines and PM Request allocation totals match.");
+		frm.set_intro(msg, "green");
 	}
 }
 
@@ -385,62 +384,90 @@ function preview_settlement_entry(frm) {
 			html += '<p class="alert alert-warning small mb-0">' + escape_html(jeNote) + "</p>";
 			html += "</div>";
 
-			html += '<table class="table table-bordered table-sm"><thead><tr>';
+			const rows = d.accounts || [];
+			const show_cc = rows.some((a) => (a.cost_center || "").trim());
+			const show_proj = rows.some((a) => (a.project || "").trim());
+			const show_party = rows.some((a) => (a.party_type || "").trim() || (a.party || "").trim());
+			const show_ref = rows.some((a) => (a.reference_type || "").trim() || (a.reference_name || "").trim());
+
 			html +=
+				'<div class="table-responsive" style="max-width:100%;overflow-x:auto;">' +
+				'<table class="table table-bordered table-sm table-hover mb-0" style="min-width:640px;font-size:12px;">' +
+				"<thead><tr>" +
 				"<th>" +
 				__("Type") +
 				"</th><th>" +
 				__("Account") +
-				"</th><th>" +
-				__("Party Type") +
-				"</th><th>" +
-				__("Party") +
-				"</th><th>" +
-				__("Reference Type") +
-				"</th><th>" +
-				__("Reference Name") +
-				"</th><th class='text-end'>" +
+				"</th>";
+			if (show_party) {
+				html += "<th>" + __("Party Type") + "</th><th>" + __("Party") + "</th>";
+			}
+			if (show_ref) {
+				html += "<th>" + __("Reference Type") + "</th><th>" + __("Reference") + "</th>";
+			}
+			html +=
+				"<th class='text-end'>" +
 				__("Debit") +
 				"</th><th class='text-end'>" +
 				__("Credit") +
-				"</th><th>" +
-				__("Cost Center") +
-				"</th><th>" +
-				__("Project") +
-				"</th></tr></thead><tbody>";
-			(d.accounts || []).forEach((a) => {
+				"</th>";
+			if (show_cc) {
+				html += "<th>" + __("Cost Center") + "</th>";
+			}
+			if (show_proj) {
+				html += "<th>" + __("Project") + "</th>";
+			}
+			html += "</tr></thead><tbody>";
+			rows.forEach((a) => {
+				html += "<tr><td>" + escape_html(a.line_type || "") + "</td><td>" + escape_html(a.account || "") + "</td>";
+				if (show_party) {
+					html +=
+						"<td>" +
+						escape_html(a.party_type || "") +
+						"</td><td>" +
+						escape_html(a.party || "") +
+						"</td>";
+				}
+				if (show_ref) {
+					html +=
+						"<td>" +
+						escape_html(a.reference_type || "") +
+						"</td><td>" +
+						escape_html(a.reference_name || "") +
+						"</td>";
+				}
 				html +=
-					"<tr><td>" +
-					escape_html(a.line_type || "") +
-					"</td><td>" +
-					escape_html(a.account || "") +
-					"</td><td>" +
-					escape_html(a.party_type || "") +
-					"</td><td>" +
-					escape_html(a.party || "") +
-					"</td><td>" +
-					escape_html(a.reference_type || "") +
-					"</td><td>" +
-					escape_html(a.reference_name || "") +
-					"</td><td class='text-end'>" +
+					"<td class='text-end'>" +
 					format_currency(a.debit_in_account_currency) +
 					"</td><td class='text-end'>" +
 					format_currency(a.credit_in_account_currency) +
-					"</td><td>" +
-					escape_html(a.cost_center || "") +
-					"</td><td>" +
-					escape_html(a.project || "") +
-					"</td></tr>";
+					"</td>";
+				if (show_cc) {
+					html += "<td>" + escape_html(a.cost_center || "") + "</td>";
+				}
+				if (show_proj) {
+					html += "<td>" + escape_html(a.project || "") + "</td>";
+				}
+				html += "</tr>";
 			});
+			let colSpan = 2 + (show_party ? 2 : 0) + (show_ref ? 2 : 0);
 			html +=
-				"<tr><td colspan='6' class='text-end'><strong>" +
+				"<tr class='table-light'><td colspan='" +
+				colSpan +
+				"' class='text-end'><strong>" +
 				__("Totals") +
 				"</strong></td><td class='text-end'><strong>" +
 				format_currency(d.total_debit) +
 				"</strong></td><td class='text-end'><strong>" +
 				format_currency(d.total_credit) +
-				"</strong></td><td colspan='2'></td></tr>";
-			html += "</tbody></table>";
+				"</strong></td>";
+			if (show_cc) {
+				html += "<td></td>";
+			}
+			if (show_proj) {
+				html += "<td></td>";
+			}
+			html += "</tr></tbody></table></div>";
 			html +=
 				"<p class='text-muted'>" +
 				__("This is a preview only; no Journal Entry was created.") +
@@ -464,84 +491,103 @@ function remove_pm_clearance_toolbar_buttons(frm) {
 		frm.page.remove_inner_button(raw);
 	});
 }
+function sync_lifecycle_display_from_flags(frm, flags) {
+	if (!flags) {
+		return;
+	}
+	if (flags.lifecycle_state && frm.doc.status !== flags.lifecycle_state) {
+		frm.doc.status = flags.lifecycle_state;
+		frm.refresh_field("status");
+	}
+	if (flags.workflow_state && frm.doc.workflow_state !== flags.workflow_state) {
+		frm.doc.workflow_state = flags.workflow_state;
+		frm.refresh_field("workflow_state");
+	}
+}
+
+function hide_workflow_reject_when_locked(frm, flags) {
+	if (!flags || flags.can_reject) {
+		return;
+	}
+	const rejectLabels = [__("PM Reject"), "PM Reject", __("Reject")];
+	if (frm.page && frm.page.actions_menu_items) {
+		frm.page.actions_menu_items = frm.page.actions_menu_items.filter((item) => {
+			const label = (item.label || item.action || "").toString();
+			return !rejectLabels.some((r) => label.indexOf(r) >= 0 || label === r);
+		});
+	}
+}
+
 function setup_settlement_buttons(frm) {
 	remove_pm_clearance_toolbar_buttons(frm);
 
-	const docstatus = frm.doc.docstatus;
-	const status = frm.doc.status;
-	const workflow_state = frm.doc.workflow_state;
-	const journal_entry = frm.doc.journal_entry;
-	const wf = workflow_state;
-	const wfState = frappe.workflow.get_state ? frappe.workflow.get_state(frm.doc) : wf;
-	const isApproved =
-		wf === "Approved" ||
-		wfState === "Approved" ||
-		status === "Approved";
-	const isTerminalBad = ["Rejected", "Cancelled"].includes((status || "").trim());
-	const settlement_total = settlement_lines_total(frm);
-	const allocation_total = request_allocations_total(frm);
-	const has_settlement_lines = (frm.doc.details || []).length > 0 && settlement_total > 0;
-	const has_allocation_lines =
-		(frm.doc.request_allocations || []).length > 0 && allocation_total > 0;
-	const totals_match = Math.abs(settlement_total - allocation_total) <= 0.005;
-	const show_preview = !frm.is_new();
-
-	if (show_preview) {
+	if (frm.is_new()) {
 		const run_preview = () => preview_settlement_entry(frm);
 		frm.add_custom_button(__("Preview Settlement Entry"), run_preview);
-	}
-	const show_settle =
-		!frm.is_new() &&
-		docstatus === 1 &&
-		isApproved &&
-		!journal_entry &&
-		!isTerminalBad;
-
-	if (show_settle) {
-		frm.add_custom_button(
-			__("Settle Petty Cash"),
-			() => {
-				frappe.call({
-					method: "erpnext_extensions.petty_management.doctype.pm_clearance.pm_clearance.settle_petty_cash",
-					args: { pm_clearance: frm.doc.name },
-					freeze: true,
-					freeze_message: __("Settling petty cash…"),
-					callback(r) {
-						if (r.exc) return;
-						const je = r.message && r.message.journal_entry;
-						frappe.show_alert({
-							message: je
-								? __("Settlement Journal Entry {0} created", [je])
-								: __("Settlement Journal Entry created"),
-							indicator: "green",
-						});
-						frm.reload_doc();
-					},
-					error(r) {
-						const msg =
-							(r && r.message) ||
-							(r && r._server_messages && frappe.utils.parse_json(r._server_messages)) ||
-							__("Could not settle petty cash");
-						frappe.msgprint({
-							title: __("Settlement failed"),
-							message: msg,
-							indicator: "red",
-						});
-					},
-				});
-			},
-			null
-		);
-		if (frm.change_custom_button_type) {
-			frm.change_custom_button_type(__("Settle Petty Cash"), null, "primary");
-		}
+		return;
 	}
 
-	if (journal_entry) {
-		frm.add_custom_button(__("Open Settlement Journal Entry"), () =>
-			frappe.set_route("Form", "Journal Entry", journal_entry)
-		);
-	}
+	frappe.call({
+		method:
+			"erpnext_extensions.petty_management.doctype.pm_clearance.pm_clearance.get_pm_clearance_action_flags",
+		args: { pm_clearance: frm.doc.name },
+		callback(r) {
+			const flags = r.message || {};
+			sync_lifecycle_display_from_flags(frm, flags);
+			hide_workflow_reject_when_locked(frm, flags);
+
+			if (flags.can_preview) {
+				frm.add_custom_button(__("Preview Settlement Entry"), () => preview_settlement_entry(frm));
+			}
+			if (flags.can_settle) {
+				frm.add_custom_button(
+					__("Settle Petty Cash"),
+					() => {
+						frappe.call({
+							method:
+								"erpnext_extensions.petty_management.doctype.pm_clearance.pm_clearance.settle_petty_cash",
+							args: { pm_clearance: frm.doc.name },
+							freeze: true,
+							freeze_message: __("Settling petty cash…"),
+							callback(res) {
+								if (res.exc) return;
+								const je = res.message && res.message.journal_entry;
+								frappe.show_alert({
+									message: je
+										? __("Settlement Journal Entry {0} created", [je])
+										: __("Settlement Journal Entry created"),
+									indicator: "green",
+								});
+								frm.reload_doc();
+							},
+							error(res) {
+								const msg =
+									(res && res.message) ||
+									(res &&
+										res._server_messages &&
+										frappe.utils.parse_json(res._server_messages)) ||
+									__("Could not settle petty cash");
+								frappe.msgprint({
+									title: __("Settlement failed"),
+									message: msg,
+									indicator: "red",
+								});
+							},
+						});
+					},
+					null
+				);
+				if (frm.change_custom_button_type) {
+					frm.change_custom_button_type(__("Settle Petty Cash"), null, "primary");
+				}
+			}
+			if (flags.can_open_je && flags.journal_entry) {
+				frm.add_custom_button(__("Open Settlement Journal Entry"), () =>
+					frappe.set_route("Form", "Journal Entry", flags.journal_entry)
+				);
+			}
+		},
+	});
 }
 
 frappe.ui.form.on("PM Clearance Detail", {

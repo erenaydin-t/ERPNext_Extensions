@@ -185,3 +185,12 @@ def preview_pm_clearance_settlement(doc=None, pm_clearance: str | None = None) -
 def settle_petty_cash(pm_clearance: str) -> dict[str, str]:
 	return settle_petty_cash_service(pm_clearance)
 
+
+@frappe.whitelist()
+def get_pm_clearance_action_flags(pm_clearance: str) -> dict:
+	from erpnext_extensions.petty_management.services.clearance_action_policy import (
+		get_pm_clearance_action_flags as _flags,
+	)
+
+	return _flags(pm_clearance)
+

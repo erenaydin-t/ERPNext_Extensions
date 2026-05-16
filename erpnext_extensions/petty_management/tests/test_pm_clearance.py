@@ -1111,6 +1111,7 @@ class TestPMClearanceAllocation(unittest.TestCase):
 		cl.insert()
 		cl.submit()
 		self._track("PM Clearance", cl.name)
+		_approve_pm_clearance_for_reservation(cl.name)
 		frappe.db.set_value("PM Clearance", cl.name, "workflow_state", approved, update_modified=False)
 
 		first = mod.settle_petty_cash(cl.name)
@@ -1676,6 +1677,204 @@ class TestPMClearanceAllocation(unittest.TestCase):
 		self.assertTrue(out.get("is_balanced"))
 		for row in out.get("accounts") or []:
 			self.assertIn(row.get("line_type"), ("Debit", "Credit", ""))
+
+
+def _lifecycle_base_clearance(employee: str, pi, pi_amount: float):
+	cl = frappe.new_doc("PM Clearance")
+	cl.company = COMPANY
+	cl.employee = employee
+	cl.transaction_date = today()
+	_append_pm_clearance_detail_row(
+		cl,
+		{
+			"settlement_type": "Purchase Invoice",
+			"purchase_invoice": pi.name,
+			"allocated_amount": pi_amount,
+		},
+	)
+	return cl
+
+
+class TestPMClearanceLifecyclePolicy(unittest.TestCase):
+	"""Status/workflow vs JE consistency, action matrix, accounting lock."""
+
+	@classmethod
+	def setUpClass(cls):
+		frappe.set_user("Administrator")
+		_ensure_company_context()
+		if not COMPANY:
+			raise unittest.SkipTest("No Company on site.")
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+		self._cleanup_names: list[tuple[str, str]] = []
+
+	def tearDown(self):
+		frappe.set_user("Administrator")
+		for doctype, name in reversed(self._cleanup_names):
+			try:
+				if doctype == "PM Request" and frappe.db.exists("PM Request", name):
+					pe = frappe.db.get_value("PM Request", name, "payment_entry")
+					if pe and frappe.db.exists("Payment Entry", pe):
+						pe_doc = frappe.get_doc("Payment Entry", pe)
+						if pe_doc.docstatus == 1:
+							pe_doc.cancel()
+						frappe.delete_doc("Payment Entry", pe, force=True, ignore_permissions=True)
+				doc = frappe.get_doc(doctype, name)
+				if getattr(doc, "docstatus", 0) == 1:
+					doc.reload()
+					doc.cancel()
+				frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+			except Exception:
+				pass
+		frappe.db.commit()
+
+	def _track(self, doctype: str, name: str) -> None:
+		self._cleanup_names.append((doctype, name))
+
+	def _settled_clearance(self):
+		mod = _pm()
+		approved = _workflow_state_for("PM Clearance", "Approved")
+		if not approved:
+			self.skipTest("Active PM Clearance workflow with Approved state not found.")
+		emp = _make_employee()
+		self._track("Employee", emp)
+		_make_holder(emp)
+		req_name, _pe = _fund_pm_request(emp, 15_000.0)
+		self._track("PM Request", req_name)
+		pi = _make_pi_outstanding(4_000)
+		pi.insert()
+		pi.submit()
+		self._track("Purchase Invoice", pi.name)
+		cl = _lifecycle_base_clearance(emp, pi, 4_000)
+		cl.append("request_allocations", {"pm_request": req_name, "allocated_amount": 4_000})
+		cl.insert()
+		cl.submit()
+		self._track("PM Clearance", cl.name)
+		_approve_pm_clearance_for_reservation(cl.name)
+		frappe.db.set_value("PM Clearance", cl.name, "workflow_state", approved, update_modified=False)
+		out = mod.settle_petty_cash(cl.name)
+		je_name = out["journal_entry"]
+		self._track("Journal Entry", je_name)
+		je = frappe.get_doc("Journal Entry", je_name)
+		if je.docstatus == 0:
+			je.submit()
+		cl.reload()
+		return cl, je_name
+
+	def test_settled_clearance_cannot_be_rejected_via_workflow_guard(self):
+		cl, _je = self._settled_clearance()
+		from erpnext_extensions.petty_management.services.clearance_action_policy import (
+			validate_apply_workflow_action,
+		)
+
+		with self.assertRaises(ValidationError):
+			validate_apply_workflow_action(cl, "PM Reject")
+
+	def test_submitted_je_blocks_workflow_state_change(self):
+		cl, _je = self._settled_clearance()
+		rejected = _workflow_state_for("PM Clearance", "Rejected")
+		if not rejected:
+			self.skipTest("Rejected workflow state not configured.")
+		cl.reload()
+		cl.workflow_state = rejected
+		with self.assertRaises(ValidationError):
+			cl.save(ignore_permissions=True)
+
+	def test_list_status_settled_after_stale_db_repair(self):
+		cl, _je = self._settled_clearance()
+		approved = _workflow_state_for("PM Clearance", "Approved")
+		if approved:
+			frappe.db.set_value(
+				"PM Clearance",
+				cl.name,
+				{"status": "Approved", "workflow_state": approved},
+				update_modified=False,
+			)
+		from erpnext_extensions.petty_management.services.clearance_action_policy import (
+			sync_clearance_lifecycle_if_stale,
+		)
+
+		doc = frappe.get_doc("PM Clearance", cl.name)
+		sync_clearance_lifecycle_if_stale(doc)
+		row = frappe.db.get_value("PM Clearance", cl.name, ["status", "workflow_state"], as_dict=True)
+		self.assertEqual(row.status, "Settled")
+		ws_title = frappe.db.get_value("Workflow State", row.workflow_state, "workflow_state_name")
+		self.assertEqual(ws_title, "Settled")
+
+	def test_je_cancel_restores_non_settled_lifecycle(self):
+		cl, je_name = self._settled_clearance()
+		je = frappe.get_doc("Journal Entry", je_name)
+		je.cancel()
+		cl.reload()
+		self.assertNotEqual(cl.status, "Settled")
+		from erpnext_extensions.petty_management.doctype.pm_clearance.pm_clearance import (
+			get_pm_clearance_action_flags,
+		)
+
+		flags = get_pm_clearance_action_flags(cl.name)
+		self.assertFalse(flags.get("accounting_locked"))
+		self.assertTrue(flags.get("can_reject") or cl.status == "Approved")
+
+	def test_action_flags_draft_and_approved(self):
+		from erpnext_extensions.petty_management.services.clearance_action_policy import (
+			get_pm_clearance_action_flags,
+		)
+
+		emp = _make_employee()
+		self._track("Employee", emp)
+		_make_holder(emp)
+		req_name, _pe = _fund_pm_request(emp, 5_000.0)
+		self._track("PM Request", req_name)
+		pi = _make_pi_outstanding(1_000)
+		pi.insert()
+		pi.submit()
+		self._track("Purchase Invoice", pi.name)
+		cl = _lifecycle_base_clearance(emp, pi, 1_000)
+		cl.append("request_allocations", {"pm_request": req_name, "allocated_amount": 1_000})
+		cl.insert()
+		self._track("PM Clearance", cl.name)
+		draft_flags = get_pm_clearance_action_flags(cl.name)
+		self.assertTrue(draft_flags["can_preview"])
+		self.assertFalse(draft_flags["can_settle"])
+		self.assertFalse(draft_flags["can_reject"])
+
+		cl.submit()
+		_approve_pm_clearance_for_reservation(cl.name)
+		cl.reload()
+		appr_flags = get_pm_clearance_action_flags(cl.name)
+		self.assertTrue(appr_flags["can_settle"])
+		self.assertTrue(appr_flags["can_reject"])
+		self.assertEqual(appr_flags["lifecycle_state"], "Approved")
+
+	def test_action_flags_settled_locked(self):
+		from erpnext_extensions.petty_management.services.clearance_action_policy import (
+			get_pm_clearance_action_flags,
+		)
+
+		cl, _je = self._settled_clearance()
+		settled_flags = get_pm_clearance_action_flags(cl.name)
+		self.assertFalse(settled_flags["can_settle"])
+		self.assertFalse(settled_flags["can_reject"])
+		self.assertTrue(settled_flags["accounting_locked"])
+		self.assertEqual(settled_flags["lifecycle_state"], "Settled")
+
+	def test_preview_remains_balanced(self):
+		mod = _pm()
+		emp = _make_employee()
+		self._track("Employee", emp)
+		_make_holder(emp)
+		req_name, _pe = _fund_pm_request(emp, 8_000.0)
+		pi = _make_pi_outstanding(2_000)
+		pi.insert()
+		pi.submit()
+		cl = _lifecycle_base_clearance(emp, pi, 2_000)
+		cl.append("request_allocations", {"pm_request": req_name, "allocated_amount": 2_000})
+		cl.insert()
+		self._track("PM Clearance", cl.name)
+		out = mod.preview_pm_clearance_settlement(pm_clearance=cl.name)
+		self.assertTrue(out.get("is_balanced"))
+		self.assertLess(abs(flt(out.get("total_debit")) - flt(out.get("total_credit"))), 0.01)
 
 
 if __name__ == "__main__":

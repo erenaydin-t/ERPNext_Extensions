@@ -110,7 +110,6 @@ def _ensure_pm_clearance_workflow():
 		("Draft", "PM Submit Finance Review", "Pending Finance Review", "Petty Management User"),
 		("Pending Finance Review", "PM Approve", "Approved", "Petty Management Manager"),
 		("Pending Finance Review", "PM Reject", "Rejected", "Petty Management Manager"),
-		("Approved", "PM Reject", "Rejected", "Petty Management Manager"),
 	)
 	for state, action, next_state, role in transitions:
 		w.append(
@@ -137,9 +136,23 @@ def _repair_pm_clearance_workflow():
 		if row.action == "PM Post" or row.next_state == "Posted":
 			w.remove(row)
 			changed = True
+		# Reject after approval is invalid once settlement exists; server also blocks via accounting lock.
+		if row.state == "Approved" and row.action == "PM Reject":
+			w.remove(row)
+			changed = True
 	for row in list(w.states):
 		if row.state == "Posted":
 			w.remove(row)
+			changed = True
+	accounting_states = (
+		("Pending Journal Entry Submission", "1"),
+		("Settled", "1"),
+	)
+	existing = {row.state for row in w.states}
+	for state, doc_status in accounting_states:
+		if state not in existing:
+			_wf_state(state)
+			w.append("states", {"state": state, "doc_status": doc_status, "allow_edit": "All"})
 			changed = True
 	if changed:
 		w.save(ignore_permissions=True)

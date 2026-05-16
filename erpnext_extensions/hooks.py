@@ -73,7 +73,9 @@ doctype_js = {
 		"public/js/pdc_create_from_order.js",
 	],
 }
-# doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
+doctype_list_js = {
+	"PM Clearance": "erpnext_extensions/petty_management/doctype/pm_clearance/pm_clearance_list.js",
+}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
 
@@ -180,6 +182,9 @@ has_permission = {
 # Hook on document methods and events
 
 doc_events = {
+	"PM Clearance": {
+		"onload": "erpnext_extensions.petty_management.clearance_onload.sync_pm_clearance_on_load",
+	},
 	"Journal Entry": {
 		"on_submit": "erpnext_extensions.petty_management.journal_entry_hooks.on_journal_entry_submit",
 		"before_cancel": "erpnext_extensions.petty_management.journal_entry_hooks.on_journal_entry_before_cancel",
@@ -252,9 +257,9 @@ doc_events = {
 # Overriding Methods
 # ------------------------------
 #
-# override_whitelisted_methods = {
-# 	"frappe.desk.doctype.event.event.get_events": "erpnext_extensions.event.get_events"
-# }
+override_whitelisted_methods = {
+	"frappe.model.workflow.apply_workflow": "erpnext_extensions.petty_management.workflow_hooks.apply_workflow",
+}
 #
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,

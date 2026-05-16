@@ -14,8 +14,11 @@ def on_journal_entry_submit(doc, method=None):
 		filters={"journal_entry": doc.name},
 		pluck="name",
 	)
+	from erpnext_extensions.petty_management.services.clearance_action_policy import sync_clearance_lifecycle
+
 	for cl_name in names:
-		frappe.db.set_value("PM Clearance", cl_name, "status", "Settled", update_modified=False)
+		cl = frappe.get_doc("PM Clearance", cl_name)
+		sync_clearance_lifecycle(cl, persist=True)
 	for cl_name in names:
 		try:
 			row = frappe.db.get_value(
@@ -47,7 +50,7 @@ def on_journal_entry_before_cancel(doc, method=None):
 	"""
 	from erpnext_extensions.petty_management import petty_audit
 
-	from erpnext_extensions.petty_management.services.clearance_service import sync_clearance_status_from_workflow
+	from erpnext_extensions.petty_management.services.clearance_action_policy import sync_clearance_lifecycle
 
 	for row_name in frappe.get_all(
 		"PM Clearance Detail",
@@ -87,5 +90,4 @@ def on_journal_entry_before_cancel(doc, method=None):
 	for cl_name in names:
 		frappe.db.set_value("PM Clearance", cl_name, {"journal_entry": None}, update_modified=False)
 		cl = frappe.get_doc("PM Clearance", cl_name)
-		sync_clearance_status_from_workflow(cl)
-		frappe.db.set_value("PM Clearance", cl_name, {"status": cl.status}, update_modified=False)
+		sync_clearance_lifecycle(cl, persist=True)

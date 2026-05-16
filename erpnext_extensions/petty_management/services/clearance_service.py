@@ -12,6 +12,11 @@ from erpnext_extensions.petty_management.services.holder_service import (
 	get_holder_petty_cash_account,
 	sync_clearance_holder_fields,
 )
+from erpnext_extensions.petty_management.services.clearance_action_policy import (
+	sync_clearance_lifecycle,
+	sync_clearance_lifecycle_if_stale,
+	validate_pm_clearance_workflow_change,
+)
 from erpnext_extensions.petty_management.utils import get_pm_settings
 
 
@@ -33,7 +38,8 @@ def validate_clearance(doc: Document) -> None:
 	calc_line_totals(doc)
 	calc_parent_totals(doc)
 	validate_request_allocations(doc)
-	sync_clearance_status_from_workflow(doc)
+	validate_pm_clearance_workflow_change(doc)
+	sync_clearance_lifecycle_if_stale(doc)
 	validate_clearance_policy(doc)
 
 
@@ -76,9 +82,7 @@ def normalize_settlement_types(doc: Document) -> None:
 
 def on_submit_clearance(doc: Document) -> None:
 	refreshed = frappe.get_doc("PM Clearance", doc.name)
-	sync_clearance_status_from_workflow(refreshed)
-	if refreshed.status:
-		frappe.db.set_value("PM Clearance", doc.name, "status", refreshed.status, update_modified=False)
+	sync_clearance_lifecycle(refreshed, persist=True)
 
 
 def before_cancel_clearance(doc: Document) -> None:
@@ -97,9 +101,11 @@ def on_cancel_clearance(doc: Document) -> None:
 	frappe.db.set_value(
 		"PM Clearance",
 		doc.name,
-		{"journal_entry": None, "purchase_invoice": None, "status": "Cancelled"},
+		{"journal_entry": None, "purchase_invoice": None},
 		update_modified=False,
 	)
+	doc.journal_entry = None
+	sync_clearance_lifecycle(doc, persist=True)
 	for row_name in frappe.get_all(
 		"PM Clearance Detail",
 		filters={"parent": doc.name, "parenttype": "PM Clearance"},
@@ -215,28 +221,8 @@ def calc_parent_totals(doc: Document) -> None:
 
 
 def sync_clearance_status_from_workflow(doc: Document) -> None:
-	if doc.journal_entry:
-		je_ds = frappe.db.get_value("Journal Entry", doc.journal_entry, "docstatus")
-		if cint(je_ds) == 1:
-			doc.status = "Settled"
-		elif cint(je_ds) == 0:
-			doc.status = "Pending Journal Entry Submission"
-		else:
-			doc.status = "Cancelled"
-		return
-	ws = doc.workflow_state
-	if not ws:
-		return
-	ws_title = frappe.db.get_value("Workflow State", ws, "workflow_state_name") or ws
-	mapping = {
-		"Draft": "Draft",
-		"Pending Finance Review": "Pending Finance Review",
-		"Approved": "Approved",
-		"Rejected": "Rejected",
-		"Pending Journal Entry Submission": "Pending Journal Entry Submission",
-	}
-	if ws_title in mapping:
-		doc.status = mapping[ws_title]
+	"""Backward-compatible alias; prefer :func:`sync_clearance_lifecycle`."""
+	sync_clearance_lifecycle(doc, persist=False)
 
 
 def clearance_is_approved(doc: Document) -> bool:
