@@ -706,12 +706,19 @@ frappe.ui.form.on("PM Clearance Request Allocation", {
 				const avail = flt(m.available_amount);
 				if (remaining > 0) {
 					const suggested = Math.min(avail, remaining);
-					if (!flt(row.allocated_amount)) {
+					if (suggested <= 0) {
+						frappe.msgprint(
+							__(
+								"No PM Request balance available for allocation (paid {0}, already reserved {1}).",
+								[format_currency(m.paid_amount), format_currency(m.previously_allocated_amount)]
+							)
+						);
+					} else if (!flt(row.allocated_amount)) {
 						set_child_value_if_changed(cdt, cdn, "allocated_amount", suggested);
 					}
 				} else {
 					set_child_value_if_changed(cdt, cdn, "allocated_amount", "");
-					frappe.msgprint(__("Total settlement is already fully allocated."));
+					frappe.msgprint(__("Total settlement is already fully allocated on this clearance."));
 				}
 				frm.refresh_field("request_allocations");
 				frm.trigger("recalc_totals");

@@ -20,18 +20,22 @@ _EPS = 1e-6
 def clearance_reserves_pm_request_balance_sql(table_alias: str = "p") -> str:
 	"""SQL predicate for clearances whose PM Request allocation rows reserve funding.
 
-	Draft clearances (docstatus 0) do not reserve. Rejected/Cancelled do not reserve.
-	Submitted clearances reserve only after approval: ``status`` is Approved or a
-	later settlement lifecycle state, or the linked Workflow State title is *Approved*.
-	This matches :func:`clearance_is_approved` for workflow-approved submissions.
+	Only submitted (docstatus 1) clearances reserve. Cancelled submissions (docstatus 2),
+	Rejected/Cancelled status, and Cancelled/Rejected workflow states never reserve.
+	Reservation requires approval lifecycle (status or workflow title Approved) or
+	post-approval settlement states (Pending JE / Settled).
 	"""
 	p = table_alias
 	return f"""
 		{p}.docstatus = 1
-		AND IFNULL({p}.status, '') NOT IN ('Cancelled', 'Rejected')
+		AND IFNULL({p}.status, '') NOT IN ('Cancelled', 'Rejected', 'Draft')
+		AND NOT EXISTS (
+			SELECT 1 FROM `tabWorkflow State` ws
+			WHERE ws.name = {p}.workflow_state
+			AND IFNULL(ws.workflow_state_name, '') IN ('Cancelled', 'Rejected')
+		)
 		AND (
 			IFNULL({p}.status, '') IN ('Approved', 'Pending Journal Entry Submission', 'Settled')
-			OR IFNULL({p}.workflow_state, '') = 'Approved'
 			OR EXISTS (
 				SELECT 1 FROM `tabWorkflow State` ws
 				WHERE ws.name = {p}.workflow_state

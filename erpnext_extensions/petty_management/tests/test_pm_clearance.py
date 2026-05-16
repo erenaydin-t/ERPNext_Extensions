@@ -1859,6 +1859,56 @@ class TestPMClearanceLifecyclePolicy(unittest.TestCase):
 		self.assertTrue(settled_flags["accounting_locked"])
 		self.assertEqual(settled_flags["lifecycle_state"], "Settled")
 
+	def test_cancelled_clearance_releases_pm_request_reservation(self):
+		"""After JE cancel + clearance cancel, prior allocations must not reserve funding."""
+		mod = _pm()
+		from erpnext_extensions.petty_management.services.allocation_service import (
+			get_pm_request_available_amount,
+			sum_prior_pm_request_allocations,
+		)
+
+		approved = _workflow_state_for("PM Clearance", "Approved")
+		if not approved:
+			self.skipTest("Active PM Clearance workflow with Approved state not found.")
+
+		emp = _make_employee()
+		self._track("Employee", emp)
+		_make_holder(emp)
+		req_name, _pe = _fund_pm_request(emp, 10_000.0)
+		self._track("PM Request", req_name)
+
+		pi = _make_pi_outstanding(3_000)
+		pi.insert()
+		pi.submit()
+		self._track("Purchase Invoice", pi.name)
+
+		cl = _lifecycle_base_clearance(emp, pi, 3_000)
+		cl.append("request_allocations", {"pm_request": req_name, "allocated_amount": 3_000})
+		cl.insert()
+		cl.submit()
+		self._track("PM Clearance", cl.name)
+		_approve_pm_clearance_for_reservation(cl.name)
+		frappe.db.set_value("PM Clearance", cl.name, "workflow_state", approved, update_modified=False)
+
+		self.assertGreaterEqual(flt(sum_prior_pm_request_allocations(req_name, None)), 3_000.0 - 1e-3)
+
+		out = mod.settle_petty_cash(cl.name)
+		je_name = out["journal_entry"]
+		self._track("Journal Entry", je_name)
+		je = frappe.get_doc("Journal Entry", je_name)
+		if je.docstatus == 0:
+			je.submit()
+
+		je.cancel()
+		cl = frappe.get_doc("PM Clearance", cl.name)
+		cl.cancel()
+
+		self.assertEqual(cint(frappe.db.get_value("PM Clearance", cl.name, "docstatus")), 2)
+		st = (frappe.db.get_value("PM Clearance", cl.name, "status") or "").strip()
+		self.assertEqual(st, "Cancelled")
+		self.assertLess(flt(sum_prior_pm_request_allocations(req_name, None)), 1e-3)
+		self.assertGreaterEqual(flt(get_pm_request_available_amount(req_name)), 10_000.0 - 1e-3)
+
 	def test_preview_remains_balanced(self):
 		mod = _pm()
 		emp = _make_employee()

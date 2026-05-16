@@ -168,15 +168,19 @@ def validate_request_cancel(doc: Document) -> None:
 		frappe.throw(_("Cancel the linked Payment Entry first"))
 	if getattr(doc, "journal_entry", None) and frappe.db.get_value("Journal Entry", doc.journal_entry, "docstatus") == 1:
 		frappe.throw(_("Cancel the linked Journal Entry first"))
+	from erpnext_extensions.petty_management.services.allocation_service import (
+		clearance_reserves_pm_request_balance_sql,
+	)
+
+	res_clause = clearance_reserves_pm_request_balance_sql("cl")
 	alloc_refs = frappe.db.sql(
-		"""
+		f"""
 		select count(*) from `tabPM Clearance Request Allocation` a
 		inner join `tabPM Clearance` cl on cl.name = a.parent and a.parenttype = 'PM Clearance'
 		where a.parentfield = 'request_allocations'
 			and ifnull(a.is_legacy_row, 0) = 0
 			and a.pm_request = %s
-			and cl.docstatus = 1
-			and ifnull(cl.status, '') not in ('Cancelled', 'Rejected')
+			and {res_clause}
 		""",
 		doc.name,
 	)[0][0]

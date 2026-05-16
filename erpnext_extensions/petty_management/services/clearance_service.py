@@ -105,7 +105,20 @@ def on_cancel_clearance(doc: Document) -> None:
 		update_modified=False,
 	)
 	doc.journal_entry = None
+	doc.reload()
+	doc.docstatus = 2
+	from erpnext_extensions.petty_management.services.clearance_action_policy import (
+		LIFECYCLE_CANCELLED,
+		sync_clearance_lifecycle,
+		workflow_state_link_for_lifecycle,
+	)
+
 	sync_clearance_lifecycle(doc, persist=True)
+	ws_cancelled = workflow_state_link_for_lifecycle(LIFECYCLE_CANCELLED)
+	values = {"status": LIFECYCLE_CANCELLED}
+	if ws_cancelled:
+		values["workflow_state"] = ws_cancelled
+	frappe.db.set_value("PM Clearance", doc.name, values, update_modified=False)
 	for row_name in frappe.get_all(
 		"PM Clearance Detail",
 		filters={"parent": doc.name, "parenttype": "PM Clearance"},
