@@ -213,30 +213,53 @@ frappe.ui.form.on("PM Clearance", {
 
 function update_settlement_balance_intro(frm, settled_total, req_total) {
 	frm.set_intro(null);
-	const diff = settled_total - req_total;
-	if (!frm.doc.request_allocations || frm.doc.request_allocations.length === 0) {
+
+	const settled = flt(settled_total);
+	const allocated = flt(req_total);
+	const has_alloc_rows = (frm.doc.request_allocations || []).length > 0;
+	const has_settlement_lines = (frm.doc.details || []).length > 0;
+
+	if (!has_alloc_rows && !has_settlement_lines) {
+		return;
+	}
+
+	if (!has_alloc_rows) {
 		frm.set_intro(
 			__("Add PM Request allocation lines; total must match settlement lines (Purchase Invoice + Supplier Advance)."),
 			"orange"
 		);
 		return;
 	}
-	if (Math.abs(diff) > 0.005) {
+
+	if (settled <= 0 && allocated <= 0) {
+		return;
+	}
+
+	if (Math.abs(settled - allocated) > 0.005) {
 		frm.set_intro(
 			__(
-				"Settlement imbalance: settlement lines total {0} vs PM Request allocation total {1} (difference {2}).",
-				[format_currency(settled_total), format_currency(req_total), format_currency(diff)]
+				"Settlement total ({0}) must equal PM Request allocation total ({1}).",
+				[format_amount_plain(frm, settled), format_amount_plain(frm, allocated)]
 			),
-			"red"
+			"orange"
 		);
-	} else {
-		const amt = flt(settled_total);
-		const msg =
-			amt > 0
-				? __("Settlement lines and PM Request allocation totals match ({0}).", [format_currency(amt)])
-				: __("Settlement lines and PM Request allocation totals match.");
-		frm.set_intro(msg, "green");
+		return;
 	}
+
+	if (settled > 0) {
+		frm.set_intro(
+			__("Settlement and PM Request allocation totals match: {0}", [
+				format_amount_plain(frm, settled),
+			]),
+			"green"
+		);
+	}
+}
+
+function format_amount_plain(frm, v) {
+	const currency =
+		(frm && frm.doc && frm.doc.currency) || frappe.defaults.get_default("currency");
+	return frappe.utils.fmt_money(flt(v), currency);
 }
 
 function format_currency(v) {
