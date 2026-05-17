@@ -12,58 +12,63 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
-  "section_identity",
+  "section_overview",
   "naming_series",
   "company",
   "guarantee_direction",
+  "column_break_ov1",
+  "status",
   "guarantee_type",
-  "document_no",
-  "document_date",
   "amount",
   "currency",
+  "section_document",
+  "document_no",
+  "document_date",
+  "column_break_doc1",
+  "expiry_date",
+  "physical_status",
+  "section_attachment",
+  "attachment",
   "section_party",
   "party_type",
   "party",
   "other_party_name",
-  "section_lifecycle",
-  "status",
-  "received_date",
-  "issued_date",
-  "column_break_lifecycle",
-  "expiry_date",
-  "returned_date",
-  "released_date",
-  "cancelled_date",
+  "column_break_party1",
+  "received_from",
+  "returned_to",
   "section_custody",
   "custody_location",
+  "column_break_cust1",
   "custodian",
-  "column_break_custody",
-  "physical_status",
-  "attachment",
+  "handover_reference",
+  "section_lifecycle",
+  "received_date",
+  "returned_date",
+  "column_break_lc1",
+  "issued_date",
+  "released_date",
+  "cancelled_date",
   "section_reference",
   "reference_doctype",
+  "column_break_ref1",
   "reference_name",
-  "reference_description",
   "purpose",
+  "reference_description",
   "section_notes",
-  "returned_to",
-  "received_from",
-  "column_break_notes",
-  "handover_reference",
   "remarks"
  ],
  "fields": [
   {
-   "collapsible": 0,
-   "fieldname": "section_identity",
+   "fieldname": "section_overview",
    "fieldtype": "Section Break",
-   "label": "Guarantee Details"
+   "label": "Guarantee Overview"
   },
   {
    "fieldname": "naming_series",
    "fieldtype": "Select",
    "label": "Series",
    "options": "GD-.YYYY.-",
+   "print_hide": 1,
    "reqd": 1
   },
   {
@@ -76,11 +81,25 @@
    "reqd": 1
   },
   {
+   "fieldname": "column_break_ov1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Draft\nActive\nReturned\nReleased\nCancelled\nExpired\nLost",
+   "reqd": 1
+  },
+  {
    "fieldname": "guarantee_direction",
    "fieldtype": "Select",
    "in_list_view": 1,
    "in_standard_filter": 1,
-   "label": "Guarantee Direction",
+   "label": "Direction",
    "options": "Received\nIssued",
    "reqd": 1
   },
@@ -91,20 +110,7 @@
    "in_standard_filter": 1,
    "label": "Guarantee Type",
    "options": "Cheque\nPromissory Note\nBank Guarantee\nContract Guarantee\nOther",
-   "description": "Promissory Note (سفته) — non-accounting custody record only.",
    "reqd": 1
-  },
-  {
-   "fieldname": "document_no",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Document No",
-   "description": "Business reference (bank guarantee no., cheque no., contract ref., etc.). Required when Status is not Draft."
-  },
-  {
-   "fieldname": "document_date",
-   "fieldtype": "Date",
-   "label": "Document Date"
   },
   {
    "fieldname": "amount",
@@ -114,11 +120,54 @@
    "options": "currency"
   },
   {
-   "default": "",
    "fieldname": "currency",
    "fieldtype": "Link",
    "label": "Currency",
    "options": "Currency"
+  },
+  {
+   "fieldname": "section_document",
+   "fieldtype": "Section Break",
+   "label": "Document Information"
+  },
+  {
+   "fieldname": "document_no",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Document No."
+  },
+  {
+   "fieldname": "document_date",
+   "fieldtype": "Date",
+   "label": "Document Date"
+  },
+  {
+   "fieldname": "column_break_doc1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "expiry_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Expiry Date"
+  },
+  {
+   "default": "Original",
+   "fieldname": "physical_status",
+   "fieldtype": "Select",
+   "label": "Document Condition",
+   "options": "Original\nCopy\nDigital Only\nMissing"
+  },
+  {
+   "fieldname": "section_attachment",
+   "fieldtype": "Section Break",
+   "label": " "
+  },
+  {
+   "fieldname": "attachment",
+   "fieldtype": "Attach",
+   "label": "Scan / Attachment"
   },
   {
    "fieldname": "section_party",
@@ -152,62 +201,23 @@
    "mandatory_depends_on": "eval:doc.party_type=='Other'"
   },
   {
-   "fieldname": "section_lifecycle",
-   "fieldtype": "Section Break",
-   "label": "Dates & Lifecycle"
-  },
-  {
-   "default": "Draft",
-   "fieldname": "status",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "in_standard_filter": 1,
-   "label": "Status",
-   "options": "Draft\nActive\nReturned\nReleased\nCancelled\nExpired\nLost",
-   "reqd": 1
-  },
-  {
-   "depends_on": "eval:doc.guarantee_direction=='Received'",
-   "fieldname": "received_date",
-   "fieldtype": "Date",
-   "label": "Received Date"
-  },
-  {
-   "depends_on": "eval:doc.guarantee_direction=='Issued'",
-   "fieldname": "issued_date",
-   "fieldtype": "Date",
-   "label": "Issued Date"
-  },
-  {
-   "fieldname": "column_break_lifecycle",
+   "fieldname": "column_break_party1",
    "fieldtype": "Column Break"
   },
   {
-   "fieldname": "expiry_date",
-   "fieldtype": "Date",
-   "in_list_view": 1,
-   "in_standard_filter": 1,
-   "label": "Due / Expiry Date"
+   "fieldname": "received_from",
+   "fieldtype": "Data",
+   "label": "Received From"
   },
   {
-   "fieldname": "returned_date",
-   "fieldtype": "Date",
-   "label": "Returned Date"
-  },
-  {
-   "fieldname": "released_date",
-   "fieldtype": "Date",
-   "label": "Released Date"
-  },
-  {
-   "fieldname": "cancelled_date",
-   "fieldtype": "Date",
-   "label": "Cancelled Date"
+   "fieldname": "returned_to",
+   "fieldtype": "Data",
+   "label": "Returned To"
   },
   {
    "fieldname": "section_custody",
    "fieldtype": "Section Break",
-   "label": "Custody"
+   "label": "Custody & Responsibility"
   },
   {
    "fieldname": "custody_location",
@@ -216,73 +226,14 @@
    "label": "Custody Location"
   },
   {
+   "fieldname": "column_break_cust1",
+   "fieldtype": "Column Break"
+  },
+  {
    "fieldname": "custodian",
    "fieldtype": "Link",
    "label": "Custodian",
    "options": "User"
-  },
-  {
-   "fieldname": "column_break_custody",
-   "fieldtype": "Column Break"
-  },
-  {
-   "default": "Original",
-   "fieldname": "physical_status",
-   "fieldtype": "Select",
-   "label": "Physical Status",
-   "options": "Original\nCopy\nDigital Only\nMissing"
-  },
-  {
-   "fieldname": "attachment",
-   "fieldtype": "Attach",
-   "label": "Attachment"
-  },
-  {
-   "fieldname": "section_reference",
-   "fieldtype": "Section Break",
-   "label": "Reference"
-  },
-  {
-   "fieldname": "reference_doctype",
-   "fieldtype": "Link",
-   "label": "Reference DocType",
-   "options": "DocType"
-  },
-  {
-   "depends_on": "eval:doc.reference_doctype",
-   "fieldname": "reference_name",
-   "fieldtype": "Dynamic Link",
-   "label": "Reference Name",
-   "options": "reference_doctype"
-  },
-  {
-   "fieldname": "reference_description",
-   "fieldtype": "Small Text",
-   "label": "Reference Description"
-  },
-  {
-   "fieldname": "purpose",
-   "fieldtype": "Small Text",
-   "label": "Purpose / Guarantee Reason"
-  },
-  {
-   "fieldname": "section_notes",
-   "fieldtype": "Section Break",
-   "label": "Notes & Handover"
-  },
-  {
-   "fieldname": "returned_to",
-   "fieldtype": "Data",
-   "label": "Returned To"
-  },
-  {
-   "fieldname": "received_from",
-   "fieldtype": "Data",
-   "label": "Received From"
-  },
-  {
-   "fieldname": "column_break_notes",
-   "fieldtype": "Column Break"
   },
   {
    "fieldname": "handover_reference",
@@ -290,8 +241,87 @@
    "label": "Handover Reference"
   },
   {
+   "collapsible": 1,
+   "fieldname": "section_lifecycle",
+   "fieldtype": "Section Break",
+   "label": "Lifecycle Dates"
+  },
+  {
+   "depends_on": "eval:doc.guarantee_direction=='Received'",
+   "fieldname": "received_date",
+   "fieldtype": "Date",
+   "label": "Received Date"
+  },
+  {
+   "depends_on": "eval:doc.status=='Returned'",
+   "fieldname": "returned_date",
+   "fieldtype": "Date",
+   "label": "Returned Date"
+  },
+  {
+   "fieldname": "column_break_lc1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.guarantee_direction=='Issued'",
+   "fieldname": "issued_date",
+   "fieldtype": "Date",
+   "label": "Issued Date"
+  },
+  {
+   "depends_on": "eval:doc.status=='Released'",
+   "fieldname": "released_date",
+   "fieldtype": "Date",
+   "label": "Released Date"
+  },
+  {
+   "depends_on": "eval:doc.status=='Cancelled'",
+   "fieldname": "cancelled_date",
+   "fieldtype": "Date",
+   "label": "Cancelled Date"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_reference",
+   "fieldtype": "Section Break",
+   "label": "Business Reference"
+  },
+  {
+   "fieldname": "reference_doctype",
+   "fieldtype": "Link",
+   "label": "Linked DocType",
+   "options": "DocType"
+  },
+  {
+   "fieldname": "column_break_ref1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.reference_doctype",
+   "fieldname": "reference_name",
+   "fieldtype": "Dynamic Link",
+   "label": "Linked Document",
+   "options": "reference_doctype"
+  },
+  {
+   "fieldname": "purpose",
+   "fieldtype": "Small Text",
+   "label": "Purpose"
+  },
+  {
+   "fieldname": "reference_description",
+   "fieldtype": "Small Text",
+   "label": "Reference Notes"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_notes",
+   "fieldtype": "Section Break",
+   "label": "Notes"
+  },
+  {
    "fieldname": "remarks",
-   "fieldtype": "Text",
+   "fieldtype": "Small Text",
    "label": "Remarks"
   }
  ],
@@ -299,7 +329,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 0,
  "links": [],
- "modified": "2026-05-09 00:00:00.000000",
+ "modified": "2026-05-17 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Guarantee Management",
  "name": "Guarantee Document",
@@ -348,5 +378,6 @@
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],
+ "title_field": "document_no",
  "track_changes": 1
 }

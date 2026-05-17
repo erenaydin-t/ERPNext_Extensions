@@ -1,0 +1,115 @@
+/* Guarantee Document — treasury/custody form layout (scoped) */
+
+.guarantee-document-form .form-page {
+	max-width: 54rem;
+}
+
+.guarantee-document-form .form-layout {
+	width: 100%;
+}
+
+.guarantee-document-form .form-section {
+	margin-bottom: 0.75rem;
+	padding-bottom: 0.5rem;
+	border-bottom: 1px solid var(--border-color, #d1d8dd);
+}
+
+.guarantee-document-form .form-section:last-of-type {
+	border-bottom: none;
+	margin-bottom: 0.25rem;
+}
+
+.guarantee-document-form .section-head {
+	margin-bottom: 0.45rem;
+	padding-bottom: 0.15rem;
+	font-weight: 600;
+	letter-spacing: 0.01em;
+}
+
+.guarantee-document-form .section-body .form-column {
+	min-width: 0;
+}
+
+.guarantee-document-form .section-body .form-column.col-sm-6 {
+	flex: 0 0 50%;
+	max-width: 50%;
+}
+
+.guarantee-document-form .frappe-control {
+	margin-bottom: 0.55rem;
+}
+
+.guarantee-document-form .frappe-control .control-label {
+	margin-bottom: 0.2rem;
+}
+
+.guarantee-document-form .frappe-control .help-box {
+	display: none;
+}
+
+/* Attachment strip: no extra section title */
+.guarantee-document-form [data-fieldname="section_attachment"] .section-head {
+	display: none;
+	min-height: 0;
+	margin: 0;
+	padding: 0;
+}
+
+.guarantee-document-form [data-fieldname="section_attachment"] .section-body {
+	padding-top: 0;
+	margin-top: -0.15rem;
+}
+
+.guarantee-document-form [data-fieldname="section_attachment"] .form-column {
+	flex: 0 0 100%;
+	max-width: 100%;
+}
+
+/* Amount + currency: paired stack on overview right column */
+.guarantee-document-form [data-fieldname="section_overview"] .frappe-control[data-fieldname="currency"] {
+	margin-top: -0.2rem;
+}
+
+/* Business reference: full-width text blocks */
+.guarantee-document-form [data-fieldname="section_reference"] .frappe-control[data-fieldname="purpose"],
+.guarantee-document-form [data-fieldname="section_reference"] .frappe-control[data-fieldname="reference_description"] {
+	flex: 0 0 100%;
+	max-width: 100%;
+}
+
+.guarantee-document-form [data-fieldname="section_reference"] .form-column.gd-ref-full {
+	flex: 0 0 100% !important;
+	max-width: 100% !important;
+}
+
+/* Notes */
+.guarantee-document-form [data-fieldname="section_notes"] .form-column {
+	flex: 0 0 100%;
+	max-width: 100%;
+}
+
+/* Lifecycle: cancelled date full row when visible */
+.guarantee-document-form [data-fieldname="section_lifecycle"] .form-column.gd-lc-full {
+	flex: 0 0 100% !important;
+	max-width: 100% !important;
+}
+
+/* Collapsible sections: lighter chrome */
+.guarantee-document-form .form-section.collapsible .section-head {
+	cursor: pointer;
+}
+
+.guarantee-document-form .form-section.collapsed .section-body {
+	display: none;
+}
+
+@media (max-width: 991px) {
+	.guarantee-document-form .form-page {
+		max-width: 100%;
+	}
+
+	.guarantee-document-form .section-body .form-column.col-sm-6 {
+		flex: 0 0 100%;
+		max-width: 100%;
+	}
+}
