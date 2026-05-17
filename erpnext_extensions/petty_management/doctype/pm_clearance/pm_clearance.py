@@ -5,8 +5,9 @@ from __future__ import annotations
 
 import frappe
 from frappe import _
+from frappe.exceptions import QueryTimeoutError
 from frappe.model.document import Document
-from frappe.model.naming import getseries
+from frappe.model.naming import make_autoname
 from frappe.utils import getdate, today
 
 from erpnext_extensions.petty_management.services.allocation_service import (
@@ -58,10 +59,14 @@ class PMClearance(Document):
 	def autoname(self):
 		if not self.employee:
 			frappe.throw(_("Employee is required before naming"))
-		d = getdate(self.transaction_date or today())
-		emp_key = str(self.employee).replace(" ", "")[:40]
-		prefix = f"CLR-{emp_key}-{d.year}-{d.month:02d}-"
-		self.name = prefix + getseries(prefix, 5)
+		# Single monthly series (not per-employee) to avoid tabSeries row lock storms.
+		try:
+			self.name = make_autoname("CLR-.YYYY.-.MM.-.#####", doc=self)
+		except QueryTimeoutError:
+			frappe.throw(
+				_("PM Clearance numbering is currently busy. Please refresh and try again."),
+				title=_("Please try again"),
+			)
 
 	def before_validate(self):
 		before_validate_clearance(self)

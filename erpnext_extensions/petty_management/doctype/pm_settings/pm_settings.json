@@ -24,7 +24,10 @@
   "require_workflow_approval",
   "column_break_auto",
   "auto_submit_payment_entry",
-  "auto_submit_journal_entry"
+  "auto_submit_journal_entry",
+  "section_journal_entry_descriptions",
+  "funding_payment_entry_remark_template",
+  "settlement_journal_entry_remark_template"
  ],
  "fields": [
   {
@@ -111,6 +114,26 @@
    "fieldname": "auto_submit_journal_entry",
    "fieldtype": "Check",
    "label": "Auto Submit Journal Entry"
+  },
+  {
+   "collapsible": 1,
+   "collapsed": 1,
+   "description": "Optional templates for Payment Entry and Journal Entry narrations. Placeholders: {employee}, {employee_name}, {pm_request}, {pm_clearance}, {company}, {posting_date}, {total_amount}, {supplier}, {purchase_invoice}, {currency}. Leave empty to use built-in defaults. Source document Remark is appended under \"User Remark:\" when provided.",
+   "fieldname": "section_journal_entry_descriptions",
+   "fieldtype": "Section Break",
+   "label": "Journal Entry Descriptions"
+  },
+  {
+   "description": "Payment Entry remarks when funding a PM Request. {pm_request}, {employee}, {total_amount}, etc.",
+   "fieldname": "funding_payment_entry_remark_template",
+   "fieldtype": "Small Text",
+   "label": "Funding Payment Entry Remark Template"
+  },
+  {
+   "description": "Journal Entry user remark when settling a PM Clearance. {pm_clearance}, {supplier}, {purchase_invoice}, {total_amount}, etc.",
+   "fieldname": "settlement_journal_entry_remark_template",
+   "fieldtype": "Small Text",
+   "label": "Settlement Journal Entry Remark Template"
   }
  ],
  "issingle": 1,

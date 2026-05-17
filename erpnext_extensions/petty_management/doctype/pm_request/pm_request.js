@@ -131,11 +131,11 @@ frappe.ui.form.on("PM Request", {
 					frm.reload_doc();
 				},
 				error(r) {
-					const msg =
-						(r && r.message) ||
-						(r && r._server_messages && frappe.utils.parse_json(r._server_messages)) ||
-						__("Could not create Payment Entry");
-					frappe.msgprint({ title: __("Payment Entry failed"), message: msg, indicator: "red" });
+					frappe.msgprint({
+						title: __("Payment Entry failed"),
+						message: parse_pm_request_server_error(r),
+						indicator: "red",
+					});
 				},
 			});
 		};
@@ -190,6 +190,38 @@ frappe.ui.form.on("PM Request Detail", {
 		frm.trigger("recalc_totals");
 	},
 });
+
+function parse_pm_request_server_error(r) {
+	if (r && r.message && typeof r.message === "string") {
+		return r.message;
+	}
+	if (r && r.exc && typeof r.exc === "string") {
+		const lockMatch = r.exc.match(/Lock wait timeout|QueryTimeoutError/i);
+		if (lockMatch) {
+			return __(
+				"This PM Request is currently being processed. Please refresh and try again."
+			);
+		}
+	}
+	if (r && r._server_messages) {
+		try {
+			const raw = frappe.utils.parse_json(r._server_messages);
+			const list = Array.isArray(raw) ? raw : [raw];
+			const parts = list
+				.map((item) => {
+					const row = typeof item === "string" ? frappe.utils.parse_json(item) : item;
+					return (row && row.message) || "";
+				})
+				.filter(Boolean);
+			if (parts.length) {
+				return parts.join("\n");
+			}
+		} catch (e) {
+			/* use fallback */
+		}
+	}
+	return __("Could not create Payment Entry");
+}
 
 function flt(v) {
 	const parsed = parseFloat(v);

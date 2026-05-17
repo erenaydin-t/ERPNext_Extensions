@@ -148,6 +148,44 @@ class TestPMProductionHardening(unittest.TestCase):
 			create_pm_pe(req.name)
 		self.assertIn("Payment Entry", str(ctx.exception))
 
+	def test_pm_clearance_rapid_insert_names_unique(self):
+		"""Monthly naming series must not block concurrent/rapid saves (no per-employee Series row)."""
+		_require_company_and_bank(self)
+		emp = tpm._make_employee()
+		tpm._make_holder(emp)
+		req_name, _pe = tpm._fund_pm_request(emp, 10_000.0)
+		pi = tpm._make_pi_outstanding(1_000)
+		pi.insert()
+		pi.submit()
+		names = []
+		for _ in range(3):
+			cl = _clearance_pi(emp, pi, 500)
+			cl.append("request_allocations", {"pm_request": req_name, "allocated_amount": 500})
+			cl.insert()
+			names.append(cl.name)
+			frappe.db.commit()
+		self.assertEqual(len(names), len(set(names)))
+		for name in names:
+			self.assertTrue(name.startswith("CLR-"), msg=name)
+
+	def test_second_create_payment_entry_rejected_when_already_funded(self):
+		_require_company_and_bank(self)
+
+		from erpnext_extensions.petty_management.services.request_service import create_payment_entry
+
+		appr = tpm._workflow_state_for("PM Request", "Approved")
+		if not appr:
+			self.skipTest("Active PM Request workflow with Approved state not found.")
+
+		emp = tpm._make_employee()
+		tpm._make_holder(emp)
+		req_name, _pe = tpm._fund_pm_request(emp, 8_000.0)
+
+		with self.assertRaises(ValidationError) as ctx:
+			create_payment_entry(req_name)
+		msg = str(ctx.exception).lower()
+		self.assertTrue("payment entry" in msg or "funded" in msg or "already" in msg)
+
 
 if __name__ == "__main__":
 	unittest.main()

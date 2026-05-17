@@ -87,7 +87,9 @@ def create_clearance_journal_entry(doc: Document) -> Document:
 	je.company = doc.company
 	je.voucher_type = "Journal Entry"
 	je.posting_date = getdate(doc.je_clearance_date or doc.transaction_date or today())
-	je.user_remark = _("Petty cash clearance {0}").format(doc.name)
+	from erpnext_extensions.petty_management.services.narration_service import (
+		apply_settlement_journal_entry_remarks,
+	)
 
 	meta = frappe.get_meta("Journal Entry")
 	if meta.has_field("custom_pm_clearance"):
@@ -98,8 +100,17 @@ def create_clearance_journal_entry(doc: Document) -> Document:
 	for line in build_clearance_je_accounts(doc):
 		je.append("accounts", line)
 
+	apply_settlement_journal_entry_remarks(je, doc)
+
 	je.insert(ignore_permissions=True)
+	apply_settlement_journal_entry_remarks(je, doc)
+	je.db_set("user_remark", je.user_remark, update_modified=False)
+	if meta.has_field("remark") and je.remark:
+		je.db_set("remark", je.remark, update_modified=False)
+
 	if settings and settings.auto_submit_journal_entry:
+		apply_settlement_journal_entry_remarks(je, doc)
+		je.db_set("user_remark", je.user_remark, update_modified=False)
 		je.submit()
 	return je
 

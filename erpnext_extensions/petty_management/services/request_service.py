@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import frappe
 from frappe import _
+from frappe.exceptions import QueryTimeoutError
 from frappe.model.document import Document
 from frappe.utils import cint, flt, getdate, today
 
@@ -214,8 +215,63 @@ def request_ready_for_payment_entry(doc: Document) -> tuple[bool, str]:
 	return True, ""
 
 
+def find_active_payment_entries_for_pm_request(
+	pm_request: str, *, exclude_pe: str | None = None
+) -> list[str]:
+	"""Non-cancelled Payment Entries tied to this PM Request (reference_no and/or custom_pm_request)."""
+	names: set[str] = set(
+		frappe.db.sql(
+			"""
+			select name from `tabPayment Entry`
+			where reference_no = %s and docstatus in (0, 1)
+			""",
+			pm_request,
+			pluck=True,
+		)
+	)
+	meta_pe = frappe.get_meta("Payment Entry")
+	if meta_pe.has_field("custom_pm_request"):
+		for row in frappe.db.sql(
+			"""
+			select name from `tabPayment Entry`
+			where custom_pm_request = %s and docstatus in (0, 1)
+			""",
+			pm_request,
+			pluck=True,
+		):
+			names.add(row)
+	if exclude_pe:
+		names.discard(exclude_pe)
+	return sorted(names)
+
+
+def assert_no_active_payment_entry_for_request(doc: Document) -> None:
+	"""Raise if another active PE already funds this request."""
+	linked = (getattr(doc, "payment_entry", None) or "").strip()
+	if linked and frappe.db.exists("Payment Entry", linked):
+		ds = cint(frappe.db.get_value("Payment Entry", linked, "docstatus"))
+		if ds in (0, 1):
+			frappe.throw(
+				_("A Payment Entry already exists for this PM Request ({0}).").format(linked),
+				title=_("Duplicate funding Payment Entry"),
+			)
+	for pe_name in find_active_payment_entries_for_pm_request(doc.name, exclude_pe=linked or None):
+		frappe.throw(
+			_("Another Payment Entry already exists for this PM Request ({0}).").format(pe_name),
+			title=_("Duplicate funding Payment Entry"),
+		)
+
+
+def _throw_payment_entry_busy() -> None:
+	frappe.throw(
+		_("This PM Request is currently being processed. Please refresh and try again."),
+		title=_("Please try again"),
+	)
+
+
 def create_payment_entry(pm_request: str) -> str:
-	doc = frappe.get_doc("PM Request", pm_request, for_update=True)
+	"""Create funding PE with a short row lock on PM Request (validate/build outside the lock)."""
+	doc = frappe.get_doc("PM Request", pm_request)
 	if not frappe.has_permission("PM Request", "read", doc=doc):
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
 	doc.check_permission("write")
@@ -234,18 +290,7 @@ def create_payment_entry(pm_request: str) -> str:
 	if not ok:
 		frappe.throw(reason, title=_("Cannot create Payment Entry"))
 
-	for pe_name, in frappe.db.sql(
-		"""
-		select name from `tabPayment Entry`
-		where reference_no = %s and docstatus in (0, 1)
-		""",
-		doc.name,
-	):
-		if pe_name != (doc.payment_entry or None):
-			frappe.throw(
-				_("Another Payment Entry already exists for this PM Request ({0}).").format(pe_name),
-				title=_("Duplicate funding Payment Entry"),
-			)
+	assert_no_active_payment_entry_for_request(doc)
 
 	paid_from = settings.default_bank_account if settings else None
 	if not paid_from:
@@ -255,25 +300,70 @@ def create_payment_entry(pm_request: str) -> str:
 	if amount <= 0:
 		frappe.throw(_("Total Requested Amount must be positive"))
 
+	# Build PE (incl. narration templates) before acquiring PM Request row lock.
 	pe = _build_payment_entry(doc, paid_from, amount)
+
 	try:
+		doc_locked = frappe.get_doc("PM Request", pm_request, for_update=True)
+	except QueryTimeoutError:
+		_throw_payment_entry_busy()
+
+	try:
+		ok, reason = request_ready_for_payment_entry(doc_locked)
+		if not ok:
+			frappe.throw(reason, title=_("Cannot create Payment Entry"))
+		assert_no_active_payment_entry_for_request(doc_locked)
+
 		pe.insert(ignore_permissions=True)
-		if settings and settings.auto_submit_payment_entry:
-			pe.submit()
+		from erpnext_extensions.petty_management.services.narration_service import (
+			apply_funding_payment_entry_remarks,
+		)
+
+		apply_funding_payment_entry_remarks(pe, doc_locked, amount)
+		pe.db_set(
+			{"remarks": pe.remarks, "custom_remarks": 1 if frappe.get_meta("Payment Entry").has_field("custom_remarks") else 0},
+			update_modified=False,
+		)
+		dupes = find_active_payment_entries_for_pm_request(doc_locked.name, exclude_pe=pe.name)
+		if dupes:
+			frappe.throw(
+				_("Another Payment Entry already exists for this PM Request ({0}).").format(dupes[0]),
+				title=_("Duplicate funding Payment Entry"),
+			)
+
+		doc_locked.db_set("payment_entry", pe.name, update_modified=False)
+		doc_locked.payment_entry = pe.name
+		derive_payment_status(doc_locked)
+		sync_request_status_from_workflow(doc_locked)
+		frappe.db.set_value(
+			"PM Request",
+			doc_locked.name,
+			{"payment_status": doc_locked.payment_status, "status": doc_locked.status},
+			update_modified=False,
+		)
+		frappe.db.commit()
+	except QueryTimeoutError:
+		frappe.db.rollback()
+		_throw_payment_entry_busy()
 	except Exception as e:
 		frappe.db.rollback()
 		frappe.throw(_("Payment Entry could not be created: {0}").format(str(e)), title=_("Payment Entry failed"))
 
-	doc.db_set("payment_entry", pe.name, update_modified=False)
-	doc.payment_entry = pe.name
-	derive_payment_status(doc)
-	sync_request_status_from_workflow(doc)
-	frappe.db.set_value(
-		"PM Request",
-		doc.name,
-		{"payment_status": doc.payment_status, "status": doc.status},
-		update_modified=False,
-	)
+	if settings and settings.auto_submit_payment_entry:
+		try:
+			apply_funding_payment_entry_remarks(pe, doc, amount)
+			pe.db_set(
+				{
+					"remarks": pe.remarks,
+					"custom_remarks": 1 if frappe.get_meta("Payment Entry").has_field("custom_remarks") else 0,
+				},
+				update_modified=False,
+			)
+			pe.submit()
+		except Exception as e:
+			frappe.db.rollback()
+			frappe.throw(_("Payment Entry could not be submitted: {0}").format(str(e)), title=_("Payment Entry failed"))
+
 	try:
 		from erpnext_extensions.petty_management import petty_audit
 
@@ -312,18 +402,16 @@ def _build_payment_entry(doc: Document, paid_from: str, amount: float) -> Docume
 		pe.paid_from_account_currency = company_currency
 	pe.reference_no = doc.name
 	pe.reference_date = getdate(doc.transaction_date) if doc.transaction_date else pe.posting_date
-	remarks = _("Petty cash advance for {0}").format(doc.name)
 
 	meta_pe = frappe.get_meta("Payment Entry")
-	if doc.employee_bank_account:
-		if meta_pe.has_field("party_bank_account"):
-			pe.party_bank_account = doc.employee_bank_account
-		else:
-			ba_ref = frappe.db.get_value("Bank Account", doc.employee_bank_account, "account_name") or str(
-				doc.employee_bank_account
-			)
-			remarks += "\n" + _("Employee Bank Account: {0}").format(ba_ref)
-	pe.remarks = remarks
+	if doc.employee_bank_account and meta_pe.has_field("party_bank_account"):
+		pe.party_bank_account = doc.employee_bank_account
+
+	from erpnext_extensions.petty_management.services.narration_service import (
+		apply_funding_payment_entry_remarks,
+	)
+
+	apply_funding_payment_entry_remarks(pe, doc, amount)
 
 	if meta_pe.has_field("custom_pm_request"):
 		pe.custom_pm_request = doc.name

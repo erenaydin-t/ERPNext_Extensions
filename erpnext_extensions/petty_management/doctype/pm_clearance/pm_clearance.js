@@ -256,14 +256,36 @@ function update_settlement_balance_intro(frm, settled_total, req_total) {
 	}
 }
 
-function format_amount_plain(frm, v) {
-	const currency =
-		(frm && frm.doc && frm.doc.currency) || frappe.defaults.get_default("currency");
-	return frappe.utils.fmt_money(flt(v), currency);
+function strip_html_from_formatted(text) {
+	const raw = text === undefined || text === null ? "" : String(text);
+	return raw.replace(/<[^>]*>/g, "").trim();
 }
 
-function format_currency(v) {
-	return frappe.format(flt(v), { fieldtype: "Currency" });
+function format_currency(v, currency) {
+	const amount = flt(v);
+	const cur =
+		currency ||
+		(frappe.defaults && frappe.defaults.get_default && frappe.defaults.get_default("currency")) ||
+		"";
+	try {
+		if (typeof frappe.format === "function") {
+			const formatted = frappe.format(amount, {
+				fieldtype: "Currency",
+				options: cur || undefined,
+			});
+			if (formatted !== undefined && formatted !== null && String(formatted).trim() !== "") {
+				return strip_html_from_formatted(formatted);
+			}
+		}
+	} catch (e) {
+		/* use numeric fallback */
+	}
+	return `${amount.toLocaleString()} ${cur}`.trim();
+}
+
+function format_amount_plain(frm, v) {
+	const currency = (frm && frm.doc && frm.doc.currency) || "";
+	return format_currency(v, currency);
 }
 
 function escape_html(value) {
