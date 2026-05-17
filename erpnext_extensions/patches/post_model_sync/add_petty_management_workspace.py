@@ -7,6 +7,16 @@ from frappe.desk.doctype.workspace_sidebar.workspace_sidebar import (
 	create_workspace_sidebar_for_workspaces,
 )
 
+from erpnext_extensions.petty_management.desk_workspace_config import (
+	SIDEBAR_HOME_ICON,
+	SIDEBAR_LINK_ICONS,
+	SIDEBAR_SECTION_ICONS,
+	WORKSPACE_CARD_ICONS,
+	WORKSPACE_REPORT_LINKS,
+	WORKSPACE_SETUP_LINKS,
+	WORKSPACE_TRANSACTION_LINKS,
+)
+
 
 MODULE_NAME = "Petty Management"
 APP_NAME = "erpnext_extensions"
@@ -15,8 +25,11 @@ APP_NAME = "erpnext_extensions"
 _PETTY_WORKSPACE_CONTENT = [
 	{
 		"id": "pm_ws_hdr",
-		"type": "header",
-		"data": {"text": '<span class="h4"><b>Petty Management</b></span>', "col": 12},
+		"type": "paragraph",
+		"data": {
+			"text": "<b>Petty Management</b> — funding, clearance, and reporting.",
+			"col": 12,
+		},
 	},
 	{"id": "pm_ws_setup", "type": "card", "data": {"card_name": "Setup", "col": 4}},
 	{"id": "pm_ws_txn", "type": "card", "data": {"card_name": "Transactions", "col": 4}},
@@ -127,23 +140,16 @@ def _sync_petty_workspace_sidebar():
 		row["idx"] = next_idx()
 		sb.append("items", row)
 
-	add_item(
-		{
-			"label": "Home",
-			"type": "Link",
-			"link_type": "Workspace",
-			"link_to": MODULE_NAME,
-		}
-	)
-
 	def add_section(label: str) -> None:
-		add_item(
-			{
-				"label": label,
-				"type": "Section Break",
-				"collapsible": 1,
-			}
-		)
+		row = {
+			"label": label,
+			"type": "Section Break",
+			"collapsible": 1,
+			"keep_closed": 0,
+		}
+		if SIDEBAR_SECTION_ICONS.get(label):
+			row["icon"] = SIDEBAR_SECTION_ICONS[label]
+		add_item(row)
 
 	def add_link(label: str, link_type: str, link_to: str, **extra) -> None:
 		row = {
@@ -152,27 +158,32 @@ def _sync_petty_workspace_sidebar():
 			"link_type": link_type,
 			"link_to": link_to,
 			"child": 1,
+			"icon": SIDEBAR_LINK_ICONS.get(label) or extra.pop("icon", None),
 		}
 		row.update(extra)
 		add_item(row)
 
+	add_item(
+		{
+			"label": "Home",
+			"type": "Link",
+			"link_type": "Workspace",
+			"link_to": MODULE_NAME,
+			"icon": SIDEBAR_HOME_ICON,
+		}
+	)
+
 	add_section("Setup")
-	add_link("PM Settings", "DocType", "PM Settings")
-	add_link("PM Holder", "DocType", "PM Holder")
+	for label, link_type, link_to, _extra in WORKSPACE_SETUP_LINKS:
+		add_link(label, link_type, link_to)
 
 	add_section("Transactions")
-	add_link("PM Request", "DocType", "PM Request")
-	add_link("PM Clearance", "DocType", "PM Clearance")
-	add_link("Purchase Invoice", "DocType", "Purchase Invoice")
-	add_link("Payment Entry", "DocType", "Payment Entry")
-	add_link("Journal Entry", "DocType", "Journal Entry")
+	for label, link_type, link_to, _extra in WORKSPACE_TRANSACTION_LINKS:
+		add_link(label, link_type, link_to)
 
 	add_section("Reports")
-	add_link("PM Balance Report", "Report", "PM Balance Report")
-	add_link("PM Ledger Report", "Report", "PM Ledger Report")
-	add_link("PM Pending Clearance Report", "Report", "PM Pending Clearance Report")
-	add_link("PM Settlement Ledger", "Report", "PM Settlement Ledger")
-	add_link("PM Request Availability Report", "Report", "PM Request Availability Report")
+	for label, link_type, link_to, extra in WORKSPACE_REPORT_LINKS:
+		add_link(label, link_type, link_to, **extra)
 
 	sb.save(ignore_permissions=True)
 
@@ -246,40 +257,46 @@ def execute():
 	if meta.has_field("links"):
 		ws.links = []
 
-	_append_link(ws, {"type": "Card Break", "label": "Setup", "icon": ""})
-	for label, link_to in (
-		("PM Settings", "PM Settings"),
-		("PM Holder", "PM Holder"),
-	):
-		_append_link(ws, {"type": "Link", "label": label, "link_type": "DocType", "link_to": link_to})
-
-	_append_link(ws, {"type": "Card Break", "label": "Transactions", "icon": ""})
-	for label, link_to, ltype in (
-		("PM Request", "PM Request", "DocType"),
-		("PM Clearance", "PM Clearance", "DocType"),
-		("Purchase Invoice", "Purchase Invoice", "DocType"),
-		("Payment Entry", "Payment Entry", "DocType"),
-		("Journal Entry", "Journal Entry", "DocType"),
-	):
-		_append_link(ws, {"type": "Link", "label": label, "link_type": ltype, "link_to": link_to})
-
-	_append_link(ws, {"type": "Card Break", "label": "Reports", "icon": ""})
-	for label, link_to in (
-		("PM Balance Report", "PM Balance Report"),
-		("PM Ledger Report", "PM Ledger Report"),
-		("PM Pending Clearance Report", "PM Pending Clearance Report"),
-		("PM Settlement Ledger", "PM Settlement Ledger"),
-		("PM Request Availability Report", "PM Request Availability Report"),
-	):
+	_append_link(
+		ws,
+		{
+			"type": "Card Break",
+			"label": "Setup",
+			"icon": WORKSPACE_CARD_ICONS.get("Setup", "settings"),
+		},
+	)
+	for label, link_type, link_to, extra in WORKSPACE_SETUP_LINKS:
 		_append_link(
 			ws,
-			{
-				"type": "Link",
-				"label": label,
-				"link_type": "Report",
-				"link_to": link_to,
-				"is_query_report": 1,
-			},
+			{"type": "Link", "label": label, "link_type": link_type, "link_to": link_to, **extra},
+		)
+
+	_append_link(
+		ws,
+		{
+			"type": "Card Break",
+			"label": "Transactions",
+			"icon": WORKSPACE_CARD_ICONS.get("Transactions", "repeat"),
+		},
+	)
+	for label, link_type, link_to, extra in WORKSPACE_TRANSACTION_LINKS:
+		_append_link(
+			ws,
+			{"type": "Link", "label": label, "link_type": link_type, "link_to": link_to, **extra},
+		)
+
+	_append_link(
+		ws,
+		{
+			"type": "Card Break",
+			"label": "Reports",
+			"icon": WORKSPACE_CARD_ICONS.get("Reports", "bar-chart-2"),
+		},
+	)
+	for label, link_type, link_to, extra in WORKSPACE_REPORT_LINKS:
+		_append_link(
+			ws,
+			{"type": "Link", "label": label, "link_type": link_type, "link_to": link_to, **extra},
 		)
 
 	ws.save(ignore_permissions=True)

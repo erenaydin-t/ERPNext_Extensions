@@ -1,0 +1,47 @@
+/* Petty Management workspace — compact layout, tighter cards (Desk light/dark safe). */
+
+[data-page-route="Workspaces"] .layout-main-section {
+	padding-top: var(--padding-xs);
+	padding-bottom: var(--padding-sm);
+}
+
+[data-page-route="Workspaces"] .ce-block[data-id^="pm_ws_"] .ce-header,
+[data-page-route="Workspaces"] .ce-block[data-id="pm_ws_hdr"] {
+	margin-bottom: 0.25rem;
+}
+
+[data-page-route="Workspaces"] .links-widget-box {
+	min-height: 10rem;
+	padding: var(--padding-sm) var(--padding-md);
+}
+
+[data-page-route="Workspaces"] .links-widget-box .widget-head {
+	margin-bottom: var(--margin-sm);
+}
+
+[data-page-route="Workspaces"] .links-widget-box .link-item {
+	padding: 0.35rem 0.5rem;
+	border-radius: var(--border-radius-sm);
+}
+
+[data-page-route="Workspaces"] .links-widget-box .link-item:hover {
+	background-color: var(--fg-hover-color);
+}
+
+[data-page-route="Workspaces"] .links-widget-box .link-item .icon {
+	margin-right: 0.5rem;
+	opacity: 0.9;
+}
+
+/* Sidebar module: section labels + child links */
+.desk-sidebar .standard-sidebar-item[data-type="Section Break"] .sidebar-item-label {
+	font-weight: 600;
+	letter-spacing: 0.02em;
+	text-transform: uppercase;
+	font-size: var(--text-xs);
+	opacity: 0.85;
+}
+
+.desk-sidebar .standard-sidebar-item[data-child="1"] {
+	margin-top: 0.125rem;
+}

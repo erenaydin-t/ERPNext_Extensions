@@ -9,6 +9,7 @@
   {
    "child": 0,
    "collapsible": 1,
+   "icon": "home",
    "indent": 0,
    "keep_closed": 0,
    "label": "Home",
@@ -20,6 +21,7 @@
   {
    "child": 0,
    "collapsible": 1,
+   "icon": "settings",
    "indent": 0,
    "keep_closed": 0,
    "label": "Setup",
@@ -30,6 +32,7 @@
   {
    "child": 1,
    "collapsible": 1,
+   "icon": "settings",
    "indent": 0,
    "keep_closed": 0,
    "label": "PM Settings",
@@ -41,6 +44,7 @@
   {
    "child": 1,
    "collapsible": 1,
+   "icon": "users",
    "indent": 0,
    "keep_closed": 0,
    "label": "PM Holder",
@@ -52,6 +56,7 @@
   {
    "child": 0,
    "collapsible": 1,
+   "icon": "repeat",
    "indent": 0,
    "keep_closed": 0,
    "label": "Transactions",
@@ -62,6 +67,7 @@
   {
    "child": 1,
    "collapsible": 1,
+   "icon": "credit-card",
    "indent": 0,
    "keep_closed": 0,
    "label": "PM Request",
@@ -73,6 +79,7 @@
   {
    "child": 1,
    "collapsible": 1,
+   "icon": "check-square",
    "indent": 0,
    "keep_closed": 0,
    "label": "PM Clearance",
@@ -84,6 +91,7 @@
   {
    "child": 1,
    "collapsible": 1,
+   "icon": "file-text",
    "indent": 0,
    "keep_closed": 0,
    "label": "Purchase Invoice",
@@ -95,6 +103,7 @@
   {
    "child": 1,
    "collapsible": 1,
+   "icon": "dollar-sign",
    "indent": 0,
    "keep_closed": 0,
    "label": "Payment Entry",
@@ -106,6 +115,7 @@
   {
    "child": 1,
    "collapsible": 1,
+   "icon": "book-open",
    "indent": 0,
    "keep_closed": 0,
    "label": "Journal Entry",
@@ -117,6 +127,7 @@
   {
    "child": 0,
    "collapsible": 1,
+   "icon": "bar-chart-2",
    "indent": 0,
    "keep_closed": 0,
    "label": "Reports",
@@ -127,6 +138,7 @@
   {
    "child": 1,
    "collapsible": 1,
+   "icon": "pie-chart",
    "indent": 0,
    "keep_closed": 0,
    "label": "PM Balance Report",
@@ -138,6 +150,7 @@
   {
    "child": 1,
    "collapsible": 1,
+   "icon": "book",
    "indent": 0,
    "keep_closed": 0,
    "label": "PM Ledger Report",
@@ -149,6 +162,7 @@
   {
    "child": 1,
    "collapsible": 1,
+   "icon": "clock",
    "indent": 0,
    "keep_closed": 0,
    "label": "PM Pending Clearance Report",
@@ -160,6 +174,7 @@
   {
    "child": 1,
    "collapsible": 1,
+   "icon": "archive",
    "indent": 0,
    "keep_closed": 0,
    "label": "PM Settlement Ledger",
@@ -171,6 +186,7 @@
   {
    "child": 1,
    "collapsible": 1,
+   "icon": "bar-chart-2",
    "indent": 0,
    "keep_closed": 0,
    "label": "PM Request Availability Report",
@@ -180,7 +196,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-05-18 00:40:26.422654",
+ "modified": "2026-05-18 01:01:15.602787",
  "modified_by": "Administrator",
  "module": "Petty Management",
  "name": "Petty Management",
