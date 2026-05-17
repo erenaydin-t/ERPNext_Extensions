@@ -1,0 +1,356 @@
+{
+ "actions": [],
+ "allow_copy": 0,
+ "allow_import": 0,
+ "allow_rename": 0,
+ "beta": 0,
+ "creation": "2026-05-09 00:00:00.000000",
+ "custom": 0,
+ "docstatus": 0,
+ "doctype": "DocType",
+ "document_type": "Document",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "is_submittable": 1,
+ "field_order": [
+  "section_main",
+  "transaction_date",
+  "company",
+  "employee",
+  "employee_name",
+  "column_break_clr",
+  "project",
+  "petty_cash_account",
+  "currency",
+  "pending_amount",
+  "je_clearance_date",
+  "section_trace",
+  "holder",
+  "current_petty_balance",
+  "total_funded_amount",
+  "column_break_trace",
+  "total_cleared_amount",
+  "section_totals",
+  "total_expense_without_tax",
+  "total_tax_amount",
+  "total_expense_amount",
+  "column_break_tot",
+  "total_petty_cash",
+  "remaining_amount",
+  "status",
+  "workflow_state",
+  "section_accounting",
+  "journal_entry",
+  "column_break_acc",
+  "purchase_invoice",
+  "section_details",
+  "details",
+  "section_request_alloc",
+  "request_allocations",
+  "section_remark",
+  "remark"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_main",
+   "fieldtype": "Section Break",
+   "label": "PM Clearance"
+  },
+  {
+   "default": "Today",
+   "fieldname": "transaction_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Transaction Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "employee",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Employee",
+   "options": "Employee",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "employee.employee_name",
+   "fieldname": "employee_name",
+   "fieldtype": "Data",
+   "label": "Employee Name",
+   "read_only": 1
+  },
+  {
+   "description": "Auto-filled from Employee and Company (non-blocked PM Holder). Read-only.",
+   "fieldname": "holder",
+   "fieldtype": "Link",
+   "label": "PM Holder",
+   "options": "PM Holder",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_clr",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "label": "Project",
+   "options": "Project"
+  },
+  {
+   "description": "Set from PM Holder on save (not fetch-only) for reliable PM Request matching.",
+   "fieldname": "petty_cash_account",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Petty Cash Account",
+   "options": "Account",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "company.default_currency",
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pending_amount",
+   "fieldtype": "Currency",
+   "label": "Pending Amount",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "default": "Today",
+   "fieldname": "je_clearance_date",
+   "fieldtype": "Date",
+   "fetch_from": "transaction_date",
+   "label": "JE Clearance Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_trace",
+   "fieldtype": "Section Break",
+   "label": "Funding / Traceability",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "current_petty_balance",
+   "fieldtype": "Currency",
+   "label": "Current Petty Balance",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_funded_amount",
+   "fieldtype": "Currency",
+   "label": "Total Funded Amount",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_trace",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_cleared_amount",
+   "fieldtype": "Currency",
+   "label": "Total Cleared Amount",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_totals",
+   "fieldtype": "Section Break",
+   "label": "Totals"
+  },
+  {
+   "fieldname": "total_expense_without_tax",
+   "fieldtype": "Currency",
+   "hidden": 1,
+   "label": "Total Expense Without Tax",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_tax_amount",
+   "fieldtype": "Currency",
+   "hidden": 1,
+   "label": "Total Tax Amount",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_expense_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Settlement Amount",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_tot",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_petty_cash",
+   "fieldtype": "Currency",
+   "label": "Total Petty Cash",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "remaining_amount",
+   "fieldtype": "Currency",
+   "label": "Remaining Amount",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Draft\nPending Finance Review\nApproved\nPending Journal Entry Submission\nSettled\nRejected\nCancelled",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "default": "Draft",
+   "fieldname": "workflow_state",
+   "fieldtype": "Link",
+   "in_standard_filter": 0,
+   "label": "Workflow State",
+   "options": "Workflow State",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_accounting",
+   "fieldtype": "Section Break",
+   "label": "Accounting",
+   "collapsible": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "journal_entry",
+   "fieldtype": "Link",
+   "label": "Journal Entry",
+   "options": "Journal Entry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_acc",
+   "fieldtype": "Column Break"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "purchase_invoice",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Purchase Invoice",
+   "options": "Purchase Invoice",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_details",
+   "fieldtype": "Section Break",
+   "label": "Purchase Invoice Lines / Settlement Lines"
+  },
+  {
+   "fieldname": "details",
+   "fieldtype": "Table",
+   "label": "Settlement lines",
+   "options": "PM Clearance Detail",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_request_alloc",
+   "fieldtype": "Section Break",
+   "label": "PM Request Allocation"
+  },
+  {
+   "fieldname": "request_allocations",
+   "fieldtype": "Table",
+   "label": "PM Request Allocation Lines",
+   "options": "PM Clearance Request Allocation",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_remark",
+   "fieldtype": "Section Break",
+   "label": "Remark",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "remark",
+   "fieldtype": "Small Text",
+   "label": "Remark"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-05-09 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Petty Management",
+ "name": "PM Clearance",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Petty Management Admin",
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Petty Management Manager",
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Petty Management User",
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Petty Management Accountant",
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Petty Management Auditor"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

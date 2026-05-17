@@ -1,0 +1,37 @@
+[
+ {
+  "desk_access": 1,
+  "docstatus": 0,
+  "doctype": "Role",
+  "name": "Petty Management User",
+  "role_name": "Petty Management User"
+ },
+ {
+  "desk_access": 1,
+  "docstatus": 0,
+  "doctype": "Role",
+  "name": "Petty Management Manager",
+  "role_name": "Petty Management Manager"
+ },
+ {
+  "desk_access": 1,
+  "docstatus": 0,
+  "doctype": "Role",
+  "name": "Petty Management Accountant",
+  "role_name": "Petty Management Accountant"
+ },
+ {
+  "desk_access": 1,
+  "docstatus": 0,
+  "doctype": "Role",
+  "name": "Petty Management Auditor",
+  "role_name": "Petty Management Auditor"
+ },
+ {
+  "desk_access": 1,
+  "docstatus": 0,
+  "doctype": "Role",
+  "name": "Petty Management Admin",
+  "role_name": "Petty Management Admin"
+ }
+]

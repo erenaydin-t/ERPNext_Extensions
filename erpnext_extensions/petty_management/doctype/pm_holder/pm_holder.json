@@ -1,0 +1,204 @@
+{
+ "actions": [],
+ "allow_copy": 0,
+ "allow_import": 1,
+ "allow_rename": 0,
+ "creation": "2026-05-09 00:00:00.000000",
+ "custom": 0,
+ "docstatus": 0,
+ "doctype": "DocType",
+ "document_type": "Setup",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "section_holder",
+  "employee",
+  "employee_name",
+  "company",
+  "column_break_h",
+  "petty_cash_account",
+  "default_cost_center",
+  "default_employee_bank_account",
+  "max_balance",
+  "section_balances",
+  "account_gl_balance",
+  "current_balance",
+  "pending_clearance_amount",
+  "column_break_bal",
+  "consumed_amount",
+  "is_blocked",
+  "section_other",
+  "remarks"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_holder",
+   "fieldtype": "Section Break",
+   "label": "Holder"
+  },
+  {
+   "fieldname": "employee",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Employee",
+   "options": "Employee",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "employee.employee_name",
+   "fieldname": "employee_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Employee Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_h",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "May be shared by multiple PM Holders. GL balance is account-level; holder availability is calculated from PM Requests and PM Clearance allocations.",
+   "fieldname": "petty_cash_account",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Petty Cash Account",
+   "options": "Account",
+   "reqd": 1
+  },
+  {
+   "fieldname": "default_cost_center",
+   "fieldtype": "Link",
+   "label": "Default Cost Center",
+   "options": "Cost Center"
+  },
+  {
+   "description": "Optional. Used only as payment information for the petty cash holder. Accounting still posts to the holder's petty cash account.",
+   "fieldname": "default_employee_bank_account",
+   "fieldtype": "Link",
+   "label": "Default Employee Bank Account",
+   "options": "Bank Account"
+  },
+  {
+   "fieldname": "max_balance",
+   "fieldtype": "Currency",
+   "label": "Max Balance"
+  },
+  {
+   "fieldname": "section_balances",
+   "fieldtype": "Section Break",
+   "label": "Balances"
+  },
+  {
+   "description": "Balance of the linked petty cash account from GL (may be shared across holders).",
+   "fieldname": "account_gl_balance",
+   "fieldtype": "Currency",
+   "label": "Account GL Balance",
+   "read_only": 1
+  },
+  {
+   "description": "Paid PM Requests minus amounts reserved on submitted PM Clearances (availability, not GL).",
+   "fieldname": "current_balance",
+   "fieldtype": "Currency",
+   "label": "Holder Available Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pending_clearance_amount",
+   "fieldtype": "Currency",
+   "label": "Pending Settlement Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_bal",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "consumed_amount",
+   "fieldtype": "Currency",
+   "label": "Settled Amount",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "is_blocked",
+   "fieldtype": "Check",
+   "label": "Is Blocked"
+  },
+  {
+   "fieldname": "section_other",
+   "fieldtype": "Section Break",
+   "label": "Other"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-05-09 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Petty Management",
+ "name": "PM Holder",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Petty Management Admin",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Petty Management Manager",
+   "write": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Petty Management Accountant",
+   "write": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Petty Management User"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Petty Management Auditor"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

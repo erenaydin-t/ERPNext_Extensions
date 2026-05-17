@@ -1,0 +1,169 @@
+{
+ "actions": [],
+ "allow_copy": 0,
+ "allow_rename": 0,
+ "creation": "2026-05-09 00:00:00.000000",
+ "custom": 0,
+ "docstatus": 0,
+ "doctype": "DocType",
+ "document_type": "Setup",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "section_general",
+  "default_company",
+  "section_accounts",
+  "default_bank_account",
+  "default_cost_center",
+  "column_break_opts",
+  "allow_negative_balance",
+  "require_attachment",
+  "require_bill_no",
+  "section_auto",
+  "block_new_request_if_pending_clearance",
+  "require_workflow_approval",
+  "column_break_auto",
+  "auto_submit_payment_entry",
+  "auto_submit_journal_entry",
+  "section_journal_entry_descriptions",
+  "funding_payment_entry_remark_template",
+  "settlement_journal_entry_remark_template"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_general",
+   "fieldtype": "Section Break",
+   "label": "General"
+  },
+  {
+   "fieldname": "default_company",
+   "fieldtype": "Link",
+   "label": "Default Company",
+   "options": "Company"
+  },
+  {
+   "fieldname": "section_accounts",
+   "fieldtype": "Section Break",
+   "label": "Defaults"
+  },
+  {
+   "description": "Optional default. Actual payment source is selected on PM Request.",
+   "fieldname": "default_bank_account",
+   "fieldtype": "Link",
+   "label": "Default Bank Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "default_cost_center",
+   "fieldtype": "Link",
+   "label": "Default Cost Center",
+   "options": "Cost Center"
+  },
+  {
+   "fieldname": "column_break_opts",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "allow_negative_balance",
+   "fieldtype": "Check",
+   "label": "Allow Negative Balance"
+  },
+  {
+   "default": "0",
+   "fieldname": "require_attachment",
+   "fieldtype": "Check",
+   "label": "Require Attachment (Clearance)"
+  },
+  {
+   "default": "0",
+   "fieldname": "require_bill_no",
+   "fieldtype": "Check",
+   "label": "Require Bill No (Clearance)"
+  },
+  {
+   "fieldname": "section_auto",
+   "fieldtype": "Section Break",
+   "label": "Automation"
+  },
+  {
+   "default": "0",
+   "fieldname": "block_new_request_if_pending_clearance",
+   "fieldtype": "Check",
+   "label": "Block New Request If Pending Clearance"
+  },
+  {
+   "default": "1",
+   "description": "When enabled, PM Clearance can be submitted only in workflow state Approved (workflow state must be set).",
+   "fieldname": "require_workflow_approval",
+   "fieldtype": "Check",
+   "label": "Require Workflow Approval Before PM Clearance Submit"
+  },
+  {
+   "fieldname": "column_break_auto",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "auto_submit_payment_entry",
+   "fieldtype": "Check",
+   "label": "Auto Submit Payment Entry"
+  },
+  {
+   "default": "0",
+   "fieldname": "auto_submit_journal_entry",
+   "fieldtype": "Check",
+   "label": "Auto Submit Journal Entry"
+  },
+  {
+   "collapsible": 1,
+   "collapsed": 1,
+   "description": "Optional templates for Payment Entry and Journal Entry narrations. Placeholders: {employee}, {employee_name}, {pm_request}, {pm_clearance}, {company}, {posting_date}, {total_amount}, {supplier}, {purchase_invoice}, {currency}. Leave empty to use built-in defaults. Source document Remark is appended under \"User Remark:\" when provided.",
+   "fieldname": "section_journal_entry_descriptions",
+   "fieldtype": "Section Break",
+   "label": "Journal Entry Descriptions"
+  },
+  {
+   "description": "Payment Entry remarks when funding a PM Request. {pm_request}, {employee}, {total_amount}, etc.",
+   "fieldname": "funding_payment_entry_remark_template",
+   "fieldtype": "Small Text",
+   "label": "Funding Payment Entry Remark Template"
+  },
+  {
+   "description": "Journal Entry user remark when settling a PM Clearance. {pm_clearance}, {supplier}, {purchase_invoice}, {total_amount}, etc.",
+   "fieldname": "settlement_journal_entry_remark_template",
+   "fieldtype": "Small Text",
+   "label": "Settlement Journal Entry Remark Template"
+  }
+ ],
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-05-09 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Petty Management",
+ "name": "PM Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "read": 1,
+   "role": "System Manager",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "role": "Petty Management Admin",
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Petty Management Accountant",
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

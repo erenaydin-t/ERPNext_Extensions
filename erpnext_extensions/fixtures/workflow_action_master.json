@@ -229,6 +229,48 @@
   "modified": "2026-04-03 00:00:00.000000",
   "name": "Escalate Legal",
   "workflow_action_name": "Escalate Legal"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "modified": "2026-05-09 00:00:00.000000",
+  "name": "PM Submit for Approval",
+  "workflow_action_name": "PM Submit for Approval"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "modified": "2026-05-09 00:00:00.000000",
+  "name": "PM Approve",
+  "workflow_action_name": "PM Approve"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "modified": "2026-05-09 00:00:00.000000",
+  "name": "PM Reject",
+  "workflow_action_name": "PM Reject"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "modified": "2026-05-09 00:00:00.000000",
+  "name": "PM Mark Paid",
+  "workflow_action_name": "PM Mark Paid"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "modified": "2026-05-09 00:00:00.000000",
+  "name": "PM Submit Finance Review",
+  "workflow_action_name": "PM Submit Finance Review"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "modified": "2026-05-09 00:00:00.000000",
+  "name": "PM Post",
+  "workflow_action_name": "PM Post"
  }
 ]
 

@@ -28,7 +28,7 @@ boot_session = ["erpnext_extensions.desk_boot.extend_bootinfo"]
 # ------------------
 
 # include js, css files in header of desk.html
-# app_include_css = "/assets/erpnext_extensions/css/erpnext_extensions.css"
+app_include_css = "/assets/erpnext_extensions/css/petty_management_desk.css"
 # app_include_js = "/assets/erpnext_extensions/js/erpnext_extensions.js"
 
 # include js, css files in header of web template
@@ -73,7 +73,9 @@ doctype_js = {
 		"public/js/pdc_create_from_order.js",
 	],
 }
-# doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
+doctype_list_js = {
+	"PM Clearance": "erpnext_extensions/petty_management/doctype/pm_clearance/pm_clearance_list.js",
+}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
 
@@ -114,6 +116,13 @@ doctype_js = {
 # before_install = "erpnext_extensions.install.before_install"
 # after_install = "erpnext_extensions.install.after_install"
 
+# Re-apply Cheque Management links on Payments `Workspace Sidebar` after migrate completes
+# (Frappe may remove patch-created Workspaces during orphan cleanup in the same migrate).
+after_migrate = [
+	"erpnext_extensions.cheque_management.payments_sidebar.after_migrate",
+	"erpnext_extensions.petty_management.desk_visibility.after_migrate",
+]
+
 # Uninstallation
 # ------------
 
@@ -146,13 +155,15 @@ doctype_js = {
 # -----------
 # Permissions evaluated in scripted ways
 
-# permission_query_conditions = {
-# 	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
-# }
-#
-# has_permission = {
-# 	"Event": "frappe.desk.doctype.event.event.has_permission",
-# }
+permission_query_conditions = {
+	"PM Request": "erpnext_extensions.petty_management.permissions.pm_request_permission_query_conditions",
+	"PM Clearance": "erpnext_extensions.petty_management.permissions.pm_clearance_permission_query_conditions",
+}
+
+has_permission = {
+	"PM Request": "erpnext_extensions.petty_management.permissions.has_pm_request_permission",
+	"PM Clearance": "erpnext_extensions.petty_management.permissions.has_pm_clearance_permission",
+}
 
 # DocType Class
 # ---------------
@@ -171,6 +182,24 @@ doctype_js = {
 # Hook on document methods and events
 
 doc_events = {
+	"PM Clearance": {
+		"onload": "erpnext_extensions.petty_management.clearance_onload.sync_pm_clearance_on_load",
+	},
+	"Journal Entry": {
+		"on_submit": "erpnext_extensions.petty_management.journal_entry_hooks.on_journal_entry_submit",
+		"before_cancel": "erpnext_extensions.petty_management.journal_entry_hooks.on_journal_entry_before_cancel",
+	},
+	"Payment Entry": {
+		"validate": "erpnext_extensions.cheque_management.payment_entry_pdc_validation.validate_payment_entry_against_pdc_settlement",
+		"on_submit": [
+			"erpnext_extensions.cheque_management.pdc_payment_request_status.on_payment_entry_changed",
+			"erpnext_extensions.petty_management.payment_entry_hooks.on_payment_entry_submit",
+		],
+		"on_cancel": [
+			"erpnext_extensions.cheque_management.pdc_payment_request_status.on_payment_entry_changed",
+			"erpnext_extensions.petty_management.payment_entry_hooks.on_payment_entry_cancel",
+		],
+	},
 	"Post Dated Cheque": {
 		"on_submit": [
 			"erpnext_extensions.cheque_management.pdc_payment_request_status.on_post_dated_cheque_changed",
@@ -180,15 +209,6 @@ doc_events = {
 		],
 		"on_update_after_submit": [
 			"erpnext_extensions.cheque_management.pdc_payment_request_status.on_post_dated_cheque_changed",
-		],
-	},
-	"Payment Entry": {
-		"validate": "erpnext_extensions.cheque_management.payment_entry_pdc_validation.validate_payment_entry_against_pdc_settlement",
-		"on_submit": [
-			"erpnext_extensions.cheque_management.pdc_payment_request_status.on_payment_entry_changed",
-		],
-		"on_cancel": [
-			"erpnext_extensions.cheque_management.pdc_payment_request_status.on_payment_entry_changed",
 		],
 	},
 	"Payment Request": {
@@ -237,9 +257,9 @@ doc_events = {
 # Overriding Methods
 # ------------------------------
 #
-# override_whitelisted_methods = {
-# 	"frappe.desk.doctype.event.event.get_events": "erpnext_extensions.event.get_events"
-# }
+override_whitelisted_methods = {
+	"frappe.model.workflow.apply_workflow": "erpnext_extensions.petty_management.workflow_hooks.apply_workflow",
+}
 #
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,
