@@ -18,7 +18,6 @@ from datetime import date
 from typing import Any
 
 import frappe
-from frappe.database.database import savepoint
 from frappe.model.document import Document
 from frappe.utils import cstr, flt, getdate
 
@@ -398,6 +397,22 @@ def import_row(row_no: int, row: dict[str, Any]) -> str:
 	return pdc.name
 
 
+def _import_row_with_savepoint(row_no: int, row: dict[str, Any]) -> str:
+	"""Run ``import_row`` in a DB savepoint; rollback and re-raise on failure.
+
+	Frappe's ``savepoint()`` context manager catches ``Exception`` by default and does
+	not re-raise, which would leave ``pdc_name`` unset in the caller.
+	"""
+	sp = f"coi_r{row_no}"
+	frappe.db.savepoint(sp)
+	try:
+		return import_row(row_no, row)
+	except Exception:
+		frappe.db.rollback(save_point=sp)
+		raise
+	frappe.db.release_savepoint(sp)
+
+
 class ChequeOpeningImport(Document):
 	@frappe.whitelist()
 	def preview(self):
@@ -543,9 +558,9 @@ class ChequeOpeningImport(Document):
 				)
 				continue
 
+			pdc_name = None
 			try:
-				with savepoint():
-					pdc_name = import_row(row_no, row)
+				pdc_name = _import_row_with_savepoint(row_no, row)
 				ok += 1
 				self.append(
 					"items",
