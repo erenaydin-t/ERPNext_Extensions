@@ -407,6 +407,19 @@ def resolve_pdc_accounts_for_journal(doc, settings=None):
 			return None
 		return _strip_link_name_or_none(settings.get(field))
 
+	def _payable_pool_account() -> str | None:
+		"""Resolve payable cheque pool account with required priority.
+
+		Priority:
+		1) ``doc.account_paid_from`` when explicitly set on the PDC (payable only)
+		2) ``settings.default_payable_cheque_account``
+		"""
+		if doc is not None and (getattr(doc, "cheque_direction", None) or "").strip() == CHEQUE_DIRECTION_PAYABLE:
+			explicit = _strip_link_name_or_none(getattr(doc, "account_paid_from", None))
+			if explicit:
+				return explicit
+		return _s("default_payable_cheque_account")
+
 	out = {
 		"cheques_in_hand": _s("default_cheques_in_hand_account")
 		or _strip_link_name_or_none(getattr(doc, "account_paid_to", None) if doc else None),
@@ -414,7 +427,7 @@ def resolve_pdc_accounts_for_journal(doc, settings=None):
 			getattr(doc, "cheques_in_clearing_account", None) if doc else None
 		)
 		or _s("default_cheques_in_clearing_account"),
-		"payable_cheque": _s("default_payable_cheque_account"),
+		"payable_cheque": _payable_pool_account(),
 		"protested": _s("default_protested_account"),
 		"endorsement_account": _s("default_endorsement_account"),
 	}
@@ -3601,7 +3614,8 @@ class PostDatedCheque(Document):
 			je.append(
 				"accounts",
 				{
-					"account": settings.default_payable_cheque_account,
+					# Payable pool account: explicit override on PDC must take priority over settings default.
+					"account": resolve_pdc_accounts_for_journal(self, settings).get("payable_cheque"),
 					"credit_in_account_currency": self.cheque_amount,
 					"party_type": self.party_type,
 					"party": self.party,
