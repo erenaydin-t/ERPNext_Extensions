@@ -41,7 +41,7 @@ def _pdc_link_name(value) -> str | None:
 def receivable_intermediary_account_for_bank_clear(doc: Any, from_state: str, acc: dict) -> str | None:
 	"""GL account to **credit** when clearing at the bank (non-bank leg), by prior workflow state.
 
-	Must **not** be a Receivable/Payable account type in Chart of Accounts (validated before posting).
+	May be Receivable/Payable in Chart of Accounts; JE payload carries drawer **Party** on this leg.
 
 	* **Registered** → Cleared: **Cheques in Hand** — same resolution as registration Dr
 	  (``account_paid_to`` or ``acc["cheques_in_hand"]`` from :func:`resolve_pdc_accounts_for_journal`).

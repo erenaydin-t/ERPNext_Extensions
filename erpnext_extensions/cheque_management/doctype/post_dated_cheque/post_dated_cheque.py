@@ -20,11 +20,11 @@ lifecycle architecture.
 
 **Business rules**
 
-* **Receivable:** party (AR) at **Registered** (Draft → Registered JE). **Cleared:** Dr bank, Cr CIH /
-  clearing / protested — **no party** on clear lines.
+* **Receivable:** party (AR) at **Registered** (Draft → Registered JE). **Cleared:** Dr bank (no party),
+  Cr CIH / clearing / protested (drawer party on intermediary; type may be Receivable/Payable in COA).
 * **Payable:** party (AP) at **Issued** — Purchase Invoice settlement via standard JE ``reference_type`` /
   ``reference_name`` on supplier payable rows when allocations map to PI (direct or PR→PI). **Cleared:**
-  Dr notes-payable pool, Cr bank — **no party** / **no invoice reference** (liability vs bank only).
+  Dr notes-payable pool (supplier party), Cr bank (no party).
 * **Allocations** drive PI references on payable **party** lines only; see ``pdc_payable_purchase_invoice_je_refs``.
 
 **Document hooks**
@@ -434,6 +434,39 @@ def resolve_pdc_accounts_for_journal(doc, settings=None):
 	return out
 
 
+def _pdc_party_dims_for_doc(doc) -> dict[str, str]:
+	"""Drawer/supplier party dimensions for single-party cheque events."""
+	pt = _strip_link_name_or_none(getattr(doc, "party_type", None))
+	p = _strip_link_name_or_none(getattr(doc, "party", None))
+	if not pt or not p:
+		return {}
+	return {"party_type": pt, "party": p}
+
+
+def _pdc_accounts_with_doc_party(
+	accounts: list[dict],
+	doc,
+	*,
+	bank_gl: str | None = None,
+) -> list[dict]:
+	"""Apply Finance policy: doc party on all lines except bank GL on clear."""
+	dims = _pdc_party_dims_for_doc(doc)
+	if not dims:
+		return list(accounts)
+	bank = _strip_link_name_or_none(bank_gl)
+	out: list[dict] = []
+	for row in accounts or []:
+		entry = dict(row)
+		acc = _strip_link_name_or_none(entry.get("account"))
+		if bank and acc == bank:
+			entry.pop("party_type", None)
+			entry.pop("party", None)
+		else:
+			entry.update(dims)
+		out.append(entry)
+	return out
+
+
 def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_date=None):
 	"""Prepare Journal Entry data dict for supported PDC workflow transitions.
 
@@ -541,21 +574,19 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 	je: dict | None = None
 
 	def _validate_receivable_party_integrity(payload: dict) -> None:
-		"""Receivable integrity: party lines allowed only for Register/Return-to-party and holder-only endorsement.
-
-		Rules:
-		- Party is allowed in Draft → Registered and Registered → Returned (must be present).
-		- Registered → Endorsed: party lines (if any) must be **only** the endorsed holder — never the drawer.
-		- Party must not appear on Sent to Bank, Cleared, Bounced, or other receivable edges.
-		"""
+		"""Receivable party policy (Finance): doc party on both JE lines except bank on clear; endorsement unchanged."""
 		if doc.cheque_direction != CHEQUE_DIRECTION_RECEIVABLE:
 			return
-		allowed_party_edges = {
-			(WORKFLOW_DRAFT, WORKFLOW_REGISTERED),
-			(WORKFLOW_REGISTERED, WORKFLOW_RETURNED),
-		}
 		edge = (from_state, to_state)
 		rows = payload.get("accounts") or []
+		dims = _pdc_party_dims_for_doc(doc)
+		exp_pt, exp_p = dims.get("party_type"), dims.get("party")
+
+		def _row_has_doc_party(r: dict) -> bool:
+			return (
+				_strip_link_name_or_none(r.get("party_type")) == exp_pt
+				and _strip_link_name_or_none(r.get("party")) == exp_p
+			)
 
 		if edge == (WORKFLOW_REGISTERED, WORKFLOW_ENDORSED):
 			holder_pt = _strip_link_name_or_none(getattr(doc, "holder_party_type", None)) or _strip_link_name_or_none(
@@ -584,19 +615,55 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 					)
 			return
 
-		has_party = any((r.get("party_type") or r.get("party")) for r in rows)
-		if edge in allowed_party_edges:
-			# When party is allowed, enforce that it is present (prevents silent partial settlement).
-			if not has_party:
+		if to_state == WORKFLOW_CLEARED:
+			bank_gl = _pdc_bank_gl_account(doc)
+			for r in rows:
+				acc = _strip_link_name_or_none(r.get("account"))
+				has_party = bool(r.get("party_type") or r.get("party"))
+				if bank_gl and acc == bank_gl:
+					if has_party:
+						frappe.throw(
+							frappe._(
+								"Receivable PDC accounting integrity: Bank line must not carry Party on clear ({0} → {1})."
+							).format(from_state, to_state),
+							title=frappe._("PDC accounting integrity"),
+						)
+				elif not _row_has_doc_party(r):
+					frappe.throw(
+						frappe._(
+							"Receivable PDC accounting integrity: Non-bank clear line must carry drawer Party ({0} → {1})."
+						).format(from_state, to_state),
+						title=frappe._("PDC accounting integrity"),
+					)
+			return
+
+		party_on_both_edges = {
+			(WORKFLOW_DRAFT, WORKFLOW_REGISTERED),
+			(WORKFLOW_REGISTERED, WORKFLOW_RETURNED),
+			(WORKFLOW_REGISTERED, WORKFLOW_SENT_TO_BANK),
+			(WORKFLOW_SENT_TO_BANK, WORKFLOW_BOUNCED),
+			(WORKFLOW_BOUNCED, WORKFLOW_REPLACED),
+			(WORKFLOW_RETURNED, WORKFLOW_REPLACED),
+		}
+		if edge in party_on_both_edges:
+			if not dims:
 				frappe.throw(
 					frappe._(
-						"Receivable PDC accounting integrity: Party must be present on Journal Entry lines for transition {0} → {1}."
+						"Receivable PDC accounting integrity: Party Type and Party are required on the PDC for transition {0} → {1}."
 					).format(from_state, to_state),
 					title=frappe._("PDC accounting integrity"),
 				)
+			for r in rows:
+				if not _row_has_doc_party(r):
+					frappe.throw(
+						frappe._(
+							"Receivable PDC accounting integrity: Every Journal Entry line must carry the drawer Party for transition {0} → {1}."
+						).format(from_state, to_state),
+						title=frappe._("PDC accounting integrity"),
+					)
 			return
 
-		# Disallow party everywhere else (explicitly includes Sent to Bank / Cleared / Bounced).
+		has_party = any((r.get("party_type") or r.get("party")) for r in rows)
 		if has_party:
 			frappe.throw(
 				frappe._(
@@ -606,49 +673,40 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 			)
 
 	def _validate_payable_party_integrity(payload: dict) -> None:
-		"""Payable integrity for the final model transitions.
-
-		Applies only to these edges (scope of the payable final model):
-		- Draft → Registered: party must be present (supplier / PI settlement)
-		- Registered → Cancelled: party must be present (reverse register settlement)
-		- Issued → Returned / Cancelled / Replaced: party must be present (reverse)
-		- Issued → Cleared: party must NOT be present (bank vs payable cheque pool only)
-
-		Other Payable edges are not constrained by this validator unless listed above.
-		"""
+		"""Payable party policy: doc party on both lines except bank on clear."""
 		if doc.cheque_direction != CHEQUE_DIRECTION_PAYABLE:
 			return
 		edge = (from_state, to_state)
 		rows = payload.get("accounts") or []
-		has_party = any((r.get("party_type") or r.get("party")) for r in rows)
+		dims = _pdc_party_dims_for_doc(doc)
+		exp_pt, exp_p = dims.get("party_type"), dims.get("party")
 
-		party_required_edges = {
-			(WORKFLOW_DRAFT, WORKFLOW_REGISTERED),
-			(WORKFLOW_REGISTERED, WORKFLOW_CANCELLED),
-			(WORKFLOW_ISSUED, WORKFLOW_RETURNED),
-			(WORKFLOW_ISSUED, WORKFLOW_CANCELLED),
-			(WORKFLOW_ISSUED, WORKFLOW_REPLACED),
-			# Task 5: Advance-mode recognition when effective stage is `issue`.
-			(WORKFLOW_REGISTERED, WORKFLOW_ISSUED),
-		}
-		if edge in party_required_edges:
-			if not has_party:
-				frappe.throw(
-					frappe._(
-						"Payable PDC accounting integrity: Party must be present on Journal Entry lines for transition {0} → {1}."
-					).format(from_state, to_state),
-					title=frappe._("PDC accounting integrity"),
-				)
-			return
-
-		if edge == (WORKFLOW_ISSUED, WORKFLOW_CLEARED) and has_party:
-			# Explicit business rule: Payable clear must not touch party at all.
-			frappe.throw(
-				frappe._(
-					"Payable PDC accounting integrity: Party must NOT be present on Journal Entry lines for transition {0} → {1} (Cleared must not touch Party)."
-				).format(from_state, to_state),
-				title=frappe._("PDC accounting integrity"),
+		def _row_has_doc_party(r: dict) -> bool:
+			return (
+				_strip_link_name_or_none(r.get("party_type")) == exp_pt
+				and _strip_link_name_or_none(r.get("party")) == exp_p
 			)
+
+		if edge == (WORKFLOW_ISSUED, WORKFLOW_CLEARED):
+			bank_gl = _pdc_bank_gl_account(doc)
+			for r in rows:
+				row_acc = _strip_link_name_or_none(r.get("account"))
+				has_party = bool(r.get("party_type") or r.get("party"))
+				if bank_gl and row_acc == bank_gl:
+					if has_party:
+						frappe.throw(
+							frappe._(
+								"Payable PDC accounting integrity: Bank line must not carry Party on clear ({0} → {1})."
+							).format(from_state, to_state),
+							title=frappe._("PDC accounting integrity"),
+						)
+				elif not _row_has_doc_party(r):
+					frappe.throw(
+						frappe._(
+							"Payable PDC accounting integrity: Payable cheque pool line must carry supplier Party on clear ({0} → {1})."
+						).format(from_state, to_state),
+						title=frappe._("PDC accounting integrity"),
+					)
 
 		if edge == (WORKFLOW_ISSUED, WORKFLOW_CLEARED):
 			# Explicit business rule: Cleared must only move value between payable cheque pool and bank.
@@ -692,8 +750,46 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 					).format(expected_pool, expected_bank),
 					title=frappe._("PDC accounting integrity"),
 				)
+			return
+
+		party_on_both_edges = {
+			(WORKFLOW_DRAFT, WORKFLOW_REGISTERED),
+			(WORKFLOW_REGISTERED, WORKFLOW_CANCELLED),
+			(WORKFLOW_ISSUED, WORKFLOW_RETURNED),
+			(WORKFLOW_ISSUED, WORKFLOW_CANCELLED),
+			(WORKFLOW_ISSUED, WORKFLOW_REPLACED),
+			(WORKFLOW_RETURNED, WORKFLOW_REPLACED),
+			(WORKFLOW_REGISTERED, WORKFLOW_ISSUED),
+		}
+		if edge in party_on_both_edges:
+			if not dims:
+				frappe.throw(
+					frappe._(
+						"Payable PDC accounting integrity: Party Type and Party are required on the PDC for transition {0} → {1}."
+					).format(from_state, to_state),
+					title=frappe._("PDC accounting integrity"),
+				)
+			for r in rows:
+				if not _row_has_doc_party(r):
+					frappe.throw(
+						frappe._(
+							"Payable PDC accounting integrity: Every Journal Entry line must carry supplier Party for transition {0} → {1}."
+						).format(from_state, to_state),
+						title=frappe._("PDC accounting integrity"),
+					)
 
 	def _return_je(payload: dict) -> dict:
+		edge = (from_state, to_state)
+		skip_party_mirror = (
+			doc.cheque_direction == CHEQUE_DIRECTION_RECEIVABLE
+			and edge == (WORKFLOW_REGISTERED, WORKFLOW_ENDORSED)
+		)
+		if not skip_party_mirror:
+			bank_gl = _pdc_bank_gl_account(doc) if to_state == WORKFLOW_CLEARED else None
+			payload = dict(payload)
+			payload["accounts"] = _pdc_accounts_with_doc_party(
+				payload.get("accounts") or [], doc, bank_gl=bank_gl
+			)
 		_validate_receivable_party_integrity(payload)
 		_validate_payable_party_integrity(payload)
 		_log_debug_journal_entry_payload(doc, from_state, to_state, payload)
@@ -810,7 +906,7 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 			]
 			return _return_je(je)
 
-		# Registered / Sent to Bank / Under Legal Action -> Cleared: Dr Bank GL, Cr intermediary — **no party**.
+		# Registered / Sent to Bank / Under Legal Action -> Cleared: Dr Bank GL, Cr intermediary (party on credit via _return_je).
 		if to_state == WORKFLOW_CLEARED and from_state in (
 			WORKFLOW_REGISTERED,
 			WORKFLOW_SENT_TO_BANK,
@@ -823,7 +919,6 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 			credit_account = receivable_intermediary_account_for_bank_clear(doc, from_state, acc)
 			if not credit_account:
 				return None
-			_pdc_validate_receivable_clear_accounts_no_party_gl(bank_gl, credit_account)
 			if from_state == WORKFLOW_REGISTERED:
 				remark_base = PDC_JE_REMARK_CLEAR_RECEIVABLE_REGISTERED
 			elif from_state == WORKFLOW_SENT_TO_BANK:
@@ -1273,7 +1368,7 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 			]
 			return _return_je(je)
 
-		# Issued -> Cleared: Dr notes payable pool, Cr Bank GL — **no party** (journal-centric clear).
+		# Issued -> Cleared: Dr notes payable pool, Cr Bank GL (party on pool debit via _return_je).
 		if from_state == WORKFLOW_ISSUED and to_state == WORKFLOW_CLEARED:
 			if not getattr(doc, "cheque_amount", None):
 				return None
@@ -1284,7 +1379,6 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 				return None
 			_pdc_validate_clearing_bank_ledger_account(doc, bank_gl)
 			debit_pool = acc["payable_cheque"]
-			_pdc_validate_payable_clear_accounts_no_party_gl(debit_pool, bank_gl)
 			remark = render_pdc_je_text(
 				getattr(settings, "je_remark_clear_payable_template", None) if settings else None,
 				fallback_text=frappe._(PDC_JE_REMARK_CLEAR_PAYABLE_CHEQUE),
@@ -1332,8 +1426,10 @@ def _pdc_validate_clearing_bank_ledger_account(doc, bank_gl: str | None) -> None
 	Company Bank Account linkage (``is_company_account``, Bank Account.company) is enforced separately
 	in :meth:`PostDatedCheque._validate_bank_account_for_cleared_workflow_state`.
 
-	When the **Account** doc is not in the local DB (e.g. isolated unit tests), validation is skipped —
-	the same guard as :func:`_pdc_validate_receivable_clear_accounts_no_party_gl` for missing rows.
+	When the **Account** doc is not in the local DB (e.g. isolated unit tests), validation is skipped.
+
+	Cheque intermediary accounts (clearing / in-hand / protested / payable pool) **may** be
+	Receivable/Payable in Chart of Accounts; party on those lines is applied in the JE payload.
 	"""
 	if not bank_gl:
 		return
@@ -1350,6 +1446,14 @@ def _pdc_validate_clearing_bank_ledger_account(doc, bank_gl: str | None) -> None
 			title=frappe._("Wrong company for clearing bank account"),
 		)
 	at = frappe.get_cached_value("Account", bank_gl, "account_type")
+	if at in ("Receivable", "Payable"):
+		frappe.throw(
+			frappe._(
+				"Cheque clearing bank leg cannot use a Receivable or Payable account (**{0}**, type «{1}»). "
+				"Link a **Bank Account** whose GL is account type **Bank**."
+			).format(bank_gl, at or ""),
+			title=frappe._("Invalid bank ledger for clearing"),
+		)
 	if at != "Bank":
 		frappe.throw(
 			frappe._(
@@ -1358,56 +1462,6 @@ def _pdc_validate_clearing_bank_ledger_account(doc, bank_gl: str | None) -> None
 			).format(bank_gl, at or ""),
 			title=frappe._("Invalid bank ledger for clearing"),
 		)
-
-
-def _pdc_validate_receivable_clear_accounts_no_party_gl(bank_gl: str | None, credit_account: str | None) -> None:
-	"""Block clearing lines that use Receivable/Payable GL.
-
-	ERPNext :meth:`Journal Entry.validate_party` requires **Party** on accounts whose type is
-	Receivable or Payable. Posting clearing there would either fail or force a second party hit.
-	Cheque clearing must use Bank + internal pool accounts (Cheques in Hand / Clearing / Protested)
-	that are **not** Receivable/Payable in Chart of Accounts.
-	"""
-	for acc_name, leg in (
-		(bank_gl, "bank (debit)"),
-		(credit_account, "cheque pool (credit)"),
-	):
-		if not acc_name or not frappe.db.exists("Account", acc_name):
-			continue
-		at = frappe.get_cached_value("Account", acc_name, "account_type")
-		if at in ("Receivable", "Payable"):
-			frappe.throw(
-				frappe._(
-					"Cannot clear receivable cheque on account {0} (account type «{1}») for {2}. "
-					"Use the company Bank GL on the PDC and configure Cheques in Hand, "
-					"Cheques in Clearing, or Protested in PDC Settings so they are not "
-					"Receivable or Payable accounts in the Chart of Accounts."
-				).format(acc_name, at or "", leg),
-				title=frappe._("Invalid account for PDC clearing"),
-			)
-
-
-def _pdc_validate_payable_clear_accounts_no_party_gl(pool_gl: str | None, bank_gl: str | None) -> None:
-	"""Block Payable clear lines that use Receivable/Payable GL (same constraint as receivable clear).
-
-	Party was already settled at **Issued**; **Cleared** must only move bank vs notes-payable **pool**.
-	"""
-	for acc_name, leg in (
-		(pool_gl, "notes payable pool (debit)"),
-		(bank_gl, "bank (credit)"),
-	):
-		if not acc_name or not frappe.db.exists("Account", acc_name):
-			continue
-		at = frappe.get_cached_value("Account", acc_name, "account_type")
-		if at in ("Receivable", "Payable"):
-			frappe.throw(
-				frappe._(
-					"Cannot clear payable cheque on account {0} (account type «{1}») for {2}. "
-					"Use the company Bank GL on the PDC and a **Default Payable Cheque Account** in "
-					"PDC Settings that is not typed Receivable/Payable in the Chart of Accounts."
-				).format(acc_name, at or "", leg),
-				title=frappe._("Invalid account for PDC clearing"),
-			)
 
 
 @frappe.whitelist()
