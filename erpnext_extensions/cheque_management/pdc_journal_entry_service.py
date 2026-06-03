@@ -17,6 +17,7 @@ from frappe import _
 from frappe.utils.synchronization import filelock
 
 from erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque import (
+    _pdc_bank_gl_account,
     build_pdc_journal_entry_data,
 )
 from erpnext_extensions.cheque_management.pdc_accounting_idempotency import (
@@ -210,27 +211,8 @@ def create_and_submit_journal_entry_from_payload(
         if not accounts:
             frappe.throw(_("Journal Entry payload has no accounts."))
 
-        # Party-touch rule (journal-centric lifecycle):
-        #
-        # - Receivable: party is touched at Registered (settlement), Returned (reverse), and
-        #   Endorsement only when the debit is the endorsed holder’s receivable (never the drawer again).
-        # - Payable: party is touched only at Issued and its reversals (Returned/Cancelled/Replaced).
-        # - Cleared: bank vs pool only (no party) for both directions.
-        #
-        # The payload builder already follows this. This guard prevents accidental party dimensions
-        # from leaking into non-party transitions (e.g. custom payload edits).
-        receivable_non_party_transitions = {
-            (WORKFLOW_REGISTERED, WORKFLOW_SENT_TO_BANK),
-            (WORKFLOW_SENT_TO_BANK, WORKFLOW_BOUNCED),
-        }
-        bank_clear_no_party = to_n == WORKFLOW_CLEARED and ch_dir in (
-            CHEQUE_DIRECTION_RECEIVABLE,
-            CHEQUE_DIRECTION_PAYABLE,
-        )
-        receivable_non_party = (
-            ch_dir == CHEQUE_DIRECTION_RECEIVABLE and (from_n, to_n) in receivable_non_party_transitions
-        )
-        suppress_party = bank_clear_no_party or receivable_non_party
+        # Finance policy: party on all lines from payload except bank GL on clear (payload builder enforces).
+        bank_gl_on_clear = _pdc_bank_gl_account(pdc) if to_n == WORKFLOW_CLEARED else None
 
         for row in accounts:
             entry: dict[str, Any] = {"account": row["account"]}
@@ -238,8 +220,10 @@ def create_and_submit_journal_entry_from_payload(
                 entry["debit_in_account_currency"] = row["debit_in_account_currency"]
             if row.get("credit_in_account_currency"):
                 entry["credit_in_account_currency"] = row["credit_in_account_currency"]
-            # Cleared (and other non-party transitions): never post party on JE lines.
-            if not suppress_party:
+            is_bank_line = bool(
+                bank_gl_on_clear and row.get("account") == bank_gl_on_clear
+            )
+            if not is_bank_line:
                 if row.get("party_type"):
                     entry["party_type"] = row["party_type"]
                 if row.get("party"):

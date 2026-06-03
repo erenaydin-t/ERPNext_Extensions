@@ -16,7 +16,7 @@ Verifies:
 
 * ``cheque_status`` from ``map_workflow_state_to_cheque_status``
 * ``build_pdc_journal_entry_data`` account lines per edge
-* Party dimensions only where policy allows; **no** party on clear JEs
+* Party on both JE lines except **bank** on clear JEs
 * Company **Bank** GL (``ACC-BANK``) appears **only** on **→ Cleared** payloads
 
 Run from bench root::
@@ -127,13 +127,14 @@ class TestReceivablePDCEndToEndScenario(unittest.TestCase):
 			mf._ = lambda s: s
 			je = build_pdc_journal_entry_data(doc, WORKFLOW_DRAFT, WORKFLOW_REGISTERED, POSTING)
 		self.assertIsNotNone(je)
-		self.assertEqual(_party_line_count(je), 1)
+		self.assertEqual(_party_line_count(je), 2)
 		self.assertEqual(_bank_gl_line_count(je), 0)
 		dr, cr = je["accounts"]
 		self.assertEqual(dr["account"], "ACC-CIH")
 		self.assertEqual(cr["account"], "ACC-AR-DOC")
-		self.assertEqual(cr.get("party_type"), "Customer")
-		self.assertEqual(cr.get("party"), "CUST-1")
+		for row in (dr, cr):
+			self.assertEqual(row.get("party_type"), "Customer")
+			self.assertEqual(row.get("party"), "CUST-1")
 
 	def test_registered_to_sent_to_bank_dr_clearing_cr_cih_no_party(self) -> None:
 		doc = _base_doc()
@@ -146,11 +147,13 @@ class TestReceivablePDCEndToEndScenario(unittest.TestCase):
 			mf._ = lambda s: s
 			je = build_pdc_journal_entry_data(doc, WORKFLOW_REGISTERED, WORKFLOW_SENT_TO_BANK, POSTING)
 		self.assertIsNotNone(je)
-		self.assertEqual(_party_line_count(je), 0)
+		self.assertEqual(_party_line_count(je), 2)
 		self.assertEqual(_bank_gl_line_count(je), 0)
 		dr, cr = je["accounts"]
 		self.assertEqual(dr["account"], "ACC-CLR")
 		self.assertEqual(cr["account"], "ACC-CIH")
+		for row in (dr, cr):
+			self.assertEqual(row.get("party"), "CUST-1")
 
 	def test_sent_to_bank_to_cleared_dr_bank_cr_clearing_no_party(self) -> None:
 		doc = _base_doc()
@@ -164,11 +167,13 @@ class TestReceivablePDCEndToEndScenario(unittest.TestCase):
 			je = build_pdc_journal_entry_data(doc, WORKFLOW_SENT_TO_BANK, WORKFLOW_CLEARED, POSTING)
 		self.assertIsNotNone(je)
 		self.assertEqual(je["voucher_type"], "Bank Entry")
-		self.assertEqual(_party_line_count(je), 0)
+		self.assertEqual(_party_line_count(je), 1)
 		self.assertEqual(_bank_gl_line_count(je), 1)
 		dr, cr = je["accounts"]
 		self.assertEqual(dr["account"], _BANK_GL)
 		self.assertEqual(cr["account"], "ACC-CLR")
+		self.assertNotIn("party_type", dr)
+		self.assertEqual(cr.get("party"), "CUST-1")
 
 	def test_registered_to_cleared_dr_bank_cr_cih_no_party(self) -> None:
 		doc = _base_doc()
@@ -182,11 +187,13 @@ class TestReceivablePDCEndToEndScenario(unittest.TestCase):
 			je = build_pdc_journal_entry_data(doc, WORKFLOW_REGISTERED, WORKFLOW_CLEARED, POSTING)
 		self.assertIsNotNone(je)
 		self.assertEqual(je["voucher_type"], "Bank Entry")
-		self.assertEqual(_party_line_count(je), 0)
+		self.assertEqual(_party_line_count(je), 1)
 		self.assertEqual(_bank_gl_line_count(je), 1)
 		dr, cr = je["accounts"]
 		self.assertEqual(dr["account"], _BANK_GL)
 		self.assertEqual(cr["account"], "ACC-CIH")
+		self.assertNotIn("party_type", dr)
+		self.assertEqual(cr.get("party"), "CUST-1")
 
 	def test_registered_to_returned_dr_ar_cr_cih_one_party(self) -> None:
 		doc = _base_doc()
@@ -199,12 +206,13 @@ class TestReceivablePDCEndToEndScenario(unittest.TestCase):
 			mf._ = lambda s: s
 			je = build_pdc_journal_entry_data(doc, WORKFLOW_REGISTERED, WORKFLOW_RETURNED, POSTING)
 		self.assertIsNotNone(je)
-		self.assertEqual(_party_line_count(je), 1)
+		self.assertEqual(_party_line_count(je), 2)
 		self.assertEqual(_bank_gl_line_count(je), 0)
 		dr, cr = je["accounts"]
 		self.assertEqual(dr["account"], "ACC-AR-DOC")
 		self.assertEqual(dr.get("party_type"), "Customer")
 		self.assertEqual(cr["account"], "ACC-CIH")
+		self.assertEqual(cr.get("party"), "CUST-1")
 
 	def test_registered_to_endorsed_dr_settlement_cr_cih_no_drawer_party(self) -> None:
 		doc = _base_doc()
@@ -257,8 +265,8 @@ class TestReceivablePDCEndToEndScenario(unittest.TestCase):
 			with self.subTest(step=label):
 				self.assertEqual(_bank_gl_line_count(je), 1, f"{label} must Dr/Cr bank once")
 
-	def test_clear_jes_have_no_party_second_customer_effect(self) -> None:
-		"""Cleared payloads must not carry party (no extra AR/AP movement on clear)."""
+	def test_clear_jes_party_on_non_bank_line_only(self) -> None:
+		"""Cleared payloads: party on cheque pool/clearing credit; bank debit has no party."""
 		doc = _base_doc()
 		with (
 			patch.object(pdc_mod, "_get_pdc_settings_for_company", return_value=dict(_SETTINGS)),
@@ -269,8 +277,12 @@ class TestReceivablePDCEndToEndScenario(unittest.TestCase):
 			mf._ = lambda s: s
 			j1 = build_pdc_journal_entry_data(doc, WORKFLOW_SENT_TO_BANK, WORKFLOW_CLEARED, POSTING)
 			j2 = build_pdc_journal_entry_data(doc, WORKFLOW_REGISTERED, WORKFLOW_CLEARED, POSTING)
-		self.assertEqual(_party_line_count(j1), 0)
-		self.assertEqual(_party_line_count(j2), 0)
+		self.assertEqual(_party_line_count(j1), 1)
+		self.assertEqual(_party_line_count(j2), 1)
+		for je in (j1, j2):
+			bank_rows = [r for r in je["accounts"] if r.get("account") == _BANK_GL]
+			self.assertEqual(len(bank_rows), 1)
+			self.assertNotIn("party_type", bank_rows[0])
 
 
 if __name__ == "__main__":
