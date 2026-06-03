@@ -73,6 +73,32 @@ def _parse_date(val: Any):
 	return getdate(val)
 
 
+def _parse_cheque_amount(val: Any):
+	"""Parse import file amount without losing DECIMAL(30,9) scale from string cells."""
+	from decimal import ROUND_HALF_UP, Decimal
+
+	if val is None or val == "":
+		return Decimal("0")
+	if isinstance(val, Decimal):
+		amount = val
+	else:
+		amount = Decimal(cstr(val).strip().replace(",", ""))
+	return amount.quantize(Decimal("0.000000001"), rounding=ROUND_HALF_UP)
+
+
+def _apply_exact_cheque_amount_db(pdc_name: str, amount) -> None:
+	"""Persist opening-import amount exactly; Frappe ORM uses float for Currency fields."""
+	from decimal import Decimal
+
+	if not isinstance(amount, Decimal):
+		amount = _parse_cheque_amount(amount)
+	amount_str = format(amount, "f")
+	frappe.db.sql(
+		"UPDATE `tabPost Dated Cheque` SET cheque_amount = %s WHERE name = %s",
+		(amount_str, pdc_name),
+	)
+
+
 def _rows_from_sheet(rows: list[list[Any]]) -> list[tuple[int, dict[str, Any]]]:
 	if not rows:
 		return []
@@ -232,7 +258,7 @@ def _validate_row_preview(row: dict[str, Any], row_no: int) -> str | None:
 		return f"Row {row_no}: invalid cheque_due_date"
 
 	try:
-		flt(row.get("cheque_amount"))
+		_parse_cheque_amount(row.get("cheque_amount"))
 	except Exception:
 		return f"Row {row_no}: invalid cheque_amount"
 
@@ -346,12 +372,14 @@ def import_row(row_no: int, row: dict[str, Any]) -> str:
 	if existing:
 		frappe.throw(frappe._("Opening cheque already imported: {0}").format(existing))
 
+	exact_cheque_amount = _parse_cheque_amount(row.get("cheque_amount"))
+
 	pdc = frappe.new_doc("Post Dated Cheque")
 	pdc.cheque_direction = direction
 	pdc.company = company
 	pdc.bank_account = cstr(row.get("bank_account") or "").strip()
 	pdc.cheque_due_date = _parse_date(row.get("cheque_due_date"))
-	pdc.cheque_amount = flt(row.get("cheque_amount"))
+	pdc.cheque_amount = exact_cheque_amount
 	pdc.party_type = cstr(row.get("party_type") or "").strip()
 	pdc.party = party
 	pdc.workflow_state = normalize_workflow_state_value(None)
@@ -393,6 +421,8 @@ def import_row(row_no: int, row: dict[str, Any]) -> str:
 	final = normalize_workflow_state_value(pdc.workflow_state)
 	if final != normalize_workflow_state_value("Draft"):
 		pdc.submit()
+
+	_apply_exact_cheque_amount_db(pdc.name, exact_cheque_amount)
 
 	return pdc.name
 
