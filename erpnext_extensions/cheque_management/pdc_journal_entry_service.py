@@ -20,6 +20,9 @@ from erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_c
     _pdc_bank_gl_account,
     build_pdc_journal_entry_data,
 )
+from erpnext_extensions.cheque_management.pdc_bank_dimension import (
+    build_je_account_row_from_pdc_payload,
+)
 from erpnext_extensions.cheque_management.pdc_accounting_idempotency import (
     build_pdc_accounting_transition_key,
     build_pdc_transition_key_suffix,
@@ -215,24 +218,11 @@ def create_and_submit_journal_entry_from_payload(
         bank_gl_on_clear = _pdc_bank_gl_account(pdc) if to_n == WORKFLOW_CLEARED else None
 
         for row in accounts:
-            entry: dict[str, Any] = {"account": row["account"]}
-            if row.get("debit_in_account_currency"):
-                entry["debit_in_account_currency"] = row["debit_in_account_currency"]
-            if row.get("credit_in_account_currency"):
-                entry["credit_in_account_currency"] = row["credit_in_account_currency"]
-            is_bank_line = bool(
-                bank_gl_on_clear and row.get("account") == bank_gl_on_clear
+            entry = build_je_account_row_from_pdc_payload(
+                pdc,
+                row,
+                bank_gl_party_strip=bank_gl_on_clear,
             )
-            if not is_bank_line:
-                if row.get("party_type"):
-                    entry["party_type"] = row["party_type"]
-                if row.get("party"):
-                    entry["party"] = row["party"]
-            # Purchase Invoice settlement on supplier payable (payable issue / reversals); omit on pool/bank lines.
-            if row.get("reference_type"):
-                entry["reference_type"] = row["reference_type"]
-            if row.get("reference_name"):
-                entry["reference_name"] = row["reference_name"]
             je.append("accounts", entry)
 
         je.flags.ignore_permissions = True
