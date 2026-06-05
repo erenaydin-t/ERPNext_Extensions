@@ -403,6 +403,7 @@ def import_row(row_no: int, row: dict[str, Any]) -> str:
 	sc = cstr(row.get("sayad_code") or "").strip()
 	if sc:
 		pdc.sayad_code = sc
+		pdc.sayad_registered = 1
 
 	rd0 = _parse_date(row.get("received_date"))
 	if rd0:
@@ -410,17 +411,26 @@ def import_row(row_no: int, row: dict[str, Any]) -> str:
 	elif len(path) > 1:
 		pdc.received_date = pdc.cheque_due_date
 
-	pdc.insert()
+	prev_suppress = getattr(frappe.flags, "in_cheque_opening_import", None)
+	try:
+		frappe.flags.in_cheque_opening_import = True
+		pdc.insert()
 
-	for i in range(1, len(path)):
-		to_st = path[i]
-		_prepare_state_dates(pdc, to_st, row)
-		pdc.workflow_state = to_st
-		pdc.save()
+		for i in range(1, len(path)):
+			to_st = path[i]
+			_prepare_state_dates(pdc, to_st, row)
+			pdc.workflow_state = to_st
+			pdc.save()
 
-	final = normalize_workflow_state_value(pdc.workflow_state)
-	if final != normalize_workflow_state_value("Draft"):
-		pdc.submit()
+		final = normalize_workflow_state_value(pdc.workflow_state)
+		if final != normalize_workflow_state_value("Draft"):
+			pdc.submit()
+	finally:
+		if prev_suppress is None:
+			if hasattr(frappe.flags, "in_cheque_opening_import"):
+				delattr(frappe.flags, "in_cheque_opening_import")
+		else:
+			frappe.flags.in_cheque_opening_import = prev_suppress
 
 	_apply_exact_cheque_amount_db(pdc.name, exact_cheque_amount)
 
@@ -741,7 +751,7 @@ def download_import_template():
 		"",
 		"Opening balance / GL: this tool only creates or updates Post Dated Cheque documents through the normal PDC save/submit path. It does NOT pick Opening Balance or Temporary Opening accounts here. Chart-of-accounts opening entries (including any auditor-required opening JEs) must be handled separately in Accounting unless a future enhancement adds dedicated import JEs.",
 		"",
-		"Journal entries: do not assume this import is silent in GL — existing PDC workflow rules may still create lifecycle Journal Entries when states change (per PDC Settings). Coordinate with finance so opening trial balance stays correct.",
+		"Journal entries: Cheque Opening Import does not post lifecycle Journal Entries during import (opening snapshot only). Post-import workflow changes on the PDC create JEs as usual. Chart opening / trial balance JEs remain separate in Accounting.",
 		"",
 		"Replace all __REPLACE_*__ placeholders with real values from your site (Company, Bank Account, Customer/Supplier, Cheque Book, Drawer Bank, etc.) before Preview / Execute.",
 	]
