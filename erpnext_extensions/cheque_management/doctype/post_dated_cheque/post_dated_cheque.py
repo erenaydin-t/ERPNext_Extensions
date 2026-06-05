@@ -2317,8 +2317,13 @@ class PostDatedCheque(Document):
 		   see ``pdc_accounting_idempotency``).
 
 		Skips when ``flags.skip_pdc_accounting_orchestration`` is set (nested saves from posting services).
+
+		Skips when ``frappe.flags.in_cheque_opening_import`` is set (Cheque Opening Import workflow
+		walk only — not ``is_opening_import`` on the document, so post-import transitions still post).
 		"""
 		if getattr(self.flags, "skip_pdc_accounting_orchestration", False):
+			return
+		if getattr(frappe.flags, "in_cheque_opening_import", False):
 			return
 		if not self.name:
 			return
