@@ -1128,14 +1128,17 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 				context=ctx,
 				append_cheque_no_suffix=True,
 			)
+			credit_row: dict = {
+				"account": credit_account,
+				"credit_in_account_currency": doc.cheque_amount,
+			}
+			# Cheques in Hand may be Receivable on COA; JE validate_party requires party (holder, not drawer).
+			cih_at = frappe.get_cached_value("Account", credit_account, "account_type")
+			if cih_at in ("Receivable", "Payable"):
+				credit_row["party_type"] = holder_party_type
+				credit_row["party"] = holder_party
 			je = _base(remark)
-			je["accounts"] = [
-				debit_row,
-				{
-					"account": credit_account,
-					"credit_in_account_currency": doc.cheque_amount,
-				},
-			]
+			je["accounts"] = [debit_row, credit_row]
 			return _return_je(je)
 
 	# --- Payable transitions ---

@@ -59,9 +59,9 @@
   "advance_account",
   "cheques_in_clearing_account",
   "endorsement_settlement_account",
-  "section_break_dimensions",
+  "accounting_dimensions_section",
   "project",
-  "column_break_dimensions",
+  "dimension_col_break",
   "cost_center",
   "section_break_status",
   "workflow_state",
@@ -407,7 +407,7 @@
    "description": "Receivable only: optional GL account debited on Registered → Endorsement (claim / endorsed-to settlement). Overrides PDC Settings “Default Endorsement Account”. No party on this line. If unset, builder may debit the endorsed holder’s receivable instead (see developer guide)."
   },
   {
-   "fieldname": "section_break_dimensions",
+   "fieldname": "accounting_dimensions_section",
    "fieldtype": "Section Break",
    "label": "Accounting Dimensions",
    "collapsible": 1
@@ -419,7 +419,7 @@
    "options": "Project"
   },
   {
-   "fieldname": "column_break_dimensions",
+   "fieldname": "dimension_col_break",
    "fieldtype": "Column Break"
   },
   {
