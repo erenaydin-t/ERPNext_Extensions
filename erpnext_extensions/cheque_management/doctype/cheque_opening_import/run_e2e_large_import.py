@@ -50,6 +50,7 @@ def run():
 			None,
 			None,
 			f"SAYAD-LARGE-{suffix}",
+			None,
 	]
 	ws.append(data_row)
 	amt_col = TEMPLATE_HEADERS.index("cheque_amount") + 1
