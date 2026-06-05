@@ -54,15 +54,96 @@ HEADER_ALIASES = {
 	"book": "cheque_book",
 	"drawer_bank": "drawer_bank_name",
 	"sayad": "sayad_code",
+	"sayad_code": "sayad_code",
+	"sayad_registered": "sayad_registered",
+	"sayad_reg": "sayad_registered",
 }
+
+# Exact header text (Persian / mixed) → canonical field name.
+HEADER_ALIASES_EXACT: dict[str, str] = {
+	"کد صیادی": "sayad_code",
+	"شماره صیادی": "sayad_code",
+	"ثبت صیادی": "sayad_registered",
+	"ثبت شده در صیاد": "sayad_registered",
+	"وضعیت ثبت صیاد": "sayad_registered",
+}
+
+_SAYAD_REGISTERED_TRUE = frozenset(
+	{
+		"1",
+		"true",
+		"yes",
+		"y",
+		"checked",
+		"on",
+		"بله",
+		"درست",
+		"ثبت شده",
+	}
+)
+_SAYAD_REGISTERED_FALSE = frozenset(
+	{
+		"0",
+		"false",
+		"no",
+		"n",
+		"unchecked",
+		"off",
+		"خیر",
+		"نادرست",
+		"ثبت نشده",
+	}
+)
 
 
 def _norm_header(h: str | None) -> str:
 	if h is None:
 		return ""
-	s = cstr(h).strip().lower()
+	raw = cstr(h).strip()
+	if raw in HEADER_ALIASES_EXACT:
+		return HEADER_ALIASES_EXACT[raw]
+	s = raw.lower()
 	s = re.sub(r"[\s\-]+", "_", s)
 	return HEADER_ALIASES.get(s, s)
+
+
+def _parse_sayad_registered(val: Any) -> bool | None:
+	"""Parse Sayad Registered cell; ``None`` if empty / absent."""
+	if val is None:
+		return None
+	if isinstance(val, bool):
+		return val
+	if isinstance(val, (int, float)) and not isinstance(val, bool):
+		return bool(int(val))
+	s = cstr(val).strip()
+	if not s:
+		return None
+	s_lower = s.lower()
+	if s_lower in _SAYAD_REGISTERED_TRUE or s in _SAYAD_REGISTERED_TRUE:
+		return True
+	if s_lower in _SAYAD_REGISTERED_FALSE or s in _SAYAD_REGISTERED_FALSE:
+		return False
+	frappe.throw(
+		frappe._("Invalid Sayad Registered value: {0}").format(s[:80]),
+		title=frappe._("Cheque Opening Import"),
+	)
+
+
+def _apply_sayad_fields_from_row(pdc: Document, row: dict[str, Any]) -> None:
+	"""Map import row Sayad columns to PDC (code + registered checkbox rules)."""
+	code = cstr(row.get("sayad_code") or "").strip()
+	reg_raw = row.get("sayad_registered")
+	reg = _parse_sayad_registered(reg_raw)
+
+	if code:
+		pdc.sayad_code = code
+
+	if reg is not None:
+		pdc.sayad_registered = 1 if reg else 0
+	elif code:
+		pdc.sayad_registered = 1
+	else:
+		pdc.sayad_registered = 0
 
 
 def _parse_date(val: Any):
@@ -302,6 +383,12 @@ def _validate_row_preview(row: dict[str, Any], row_no: int) -> str | None:
 	if d == CHEQUE_DIRECTION_PAYABLE and cstr(row.get("cheque_book") or "").strip() and not leaf:
 		return f"Row {row_no}: Cheque Leaf not found for book + cheque_number + company + bank_account"
 
+	if "sayad_registered" in row and cstr(row.get("sayad_registered") or "").strip():
+		try:
+			_parse_sayad_registered(row.get("sayad_registered"))
+		except Exception as e:
+			return f"Row {row_no}: sayad_registered — {e!s}"
+
 	return None
 
 
@@ -400,10 +487,7 @@ def import_row(row_no: int, row: dict[str, Any]) -> str:
 		if leaf_no:
 			pdc.cheque_no = leaf_no
 
-	sc = cstr(row.get("sayad_code") or "").strip()
-	if sc:
-		pdc.sayad_code = sc
-		pdc.sayad_registered = 1
+	_apply_sayad_fields_from_row(pdc, row)
 
 	rd0 = _parse_date(row.get("received_date"))
 	if rd0:
@@ -668,6 +752,7 @@ TEMPLATE_HEADERS: list[str] = [
 	"bounced_date",
 	"returned_date",
 	"sayad_code",
+	"sayad_registered",
 ]
 
 
@@ -710,6 +795,7 @@ def download_import_template():
 			None,
 			None,
 			None,
+			None,
 		]
 	)
 
@@ -728,6 +814,7 @@ def download_import_template():
 			"Registered",
 			"",
 			date(2026, 1, 10),
+			None,
 			None,
 			None,
 			None,
@@ -753,6 +840,10 @@ def download_import_template():
 		"",
 		"Journal entries: Cheque Opening Import does not post lifecycle Journal Entries during import (opening snapshot only). Post-import workflow changes on the PDC create JEs as usual. Chart opening / trial balance JEs remain separate in Accounting.",
 		"",
+		"Sayad Code (sayad_code): optional official Sayad tracking code. Aliases: Sayad Code, کد صیادی, شماره صیادی.",
+		"Sayad Registered (sayad_registered): whether the cheque is registered in the Sayad system (1/0, yes/no, true/false, بله/خیر, etc.). Aliases: Sayad Registered, ثبت صیادی, ثبت شده در صیاد, وضعیت ثبت صیاد.",
+		"If Sayad Registered is blank: when Sayad Code is filled, registered defaults to 1; when code is empty, registered defaults to 0. A non-empty registered value always wins over the default.",
+		"",
 		"Replace all __REPLACE_*__ placeholders with real values from your site (Company, Bank Account, Customer/Supplier, Cheque Book, Drawer Bank, etc.) before Preview / Execute.",
 	]
 	for line in instructions:
@@ -775,6 +866,18 @@ def download_import_template():
 		[
 			"party_type (common)",
 			"Customer, Supplier, Employee, Shareholder (must match Party master)",
+		]
+	)
+	ws_allow.append(
+		[
+			"sayad_code / Sayad Code",
+			"Optional. Official Sayad tracking code.",
+		]
+	)
+	ws_allow.append(
+		[
+			"sayad_registered / Sayad Registered",
+			"Optional. 1/0, yes/no, true/false, y/n, checked/unchecked, بله/خیر, درست/نادرست, ثبت شده/ثبت نشده. Blank: default 1 if sayad_code set, else 0.",
 		]
 	)
 
