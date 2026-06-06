@@ -10,9 +10,21 @@ from unittest.mock import patch
 from erpnext_extensions.cheque_management.pdc_bank_dimension import (
 	_row_account_needs_bank_dimension,
 	apply_pdc_bank_dimension_to_je_row,
+	apply_pdc_bank_related_dimensions_to_je_row,
 	build_je_account_row_from_pdc_payload,
 	resolve_pdc_bank_dimension_value,
 )
+
+_BANK_DIM_ONLY = [{"fieldname": "bank_dimension", "name": "Bank Dimension", "label": "Bank Dimension", "document_type": "Bank"}]
+_BOTH_DIMS = [
+	{"fieldname": "bank_dimension", "name": "Bank Dimension", "label": "Bank Dimension", "document_type": "Bank"},
+	{
+		"fieldname": "bank_account_dimension",
+		"name": "Bank Account Dimension",
+		"label": "Bank Account Dimension",
+		"document_type": "Bank Account",
+	},
+]
 
 
 class TestPDCBankDimension(unittest.TestCase):
@@ -35,6 +47,10 @@ class TestPDCBankDimension(unittest.TestCase):
 	def test_bank_account_set_dimension_empty_no_apply_on_eligible_row(self) -> None:
 		doc = SimpleNamespace(bank_account="BA-1", bank_dimension=None, company="_TC")
 		with (
+			patch(
+				"erpnext_extensions.cheque_management.pdc_bank_dimension.get_pdc_bank_related_accounting_dimensions",
+				return_value=_BANK_DIM_ONLY,
+			),
 			patch(
 				"erpnext_extensions.cheque_management.pdc_bank_dimension.get_bank_accounting_dimension_fieldname",
 				return_value="bank_dimension",
@@ -61,6 +77,10 @@ class TestPDCBankDimension(unittest.TestCase):
 		doc = SimpleNamespace(bank_dimension="BANK-X", company="_TC")
 		with (
 			patch(
+				"erpnext_extensions.cheque_management.pdc_bank_dimension.get_pdc_bank_related_accounting_dimensions",
+				return_value=_BANK_DIM_ONLY,
+			),
+			patch(
 				"erpnext_extensions.cheque_management.pdc_bank_dimension.get_bank_accounting_dimension_fieldname",
 				return_value="bank_dimension",
 			),
@@ -85,6 +105,10 @@ class TestPDCBankDimension(unittest.TestCase):
 	def test_dimension_set_not_applied_on_cih_protested_ar(self) -> None:
 		doc = SimpleNamespace(bank_dimension="BANK-X", company="_TC")
 		with (
+			patch(
+				"erpnext_extensions.cheque_management.pdc_bank_dimension.get_pdc_bank_related_accounting_dimensions",
+				return_value=_BANK_DIM_ONLY,
+			),
 			patch(
 				"erpnext_extensions.cheque_management.pdc_bank_dimension.get_bank_accounting_dimension_fieldname",
 				return_value="bank_dimension",
@@ -143,6 +167,10 @@ class TestPDCBankDimension(unittest.TestCase):
 		}
 		with (
 			patch(
+				"erpnext_extensions.cheque_management.pdc_bank_dimension.get_pdc_bank_related_accounting_dimensions",
+				return_value=_BANK_DIM_ONLY,
+			),
+			patch(
 				"erpnext_extensions.cheque_management.pdc_bank_dimension.get_bank_accounting_dimension_fieldname",
 				return_value="bank_dimension",
 			),
@@ -185,6 +213,38 @@ class TestPDCBankDimension(unittest.TestCase):
 			self.assertTrue(_row_account_needs_bank_dimension(doc, "CLR"))
 			self.assertTrue(_row_account_needs_bank_dimension(doc, "BGL"))
 			self.assertFalse(_row_account_needs_bank_dimension(doc, "CIH"))
+
+	def test_both_bank_related_dimensions_independent_on_clearing(self) -> None:
+		doc = SimpleNamespace(
+			bank_dimension="BANK-A",
+			bank_account_dimension="BA-DIM-1",
+			bank_account="SHOULD-NOT-USE",
+			company="_TC",
+		)
+		with (
+			patch(
+				"erpnext_extensions.cheque_management.pdc_bank_dimension.get_pdc_bank_related_accounting_dimensions",
+				return_value=_BOTH_DIMS,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_bank_dimension._pdc_bank_gl_account",
+				return_value="BANK-GL",
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_bank_dimension._get_pdc_settings_for_company",
+				return_value={},
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_bank_dimension.resolve_pdc_accounts_for_journal",
+				return_value={"cheques_in_clearing": "CLR-GL"},
+			),
+		):
+			row = apply_pdc_bank_related_dimensions_to_je_row(doc, {"account": "CLR-GL"})
+			self.assertEqual(row.get("bank_dimension"), "BANK-A")
+			self.assertEqual(row.get("bank_account_dimension"), "BA-DIM-1")
+			cih = apply_pdc_bank_related_dimensions_to_je_row(doc, {"account": "CIH-GL"})
+			self.assertNotIn("bank_dimension", cih)
+			self.assertNotIn("bank_account_dimension", cih)
 
 
 if __name__ == "__main__":
