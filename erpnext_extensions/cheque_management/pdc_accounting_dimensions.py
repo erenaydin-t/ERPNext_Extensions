@@ -41,3 +41,30 @@ def provision_post_dated_cheque_accounting_dimensions() -> None:
 			)
 
 	frappe.clear_cache(doctype="Post Dated Cheque")
+	sync_pdc_accounting_dimension_fields_allow_on_submit()
+
+
+def sync_pdc_accounting_dimension_fields_allow_on_submit() -> None:
+	"""Ensure dimension fields on PDC stay editable after submit (templates for future JEs)."""
+	if not frappe.db.exists("DocType", "Post Dated Cheque"):
+		return
+	try:
+		from erpnext.accounts.doctype.accounting_dimension.accounting_dimension import (
+			get_accounting_dimensions,
+		)
+	except Exception:
+		def get_accounting_dimensions():
+			return []
+
+	fieldnames = set(get_accounting_dimensions() or [])
+	fieldnames.update({"project", "cost_center"})
+	for fieldname in fieldnames:
+		if not fieldname:
+			continue
+		cf_name = frappe.db.get_value(
+			"Custom Field", {"dt": "Post Dated Cheque", "fieldname": fieldname}, "name"
+		)
+		if cf_name and not frappe.db.get_value("Custom Field", cf_name, "allow_on_submit"):
+			frappe.db.set_value("Custom Field", cf_name, "allow_on_submit", 1, update_modified=False)
+
+	frappe.clear_cache(doctype="Post Dated Cheque")

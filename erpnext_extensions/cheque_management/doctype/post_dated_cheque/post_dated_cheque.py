@@ -1638,7 +1638,6 @@ class PostDatedCheque(Document):
 		self._validate_receivable_bank_account_mutability()
 		self._reset_party_if_party_type_changed()
 		self._set_default_party_accounts()
-		self._validate_fields_not_editable_after_related_accounting()
 		self._validate_receivable_cheques_in_hand_account_required()
 		self._validate_allocations()
 		self._validate_advance_scope_structural()
@@ -2042,69 +2041,6 @@ class PostDatedCheque(Document):
 			pool = _strip_link_name_or_none(settings.get("default_payable_cheque_account"))
 			if pool:
 				self.account_paid_from = pool
-
-	def _validate_fields_not_editable_after_related_accounting(self) -> None:
-		"""Lock sensitive account fields once related accounting has been posted.
-
-		Rules (per-field):
-		- ``account_paid_from`` / ``account_paid_to``: locked after any posted JE exists on this PDC.
-		- ``cheques_in_clearing_account``: locked after any clearing-related JE exists (Under Collection / Collected / Returned).
-		- ``endorsement_settlement_account``: locked after Endorsement JE exists.
-		"""
-		before = self.get_doc_before_save()
-		if not before:
-			return
-		if not self.name:
-			return
-
-		def _has_purpose(purposes: tuple[str, ...]) -> bool:
-			for ref in (self.journal_references or []):
-				if (ref.purpose or "").strip() in purposes:
-					return True
-			count = frappe.db.count(
-				"PDC Journal Reference",
-				{
-					"parent": self.name,
-					"parenttype": "Post Dated Cheque",
-					"purpose": ["in", list(purposes)],
-				},
-			)
-			return bool(count and count > 0)
-
-		has_any_je = _has_purpose(
-			(
-				"Receive",
-				"Under Collection",
-				"Collected",
-				"Returned",
-				"Payable Issue",
-				"Payable Clear",
-				"Endorsement",
-				"Cancel",
-			)
-		)
-		has_clearing_related = _has_purpose(("Under Collection", "Collected", "Returned"))
-		has_endorsement = _has_purpose(("Endorsement",))
-
-		def _changed(fieldname: str) -> bool:
-			return (getattr(before, fieldname, None) or "") != (getattr(self, fieldname, None) or "")
-
-		locked_fields: list[str] = []
-		if has_any_je:
-			for fn in ("account_paid_from", "account_paid_to"):
-				if _changed(fn):
-					locked_fields.append(fn)
-		if has_clearing_related and _changed("cheques_in_clearing_account"):
-			locked_fields.append("cheques_in_clearing_account")
-		if has_endorsement and _changed("endorsement_settlement_account"):
-			locked_fields.append("endorsement_settlement_account")
-		if locked_fields:
-			frappe.throw(
-				frappe._(
-					"These fields cannot be changed after related accounting entries exist: {0}"
-				).format(", ".join(locked_fields)),
-				title=frappe._("Accounting already posted"),
-			)
 
 	def _validate_receivable_cheques_in_hand_account_required(self) -> None:
 		"""Receivable PDC must always have Cheques in Hand account resolved onto the document."""
