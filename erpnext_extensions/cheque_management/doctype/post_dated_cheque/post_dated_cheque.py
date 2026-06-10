@@ -3407,18 +3407,7 @@ class PostDatedCheque(Document):
 				title=frappe._("Cheque Leaf"),
 			)
 
-		# Allowed: Available, or Reserved by this PDC (draft re-save / idempotency).
-		if row.status == "Reserved":
-			if (row.reserved_by_pdc or "") != (self.name or ""):
-				frappe.throw(
-					frappe._("This Cheque Leaf is already reserved by another Post Dated Cheque."),
-					title=frappe._("Cheque Leaf"),
-				)
-		elif row.status != "Available":
-			frappe.throw(
-				frappe._("Cheque Leaf must be Available (or Reserved by this PDC)."),
-				title=frappe._("Cheque Leaf"),
-			)
+		_pdc_assert_cheque_leaf_usable_by_pdc(row, self.name or "")
 
 		# Enforce cheque_no match.
 		if (row.cheque_number or "").strip() and (self.cheque_no or "").strip() != (row.cheque_number or "").strip():
@@ -3634,6 +3623,46 @@ class PostDatedCheque(Document):
 			return je
 
 		return None
+
+
+def _pdc_assert_cheque_leaf_usable_by_pdc(row, pdc_name: str) -> None:
+	"""Ensure a Payable PDC may reference this Cheque Leaf (status + ownership).
+
+	Allowed:
+	* Available
+	* Reserved with ``reserved_by_pdc`` = this PDC
+	* Used with ``linked_post_dated_cheque`` = this PDC
+
+	Rejected: Void leaf, or Reserved/Used by another PDC.
+	"""
+	status = (getattr(row, "status", None) or "").strip()
+	pdc_name = (pdc_name or "").strip()
+
+	if status == "Void":
+		frappe.throw(
+			frappe._("Cannot use a voided Cheque Leaf."),
+			title=frappe._("Cheque Leaf"),
+		)
+	if status == "Available":
+		return
+	if status == "Reserved":
+		if (getattr(row, "reserved_by_pdc", None) or "").strip() == pdc_name:
+			return
+		frappe.throw(
+			frappe._("This Cheque Leaf is already reserved by another Post Dated Cheque."),
+			title=frappe._("Cheque Leaf"),
+		)
+	if status == "Used":
+		if (getattr(row, "linked_post_dated_cheque", None) or "").strip() == pdc_name:
+			return
+		frappe.throw(
+			frappe._("This Cheque Leaf is already used by another Post Dated Cheque."),
+			title=frappe._("Cheque Leaf"),
+		)
+	frappe.throw(
+		frappe._("Cheque Leaf must be Available, Reserved by this PDC, or Used by this PDC."),
+		title=frappe._("Cheque Leaf"),
+	)
 
 
 def _pdc_get_cheque_leaf_row_for_update(leaf_name: str):
