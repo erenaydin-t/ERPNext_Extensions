@@ -122,6 +122,7 @@ after_migrate = [
 	"erpnext_extensions.cheque_management.payments_sidebar.after_migrate",
 	"erpnext_extensions.petty_management.desk_visibility.after_migrate",
 	"erpnext_extensions.cheque_management.pdc_accounting_dimensions.after_migrate",
+	"erpnext_extensions.facility_management.facility_accounting_dimensions.after_migrate",
 ]
 
 # ERPNext injects Accounting Dimension custom fields onto these DocTypes (see Accounting Dimension on_update).

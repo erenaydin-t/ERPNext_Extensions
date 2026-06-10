@@ -1,0 +1,31 @@
+{
+ "app": "erpnext_extensions",
+ "creation": "2026-06-10 10:48:16.735776",
+ "docstatus": 0,
+ "doctype": "Desktop Icon",
+ "hidden": 0,
+ "icon": "landmark",
+ "icon_type": "Link",
+ "idx": 9,
+ "label": "Facility Management",
+ "link_to": "Facility Management",
+ "link_type": "Workspace Sidebar",
+ "modified": "2026-06-10 11:56:15.912426",
+ "modified_by": "Administrator",
+ "name": "Facility Management",
+ "owner": "Administrator",
+ "parent_icon": "Accounting",
+ "restrict_removal": 0,
+ "roles": [
+  {
+   "role": "Accounts User"
+  },
+  {
+   "role": "Accounts Manager"
+  },
+  {
+   "role": "System Manager"
+  }
+ ],
+ "standard": 1
+}
