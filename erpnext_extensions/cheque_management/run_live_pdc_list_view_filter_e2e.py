@@ -47,8 +47,8 @@ def run():
 	saved_filters = list_view.get("filters") or []
 	evidence["saved_list_filters_before"] = saved_filters
 
-	# Simulate a hidden restrictive filter (standard-filter style) persisted per user.
-	impossible = [["Post Dated Cheque", "workflow_state", "=", "__PDC_E2E_NO_SUCH_STATE__"]]
+	# Simulate saved invalid empty ID filter (root cause: name Equals "").
+	impossible = [["Post Dated Cheque", "name", "=", ""]]
 	list_view["filters"] = impossible
 	settings["List"] = list_view
 	update_user_settings("Post Dated Cheque", settings)

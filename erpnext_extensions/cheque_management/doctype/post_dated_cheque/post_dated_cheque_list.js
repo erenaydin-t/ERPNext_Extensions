@@ -2,11 +2,89 @@ frappe.provide("erpnext_extensions.cheque_management.pdc_list_view");
 
 const PDC_DOCTYPE = "Post Dated Cheque";
 
+const PDC_LIST_CONDITIONS_WITHOUT_OPERAND_VALUE = new Set([
+	"set",
+	"not set",
+	"is set",
+	"is not set",
+	"is null",
+	"is not null",
+	"is empty",
+	"is not empty",
+]);
+
+const PDC_LIST_CONDITIONS_REQUIRING_OPERAND_VALUE = new Set([
+	"=",
+	"!=",
+	"like",
+	"not like",
+	"in",
+	"not in",
+	"between",
+	">",
+	"<",
+	">=",
+	"<=",
+	"descendants of",
+	"descendants of (inclusive)",
+	"ancestors of",
+	"not descendants of",
+	"not ancestors of",
+	"timespan",
+]);
+
+function pdc_list_normalize_condition(condition) {
+	return (condition || "").toString().trim().toLowerCase();
+}
+
+function pdc_list_is_filter_value_empty(value) {
+	if (value === null || value === undefined) {
+		return true;
+	}
+	if (Array.isArray(value)) {
+		return value.length === 0 || value.every((v) => pdc_list_is_filter_value_empty(v));
+	}
+	if (typeof value === "string") {
+		return value.trim() === "";
+	}
+	return false;
+}
+
+/** True when tuple must not be applied (e.g. name Equals ""). */
+function pdc_list_filter_tuple_has_invalid_empty_value(filter) {
+	if (!Array.isArray(filter) || filter.length < 3) {
+		return false;
+	}
+	const condition = pdc_list_normalize_condition(filter[2]);
+	const value = filter.length > 3 ? filter[3] : undefined;
+
+	if (PDC_LIST_CONDITIONS_WITHOUT_OPERAND_VALUE.has(condition)) {
+		return false;
+	}
+	if (condition === "is") {
+		return pdc_list_is_filter_value_empty(value);
+	}
+	const boot_cfg = frappe.boot?.additional_filters_config?.[filter[2]];
+	if (boot_cfg && boot_cfg.valid_for_empty_value) {
+		return false;
+	}
+	if (PDC_LIST_CONDITIONS_REQUIRING_OPERAND_VALUE.has(condition)) {
+		return pdc_list_is_filter_value_empty(value);
+	}
+	return pdc_list_is_filter_value_empty(value);
+}
+
+function pdc_list_sanitize_filter_tuples(filters) {
+	if (!Array.isArray(filters)) {
+		return [];
+	}
+	return filters.filter((f) => !pdc_list_filter_tuple_has_invalid_empty_value(f));
+}
+
 function pdc_list_reconcile_state(listview) {
 	if (!listview._pdc_filter_reconcile_state) {
 		listview._pdc_filter_reconcile_state = {
-			initial_pass_done: false,
-			auto_cleared: false,
+			invalid_filter_cleanup_done: false,
 			user_interacted: false,
 		};
 	}
@@ -19,40 +97,34 @@ function pdc_list_has_url_filters() {
 
 function pdc_list_get_filter_debug(listview) {
 	const filter_area = listview.filter_area;
+	const filter_list = filter_area?.filter_list;
 	const chip_filters = filter_area?.filter_list?.get_filters?.() || [];
 	const standard_filters = filter_area?.get_standard_filters?.() || [];
 	const combined = filter_area?.get?.() || [];
+	const list_settings = frappe.get_user_settings?.(PDC_DOCTYPE, "List") || {};
+	const filter_list_meta = (filter_list?.filters || []).map((f) => ({
+		fieldname: f.fieldname,
+		hidden: !!f.hidden,
+		value: f.get_selected_value?.(),
+	}));
 	return {
+		route: frappe.get_route?.(),
 		route_options: frappe.route_options,
 		url_search: window.location.search,
 		chip_filters,
 		standard_filters,
 		combined_filters: combined,
+		filter_list_meta,
+		listview_filters: listview.filters,
+		user_list_settings: list_settings,
 		data_length: listview.data?.length ?? 0,
 		reconcile_state: { ...pdc_list_reconcile_state(listview) },
 	};
 }
 
-/** True only when empty list is caused by hidden (standard-bar) filters, not chips or URL. */
-function pdc_list_should_auto_clear_hidden_filters(listview, debug) {
-	void listview;
-	if (pdc_list_has_url_filters()) {
-		return false;
-	}
-	const chip_count = debug.chip_filters?.length ?? 0;
-	const combined_count = debug.combined_filters?.length ?? 0;
-	if (chip_count > 0) {
-		return false;
-	}
-	if (combined_count === 0) {
-		return false;
-	}
-	// filter_area.get() = chip filters + standard filters; with zero chips, all are standard-bar / restored "=" filters
-	const standard_count = debug.standard_filters?.length ?? 0;
-	if (standard_count === 0) {
-		return false;
-	}
-	return standard_count === combined_count;
+/** User intentionally applied filters this session (menu, chips, standard bar). */
+function pdc_list_has_session_intentional_filters(listview) {
+	return !!pdc_list_reconcile_state(listview).user_interacted;
 }
 
 function pdc_list_clear_stale_route_options() {
@@ -70,61 +142,139 @@ function pdc_list_bind_filter_user_interaction(listview) {
 		return;
 	}
 	filter_area._pdc_interaction_hooked = true;
-	const orig = filter_area.refresh_list_view.bind(filter_area);
+	const orig_refresh = filter_area.refresh_list_view.bind(filter_area);
 	filter_area.refresh_list_view = function () {
 		const state = pdc_list_reconcile_state(listview);
-		if (state.initial_pass_done && !listview._pdc_programmatic_filter_change) {
+		if (state.invalid_filter_cleanup_done && !listview._pdc_programmatic_filter_change) {
 			state.user_interacted = true;
 		}
-		return orig();
+		return orig_refresh();
+	};
+	if (!filter_area._pdc_add_hooked) {
+		filter_area._pdc_add_hooked = true;
+		const orig_add = filter_area.add.bind(filter_area);
+		filter_area.add = function (filters, refresh = true) {
+			const state = pdc_list_reconcile_state(listview);
+			if (state.invalid_filter_cleanup_done && !listview._pdc_programmatic_filter_change) {
+				state.user_interacted = true;
+			}
+			return orig_add(filters, refresh);
+		};
+	}
+}
+
+function pdc_list_wrap_get_filters_for_args(listview) {
+	if (listview._pdc_get_filters_wrapped) {
+		return;
+	}
+	listview._pdc_get_filters_wrapped = true;
+	const orig = listview.get_filters_for_args.bind(listview);
+	listview.get_filters_for_args = function () {
+		return pdc_list_sanitize_filter_tuples(orig());
 	};
 }
 
-function pdc_list_bind_empty_list_reconcile(listview) {
+function pdc_list_wrap_before_refresh(listview) {
+	if (listview._pdc_before_refresh_wrapped) {
+		return;
+	}
+	listview._pdc_before_refresh_wrapped = true;
+	const orig = listview.before_refresh.bind(listview);
+	listview.before_refresh = function () {
+		return pdc_list_remove_invalid_empty_filters(listview, { refresh: false }).then(() =>
+			orig()
+		);
+	};
+}
+
+/**
+ * Drop invalid empty-value filters from FilterGroup rows, listview.filters, and saved List settings.
+ * Valid filters (e.g. ID Equals PDC-xxx, name Is set) are kept.
+ */
+async function pdc_list_remove_invalid_empty_filters(listview, { refresh = false } = {}) {
+	if (!listview?.filter_area) {
+		return false;
+	}
+	let changed = false;
+	listview._pdc_programmatic_filter_change = true;
+	try {
+		if (Array.isArray(listview.filters)) {
+			const sanitized = pdc_list_sanitize_filter_tuples(listview.filters);
+			if (sanitized.length !== listview.filters.length) {
+				listview.filters = sanitized;
+				changed = true;
+			}
+		}
+
+		const filter_list = listview.filter_area.filter_list;
+		if (filter_list?.filters?.length) {
+			const to_remove = [];
+			for (const f of filter_list.filters) {
+				if (!f.field) {
+					continue;
+				}
+				const tuple = f.get_value?.();
+				if (tuple && pdc_list_filter_tuple_has_invalid_empty_value(tuple)) {
+					to_remove.push(f);
+				}
+			}
+			if (to_remove.length) {
+				to_remove.forEach((f) => f.remove(true));
+				filter_list.filters = (filter_list.filters || []).filter((f) => f.field);
+				filter_list.update_filters?.();
+				changed = true;
+			}
+		}
+
+		const fields_dict = listview.page?.fields_dict || {};
+		for (const key of Object.keys(fields_dict)) {
+			const field = fields_dict[key];
+			const raw = field.get_value?.();
+			if (pdc_list_is_filter_value_empty(raw)) {
+				continue;
+			}
+			let match_type = field.df?.match_type || "=";
+			let condition = match_type === "like" ? "like" : "=";
+			const tuple = [field.df?.doctype || PDC_DOCTYPE, field.df?.fieldname, condition, raw];
+			if (pdc_list_filter_tuple_has_invalid_empty_value(tuple)) {
+				await field.set_value("");
+				changed = true;
+			}
+		}
+
+		const combined = listview.filter_area.get?.() || [];
+		const sanitized_combined = pdc_list_sanitize_filter_tuples(combined);
+		if (sanitized_combined.length !== combined.length && typeof listview.save_view_user_settings === "function") {
+			await listview.save_view_user_settings({ filters: sanitized_combined });
+			changed = true;
+		}
+
+		if (changed) {
+			listview.filter_area.filter_list?.update_filter_button?.();
+		}
+		if (changed && refresh) {
+			await listview.refresh();
+		}
+	} finally {
+		listview._pdc_programmatic_filter_change = false;
+	}
+	return changed;
+}
+
+function pdc_list_bind_invalid_filter_cleanup(listview) {
 	pdc_list_bind_filter_user_interaction(listview);
+	pdc_list_wrap_get_filters_for_args(listview);
+	pdc_list_wrap_before_refresh(listview);
 
 	listview.on("after_refresh", async () => {
 		const state = pdc_list_reconcile_state(listview);
-
-		if (state.auto_cleared || state.user_interacted) {
-			if (!state.initial_pass_done) {
-				state.initial_pass_done = true;
-			}
+		if (state.invalid_filter_cleanup_done) {
 			return;
 		}
-		if (state.initial_pass_done) {
-			return;
-		}
-
-		state.initial_pass_done = true;
-
-		const db_count = await frappe.db.count(PDC_DOCTYPE);
-		const row_count = listview.data?.length ?? 0;
-		if (!db_count || row_count > 0) {
-			return;
-		}
-
-		const debug = pdc_list_get_filter_debug(listview);
-		if (!pdc_list_should_auto_clear_hidden_filters(listview, debug)) {
-			return;
-		}
-
-		state.auto_cleared = true;
-		console.warn("[PDC List] Hidden standard/saved filters returned zero rows; clearing.", debug);
-		frappe.show_alert(
-			{
-				message: __(
-					"No Post Dated Cheques match the hidden filters in the list header. Filters were cleared."
-				),
-				indicator: "orange",
-			},
-			6
-		);
-		listview._pdc_programmatic_filter_change = true;
-		try {
-			await listview.filter_area.clear(true);
-		} finally {
-			listview._pdc_programmatic_filter_change = false;
+		state.invalid_filter_cleanup_done = true;
+		const changed = await pdc_list_remove_invalid_empty_filters(listview, { refresh: false });
+		if (changed) {
+			await listview.refresh();
 		}
 	});
 }
@@ -141,8 +291,7 @@ function pdc_list_apply_filters(listview, filters, { clear = true } = {}) {
 
 function pdc_list_reset_reconcile_state(listview) {
 	listview._pdc_filter_reconcile_state = {
-		initial_pass_done: false,
-		auto_cleared: false,
+		invalid_filter_cleanup_done: false,
 		user_interacted: false,
 	};
 	listview._pdc_programmatic_filter_change = false;
@@ -156,8 +305,12 @@ function pdc_list_wait_refresh(listview, ms = 800) {
 }
 
 erpnext_extensions.cheque_management.pdc_list_view.get_filter_debug = pdc_list_get_filter_debug;
-erpnext_extensions.cheque_management.pdc_list_view.should_auto_clear_hidden_filters =
-	pdc_list_should_auto_clear_hidden_filters;
+erpnext_extensions.cheque_management.pdc_list_view.remove_invalid_empty_filters =
+	pdc_list_remove_invalid_empty_filters;
+erpnext_extensions.cheque_management.pdc_list_view.sanitize_filter_tuples =
+	pdc_list_sanitize_filter_tuples;
+erpnext_extensions.cheque_management.pdc_list_view.filter_tuple_has_invalid_empty_value =
+	pdc_list_filter_tuple_has_invalid_empty_value;
 erpnext_extensions.cheque_management.pdc_list_view.reset_reconcile_state = pdc_list_reset_reconcile_state;
 
 erpnext_extensions.cheque_management.pdc_list_view.run_filter_e2e = async function (listview) {
@@ -166,100 +319,111 @@ erpnext_extensions.cheque_management.pdc_list_view.run_filter_e2e = async functi
 
 	const db_count = await frappe.db.count(PDC_DOCTYPE);
 	push("db_has_records", db_count > 0, { db_count });
+	const sample_rows = await frappe.db.get_list(PDC_DOCTYPE, {
+		fields: ["name"],
+		limit: 1,
+		order_by: "modified desc",
+	});
+	const sample_name = sample_rows[0]?.name || null;
 
-	// D — fresh list, no filters
-	pdc_list_reset_reconcile_state(listview);
-	await listview.filter_area.clear(true);
-	await listview.refresh();
-	await pdc_list_wait_refresh(listview);
-	const debug_d = pdc_list_get_filter_debug(listview);
-	push(
-		"D_fresh_list_no_filters",
-		(listview.data?.length ?? 0) > 0 && (debug_d.combined_filters?.length ?? 0) === 0,
-		debug_d
-	);
-
-	// E — manual clear
-	pdc_list_apply_filters(
-		listview,
-		[[PDC_DOCTYPE, "cheque_direction", "=", "Receivable"]],
-		{ clear: true }
-	);
-	await pdc_list_wait_refresh(listview);
-	pdc_list_reconcile_state(listview).user_interacted = true;
-	await listview.filter_area.clear(true);
-	await listview.refresh();
-	await pdc_list_wait_refresh(listview);
-	const debug_e = pdc_list_get_filter_debug(listview);
-	push(
-		"E_manual_clear_shows_rows",
-		(listview.data?.length ?? 0) > 0 && (debug_e.combined_filters?.length ?? 0) === 0,
-		debug_e
-	);
-
-	// B — visible chip filter, zero rows, no auto-clear
+	// A — empty ID Equals "" removed; list shows rows
 	pdc_list_reset_reconcile_state(listview);
 	await listview.filter_area.clear(false);
-	await listview.filter_area.add(
-		[PDC_DOCTYPE, "name", "=", "__PDC_E2E_NO_SUCH_DOC__"],
-		false
-	);
-	await listview.refresh();
+	await listview.filter_area.add([PDC_DOCTYPE, "name", "=", ""], false);
+	await pdc_list_remove_invalid_empty_filters(listview, { refresh: true });
 	await pdc_list_wait_refresh(listview);
-	const debug_b = pdc_list_get_filter_debug(listview);
-	const state_b = pdc_list_reconcile_state(listview);
+	const debug_a = pdc_list_get_filter_debug(listview);
+	const args_a = listview.get_filters_for_args();
 	push(
-		"B_visible_chip_empty_no_autoclear",
-		(debug_b.chip_filters?.length ?? 0) > 0 &&
-			(listview.data?.length ?? 0) === 0 &&
-			!state_b.auto_cleared &&
-			(debug_b.combined_filters?.length ?? 0) > 0,
-		debug_b
+		"A_empty_id_equals_removed",
+		(listview.data?.length ?? 0) > 0 &&
+			!args_a.some((f) => f[1] === "name" && f[2] === "=" && pdc_list_is_filter_value_empty(f[3])) &&
+			(debug_a.filter_list_meta || []).every(
+				(m) => !(m.fieldname === "name" && pdc_list_is_filter_value_empty(m.value))
+			),
+		{ debug: debug_a, args: args_a }
 	);
+
+	// B — valid ID filter preserved
+	if (sample_name) {
+		pdc_list_reset_reconcile_state(listview);
+		await listview.filter_area.clear(true);
+		pdc_list_reconcile_state(listview).user_interacted = true;
+		await listview.filter_area.add([PDC_DOCTYPE, "name", "=", sample_name], true);
+		await pdc_list_wait_refresh(listview);
+		const args_b = listview.get_filters_for_args();
+		push(
+			"B_valid_id_filter_kept",
+			args_b.some((f) => f[1] === "name" && f[3] === sample_name) && (listview.data?.length ?? 0) >= 1,
+			{ args: args_b, rows: listview.data?.length }
+		);
+		await listview.filter_area.clear(true);
+		await listview.refresh();
+	} else {
+		push("B_valid_id_filter_kept", false, { skipped: "no sample PDC" });
+	}
+
+	// C — Is Set preserved
+	pdc_list_reset_reconcile_state(listview);
+	await listview.filter_area.clear(true);
 	pdc_list_reconcile_state(listview).user_interacted = true;
+	await listview.filter_area.add([PDC_DOCTYPE, "name", "is", "set"], true);
+	await pdc_list_wait_refresh(listview);
+	const args_c = listview.get_filters_for_args();
+	push(
+		"C_is_set_filter_kept",
+		args_c.some((f) => f[1] === "name" && f[2] === "is" && f[3] === "set") && (listview.data?.length ?? 0) > 0,
+		{ args: args_c }
+	);
 	await listview.filter_area.clear(true);
 	await listview.refresh();
 
-	// C — URL query present → should_auto_clear false
-	const debug_c = {
-		chip_filters: [],
-		standard_filters: [[PDC_DOCTYPE, "workflow_state", "=", "X"]],
-		combined_filters: [[PDC_DOCTYPE, "workflow_state", "=", "X"]],
-		url_search: "?workflow_state=X",
-	};
-	const url_saved = window.location.search;
-	history.replaceState(null, "", `${window.location.pathname}?workflow_state=__PDC_E2E__`);
-	push(
-		"C_url_filter_blocks_autoclear",
-		!pdc_list_should_auto_clear_hidden_filters(listview, {
-			...debug_c,
-			url_search: window.location.search,
-		}),
-		{ url: window.location.search }
-	);
-	history.replaceState(null, "", window.location.pathname + url_saved);
-
-	// A — hidden standard filter → auto-clear (simulate first load)
+	// D — empty standard quick filter not in query args
 	pdc_list_reset_reconcile_state(listview);
-	await listview.filter_area.clear(false);
+	await listview.filter_area.clear(true);
 	const name_field = listview.page.fields_dict.name;
 	if (name_field) {
 		listview._pdc_programmatic_filter_change = true;
-		await name_field.set_value("__PDC_E2E_NO_SUCH__");
+		await name_field.set_value("");
 		listview._pdc_programmatic_filter_change = false;
 	}
+	await pdc_list_remove_invalid_empty_filters(listview, { refresh: true });
+	await pdc_list_wait_refresh(listview);
+	const args_d = listview.get_filters_for_args();
+	push(
+		"D_empty_standard_not_in_query",
+		!args_d.some((f) => f[1] === "name" && pdc_list_is_filter_value_empty(f[3])),
+		{ args: args_d }
+	);
+
+	// E — sanitize drops invalid tuple without touching valid
+	const san_e = pdc_list_sanitize_filter_tuples([
+		[PDC_DOCTYPE, "name", "=", ""],
+		[PDC_DOCTYPE, "workflow_state", "=", "Registered"],
+	]);
+	push(
+		"E_sanitize_drops_only_invalid",
+		san_e.length === 1 && san_e[0][1] === "workflow_state",
+		{ san_e }
+	);
+
+	// F — invalid empty equals row removed from FilterGroup after cleanup
+	pdc_list_reset_reconcile_state(listview);
+	await listview.filter_area.clear(false);
+	await listview.filter_area.add([PDC_DOCTYPE, "name", "=", ""], false);
 	await listview.refresh();
 	await pdc_list_wait_refresh(listview);
+	const before_f = pdc_list_get_filter_debug(listview);
+	await pdc_list_remove_invalid_empty_filters(listview, { refresh: true });
 	await pdc_list_wait_refresh(listview);
-	const debug_a = pdc_list_get_filter_debug(listview);
-	const state_a = pdc_list_reconcile_state(listview);
-	push(
-		"A_hidden_standard_autoclear",
-		state_a.auto_cleared &&
-			(listview.data?.length ?? 0) > 0 &&
-			(debug_a.combined_filters?.length ?? 0) === 0,
-		debug_a
+	const after_f = pdc_list_get_filter_debug(listview);
+	const had_invalid = (before_f.filter_list_meta || []).some(
+		(m) => m.fieldname === "name" && pdc_list_is_filter_value_empty(m.value)
 	);
+	const no_invalid = !(after_f.filter_list_meta || []).some(
+		(m) => m.fieldname === "name" && pdc_list_is_filter_value_empty(m.value)
+	);
+	push("F_empty_equals_row_removed", had_invalid && no_invalid, { before_f, after_f });
 
 	const all_ok = results.every((r) => r.ok);
 	console.table(results);
@@ -293,11 +457,15 @@ frappe.listview_settings[PDC_DOCTYPE] = {
 
 	onload(listview) {
 		pdc_list_clear_stale_route_options();
-		pdc_list_bind_empty_list_reconcile(listview);
+		if (Array.isArray(listview.filters)) {
+			listview.filters = pdc_list_sanitize_filter_tuples(listview.filters);
+		}
+		pdc_list_bind_invalid_filter_cleanup(listview);
 
 		const dt = frappe.datetime;
 
 		const set_due_range = (from, to) => {
+			pdc_list_reconcile_state(listview).user_interacted = true;
 			listview.filter_area.clear();
 			if (from) listview.filter_area.add([PDC_DOCTYPE, "cheque_due_date", ">=", from]);
 			if (to) listview.filter_area.add([PDC_DOCTYPE, "cheque_due_date", "<=", to]);
