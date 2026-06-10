@@ -1,0 +1,232 @@
+{
+ "actions": [],
+ "autoname": "field:company",
+ "creation": "2026-06-09 00:00:00.000000",
+ "custom": 0,
+ "docstatus": 0,
+ "doctype": "DocType",
+ "document_type": "Setup",
+ "engine": "InnoDB",
+ "field_order": [
+  "company",
+  "section_defaults_accounts",
+  "default_bank_account",
+  "default_loan_payable_account",
+  "default_deferred_loan_interest_account",
+  "column_break_acc",
+  "default_interest_expense_account",
+  "default_penalty_expense_account",
+  "section_defaults_dimensions",
+  "default_cost_center",
+  "default_department",
+  "column_break_dim",
+  "default_bank_dimension",
+  "default_bank_account_dimension",
+  "section_receipt_templates",
+  "default_receipt_remarks_template",
+  "default_receipt_bank_row_description_template",
+  "default_receipt_deferred_interest_row_description_template",
+  "default_receipt_loan_payable_row_description_template",
+  "section_repayment_templates",
+  "default_repayment_remarks_template",
+  "default_repayment_bank_row_description_template",
+  "default_repayment_principal_row_description_template",
+  "default_repayment_profit_row_description_template",
+  "default_repayment_penalty_row_description_template"
+ ],
+ "fields": [
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "section_defaults_accounts",
+   "fieldtype": "Section Break",
+   "label": "Default Accounts"
+  },
+  {
+   "fieldname": "default_bank_account",
+   "fieldtype": "Link",
+   "label": "Default Bank Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "default_loan_payable_account",
+   "fieldtype": "Link",
+   "label": "Default Loan Payable Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "default_deferred_loan_interest_account",
+   "fieldtype": "Link",
+   "label": "Default Deferred Loan Interest Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "column_break_acc",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "default_interest_expense_account",
+   "fieldtype": "Link",
+   "label": "Default Interest Expense Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "default_penalty_expense_account",
+   "fieldtype": "Link",
+   "label": "Default Penalty Expense Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "section_defaults_dimensions",
+   "fieldtype": "Section Break",
+   "label": "Default Dimensions"
+  },
+  {
+   "fieldname": "default_cost_center",
+   "fieldtype": "Link",
+   "label": "Default Cost Center",
+   "options": "Cost Center"
+  },
+  {
+   "fieldname": "default_department",
+   "fieldtype": "Data",
+   "label": "Default Department"
+  },
+  {
+   "fieldname": "column_break_dim",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "default_bank_dimension",
+   "fieldtype": "Data",
+   "label": "Default Bank Dimension"
+  },
+  {
+   "fieldname": "default_bank_account_dimension",
+   "fieldtype": "Data",
+   "label": "Default Bank Account Dimension"
+  },
+  {
+   "fieldname": "section_receipt_templates",
+   "fieldtype": "Section Break",
+   "label": "Receipt JE Templates"
+  },
+  {
+   "fieldname": "default_receipt_remarks_template",
+   "fieldtype": "Small Text",
+   "label": "Default Receipt Remarks Template",
+   "default": "{facility_number} دریافت تسهیلات از {bank}"
+  },
+  {
+   "fieldname": "default_receipt_bank_row_description_template",
+   "fieldtype": "Small Text",
+   "label": "Default Receipt Bank Row Description",
+   "default": "{facility_number} واریز تسهیلات"
+  },
+  {
+   "fieldname": "default_receipt_deferred_interest_row_description_template",
+   "fieldtype": "Small Text",
+   "label": "Default Receipt Deferred Interest Row Description",
+   "default": "{facility_number} ثبت فرع / بهره سنوات آتی تسهیلات"
+  },
+  {
+   "fieldname": "default_receipt_loan_payable_row_description_template",
+   "fieldtype": "Small Text",
+   "label": "Default Receipt Loan Payable Row Description",
+   "default": "{facility_number} ثبت تعهد اصل و فرع تسهیلات"
+  },
+  {
+   "fieldname": "section_repayment_templates",
+   "fieldtype": "Section Break",
+   "label": "Repayment JE Templates"
+  },
+  {
+   "fieldname": "default_repayment_remarks_template",
+   "fieldtype": "Small Text",
+   "label": "Default Repayment Remarks Template",
+   "default": "{facility_number} پرداخت قسط تسهیلات"
+  },
+  {
+   "fieldname": "default_repayment_bank_row_description_template",
+   "fieldtype": "Small Text",
+   "label": "Default Repayment Bank Row Description",
+   "default": "{facility_number} پرداخت قسط تسهیلات از بانک"
+  },
+  {
+   "fieldname": "default_repayment_principal_row_description_template",
+   "fieldtype": "Small Text",
+   "label": "Default Repayment Principal Row Description",
+   "default": "{facility_number} پرداخت اصل قسط تسهیلات"
+  },
+  {
+   "fieldname": "default_repayment_profit_row_description_template",
+   "fieldtype": "Small Text",
+   "label": "Default Repayment Profit Row Description",
+   "default": "{facility_number} پرداخت فرع / بهره سنوات آتی قسط تسهیلات"
+  },
+  {
+   "fieldname": "default_repayment_penalty_row_description_template",
+   "fieldtype": "Small Text",
+   "label": "Default Repayment Penalty Row Description",
+   "default": "{facility_number} پرداخت هزینه دیرکرد / کارمزد تسهیلات"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "issingle": 0,
+ "links": [],
+ "modified": "2026-06-09 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Facility Management",
+ "name": "Facility Settings",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User",
+   "share": 0,
+   "write": 0
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

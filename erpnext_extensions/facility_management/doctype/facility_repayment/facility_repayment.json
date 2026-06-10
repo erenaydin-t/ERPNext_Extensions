@@ -1,0 +1,264 @@
+{
+ "actions": [],
+ "allow_copy": 0,
+ "autoname": "format:FREP-{YYYY}-{#####}",
+ "creation": "2026-06-03 00:00:00.000000",
+ "custom": 0,
+ "docstatus": 0,
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "is_submittable": 1,
+ "field_order": [
+  "facility",
+  "facility_name",
+  "company",
+  "posting_date",
+  "column_break_main",
+  "principal_amount",
+  "profit_amount",
+  "penalty_amount",
+  "total_payment_amount",
+  "section_accounts",
+  "bank_account",
+  "loan_payable_account",
+  "deferred_loan_interest_account",
+  "column_break_accounts",
+  "penalty_expense_account",
+  "section_dimensions",
+  "cost_center",
+  "department",
+  "column_break_dimensions",
+  "bank_dimension",
+  "bank_account_dimension",
+  "section_accounting",
+  "journal_entry",
+  "section_templates",
+  "repayment_remarks_template",
+  "section_remarks",
+  "remarks"
+ ],
+ "fields": [
+  {
+   "fieldname": "facility",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Facility",
+   "options": "Facility",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "facility.facility_name",
+   "fieldname": "facility_name",
+   "fieldtype": "Data",
+   "label": "Facility Name",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "facility.company",
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "read_only": 1
+  },
+  {
+   "default": "Today",
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Posting Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_main",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "principal_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Principal Amount",
+   "options": "currency"
+  },
+  {
+   "fieldname": "profit_amount",
+   "fieldtype": "Currency",
+   "label": "Profit Amount",
+   "options": "currency"
+  },
+  {
+   "fieldname": "penalty_amount",
+   "fieldtype": "Currency",
+   "label": "Penalty Amount",
+   "options": "currency"
+  },
+  {
+   "fieldname": "total_payment_amount",
+   "fieldtype": "Currency",
+   "label": "Total Payment",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_accounts",
+   "fieldtype": "Section Break",
+   "label": "Accounts"
+  },
+  {
+   "fetch_from": "facility.bank_account",
+   "fieldname": "bank_account",
+   "fieldtype": "Link",
+   "label": "Bank Account",
+   "options": "Account"
+  },
+  {
+   "fetch_from": "facility.loan_payable_account",
+   "fieldname": "loan_payable_account",
+   "fieldtype": "Link",
+   "label": "Loan Payable Account",
+   "options": "Account"
+  },
+  {
+   "fetch_from": "facility.deferred_loan_interest_account",
+   "fieldname": "deferred_loan_interest_account",
+   "fieldtype": "Link",
+   "label": "Deferred Loan Interest Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "column_break_accounts",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fetch_from": "facility.penalty_expense_account",
+   "fieldname": "penalty_expense_account",
+   "fieldtype": "Link",
+   "label": "Penalty Expense Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "section_dimensions",
+   "fieldtype": "Section Break",
+   "label": "Dimensions"
+  },
+  {
+   "fetch_from": "facility.cost_center",
+   "fieldname": "cost_center",
+   "fieldtype": "Link",
+   "label": "Cost Center",
+   "options": "Cost Center"
+  },
+  {
+   "fetch_from": "facility.department",
+   "fieldname": "department",
+   "fieldtype": "Data",
+   "label": "Department"
+  },
+  {
+   "fieldname": "column_break_dimensions",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fetch_from": "facility.bank_dimension",
+   "fieldname": "bank_dimension",
+   "fieldtype": "Data",
+   "label": "Bank Dimension"
+  },
+  {
+   "fetch_from": "facility.bank_account_dimension",
+   "fieldname": "bank_account_dimension",
+   "fieldtype": "Data",
+   "label": "Bank Account Dimension"
+  },
+  {
+   "fieldname": "section_accounting",
+   "fieldtype": "Section Break",
+   "label": "Accounting"
+  },
+  {
+   "fieldname": "journal_entry",
+   "fieldtype": "Link",
+   "label": "Journal Entry",
+   "options": "Journal Entry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_templates",
+   "fieldtype": "Section Break",
+   "label": "JE Templates"
+  },
+  {
+   "fieldname": "repayment_remarks_template",
+   "fieldtype": "Small Text",
+   "label": "Repayment Remarks Template"
+  },
+  {
+   "fieldname": "section_remarks",
+   "fieldtype": "Section Break",
+   "label": "Remarks"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "modified": "2026-06-09 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Facility Management",
+ "name": "Facility Repayment",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "cancel": 1,
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

@@ -1,4 +1,436 @@
-frappe.listview_settings["Post Dated Cheque"] = {
+frappe.provide("erpnext_extensions.cheque_management.pdc_list_view");
+
+const PDC_DOCTYPE = "Post Dated Cheque";
+
+const PDC_LIST_CONDITIONS_WITHOUT_OPERAND_VALUE = new Set([
+	"set",
+	"not set",
+	"is set",
+	"is not set",
+	"is null",
+	"is not null",
+	"is empty",
+	"is not empty",
+]);
+
+const PDC_LIST_CONDITIONS_REQUIRING_OPERAND_VALUE = new Set([
+	"=",
+	"!=",
+	"like",
+	"not like",
+	"in",
+	"not in",
+	"between",
+	">",
+	"<",
+	">=",
+	"<=",
+	"descendants of",
+	"descendants of (inclusive)",
+	"ancestors of",
+	"not descendants of",
+	"not ancestors of",
+	"timespan",
+]);
+
+function pdc_list_normalize_condition(condition) {
+	return (condition || "").toString().trim().toLowerCase();
+}
+
+function pdc_list_is_filter_value_empty(value) {
+	if (value === null || value === undefined) {
+		return true;
+	}
+	if (Array.isArray(value)) {
+		return value.length === 0 || value.every((v) => pdc_list_is_filter_value_empty(v));
+	}
+	if (typeof value === "string") {
+		return value.trim() === "";
+	}
+	return false;
+}
+
+/** True when tuple must not be applied (e.g. name Equals ""). */
+function pdc_list_filter_tuple_has_invalid_empty_value(filter) {
+	if (!Array.isArray(filter) || filter.length < 3) {
+		return false;
+	}
+	const condition = pdc_list_normalize_condition(filter[2]);
+	const value = filter.length > 3 ? filter[3] : undefined;
+
+	if (PDC_LIST_CONDITIONS_WITHOUT_OPERAND_VALUE.has(condition)) {
+		return false;
+	}
+	if (condition === "is") {
+		return pdc_list_is_filter_value_empty(value);
+	}
+	const boot_cfg = frappe.boot?.additional_filters_config?.[filter[2]];
+	if (boot_cfg && boot_cfg.valid_for_empty_value) {
+		return false;
+	}
+	if (PDC_LIST_CONDITIONS_REQUIRING_OPERAND_VALUE.has(condition)) {
+		return pdc_list_is_filter_value_empty(value);
+	}
+	return pdc_list_is_filter_value_empty(value);
+}
+
+function pdc_list_sanitize_filter_tuples(filters) {
+	if (!Array.isArray(filters)) {
+		return [];
+	}
+	return filters.filter((f) => !pdc_list_filter_tuple_has_invalid_empty_value(f));
+}
+
+function pdc_list_reconcile_state(listview) {
+	if (!listview._pdc_filter_reconcile_state) {
+		listview._pdc_filter_reconcile_state = {
+			invalid_filter_cleanup_done: false,
+			user_interacted: false,
+		};
+	}
+	return listview._pdc_filter_reconcile_state;
+}
+
+function pdc_list_has_url_filters() {
+	return new URLSearchParams(window.location.search).toString().length > 0;
+}
+
+function pdc_list_get_filter_debug(listview) {
+	const filter_area = listview.filter_area;
+	const filter_list = filter_area?.filter_list;
+	const chip_filters = filter_area?.filter_list?.get_filters?.() || [];
+	const standard_filters = filter_area?.get_standard_filters?.() || [];
+	const combined = filter_area?.get?.() || [];
+	const list_settings = frappe.get_user_settings?.(PDC_DOCTYPE, "List") || {};
+	const filter_list_meta = (filter_list?.filters || []).map((f) => ({
+		fieldname: f.fieldname,
+		hidden: !!f.hidden,
+		value: f.get_selected_value?.(),
+	}));
+	return {
+		route: frappe.get_route?.(),
+		route_options: frappe.route_options,
+		url_search: window.location.search,
+		chip_filters,
+		standard_filters,
+		combined_filters: combined,
+		filter_list_meta,
+		listview_filters: listview.filters,
+		user_list_settings: list_settings,
+		data_length: listview.data?.length ?? 0,
+		reconcile_state: { ...pdc_list_reconcile_state(listview) },
+	};
+}
+
+/** User intentionally applied filters this session (menu, chips, standard bar). */
+function pdc_list_has_session_intentional_filters(listview) {
+	return !!pdc_list_reconcile_state(listview).user_interacted;
+}
+
+function pdc_list_clear_stale_route_options() {
+	if (pdc_list_has_url_filters()) {
+		return;
+	}
+	if (frappe.route_options && Object.keys(frappe.route_options).length) {
+		frappe.route_options = null;
+	}
+}
+
+function pdc_list_bind_filter_user_interaction(listview) {
+	const filter_area = listview.filter_area;
+	if (!filter_area || filter_area._pdc_interaction_hooked) {
+		return;
+	}
+	filter_area._pdc_interaction_hooked = true;
+	const orig_refresh = filter_area.refresh_list_view.bind(filter_area);
+	filter_area.refresh_list_view = function () {
+		const state = pdc_list_reconcile_state(listview);
+		if (state.invalid_filter_cleanup_done && !listview._pdc_programmatic_filter_change) {
+			state.user_interacted = true;
+		}
+		return orig_refresh();
+	};
+	if (!filter_area._pdc_add_hooked) {
+		filter_area._pdc_add_hooked = true;
+		const orig_add = filter_area.add.bind(filter_area);
+		filter_area.add = function (filters, refresh = true) {
+			const state = pdc_list_reconcile_state(listview);
+			if (state.invalid_filter_cleanup_done && !listview._pdc_programmatic_filter_change) {
+				state.user_interacted = true;
+			}
+			return orig_add(filters, refresh);
+		};
+	}
+}
+
+function pdc_list_wrap_get_filters_for_args(listview) {
+	if (listview._pdc_get_filters_wrapped) {
+		return;
+	}
+	listview._pdc_get_filters_wrapped = true;
+	const orig = listview.get_filters_for_args.bind(listview);
+	listview.get_filters_for_args = function () {
+		return pdc_list_sanitize_filter_tuples(orig());
+	};
+}
+
+function pdc_list_wrap_before_refresh(listview) {
+	if (listview._pdc_before_refresh_wrapped) {
+		return;
+	}
+	listview._pdc_before_refresh_wrapped = true;
+	const orig = listview.before_refresh.bind(listview);
+	listview.before_refresh = function () {
+		return pdc_list_remove_invalid_empty_filters(listview, { refresh: false }).then(() =>
+			orig()
+		);
+	};
+}
+
+/**
+ * Drop invalid empty-value filters from FilterGroup rows, listview.filters, and saved List settings.
+ * Valid filters (e.g. ID Equals PDC-xxx, name Is set) are kept.
+ */
+async function pdc_list_remove_invalid_empty_filters(listview, { refresh = false } = {}) {
+	if (!listview?.filter_area) {
+		return false;
+	}
+	let changed = false;
+	listview._pdc_programmatic_filter_change = true;
+	try {
+		if (Array.isArray(listview.filters)) {
+			const sanitized = pdc_list_sanitize_filter_tuples(listview.filters);
+			if (sanitized.length !== listview.filters.length) {
+				listview.filters = sanitized;
+				changed = true;
+			}
+		}
+
+		const filter_list = listview.filter_area.filter_list;
+		if (filter_list?.filters?.length) {
+			const to_remove = [];
+			for (const f of filter_list.filters) {
+				if (!f.field) {
+					continue;
+				}
+				const tuple = f.get_value?.();
+				if (tuple && pdc_list_filter_tuple_has_invalid_empty_value(tuple)) {
+					to_remove.push(f);
+				}
+			}
+			if (to_remove.length) {
+				to_remove.forEach((f) => f.remove(true));
+				filter_list.filters = (filter_list.filters || []).filter((f) => f.field);
+				filter_list.update_filters?.();
+				changed = true;
+			}
+		}
+
+		const fields_dict = listview.page?.fields_dict || {};
+		for (const key of Object.keys(fields_dict)) {
+			const field = fields_dict[key];
+			const raw = field.get_value?.();
+			if (pdc_list_is_filter_value_empty(raw)) {
+				continue;
+			}
+			let match_type = field.df?.match_type || "=";
+			let condition = match_type === "like" ? "like" : "=";
+			const tuple = [field.df?.doctype || PDC_DOCTYPE, field.df?.fieldname, condition, raw];
+			if (pdc_list_filter_tuple_has_invalid_empty_value(tuple)) {
+				await field.set_value("");
+				changed = true;
+			}
+		}
+
+		const combined = listview.filter_area.get?.() || [];
+		const sanitized_combined = pdc_list_sanitize_filter_tuples(combined);
+		if (sanitized_combined.length !== combined.length && typeof listview.save_view_user_settings === "function") {
+			await listview.save_view_user_settings({ filters: sanitized_combined });
+			changed = true;
+		}
+
+		if (changed) {
+			listview.filter_area.filter_list?.update_filter_button?.();
+		}
+		if (changed && refresh) {
+			await listview.refresh();
+		}
+	} finally {
+		listview._pdc_programmatic_filter_change = false;
+	}
+	return changed;
+}
+
+function pdc_list_bind_invalid_filter_cleanup(listview) {
+	pdc_list_bind_filter_user_interaction(listview);
+	pdc_list_wrap_get_filters_for_args(listview);
+	pdc_list_wrap_before_refresh(listview);
+
+	listview.on("after_refresh", async () => {
+		const state = pdc_list_reconcile_state(listview);
+		if (state.invalid_filter_cleanup_done) {
+			return;
+		}
+		state.invalid_filter_cleanup_done = true;
+		const changed = await pdc_list_remove_invalid_empty_filters(listview, { refresh: false });
+		if (changed) {
+			await listview.refresh();
+		}
+	});
+}
+
+function pdc_list_apply_filters(listview, filters, { clear = true } = {}) {
+	const chain = clear ? listview.filter_area.clear(false) : Promise.resolve();
+	return chain
+		.then(() => {
+			const promises = (filters || []).map((f) => listview.filter_area.add(f, false));
+			return Promise.all(promises);
+		})
+		.then(() => listview.refresh());
+}
+
+function pdc_list_reset_reconcile_state(listview) {
+	listview._pdc_filter_reconcile_state = {
+		invalid_filter_cleanup_done: false,
+		user_interacted: false,
+	};
+	listview._pdc_programmatic_filter_change = false;
+}
+
+function pdc_list_wait_refresh(listview, ms = 800) {
+	return new Promise((resolve) => {
+		listview.once("after_refresh", () => resolve());
+		setTimeout(resolve, ms);
+	});
+}
+
+erpnext_extensions.cheque_management.pdc_list_view.get_filter_debug = pdc_list_get_filter_debug;
+erpnext_extensions.cheque_management.pdc_list_view.remove_invalid_empty_filters =
+	pdc_list_remove_invalid_empty_filters;
+erpnext_extensions.cheque_management.pdc_list_view.sanitize_filter_tuples =
+	pdc_list_sanitize_filter_tuples;
+erpnext_extensions.cheque_management.pdc_list_view.filter_tuple_has_invalid_empty_value =
+	pdc_list_filter_tuple_has_invalid_empty_value;
+erpnext_extensions.cheque_management.pdc_list_view.reset_reconcile_state = pdc_list_reset_reconcile_state;
+
+erpnext_extensions.cheque_management.pdc_list_view.run_filter_e2e = async function (listview) {
+	const results = [];
+	const push = (name, ok, detail) => results.push({ test: name, ok, detail });
+
+	const db_count = await frappe.db.count(PDC_DOCTYPE);
+	push("db_has_records", db_count > 0, { db_count });
+	const sample_rows = await frappe.db.get_list(PDC_DOCTYPE, {
+		fields: ["name"],
+		limit: 1,
+		order_by: "modified desc",
+	});
+	const sample_name = sample_rows[0]?.name || null;
+
+	// A — empty ID Equals "" removed; list shows rows
+	pdc_list_reset_reconcile_state(listview);
+	await listview.filter_area.clear(false);
+	await listview.filter_area.add([PDC_DOCTYPE, "name", "=", ""], false);
+	await pdc_list_remove_invalid_empty_filters(listview, { refresh: true });
+	await pdc_list_wait_refresh(listview);
+	const debug_a = pdc_list_get_filter_debug(listview);
+	const args_a = listview.get_filters_for_args();
+	push(
+		"A_empty_id_equals_removed",
+		(listview.data?.length ?? 0) > 0 &&
+			!args_a.some((f) => f[1] === "name" && f[2] === "=" && pdc_list_is_filter_value_empty(f[3])) &&
+			(debug_a.filter_list_meta || []).every(
+				(m) => !(m.fieldname === "name" && pdc_list_is_filter_value_empty(m.value))
+			),
+		{ debug: debug_a, args: args_a }
+	);
+
+	// B — valid ID filter preserved
+	if (sample_name) {
+		pdc_list_reset_reconcile_state(listview);
+		await listview.filter_area.clear(true);
+		pdc_list_reconcile_state(listview).user_interacted = true;
+		await listview.filter_area.add([PDC_DOCTYPE, "name", "=", sample_name], true);
+		await pdc_list_wait_refresh(listview);
+		const args_b = listview.get_filters_for_args();
+		push(
+			"B_valid_id_filter_kept",
+			args_b.some((f) => f[1] === "name" && f[3] === sample_name) && (listview.data?.length ?? 0) >= 1,
+			{ args: args_b, rows: listview.data?.length }
+		);
+		await listview.filter_area.clear(true);
+		await listview.refresh();
+	} else {
+		push("B_valid_id_filter_kept", false, { skipped: "no sample PDC" });
+	}
+
+	// C — Is Set preserved
+	pdc_list_reset_reconcile_state(listview);
+	await listview.filter_area.clear(true);
+	pdc_list_reconcile_state(listview).user_interacted = true;
+	await listview.filter_area.add([PDC_DOCTYPE, "name", "is", "set"], true);
+	await pdc_list_wait_refresh(listview);
+	const args_c = listview.get_filters_for_args();
+	push(
+		"C_is_set_filter_kept",
+		args_c.some((f) => f[1] === "name" && f[2] === "is" && f[3] === "set") && (listview.data?.length ?? 0) > 0,
+		{ args: args_c }
+	);
+	await listview.filter_area.clear(true);
+	await listview.refresh();
+
+	// D — empty standard quick filter not in query args
+	pdc_list_reset_reconcile_state(listview);
+	await listview.filter_area.clear(true);
+	const name_field = listview.page.fields_dict.name;
+	if (name_field) {
+		listview._pdc_programmatic_filter_change = true;
+		await name_field.set_value("");
+		listview._pdc_programmatic_filter_change = false;
+	}
+	await pdc_list_remove_invalid_empty_filters(listview, { refresh: true });
+	await pdc_list_wait_refresh(listview);
+	const args_d = listview.get_filters_for_args();
+	push(
+		"D_empty_standard_not_in_query",
+		!args_d.some((f) => f[1] === "name" && pdc_list_is_filter_value_empty(f[3])),
+		{ args: args_d }
+	);
+
+	// E — sanitize drops invalid tuple without touching valid
+	const san_e = pdc_list_sanitize_filter_tuples([
+		[PDC_DOCTYPE, "name", "=", ""],
+		[PDC_DOCTYPE, "workflow_state", "=", "Registered"],
+	]);
+	push(
+		"E_sanitize_drops_only_invalid",
+		san_e.length === 1 && san_e[0][1] === "workflow_state",
+		{ san_e }
+	);
+
+	// F — invalid empty equals row removed from FilterGroup after cleanup
+	pdc_list_reset_reconcile_state(listview);
+	await listview.filter_area.clear(false);
+	await listview.filter_area.add([PDC_DOCTYPE, "name", "=", ""], false);
+	await listview.refresh();
+	await pdc_list_wait_refresh(listview);
+	const before_f = pdc_list_get_filter_debug(listview);
+	await pdc_list_remove_invalid_empty_filters(listview, { refresh: true });
+	await pdc_list_wait_refresh(listview);
+	const after_f = pdc_list_get_filter_debug(listview);
+	const had_invalid = (before_f.filter_list_meta || []).some(
+		(m) => m.fieldname === "name" && pdc_list_is_filter_value_empty(m.value)
+	);
+	const no_invalid = !(after_f.filter_list_meta || []).some(
+		(m) => m.fieldname === "name" && pdc_list_is_filter_value_empty(m.value)
+	);
+	push("F_empty_equals_row_removed", had_invalid && no_invalid, { before_f, after_f });
+
+	const all_ok = results.every((r) => r.ok);
+	console.table(results);
+	return { all_ok, results };
+};
+
+frappe.listview_settings[PDC_DOCTYPE] = {
 	get_indicator(doc) {
 		const ws = (doc.workflow_state || "").trim();
 		const cs = (doc.cheque_status || "").trim();
@@ -12,20 +444,31 @@ frappe.listview_settings["Post Dated Cheque"] = {
 		const blue = ["Registered", "Issued"].includes(state);
 
 		if (green) return [__("Cleared"), "green", `cheque_status,=,Cleared`];
-		if (red) return [__(state), "red", [`cheque_status,=,${state}`, `workflow_state,=,${state}`]];
+		if (red) {
+			const filter_field = cs ? "cheque_status" : "workflow_state";
+			const filter_value = cs || ws;
+			return [__(state), "red", `${filter_field},=,${filter_value}`];
+		}
 		if (orange) return [__("In Clearing"), "orange", "cheque_status,=,In Clearing"];
 		if (blue) return [__(state), "blue", `workflow_state,=,${state}`];
-		if ((ws || cs) === "Draft") return [__("Draft"), "gray", "workflow_state,=,Draft"];
+		if ((ws || cs) === "Draft") return [__(state), "gray", "workflow_state,=,Draft"];
 		return [__(ws || cs || "—"), "gray", ""];
 	},
 
 	onload(listview) {
+		pdc_list_clear_stale_route_options();
+		if (Array.isArray(listview.filters)) {
+			listview.filters = pdc_list_sanitize_filter_tuples(listview.filters);
+		}
+		pdc_list_bind_invalid_filter_cleanup(listview);
+
 		const dt = frappe.datetime;
 
 		const set_due_range = (from, to) => {
+			pdc_list_reconcile_state(listview).user_interacted = true;
 			listview.filter_area.clear();
-			if (from) listview.filter_area.add(["Post Dated Cheque", "cheque_due_date", ">=", from]);
-			if (to) listview.filter_area.add(["Post Dated Cheque", "cheque_due_date", "<=", to]);
+			if (from) listview.filter_area.add([PDC_DOCTYPE, "cheque_due_date", ">=", from]);
+			if (to) listview.filter_area.add([PDC_DOCTYPE, "cheque_due_date", "<=", to]);
 			listview.refresh();
 		};
 
@@ -39,10 +482,14 @@ frappe.listview_settings["Post Dated Cheque"] = {
 		});
 
 		listview.page.add_menu_item(__("Overdue"), () => {
-			listview.filter_area.clear();
-			listview.filter_area.add(["Post Dated Cheque", "cheque_due_date", "<", dt.get_today()]);
-			listview.filter_area.add(["Post Dated Cheque", "cheque_status", "!=", "Cleared"]);
-			listview.refresh();
+			pdc_list_apply_filters(
+				listview,
+				[
+					[PDC_DOCTYPE, "cheque_due_date", "<", dt.get_today()],
+					[PDC_DOCTYPE, "cheque_status", "!=", "Cleared"],
+				],
+				{ clear: true }
+			);
 		});
 
 		listview.page.add_menu_item(__("Near Due (next 7 days)"), () => {
@@ -50,38 +497,35 @@ frappe.listview_settings["Post Dated Cheque"] = {
 		});
 
 		listview.page.add_menu_item(__("Cleared"), () => {
-			listview.filter_area.clear();
-			listview.filter_area.add(["Post Dated Cheque", "cheque_status", "=", "Cleared"]);
-			listview.refresh();
+			pdc_list_apply_filters(listview, [[PDC_DOCTYPE, "cheque_status", "=", "Cleared"]], {
+				clear: true,
+			});
 		});
 
 		listview.page.add_menu_item(__("Bounced"), () => {
-			listview.filter_area.clear();
-			listview.filter_area.add(["Post Dated Cheque", "cheque_status", "=", "Bounced"]);
-			listview.refresh();
+			pdc_list_apply_filters(listview, [[PDC_DOCTYPE, "cheque_status", "=", "Bounced"]], {
+				clear: true,
+			});
 		});
 
 		listview.page.add_menu_item(__("In Clearing"), () => {
-			listview.filter_area.clear();
-			listview.filter_area.add(["Post Dated Cheque", "cheque_status", "=", "In Clearing"]);
-			listview.refresh();
+			pdc_list_apply_filters(listview, [[PDC_DOCTYPE, "cheque_status", "=", "In Clearing"]], {
+				clear: true,
+			});
 		});
 
 		listview.page.add_menu_item(__("At Bank"), () => {
-			listview.filter_area.clear();
-			listview.filter_area.add(["Post Dated Cheque", "is_at_bank", "=", 1]);
-			listview.refresh();
+			pdc_list_apply_filters(listview, [[PDC_DOCTYPE, "is_at_bank", "=", 1]], { clear: true });
 		});
 
-		// Lightweight operational counts (no heavy dashboard).
 		const refresh_counts = async () => {
 			try {
 				const [at_bank, overdue_recv] = await Promise.all([
-					frappe.db.count("Post Dated Cheque", {
+					frappe.db.count(PDC_DOCTYPE, {
 						cheque_direction: "Receivable",
 						is_at_bank: 1,
 					}),
-					frappe.db.count("Post Dated Cheque", {
+					frappe.db.count(PDC_DOCTYPE, {
 						cheque_direction: "Receivable",
 						cheque_due_date: ["<", dt.get_today()],
 						cheque_status: ["!=", "Cleared"],
@@ -98,6 +542,11 @@ frappe.listview_settings["Post Dated Cheque"] = {
 
 		refresh_counts();
 		listview.on("after_refresh", refresh_counts);
+
+		if (frappe.utils.get_url_arg("run_pdc_list_filter_e2e") === "1" && cur_list === listview) {
+			setTimeout(() => {
+				erpnext_extensions.cheque_management.pdc_list_view.run_filter_e2e(listview);
+			}, 1500);
+		}
 	},
 };
-

@@ -1,0 +1,437 @@
+{
+ "actions": [],
+ "allow_copy": 0,
+ "allow_import": 0,
+ "allow_rename": 1,
+ "autoname": "format:FAC-{YYYY}-{#####}",
+ "creation": "2026-06-03 00:00:00.000000",
+ "custom": 0,
+ "docstatus": 0,
+ "doctype": "DocType",
+ "document_type": "Document",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "section_main",
+  "facility_name",
+  "company",
+  "bank",
+  "status",
+  "is_opening_facility",
+  "column_break_main",
+  "contract_date",
+  "receive_date",
+  "maturity_date",
+  "settlement_date",
+  "installment_count",
+  "currency",
+  "section_amounts",
+  "principal_amount",
+  "profit_amount",
+  "total_liability_amount",
+  "column_break_amt",
+  "opening_paid_principal_amount",
+  "opening_paid_profit_amount",
+  "opening_paid_penalty_amount",
+  "section_balances",
+  "received_amount",
+  "paid_principal_amount",
+  "paid_profit_amount",
+  "paid_penalty_amount",
+  "column_break_bal",
+  "remaining_principal_amount",
+  "remaining_profit_amount",
+  "remaining_total_amount",
+  "section_dimensions",
+  "cost_center",
+  "department",
+  "column_break_dimensions",
+  "bank_dimension",
+  "bank_account_dimension",
+  "section_accounts",
+  "loan_payable_account",
+  "bank_account",
+  "deferred_loan_interest_account",
+  "column_break_accounts",
+  "interest_expense_account",
+  "penalty_expense_account",
+  "section_accounting",
+  "receipt_journal_entry",
+  "section_schedule",
+  "repayment_schedule",
+  "section_templates",
+  "receipt_remarks_template",
+  "repayment_remarks_template",
+  "section_remarks",
+  "remarks"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_main",
+   "fieldtype": "Section Break",
+   "label": "Facility"
+  },
+  {
+   "fieldname": "facility_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Facility Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "bank",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Bank",
+   "options": "Bank",
+   "reqd": 1
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Draft\nActive\nClosed",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "description": "Migrated / opening balance only. No Receipt JE or GL for opening receipt.",
+   "fieldname": "is_opening_facility",
+   "fieldtype": "Check",
+   "label": "Opening / Migrated Facility"
+  },
+  {
+   "fieldname": "column_break_main",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "contract_date",
+   "fieldtype": "Date",
+   "label": "Contract Date",
+   "reqd": 1
+  },
+  {
+   "depends_on": "eval:!doc.is_opening_facility",
+   "fieldname": "receive_date",
+   "fieldtype": "Date",
+   "label": "Receive Date"
+  },
+  {
+   "fieldname": "maturity_date",
+   "fieldtype": "Date",
+   "label": "Maturity Date"
+  },
+  {
+   "description": "Set automatically when the facility is closed.",
+   "fieldname": "settlement_date",
+   "fieldtype": "Date",
+   "label": "Settlement Date"
+  },
+  {
+   "default": "0",
+   "fieldname": "installment_count",
+   "fieldtype": "Int",
+   "label": "Installment Count",
+   "non_negative": 1
+  },
+  {
+   "fetch_from": "company.default_currency",
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_amounts",
+   "fieldtype": "Section Break",
+   "label": "Amounts"
+  },
+  {
+   "fieldname": "principal_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Principal Amount",
+   "options": "currency",
+   "reqd": 1
+  },
+  {
+   "fieldname": "profit_amount",
+   "fieldtype": "Currency",
+   "label": "Profit Amount",
+   "options": "currency",
+   "reqd": 1
+  },
+  {
+   "fieldname": "total_liability_amount",
+   "fieldtype": "Currency",
+   "label": "Total Liability",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_amt",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.is_opening_facility",
+   "fieldname": "opening_paid_principal_amount",
+   "fieldtype": "Currency",
+   "label": "Opening Paid Principal",
+   "options": "currency"
+  },
+  {
+   "depends_on": "eval:doc.is_opening_facility",
+   "fieldname": "opening_paid_profit_amount",
+   "fieldtype": "Currency",
+   "label": "Opening Paid Profit",
+   "options": "currency"
+  },
+  {
+   "depends_on": "eval:doc.is_opening_facility",
+   "fieldname": "opening_paid_penalty_amount",
+   "fieldtype": "Currency",
+   "label": "Opening Paid Penalty",
+   "options": "currency"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_balances",
+   "fieldtype": "Section Break",
+   "label": "Balances"
+  },
+  {
+   "fieldname": "received_amount",
+   "fieldtype": "Currency",
+   "label": "Received Amount (Receipt JE)",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "paid_principal_amount",
+   "fieldtype": "Currency",
+   "label": "Paid Principal",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "paid_profit_amount",
+   "fieldtype": "Currency",
+   "label": "Paid Profit",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "paid_penalty_amount",
+   "fieldtype": "Currency",
+   "label": "Paid Penalty",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_bal",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "remaining_principal_amount",
+   "fieldtype": "Currency",
+   "label": "Remaining Principal",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "remaining_profit_amount",
+   "fieldtype": "Currency",
+   "label": "Remaining Profit",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "remaining_total_amount",
+   "fieldtype": "Currency",
+   "label": "Remaining Total",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_dimensions",
+   "fieldtype": "Section Break",
+   "label": "Dimensions"
+  },
+  {
+   "fieldname": "cost_center",
+   "fieldtype": "Link",
+   "label": "Cost Center",
+   "options": "Cost Center"
+  },
+  {
+   "fieldname": "department",
+   "fieldtype": "Data",
+   "label": "Department"
+  },
+  {
+   "fieldname": "column_break_dimensions",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "bank_dimension",
+   "fieldtype": "Data",
+   "label": "Bank Dimension"
+  },
+  {
+   "fieldname": "bank_account_dimension",
+   "fieldtype": "Data",
+   "label": "Bank Account Dimension"
+  },
+  {
+   "fieldname": "section_accounts",
+   "fieldtype": "Section Break",
+   "label": "Accounts"
+  },
+  {
+   "fieldname": "loan_payable_account",
+   "fieldtype": "Link",
+   "label": "Loan Payable Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "bank_account",
+   "fieldtype": "Link",
+   "label": "Bank Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "deferred_loan_interest_account",
+   "fieldtype": "Link",
+   "label": "Deferred Loan Interest Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "column_break_accounts",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "interest_expense_account",
+   "fieldtype": "Link",
+   "label": "Interest Expense Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "penalty_expense_account",
+   "fieldtype": "Link",
+   "label": "Penalty Expense Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "section_accounting",
+   "fieldtype": "Section Break",
+   "label": "Accounting"
+  },
+  {
+   "fieldname": "receipt_journal_entry",
+   "fieldtype": "Link",
+   "label": "Receipt Journal Entry",
+   "options": "Journal Entry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_schedule",
+   "fieldtype": "Section Break",
+   "label": "Repayment Schedule"
+  },
+  {
+   "fieldname": "repayment_schedule",
+   "fieldtype": "Table",
+   "label": "Schedule",
+   "options": "Facility Repayment Schedule"
+  },
+  {
+   "fieldname": "section_templates",
+   "fieldtype": "Section Break",
+   "label": "JE Templates"
+  },
+  {
+   "fieldname": "receipt_remarks_template",
+   "fieldtype": "Small Text",
+   "label": "Receipt Remarks Template"
+  },
+  {
+   "fieldname": "repayment_remarks_template",
+   "fieldtype": "Small Text",
+   "label": "Repayment Remarks Template"
+  },
+  {
+   "fieldname": "section_remarks",
+   "fieldtype": "Section Break",
+   "label": "Remarks"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-06-03 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Facility Management",
+ "name": "Facility",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
