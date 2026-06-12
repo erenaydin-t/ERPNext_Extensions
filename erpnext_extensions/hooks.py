@@ -75,6 +75,7 @@ doctype_js = {
 }
 doctype_list_js = {
 	"PM Clearance": "erpnext_extensions/petty_management/doctype/pm_clearance/pm_clearance_list.js",
+	"Post Dated Cheque": "erpnext_extensions/cheque_management/doctype/post_dated_cheque/post_dated_cheque_list.js",
 }
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
