@@ -7,8 +7,12 @@ import frappe
 from frappe import _
 from frappe.exceptions import QueryTimeoutError
 from frappe.model.document import Document
-from frappe.model.naming import make_autoname
 from frappe.utils import getdate, today
+
+from erpnext_extensions.petty_management.services.clearance_lock_diagnostics import (
+	log_pm_clearance_lock_diagnostics,
+)
+from erpnext_extensions.petty_management.services.clearance_naming import assign_pm_clearance_name
 
 from erpnext_extensions.petty_management.services.allocation_service import (
 	get_pm_request_allocation_context as get_pm_request_allocation_context_service,
@@ -57,16 +61,38 @@ class PMClearance(Document):
 	"""Thin controller for PM Clearance settlement lifecycle."""
 
 	def autoname(self):
-		if not self.employee:
-			frappe.throw(_("Employee is required before naming"))
-		# Single monthly series (not per-employee) to avoid tabSeries row lock storms.
+		frappe.logger("pm_clearance").info(
+			"PM Clearance autoname start employee=%s", (self.employee or "").strip()
+		)
+		assign_pm_clearance_name(self)
+		frappe.logger("pm_clearance").info("PM Clearance autoname done name=%s", self.name)
+
+	def insert(self, *args, **kwargs):
 		try:
-			self.name = make_autoname("CLR-.YYYY.-.MM.-.#####", doc=self)
-		except QueryTimeoutError:
-			frappe.throw(
-				_("PM Clearance numbering is currently busy. Please refresh and try again."),
-				title=_("Please try again"),
+			return super().insert(*args, **kwargs)
+		except QueryTimeoutError as exc:
+			log_pm_clearance_lock_diagnostics(
+				phase="insert",
+				doc=self,
+				last_sql=getattr(frappe.db, "last_query", None),
 			)
+			frappe.throw(
+				_("PM Clearance could not be saved due to a database lock. Please refresh and try again."),
+				title=_("Please try again"),
+				exc=exc,
+			)
+
+	def db_insert(self, *args, **kwargs):
+		frappe.logger("pm_clearance").info("PM Clearance parent db_insert name=%s", self.name)
+		try:
+			return super().db_insert(*args, **kwargs)
+		except QueryTimeoutError:
+			log_pm_clearance_lock_diagnostics(
+				phase="db_insert_tabPM Clearance",
+				doc=self,
+				last_sql=getattr(frappe.db, "last_query", None),
+			)
+			raise
 
 	def before_validate(self):
 		before_validate_clearance(self)
@@ -134,6 +160,49 @@ class PMClearance(Document):
 @frappe.validate_and_sanitize_search_inputs
 def pm_request_query_for_pm_clearance(doctype, txt, searchfield, start, page_len, filters):
 	return _pm_request_query_for_pm_clearance(doctype, txt, searchfield, start, page_len, filters)
+
+
+@frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
+def pm_opening_advance_query_for_pm_clearance(doctype, txt, searchfield, start, page_len, filters):
+	from erpnext_extensions.petty_management.services.opening_advance_service import (
+		pm_opening_advance_query_for_pm_clearance as _fn,
+	)
+
+	return _fn(doctype, txt, searchfield, start, page_len, filters)
+
+
+@frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
+def purchase_invoice_query_for_pm_clearance(doctype, txt, searchfield, start, page_len, filters):
+	from erpnext_extensions.petty_management.services.settlement_query import (
+		purchase_invoice_query_for_pm_clearance as _fn,
+	)
+
+	return _fn(doctype, txt, searchfield, start, page_len, filters)
+
+
+@frappe.whitelist()
+def get_opening_advance_allocation_context(
+	pm_opening_advance: str,
+	pm_clearance: str | None = None,
+	company: str | None = None,
+	employee: str | None = None,
+	holder: str | None = None,
+	petty_cash_account: str | None = None,
+) -> dict:
+	from erpnext_extensions.petty_management.services.opening_advance_service import (
+		get_opening_advance_allocation_context as _svc,
+	)
+
+	return _svc(
+		pm_opening_advance=pm_opening_advance,
+		pm_clearance=pm_clearance,
+		company=company,
+		employee=employee,
+		holder=holder,
+		petty_cash_account=petty_cash_account,
+	)
 
 
 @frappe.whitelist()

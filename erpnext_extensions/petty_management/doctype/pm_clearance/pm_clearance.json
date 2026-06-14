@@ -22,6 +22,9 @@
   "project",
   "petty_cash_account",
   "currency",
+  "funded_available",
+  "opening_available",
+  "total_available",
   "pending_amount",
   "je_clearance_date",
   "section_trace",
@@ -125,9 +128,31 @@
    "read_only": 1
   },
   {
+   "fieldname": "funded_available",
+   "fieldtype": "Currency",
+   "label": "Funded Available",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "opening_available",
+   "fieldtype": "Currency",
+   "label": "Opening Available",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_available",
+   "fieldtype": "Currency",
+   "label": "Total Available",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
    "fieldname": "pending_amount",
    "fieldtype": "Currency",
-   "label": "Pending Amount",
+   "hidden": 1,
+   "label": "Pending Amount (deprecated)",
    "options": "currency",
    "read_only": 1
   },
@@ -279,12 +304,12 @@
   {
    "fieldname": "section_request_alloc",
    "fieldtype": "Section Break",
-   "label": "PM Request Allocation"
+   "label": "Funding Allocation"
   },
   {
    "fieldname": "request_allocations",
    "fieldtype": "Table",
-   "label": "PM Request Allocation Lines",
+   "label": "Funding Allocation Lines",
    "options": "PM Clearance Request Allocation",
    "reqd": 1
   },

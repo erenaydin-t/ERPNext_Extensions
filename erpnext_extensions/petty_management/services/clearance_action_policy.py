@@ -138,6 +138,9 @@ def sync_clearance_lifecycle_if_stale(doc: Document) -> str:
 	lifecycle = sync_clearance_lifecycle(doc, persist=False)
 	if not getattr(doc, "name", None):
 		return lifecycle
+	# New documents: name is set in autoname but row is not inserted yet — never UPDATE here.
+	if doc.get("__islocal") or getattr(getattr(doc, "flags", None), "in_insert", False):
+		return lifecycle
 
 	ws_link = workflow_state_link_for_lifecycle(lifecycle)
 	stored_status = (frappe.db.get_value("PM Clearance", doc.name, "status") or "").strip()
@@ -181,6 +184,11 @@ def get_pm_clearance_action_flags(pm_clearance: str | Document) -> dict:
 		and not has_active_settlement_je(doc)
 		and lifecycle not in (LIFECYCLE_SETTLED, LIFECYCLE_PENDING_JE, LIFECYCLE_REJECTED, LIFECYCLE_CANCELLED)
 	)
+	from erpnext_extensions.petty_management.services.workflow_utils import get_allowed_workflow_actions
+
+	wf_actions = [t.get("action") for t in get_allowed_workflow_actions(doc) if t.get("action")]
+	if "PM Reject" not in wf_actions:
+		can_reject = False
 	can_cancel = cint(doc.docstatus) == 1 and not locked and lifecycle != LIFECYCLE_CANCELLED
 
 	expected_ws = workflow_state_link_for_lifecycle(lifecycle) or doc.workflow_state
@@ -197,6 +205,7 @@ def get_pm_clearance_action_flags(pm_clearance: str | Document) -> dict:
 		"journal_entry_docstatus": je_ds,
 		"workflow_state": expected_ws,
 		"workflow_state_title": lifecycle,
+		"allowed_workflow_actions": wf_actions,
 		"docstatus": cint(doc.docstatus),
 	}
 

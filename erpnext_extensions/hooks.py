@@ -267,6 +267,7 @@ doc_events = {
 #
 override_whitelisted_methods = {
 	"frappe.model.workflow.apply_workflow": "erpnext_extensions.petty_management.workflow_hooks.apply_workflow",
+	"frappe.desk.search.get_link_title": "erpnext_extensions.petty_management.overrides.search.get_link_title",
 }
 #
 # each overriding function accepts a `data` argument;
@@ -355,4 +356,9 @@ fixtures = [
 	{"dt": "Workflow"},
 	{"dt": "Role"},
 ]
+
+standard_queries = {
+	"PM Holder": "erpnext_extensions.petty_management.doctype.pm_holder.pm_holder.pm_holder_query",
+	"PM Opening Advance": "erpnext_extensions.petty_management.doctype.pm_opening_advance.pm_opening_advance.pm_opening_advance_link_query",
+}
 

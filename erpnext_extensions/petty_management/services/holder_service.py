@@ -17,10 +17,16 @@ class HolderBalances:
 	account_gl_balance: float
 	total_paid_amount: float
 	total_allocated_amount: float
+	funded_available_amount: float
+	opening_available_amount: float
 	available_amount: float
 	pending_clearance_amount: float
 	settled_amount: float
 	remaining_limit: float | None
+	opening_gross_amount: float
+	opening_previously_settled_amount: float
+	opening_remaining_at_cutover: float
+	opening_allocated_amount: float
 
 
 def get_holder(employee: str | None, company: str | None, *, required: bool = True) -> Document | None:
@@ -98,6 +104,9 @@ def sync_clearance_holder_fields(doc: Document) -> Document:
 	doc.holder = holder.name
 	doc.petty_cash_account = holder.petty_cash_account
 	balances = get_holder_balances(holder.name, posting_date=doc.transaction_date or today())
+	doc.funded_available = balances.funded_available_amount
+	doc.opening_available = balances.opening_available_amount
+	doc.total_available = balances.available_amount
 	doc.pending_amount = balances.available_amount
 	doc.current_petty_balance = balances.available_amount
 	doc.total_funded_amount = balances.total_paid_amount
@@ -121,7 +130,7 @@ def get_holder_balances(holder: str, posting_date=None) -> HolderBalances:
 		as_dict=True,
 	)
 	if not row:
-		return HolderBalances(0, 0, 0, 0, 0, 0, None)
+		return HolderBalances(0, 0, 0, 0, 0, 0, 0, 0, None, 0, 0, 0, 0)
 
 	as_on = getdate(posting_date or today())
 	account_gl_balance = flt(
@@ -129,19 +138,29 @@ def get_holder_balances(holder: str, posting_date=None) -> HolderBalances:
 	)
 	total_paid = get_holder_paid_amount(holder)
 	total_allocated = get_holder_allocated_amount(holder)
+	funded_reserved = get_holder_funded_reserved_amount(holder)
+	funded_available = total_paid - funded_reserved
+	opening_stats = get_holder_opening_balance_stats(holder)
+	opening_available = opening_stats["opening_available"]
+	total_available = funded_available + opening_available
 	pending = get_holder_pending_clearance_amount(holder)
 	settled = get_holder_settled_amount(holder)
-	available = total_paid - total_allocated
-	remaining_limit = (flt(row.max_balance) - available) if row.max_balance is not None else None
+	remaining_limit = (flt(row.max_balance) - total_available) if row.max_balance is not None else None
 
 	return HolderBalances(
 		account_gl_balance=account_gl_balance,
 		total_paid_amount=total_paid,
 		total_allocated_amount=total_allocated,
-		available_amount=available,
+		funded_available_amount=funded_available,
+		opening_available_amount=opening_available,
+		available_amount=total_available,
 		pending_clearance_amount=pending,
 		settled_amount=settled,
 		remaining_limit=remaining_limit,
+		opening_gross_amount=opening_stats["opening_gross"],
+		opening_previously_settled_amount=opening_stats["opening_previously_settled"],
+		opening_remaining_at_cutover=opening_stats["opening_remaining_at_cutover"],
+		opening_allocated_amount=opening_stats["opening_allocated"],
 	)
 
 
@@ -159,11 +178,18 @@ def get_holder_context(employee: str | None, company: str | None, posting_date=N
 		"default_employee_bank_account": holder.default_employee_bank_account,
 		"account_gl_balance": balances.account_gl_balance,
 		"current_balance": balances.available_amount,
+		"funded_available_amount": balances.funded_available_amount,
+		"opening_available_amount": balances.opening_available_amount,
+		"total_available_amount": balances.available_amount,
 		"pending_clearance_amount": balances.pending_clearance_amount,
 		"consumed_amount": balances.settled_amount,
 		"total_funded_amount": balances.total_paid_amount,
 		"total_allocated_amount": balances.total_allocated_amount,
 		"remaining_limit": balances.remaining_limit,
+		"opening_gross_amount": balances.opening_gross_amount,
+		"opening_previously_settled_amount": balances.opening_previously_settled_amount,
+		"opening_remaining_at_cutover": balances.opening_remaining_at_cutover,
+		"opening_allocated_amount": balances.opening_allocated_amount,
 	}
 
 
@@ -192,9 +218,19 @@ def get_holder_paid_amount(holder: str) -> float:
 
 
 def get_holder_allocated_amount(holder: str) -> float:
+	"""All reserved funding allocations (PM Request + Opening Advance) for holder."""
+	return flt(get_holder_funded_reserved_amount(holder)) + flt(
+		get_holder_opening_reserved_amount(holder)
+	)
+
+
+def get_holder_funded_reserved_amount(holder: str) -> float:
 	if not frappe.db.has_table("PM Clearance Request Allocation"):
 		return 0.0
-	from erpnext_extensions.petty_management.services.allocation_service import clearance_reserves_pm_request_balance_sql
+	from erpnext_extensions.petty_management.services.clearance_reservation import (
+		clearance_reserves_pm_request_balance_sql,
+		pm_request_allocation_sql_filter,
+	)
 
 	res = clearance_reserves_pm_request_balance_sql("cl")
 	return flt(
@@ -207,11 +243,89 @@ def get_holder_allocated_amount(holder: str) -> float:
 			where pr.holder = %s
 				and a.parentfield = 'request_allocations'
 				and ifnull(a.is_legacy_row, 0) = 0
+				and {pm_request_allocation_sql_filter("a")}
 				and {res}
 			""",
 			holder,
 		)[0][0]
 	)
+
+
+def get_holder_opening_reserved_amount(holder: str) -> float:
+	if not frappe.db.has_table("PM Opening Advance"):
+		return 0.0
+	from erpnext_extensions.petty_management.services.clearance_reservation import (
+		clearance_reserves_pm_request_balance_sql,
+		opening_allocation_sql_filter,
+	)
+
+	res = clearance_reserves_pm_request_balance_sql("cl")
+	return flt(
+		frappe.db.sql(
+			f"""
+			select coalesce(sum(a.allocated_amount), 0)
+			from `tabPM Clearance Request Allocation` a
+			inner join `tabPM Opening Advance` oa on oa.name = a.pm_opening_advance
+			inner join `tabPM Clearance` cl on cl.name = a.parent and a.parenttype = 'PM Clearance'
+			where oa.holder = %s
+				and oa.docstatus = 1
+				and ifnull(oa.status, '') = 'Submitted'
+				and a.parentfield = 'request_allocations'
+				and ifnull(a.is_legacy_row, 0) = 0
+				and {opening_allocation_sql_filter("a")}
+				and {res}
+			""",
+			holder,
+		)[0][0]
+	)
+
+
+def get_holder_opening_balance_stats(holder: str) -> dict[str, float]:
+	from erpnext_extensions.petty_management.services.opening_advance_service import (
+		get_opening_advance_available_amount,
+		remaining_at_cutover_amount,
+		sum_prior_opening_allocations,
+	)
+
+	if not holder or not frappe.db.has_table("PM Opening Advance"):
+		return {
+			"opening_gross": 0.0,
+			"opening_previously_settled": 0.0,
+			"opening_remaining_at_cutover": 0.0,
+			"opening_allocated": 0.0,
+			"opening_available": 0.0,
+		}
+	rows = frappe.get_all(
+		"PM Opening Advance",
+		filters={"holder": holder, "docstatus": 1, "status": "Submitted"},
+		fields=[
+			"name",
+			"opening_advance_amount",
+			"previously_settled_before_migration",
+		],
+	)
+	gross = 0.0
+	prev_settled = 0.0
+	remaining_cutover = 0.0
+	allocated = 0.0
+	available = 0.0
+	for row in rows:
+		gross += flt(row.opening_advance_amount)
+		prev_settled += flt(row.previously_settled_before_migration)
+		rem = remaining_at_cutover_amount(
+			row.opening_advance_amount, row.previously_settled_before_migration
+		)
+		remaining_cutover += rem
+		alloc = sum_prior_opening_allocations(row.name)
+		allocated += alloc
+		available += get_opening_advance_available_amount(row.name)
+	return {
+		"opening_gross": gross,
+		"opening_previously_settled": prev_settled,
+		"opening_remaining_at_cutover": remaining_cutover,
+		"opening_allocated": allocated,
+		"opening_available": available,
+	}
 
 
 def get_holder_pending_clearance_amount(holder: str) -> float:

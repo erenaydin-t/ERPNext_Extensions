@@ -10,6 +10,12 @@ from erpnext_extensions.petty_management.services.clearance_service import (
 	validate_clearance,
 )
 from erpnext_extensions.petty_management.services.constants import SETTLEMENT_PI, SETTLEMENT_SA
+from erpnext_extensions.petty_management.services.accounting_party import (
+	journal_entry_party_for_petty_cash_credit,
+	journal_entry_party_for_supplier_line,
+	resolve_clearance_employee,
+	validate_petty_cash_credit_party,
+)
 from erpnext_extensions.petty_management.services.holder_service import clearance_petty_cash_account
 from erpnext_extensions.petty_management.utils import get_pm_settings
 
@@ -43,7 +49,7 @@ def build_clearance_je_accounts(doc: Document) -> list[dict]:
 def build_supplier_advance_debit_line(row: Document, amount: float) -> dict:
 	if not row.supplier_advance_account:
 		frappe.throw(_("Row {0}: Supplier Advance Account is required for Supplier Advance.").format(row.idx))
-	return {
+	line = {
 		"account": row.supplier_advance_account,
 		"party_type": "Supplier",
 		"party": row.supplier,
@@ -52,11 +58,13 @@ def build_supplier_advance_debit_line(row: Document, amount: float) -> dict:
 		"debit_in_account_currency": amount,
 		"credit_in_account_currency": 0,
 	}
+	line.update(journal_entry_party_for_supplier_line(row.supplier_advance_account, row.supplier))
+	return line
 
 
 def build_purchase_invoice_debit_line(row: Document, amount: float) -> dict:
 	pi = frappe.get_doc("Purchase Invoice", row.purchase_invoice)
-	return {
+	line = {
 		"account": pi.credit_to,
 		"party_type": "Supplier",
 		"party": pi.supplier,
@@ -65,6 +73,8 @@ def build_purchase_invoice_debit_line(row: Document, amount: float) -> dict:
 		"debit_in_account_currency": amount,
 		"credit_in_account_currency": 0,
 	}
+	line.update(journal_entry_party_for_supplier_line(pi.credit_to, pi.supplier))
+	return line
 
 
 def build_petty_cash_credit_line(doc: Document, amount: float) -> dict:
@@ -76,8 +86,14 @@ def build_petty_cash_credit_line(doc: Document, amount: float) -> dict:
 		"debit_in_account_currency": 0,
 		"credit_in_account_currency": amount,
 	}
-	if frappe.db.get_value("Account", petty, "account_type") in ("Receivable", "Payable"):
-		line.update({"party_type": "Employee", "party": doc.employee})
+	line.update(
+		journal_entry_party_for_petty_cash_credit(
+			petty,
+			company=doc.company,
+			employee=resolve_clearance_employee(doc),
+			holder=(getattr(doc, "holder", None) or "").strip() or None,
+		)
+	)
 	return line
 
 
@@ -98,6 +114,8 @@ def create_clearance_journal_entry(doc: Document) -> Document:
 		je.custom_pm_holder = doc.holder
 
 	for line in build_clearance_je_accounts(doc):
+		if flt(line.get("credit_in_account_currency")) > 0:
+			validate_petty_cash_credit_party(doc, line)
 		je.append("accounts", line)
 
 	apply_settlement_journal_entry_remarks(je, doc)

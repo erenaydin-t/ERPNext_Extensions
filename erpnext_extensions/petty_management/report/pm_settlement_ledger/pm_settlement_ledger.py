@@ -39,6 +39,10 @@ def get_columns():
 		{"label": _("Purchase Order"), "fieldname": "purchase_order", "fieldtype": "Link", "options": "Purchase Order", "width": 160},
 		{"label": _("Supplier"), "fieldname": "supplier", "fieldtype": "Link", "options": "Supplier", "width": 160},
 		{"label": _("Settlement Amount"), "fieldname": "settlement_amount", "fieldtype": "Currency", "width": 140},
+		{"label": _("Funding Source Type"), "fieldname": "funding_source_type", "fieldtype": "Data", "width": 150},
+		{"label": _("Funding Source Name"), "fieldname": "funding_source_name", "fieldtype": "Dynamic Link", "options": "funding_source_doctype", "width": 170},
+		{"label": _("Funding Source Amount"), "fieldname": "funding_source_amount", "fieldtype": "Currency", "width": 150},
+		{"label": _("Funding Source DocType"), "fieldname": "funding_source_doctype", "fieldtype": "Data", "hidden": 1, "width": 100},
 		{"label": _("PM Request"), "fieldname": "pm_request", "fieldtype": "Link", "options": "PM Request", "width": 160},
 		{"label": _("PM Request Allocated Amount"), "fieldname": "pm_request_allocated_amount", "fieldtype": "Currency", "width": 180},
 		{"label": _("Payment Entry"), "fieldname": "payment_entry", "fieldtype": "Link", "options": "Payment Entry", "width": 160},
@@ -136,8 +140,19 @@ def get_funding_rows(filters):
 			null as purchase_order,
 			null as supplier,
 			null as settlement_amount,
+			a.funding_source_type,
+			case
+				when ifnull(a.funding_source_type, '') = 'PM Opening Advance' then a.pm_opening_advance
+				else a.pm_request
+			end as funding_source_name,
+			case
+				when ifnull(a.funding_source_type, '') = 'PM Opening Advance' then 'PM Opening Advance'
+				else 'PM Request'
+			end as funding_source_doctype,
+			a.allocated_amount as funding_source_amount,
 			a.pm_request,
 			a.allocated_amount as pm_request_allocated_amount,
+			a.pm_opening_advance,
 			pr.payment_entry,
 			null as pi_outstanding_amount,
 			coalesce(je.posting_date, cl.je_clearance_date, cl.transaction_date) as posting_date

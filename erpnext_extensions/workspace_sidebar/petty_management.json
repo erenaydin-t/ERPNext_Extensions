@@ -54,6 +54,18 @@
    "type": "Link"
   },
   {
+   "child": 1,
+   "collapsible": 1,
+   "icon": "archive",
+   "indent": 0,
+   "keep_closed": 0,
+   "label": "PM Opening Advance",
+   "link_to": "PM Opening Advance",
+   "link_type": "DocType",
+   "show_arrow": 0,
+   "type": "Link"
+  },
+  {
    "child": 0,
    "collapsible": 1,
    "icon": "repeat",
@@ -194,9 +206,21 @@
    "link_type": "Report",
    "show_arrow": 0,
    "type": "Link"
+  },
+  {
+   "child": 1,
+   "collapsible": 1,
+   "icon": "bar-chart-2",
+   "indent": 0,
+   "keep_closed": 0,
+   "label": "PM Opening Advance Availability Report",
+   "link_to": "PM Opening Advance Availability Report",
+   "link_type": "Report",
+   "show_arrow": 0,
+   "type": "Link"
   }
  ],
- "modified": "2026-06-10 16:24:36.873861",
+ "modified": "2026-06-13 21:25:15.807254",
  "modified_by": "Administrator",
  "module": "Petty Management",
  "name": "Petty Management",

@@ -14,9 +14,14 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt
 
-from erpnext_extensions.petty_management.services.allocation_service import (
+from erpnext_extensions.petty_management.services.allocation_service import get_pm_request_paid_amount
+from erpnext_extensions.petty_management.services.clearance_reservation import (
 	clearance_reserves_pm_request_balance_sql,
-	get_pm_request_paid_amount,
+)
+from erpnext_extensions.petty_management.services.opening_advance_service import (
+	get_opening_advance_available_amount,
+	remaining_at_cutover_amount,
+	sum_prior_opening_allocations,
 )
 from erpnext_extensions.petty_management.services.holder_service import get_holder_balances
 
@@ -57,6 +62,8 @@ def reconcile(*, apply_safe_fixes: bool = False, company: str | None = None) -> 
 	_check_reserved_vs_funded(res, company=company)
 	_check_holder_available_negative(res, company=company)
 	_check_clearance_status_vs_je(res, company=company)
+	_check_opening_advance_integrity(res, company=company)
+	_check_opening_advance_payment_entry(res, company=company)
 	return res
 
 
@@ -285,6 +292,8 @@ def _check_reserved_vs_funded(res: ReconciliationResult, *, company: str | None)
 		inner join `tabPM Request` pr on pr.name = a.pm_request
 		where a.parentfield = 'request_allocations'
 			and ifnull(a.is_legacy_row, 0) = 0
+			and ifnull(a.pm_request, '') != ''
+			and ifnull(a.funding_source_type, 'PM Request') in ('', 'PM Request')
 			and {res_clause}
 			{co_sql}
 		group by a.pm_request
@@ -362,6 +371,102 @@ def _check_clearance_status_vs_je(res: ReconciliationResult, *, company: str | N
 					references={"pm_clearance": row.name},
 				)
 			)
+
+
+def _check_opening_advance_integrity(res: ReconciliationResult, *, company: str | None) -> None:
+	if not frappe.db.has_table("PM Opening Advance"):
+		return
+	filters: dict[str, Any] = {"docstatus": 1, "status": "Submitted"}
+	if company:
+		filters["company"] = company
+	for oa_name in frappe.get_all("PM Opening Advance", filters=filters, pluck="name"):
+		row = frappe.db.get_value(
+			"PM Opening Advance",
+			oa_name,
+			[
+				"holder",
+				"opening_advance_amount",
+				"previously_settled_before_migration",
+			],
+			as_dict=True,
+		)
+		if not row or not row.holder:
+			res.issues.append(
+				ReconciliationIssue(
+					severity="error",
+					code="OPENING_WITHOUT_HOLDER",
+					title=_("Submitted PM Opening Advance without holder"),
+					detail=oa_name,
+					references={"pm_opening_advance": oa_name},
+				)
+			)
+			continue
+		if flt(row.previously_settled_before_migration) > flt(row.opening_advance_amount) + 1e-6:
+			res.issues.append(
+				ReconciliationIssue(
+					severity="error",
+					code="OPENING_PREVIOUSLY_SETTLED_EXCEEDS_OPENING",
+					title=_("Previously settled exceeds opening advance"),
+					detail=oa_name,
+					references={"pm_opening_advance": oa_name},
+				)
+			)
+		avail = get_opening_advance_available_amount(oa_name)
+		if avail < -1e-3:
+			res.issues.append(
+				ReconciliationIssue(
+					severity="error",
+					code="OPENING_AVAILABLE_NEGATIVE",
+					title=_("Opening advance available balance is negative"),
+					detail=f"{oa_name} available={avail}",
+					references={"pm_opening_advance": oa_name},
+				)
+			)
+		remaining = remaining_at_cutover_amount(
+			row.opening_advance_amount, row.previously_settled_before_migration
+		)
+		allocated = sum_prior_opening_allocations(oa_name)
+		if allocated > remaining + 1e-3:
+			res.issues.append(
+				ReconciliationIssue(
+					severity="error",
+					code="OPENING_ALLOCATED_EXCEEDS_AVAILABLE",
+					title=_("Opening allocations exceed remaining at cutover"),
+					detail=f"{oa_name} allocated={allocated} remaining={remaining}",
+					references={"pm_opening_advance": oa_name},
+				)
+			)
+
+
+def _check_opening_advance_payment_entry(res: ReconciliationResult, *, company: str | None) -> None:
+	if not frappe.db.has_table("PM Opening Advance"):
+		return
+	co_sql = " AND pe.company = %(company)s " if company else ""
+	params: dict[str, Any] = {}
+	if company:
+		params["company"] = company
+	rows = frappe.db.sql(
+		f"""
+		select pe.name as payment_entry, pe.reference_no as opening_advance
+		from `tabPayment Entry` pe
+		inner join `tabPM Opening Advance` oa on oa.name = pe.reference_no
+		where pe.docstatus in (0, 1)
+			and ifnull(pe.reference_no, '') != ''
+			{co_sql}
+		""",
+		params,
+		as_dict=True,
+	)
+	for row in rows:
+		res.issues.append(
+			ReconciliationIssue(
+				severity="error",
+				code="OPENING_ADVANCE_HAS_PAYMENT_ENTRY",
+				title=_("Payment Entry references a PM Opening Advance"),
+				detail=f"{row.opening_advance} PE {row.payment_entry}",
+				references={"pm_opening_advance": row.opening_advance, "payment_entry": row.payment_entry},
+			)
+		)
 
 
 def _can_fix() -> bool:

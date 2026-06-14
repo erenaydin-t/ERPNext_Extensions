@@ -145,6 +145,7 @@ frappe.ui.form.on("PM Request", {
 			args: { pm_request: frm.doc.name },
 			callback(r) {
 				const f = r.message || {};
+				hide_pm_request_reject_when_not_allowed(frm, f);
 				if (f.can_create_payment_entry) {
 					frm.add_custom_button(__("Create Payment Entry"), runCreate, null);
 					if (frm.change_custom_button_type) {
@@ -183,6 +184,19 @@ function remove_pm_request_toolbar_buttons(frm) {
 		frm.page.remove_inner_button(L);
 		frm.page.remove_inner_button(raw);
 	});
+}
+
+function hide_pm_request_reject_when_not_allowed(frm, flags) {
+	if (!flags || flags.can_reject) {
+		return;
+	}
+	const rejectLabels = [__("PM Reject"), "PM Reject", __("Reject")];
+	if (frm.page && frm.page.actions_menu_items) {
+		frm.page.actions_menu_items = frm.page.actions_menu_items.filter((item) => {
+			const label = (item.label || item.action || "").toString();
+			return !rejectLabels.some((r) => label.indexOf(r) >= 0 || label === r);
+		});
+	}
 }
 
 frappe.ui.form.on("PM Request Detail", {

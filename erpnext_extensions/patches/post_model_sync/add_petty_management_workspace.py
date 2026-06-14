@@ -14,6 +14,7 @@ from erpnext_extensions.petty_management.desk_workspace_config import (
 	WORKSPACE_CARD_ICONS,
 	WORKSPACE_REPORT_LINKS,
 	WORKSPACE_SETUP_LINKS,
+	WORKSPACE_SHORTCUTS,
 	WORKSPACE_TRANSACTION_LINKS,
 )
 
@@ -217,6 +218,28 @@ def _ensure_desktop_icon():
 	icon.save(ignore_permissions=True)
 
 
+def _ensure_workspace_shortcuts(ws) -> bool:
+	meta = frappe.get_meta("Workspace")
+	changed = False
+	if not meta.has_field("shortcuts"):
+		return changed
+	existing = {(r.link_to or ""): r for r in (ws.get("shortcuts") or [])}
+	for label, link_to, link_type in WORKSPACE_SHORTCUTS:
+		if link_to in existing:
+			continue
+		ws.append(
+			"shortcuts",
+			{
+				"type": link_type,
+				"label": label,
+				"link_to": link_to,
+				"doc_view": "List",
+			},
+		)
+		changed = True
+	return changed
+
+
 def _clear_desk_caches():
 	frappe.cache.delete_key("desktop_icons")
 	frappe.cache.delete_key("bootinfo")
@@ -300,6 +323,7 @@ def execute():
 		)
 
 	ws.save(ignore_permissions=True)
+	_ensure_workspace_shortcuts(ws)
 	_ensure_workspace_sidebar()
 	_sync_petty_workspace_sidebar()
 	_ensure_desktop_icon()

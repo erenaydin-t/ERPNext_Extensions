@@ -13,6 +13,7 @@ WORKSPACE_CARD_ICONS: dict[str, str] = {
 WORKSPACE_SETUP_LINKS = (
 	("PM Settings", "DocType", "PM Settings", {"icon": "settings"}),
 	("PM Holder", "DocType", "PM Holder", {"icon": "users"}),
+	("PM Opening Advance", "DocType", "PM Opening Advance", {"icon": "archive"}),
 )
 
 WORKSPACE_TRANSACTION_LINKS = (
@@ -21,6 +22,13 @@ WORKSPACE_TRANSACTION_LINKS = (
 	("Purchase Invoice", "DocType", "Purchase Invoice", {"icon": "file-text"}),
 	("Payment Entry", "DocType", "Payment Entry", {"icon": "dollar-sign"}),
 	("Journal Entry", "DocType", "Journal Entry", {"icon": "book-open"}),
+)
+
+# Workspace header shortcuts (top of Petty Management workspace)
+WORKSPACE_SHORTCUTS = (
+	("PM Opening Advance", "PM Opening Advance", "DocType"),
+	("PM Clearance", "PM Clearance", "DocType"),
+	("PM Request", "PM Request", "DocType"),
 )
 
 WORKSPACE_REPORT_LINKS = (
@@ -32,6 +40,12 @@ WORKSPACE_REPORT_LINKS = (
 		"PM Request Availability Report",
 		"Report",
 		"PM Request Availability Report",
+		{"icon": "bar-chart-2", "is_query_report": 1},
+	),
+	(
+		"PM Opening Advance Availability Report",
+		"Report",
+		"PM Opening Advance Availability Report",
 		{"icon": "bar-chart-2", "is_query_report": 1},
 	),
 )
@@ -47,6 +61,7 @@ SIDEBAR_SECTION_ICONS: dict[str, str] = {
 SIDEBAR_LINK_ICONS: dict[str, str] = {
 	"PM Settings": "settings",
 	"PM Holder": "users",
+	"PM Opening Advance": "archive",
 	"PM Request": "credit-card",
 	"PM Clearance": "check-square",
 	"Purchase Invoice": "file-text",
@@ -57,4 +72,5 @@ SIDEBAR_LINK_ICONS: dict[str, str] = {
 	"PM Pending Clearance Report": "clock",
 	"PM Settlement Ledger": "archive",
 	"PM Request Availability Report": "bar-chart-2",
+	"PM Opening Advance Availability Report": "bar-chart-2",
 }

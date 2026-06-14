@@ -106,10 +106,10 @@
    "read_only": 1
   },
   {
-   "description": "Paid PM Requests minus amounts reserved on submitted PM Clearances (availability, not GL).",
+   "description": "Total operational availability: funded PM Requests plus opening advances, minus reservations (not GL).",
    "fieldname": "current_balance",
    "fieldtype": "Currency",
-   "label": "Holder Available Amount",
+   "label": "Total Available",
    "read_only": 1
   },
   {
@@ -152,6 +152,9 @@
  "module": "Petty Management",
  "name": "PM Holder",
  "owner": "Administrator",
+ "search_fields": "employee_name,employee,company",
+ "show_title_field_in_link": 1,
+ "title_field": "employee_name",
  "permissions": [
   {
    "create": 1,
