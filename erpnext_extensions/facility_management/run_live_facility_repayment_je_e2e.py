@@ -81,6 +81,7 @@ def _opening_facility(ctx, suffix: str, principal=10_000_000.0, profit=3_000_000
 	f.loan_payable_account = ctx["loan_payable"]
 	f.bank_account = ctx["bank_gl"]
 	f.deferred_loan_interest_account = ctx["deferred"]
+	f.interest_expense_account = ctx.get("interest") or ctx["deferred"]
 	f.penalty_expense_account = ctx["penalty"]
 	f.is_opening_facility = 1
 	f.status = "Active"
@@ -196,17 +197,23 @@ def run():
 	_log("Test 1 desk save + JE (2M+1500+200)", t1)
 	if d1.get("voucher_type") != "Bank Entry":
 		errors.append(f"Test 1: voucher_type {d1.get('voucher_type')}")
-	if debits.get(ctx["loan_payable"]) != 2_000_000:
-		errors.append(f"Test 1: loan dr {debits.get(ctx['loan_payable'])}")
-	if debits.get(ctx["deferred"]) != 1_500:
-		errors.append(f"Test 1: deferred interest dr {debits.get(ctx['deferred'])}")
+	if debits.get(ctx["loan_payable"]) != 2_001_500:
+		errors.append(f"Test 1: loan dr {debits.get(ctx['loan_payable'])} (principal+profit)")
+	if debits.get(ctx["deferred"]):
+		errors.append(f"Test 1: deferred must be credit not debit {debits.get(ctx['deferred'])}")
+	interest_acc = frappe.db.get_value("Facility", fac.name, "interest_expense_account")
+	if interest_acc and debits.get(interest_acc) != 1_500:
+		errors.append(f"Test 1: interest expense dr {debits.get(interest_acc)}")
 	if debits.get(ctx["penalty"]) != 200:
 		errors.append(f"Test 1: penalty dr {debits.get(ctx['penalty'])}")
 	if cr != 2_001_700:
 		errors.append(f"Test 1: bank cr {cr}")
-	for r in d1["je_rows"]:
-		if dim_fn and r.get(dim_fn) != fac.name:
-			errors.append(f"Test 1: missing dim on {r}")
+	from erpnext_extensions.facility_management.facility_accounting import _validate_repayment_je_dimensions
+
+	try:
+		_validate_repayment_je_dimensions(rep_save.journal_entry, fac, rep_save)
+	except Exception as e:
+		errors.append(f"Test 1 Excel dims: {e}")
 
 	# Test 6 reports (after Test 1 repayment only)
 	bal1 = get_facility_balance_row(fac.name)
@@ -259,8 +266,11 @@ def run():
 	_log("Test 3 profit only", t3)
 	if debits3.get(ctx["loan_payable"]):
 		errors.append("Test 3: unexpected loan row")
-	if debits3.get(ctx["deferred"]) != 1_500:
-		errors.append(f"Test 3: deferred interest {debits3.get(ctx['deferred'])}")
+	if debits3.get(ctx["deferred"]):
+		errors.append("Test 3: unexpected deferred debit row")
+	interest_acc = frappe.db.get_value("Facility", fac.name, "interest_expense_account")
+	if interest_acc and debits3.get(interest_acc) != 1_500:
+		errors.append(f"Test 3: interest expense {debits3.get(interest_acc)}")
 	if _credit_bank(d3["je_rows"]) != 1_500:
 		errors.append(f"Test 3: bank cr {_credit_bank(d3['je_rows'])}")
 

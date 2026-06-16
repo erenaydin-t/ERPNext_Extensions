@@ -417,20 +417,32 @@ def _build_payment_entry(doc: Document, paid_from: str, amount: float) -> Docume
 		pe.custom_pm_request = doc.name
 	if meta_pe.has_field("custom_pm_holder") and doc.holder:
 		pe.custom_pm_holder = doc.holder
+	if doc.project and meta_pe.has_field("project"):
+		pe.project = doc.project
 	return pe
 
 
 def get_pm_request_action_flags(pm_request: str) -> dict:
 	"""Desk UI: toolbar guards aligned with server rules."""
+	from erpnext_extensions.petty_management.services.workflow_utils import get_allowed_workflow_actions
+
 	doc = frappe.get_doc("PM Request", pm_request)
 	if not frappe.has_permission("PM Request", "read", doc=doc):
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
 	can_create, reason = request_ready_for_payment_entry(doc)
 	can_open = bool(doc.payment_entry)
+	transitions = get_allowed_workflow_actions(doc)
+	actions = [t.get("action") for t in transitions if t.get("action")]
+	can_reject_wf = "PM Reject" in actions
+	if doc.payment_status == "Paid" or (doc.payment_entry and frappe.db.get_value("Payment Entry", doc.payment_entry, "docstatus") == 1):
+		can_reject_wf = False
 	return {
 		"can_create_payment_entry": bool(can_create),
 		"can_open_payment_entry": can_open,
 		"reason": reason or "",
 		"workflow_state_title": workflow_state_title(doc),
+		"workflow_state": doc.workflow_state,
 		"payment_status": doc.payment_status or "",
+		"allowed_workflow_actions": actions,
+		"can_reject": can_reject_wf,
 	}

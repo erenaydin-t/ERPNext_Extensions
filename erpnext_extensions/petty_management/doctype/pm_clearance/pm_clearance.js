@@ -34,11 +34,32 @@ frappe.ui.form.on("PM Clearance", {
 	},
 	request_allocations_add(frm) {
 		frm.trigger("recalc_totals");
+		setTimeout(() => refresh_request_allocation_row_columns(frm), 0);
 	},
 	request_allocations_remove(frm) {
 		frm.trigger("recalc_totals");
 	},
 	setup(frm) {
+		frm.set_query("pm_opening_advance", "request_allocations", () => {
+			const ready =
+				frm.doc.employee &&
+				frm.doc.company &&
+				frm.doc.holder &&
+				(frm.doc.petty_cash_account || "").trim();
+			if (!ready) {
+				return { filters: { name: ["=", ""] } };
+			}
+			return {
+				query:
+					"erpnext_extensions.petty_management.doctype.pm_clearance.pm_clearance.pm_opening_advance_query_for_pm_clearance",
+				filters: {
+					company: frm.doc.company,
+					holder: frm.doc.holder,
+					petty_cash_account: frm.doc.petty_cash_account,
+					pm_clearance: frm.doc.name || null,
+				},
+			};
+		});
 		frm.set_query("pm_request", "request_allocations", () => {
 			const ready =
 				frm.doc.employee &&
@@ -66,6 +87,24 @@ frappe.ui.form.on("PM Clearance", {
 				},
 			};
 		});
+		frm.set_query("purchase_invoice", "details", (doc, cdt, cdn) => {
+			const row = locals[cdt]?.[cdn];
+			if (!row || (row.settlement_type || SETTLEMENT_PI) !== SETTLEMENT_PI) {
+				return { filters: { name: ["=", ""] } };
+			}
+			if (!frm.doc.company) {
+				return { filters: { name: ["=", ""] } };
+			}
+			const filters = { company: frm.doc.company };
+			if (row.supplier) {
+				filters.supplier = row.supplier;
+			}
+			return {
+				query:
+					"erpnext_extensions.petty_management.doctype.pm_clearance.pm_clearance.purchase_invoice_query_for_pm_clearance",
+				filters,
+			};
+		});
 	},
 	refresh_holder_pending(frm) {
 		if (!can_mutate_derived_fields(frm)) {
@@ -75,10 +114,7 @@ frappe.ui.form.on("PM Clearance", {
 		if (!frm.doc.employee || !frm.doc.company) {
 			set_form_value_if_changed(frm, "holder", "");
 			set_form_value_if_changed(frm, "petty_cash_account", "");
-			set_form_value_if_changed(frm, "pending_amount", 0);
-			set_form_value_if_changed(frm, "current_petty_balance", 0);
-			set_form_value_if_changed(frm, "total_cleared_amount", 0);
-			set_form_value_if_changed(frm, "total_funded_amount", 0);
+			set_availability_fields(frm, {});
 			frm._pm_clearance_prev_holder = undefined;
 			frm.trigger("recalc_totals");
 			setup_settlement_buttons(frm);
@@ -111,10 +147,7 @@ frappe.ui.form.on("PM Clearance", {
 				if (!r || !r.name) {
 					set_form_value_if_changed(frm, "holder", "");
 					set_form_value_if_changed(frm, "petty_cash_account", "");
-					set_form_value_if_changed(frm, "pending_amount", 0);
-					set_form_value_if_changed(frm, "current_petty_balance", 0);
-					set_form_value_if_changed(frm, "total_cleared_amount", 0);
-					set_form_value_if_changed(frm, "total_funded_amount", 0);
+					set_availability_fields(frm, {});
 					if (prev) {
 						(frm.doc.request_allocations || []).forEach((row) => {
 							if (!row.is_legacy_row && row.pm_request) {
@@ -140,16 +173,26 @@ frappe.ui.form.on("PM Clearance", {
 				frm._pm_no_holder_msg_done = 0;
 				if (prev !== undefined && prev && prev !== r.name) {
 					(frm.doc.request_allocations || []).forEach((row) => {
-						if (!row.is_legacy_row && row.pm_request) {
+						if (!row.is_legacy_row && (row.pm_request || row.pm_opening_advance)) {
 							clear_allocation_row(row);
 						}
 					});
 				}
 				frm._pm_clearance_prev_holder = r.name;
 				set_form_value_if_changed(frm, "holder", r.name);
+				if (r.name) {
+					frappe.xcall("frappe.desk.search.get_link_title", {
+						doctype: "PM Holder",
+						docname: r.name,
+					}).then((title) => {
+						if (title) {
+							frappe.utils.add_link_title("PM Holder", r.name, title);
+							frm.refresh_field("holder");
+						}
+					});
+				}
 				set_form_value_if_changed(frm, "petty_cash_account", r.petty_cash_account);
-				set_form_value_if_changed(frm, "pending_amount", r.current_balance);
-				set_form_value_if_changed(frm, "current_petty_balance", r.current_balance);
+				set_availability_fields(frm, r);
 				set_form_value_if_changed(frm, "total_cleared_amount", r.consumed_amount || 0);
 				set_form_value_if_changed(frm, "total_funded_amount", r.total_funded_amount || 0);
 				frm.trigger("recalc_totals");
@@ -172,10 +215,7 @@ frappe.ui.form.on("PM Clearance", {
 		} else if ((!frm.doc.employee || !frm.doc.company) && can_mutate_derived_fields(frm)) {
 			set_form_value_if_changed(frm, "holder", "");
 			set_form_value_if_changed(frm, "petty_cash_account", "");
-			set_form_value_if_changed(frm, "pending_amount", 0);
-			set_form_value_if_changed(frm, "current_petty_balance", 0);
-			set_form_value_if_changed(frm, "total_cleared_amount", 0);
-			set_form_value_if_changed(frm, "total_funded_amount", 0);
+			set_availability_fields(frm, {});
 			frm._pm_clearance_prev_holder = undefined;
 			frm.trigger("recalc_totals");
 			setup_settlement_buttons(frm);
@@ -202,12 +242,17 @@ frappe.ui.form.on("PM Clearance", {
 			set_form_value_if_changed(frm, "total_tax_amount", 0);
 			set_form_value_if_changed(frm, "total_expense_amount", settled);
 			set_form_value_if_changed(frm, "total_petty_cash", settled);
-			set_form_value_if_changed(frm, "remaining_amount", flt(frm.doc.pending_amount) - settled);
+			set_form_value_if_changed(
+				frm,
+				"remaining_amount",
+				flt(frm.doc.total_available || frm.doc.pending_amount) - settled
+			);
 			frm.refresh_field("details");
 			frm.refresh_field("request_allocations");
 		}
 		update_settlement_balance_intro(frm, settled, req_total);
 		setup_settlement_buttons(frm);
+		setTimeout(() => refresh_request_allocation_row_columns(frm), 0);
 	},
 });
 
@@ -318,7 +363,10 @@ const NUMERIC_FIELDS = new Set([
 	"available_amount",
 	"current_petty_balance",
 	"paid_amount",
+	"funded_available",
+	"opening_available",
 	"pending_amount",
+	"total_available",
 	"previously_allocated_amount",
 	"remaining_amount",
 	"request_amount",
@@ -355,8 +403,21 @@ function set_child_value_if_changed(cdt, cdn, fieldname, value) {
 	}
 }
 
+function set_availability_fields(frm, r) {
+	const funded = flt(r.funded_available_amount);
+	const opening = flt(r.opening_available_amount);
+	const total = flt(r.total_available_amount !== undefined ? r.total_available_amount : r.current_balance);
+	set_form_value_if_changed(frm, "funded_available", funded);
+	set_form_value_if_changed(frm, "opening_available", opening);
+	set_form_value_if_changed(frm, "total_available", total);
+	set_form_value_if_changed(frm, "pending_amount", total);
+	set_form_value_if_changed(frm, "current_petty_balance", total);
+}
+
 function clear_allocation_row(row) {
+	set_child_value_if_changed(row.doctype, row.name, "funding_source_type", "PM Request");
 	set_child_value_if_changed(row.doctype, row.name, "pm_request", "");
+	set_child_value_if_changed(row.doctype, row.name, "pm_opening_advance", "");
 	set_child_value_if_changed(row.doctype, row.name, "allocated_amount", 0);
 	set_child_value_if_changed(row.doctype, row.name, "request_amount", 0);
 	set_child_value_if_changed(row.doctype, row.name, "paid_amount", 0);
@@ -544,10 +605,7 @@ function sync_lifecycle_display_from_flags(frm, flags) {
 		frm.doc.status = flags.lifecycle_state;
 		frm.refresh_field("status");
 	}
-	if (flags.workflow_state && frm.doc.workflow_state !== flags.workflow_state) {
-		frm.doc.workflow_state = flags.workflow_state;
-		frm.refresh_field("workflow_state");
-	}
+	// Do not set workflow_state on the client; use apply_workflow / reload only.
 }
 
 function hide_workflow_reject_when_locked(frm, flags) {
@@ -660,6 +718,15 @@ frappe.ui.form.on("PM Clearance Detail", {
 			return;
 		}
 		frappe.db.get_doc("Purchase Invoice", row.purchase_invoice).then((pi) => {
+			if (pi.docstatus != 1) {
+				frappe.msgprint({
+					title: __("Purchase Invoice"),
+					message: __("Only submitted Purchase Invoices can be used for settlement."),
+					indicator: "red",
+				});
+				frappe.model.set_value(cdt, cdn, "purchase_invoice", "");
+				return;
+			}
 			frappe.model.set_value(cdt, cdn, "supplier", pi.supplier);
 			frappe.model.set_value(cdt, cdn, "outstanding_amount", pi.outstanding_amount || 0);
 			const cur = flt(row.allocated_amount);
@@ -709,7 +776,105 @@ function allocated_on_other_pm_request_rows(frm, cdn) {
 	return s;
 }
 
+function refresh_request_allocation_row_columns(frm, cdn, cdt) {
+	const grid = frm.fields_dict.request_allocations?.grid;
+	if (!grid) {
+		return;
+	}
+	const apply_row = (row) => {
+		if (!row?.name) {
+			return;
+		}
+		const grid_row = grid.grid_rows_by_docname?.[row.name];
+		if (!grid_row?.toggle_display) {
+			return;
+		}
+		const is_opening = row.funding_source_type === "PM Opening Advance";
+		grid_row.toggle_display("pm_request", !is_opening);
+		grid_row.toggle_display("pm_opening_advance", is_opening);
+	};
+	if (cdn) {
+		const row = cdt ? locals[cdt]?.[cdn] : locals["PM Clearance Request Allocation"]?.[cdn];
+		apply_row(row);
+		return;
+	}
+	(frm.doc.request_allocations || []).forEach(apply_row);
+}
+
 frappe.ui.form.on("PM Clearance Request Allocation", {
+	form_render(frm, cdt, cdn) {
+		refresh_request_allocation_row_columns(frm, cdn, cdt);
+	},
+	funding_source_type(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		if (row.is_legacy_row) {
+			return;
+		}
+		if ((row.funding_source_type || "PM Request") === "PM Opening Advance") {
+			set_child_value_if_changed(cdt, cdn, "pm_request", "");
+		} else {
+			set_child_value_if_changed(cdt, cdn, "pm_opening_advance", "");
+		}
+		set_child_value_if_changed(cdt, cdn, "allocated_amount", 0);
+		set_child_value_if_changed(cdt, cdn, "request_amount", 0);
+		set_child_value_if_changed(cdt, cdn, "paid_amount", 0);
+		set_child_value_if_changed(cdt, cdn, "previously_allocated_amount", 0);
+		set_child_value_if_changed(cdt, cdn, "available_amount", 0);
+		frm.trigger("recalc_totals");
+		refresh_request_allocation_row_columns(frm, cdn, cdt);
+	},
+	pm_opening_advance(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		if (row.is_legacy_row) {
+			return;
+		}
+		if (!frm.doc.holder || !frm.doc.petty_cash_account) {
+			frappe.msgprint(__("Select Employee/Holder first."));
+			frappe.model.set_value(cdt, cdn, "pm_opening_advance", "");
+			return;
+		}
+		if (!row.pm_opening_advance) {
+			frm.trigger("recalc_totals");
+			return;
+		}
+		set_child_value_if_changed(cdt, cdn, "funding_source_type", "PM Opening Advance");
+		frappe.call({
+			method:
+				"erpnext_extensions.petty_management.doctype.pm_clearance.pm_clearance.get_opening_advance_allocation_context",
+			args: {
+				pm_opening_advance: row.pm_opening_advance,
+				pm_clearance: frm.doc.name || null,
+				company: frm.doc.company,
+				employee: frm.doc.employee,
+				holder: frm.doc.holder,
+				petty_cash_account: frm.doc.petty_cash_account,
+			},
+			callback(r) {
+				if (!r.message) return;
+				const m = r.message;
+				set_child_value_if_changed(cdt, cdn, "request_amount", m.request_amount);
+				set_child_value_if_changed(cdt, cdn, "paid_amount", m.paid_amount);
+				set_child_value_if_changed(cdt, cdn, "previously_allocated_amount", m.previously_allocated_amount);
+				set_child_value_if_changed(cdt, cdn, "available_amount", m.available_amount);
+				if (flt(m.available_amount) <= 0) {
+					frappe.msgprint({
+						title: __("Opening Advance"),
+						message: __("This opening advance has no available balance."),
+						indicator: "orange",
+					});
+				}
+				const settled = settlement_lines_total(frm);
+				const other = allocated_on_other_pm_request_rows(frm, cdn);
+				const remaining = Math.max(0, settled - other);
+				const avail = flt(m.available_amount);
+				if (remaining > 0 && avail > 0 && !flt(row.allocated_amount)) {
+					set_child_value_if_changed(cdt, cdn, "allocated_amount", Math.min(avail, remaining));
+				}
+				frm.refresh_field("request_allocations");
+				frm.trigger("recalc_totals");
+			},
+		});
+	},
 	pm_request(frm, cdt, cdn) {
 		const row = locals[cdt][cdn];
 		if (row.is_legacy_row) {
@@ -720,6 +885,8 @@ frappe.ui.form.on("PM Clearance Request Allocation", {
 			frappe.model.set_value(cdt, cdn, "pm_request", "");
 			return;
 		}
+		set_child_value_if_changed(cdt, cdn, "funding_source_type", "PM Request");
+		set_child_value_if_changed(cdt, cdn, "pm_opening_advance", "");
 		if (!row.pm_request) {
 			set_child_value_if_changed(cdt, cdn, "request_amount", 0);
 			set_child_value_if_changed(cdt, cdn, "paid_amount", 0);

@@ -2,15 +2,16 @@ from __future__ import annotations
 
 import frappe
 
+from erpnext_extensions.petty_management.services.workflow_utils import (
+	normalize_workflow_definition,
+	realign_doctype_workflow_states,
+	resolve_workflow_state_link,
+)
+
 
 def _wf_state(name: str) -> str:
 	"""Return Workflow State name (document name)."""
-	if frappe.db.exists("Workflow State", name):
-		return name
-	doc = frappe.new_doc("Workflow State")
-	doc.workflow_state_name = name
-	doc.insert(ignore_permissions=True)
-	return doc.name
+	return resolve_workflow_state_link(name) or name
 
 
 def _ensure_pm_request_workflow():
@@ -36,7 +37,7 @@ def _ensure_pm_request_workflow():
 	):
 		w.append(
 			"states",
-			{"state": state, "doc_status": doc_status, "allow_edit": "All"},
+			{"state": _wf_state(state), "doc_status": doc_status, "allow_edit": "All"},
 		)
 	transitions = (
 		("Draft", "PM Submit for Approval", "Pending Approval", "Petty Management User"),
@@ -48,9 +49,9 @@ def _ensure_pm_request_workflow():
 		w.append(
 			"transitions",
 			{
-				"state": state,
+				"state": _wf_state(state),
 				"action": action,
-				"next_state": next_state,
+				"next_state": _wf_state(next_state),
 				"allowed": role,
 				"allow_self_approval": 1,
 			},
@@ -81,9 +82,7 @@ def _repair_pm_request_workflow():
 
 	if changed:
 		w.save(ignore_permissions=True)
-
-
-def _ensure_pm_clearance_workflow():
+	_repair_workflow_common(name, "PM Request")
 	if frappe.db.exists("Workflow", "PM Clearance Workflow"):
 		return
 	_wf_state("Pending Finance Review")
@@ -104,7 +103,7 @@ def _ensure_pm_clearance_workflow():
 	):
 		w.append(
 			"states",
-			{"state": state, "doc_status": doc_status, "allow_edit": "All"},
+			{"state": _wf_state(state), "doc_status": doc_status, "allow_edit": "All"},
 		)
 	transitions = (
 		("Draft", "PM Submit Finance Review", "Pending Finance Review", "Petty Management User"),
@@ -115,9 +114,9 @@ def _ensure_pm_clearance_workflow():
 		w.append(
 			"transitions",
 			{
-				"state": state,
+				"state": _wf_state(state),
 				"action": action,
-				"next_state": next_state,
+				"next_state": _wf_state(next_state),
 				"allowed": role,
 				"allow_self_approval": 1,
 			},
@@ -150,12 +149,24 @@ def _repair_pm_clearance_workflow():
 	)
 	existing = {row.state for row in w.states}
 	for state, doc_status in accounting_states:
-		if state not in existing:
-			_wf_state(state)
-			w.append("states", {"state": state, "doc_status": doc_status, "allow_edit": "All"})
+		canonical = _wf_state(state)
+		if canonical not in existing and state not in existing:
+			w.append("states", {"state": canonical, "doc_status": doc_status, "allow_edit": "All"})
 			changed = True
 	if changed:
 		w.save(ignore_permissions=True)
+	_repair_workflow_common(name, "PM Clearance")
+
+
+def _repair_workflow_common(workflow_name: str, doctype: str) -> None:
+	if not frappe.db.exists("Workflow", workflow_name):
+		return
+	w = frappe.get_doc("Workflow", workflow_name)
+	changed = normalize_workflow_definition(w)
+	if changed:
+		w.save(ignore_permissions=True)
+	realign_doctype_workflow_states(doctype)
+	frappe.clear_cache(doctype="Workflow")
 
 
 def repair_pm_request_workflow():

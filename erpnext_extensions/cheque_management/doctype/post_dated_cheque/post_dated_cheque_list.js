@@ -187,6 +187,195 @@ function pdc_list_wrap_before_refresh(listview) {
 	};
 }
 
+function pdc_list_sanitize_boot_user_list_filters() {
+	try {
+		const bucket = frappe.model?.user_settings?.[PDC_DOCTYPE];
+		if (bucket?.List?.filters) {
+			bucket.List.filters = pdc_list_sanitize_filter_tuples(bucket.List.filters);
+		}
+		const boot_raw = frappe.boot?.user?.user_settings?.[PDC_DOCTYPE];
+		if (boot_raw) {
+			const parsed = typeof boot_raw === "string" ? JSON.parse(boot_raw) : boot_raw;
+			if (parsed?.List?.filters) {
+				parsed.List.filters = pdc_list_sanitize_filter_tuples(parsed.List.filters);
+				frappe.boot.user.user_settings[PDC_DOCTYPE] = JSON.stringify(parsed);
+			}
+		}
+	} catch (e) {
+		/* ignore */
+	}
+}
+
+function pdc_list_storage_snapshot(kind) {
+	const store = kind === "session" ? window.sessionStorage : window.localStorage;
+	const out = {};
+	try {
+		for (let i = 0; i < store.length; i++) {
+			const key = store.key(i);
+			if (!key) continue;
+			if (
+				/pdc|post.dated|cheque|user_settings|filter|list|frappe/i.test(key) ||
+				key.includes(PDC_DOCTYPE)
+			) {
+				out[key] = store.getItem(key);
+			}
+		}
+	} catch (e) {
+		out._error = String(e);
+	}
+	return out;
+}
+
+function pdc_list_filter_row_is_invalid_empty(filter_row) {
+	if (!filter_row?.field) {
+		return true;
+	}
+	const tuple = filter_row.get_value?.();
+	if (tuple && pdc_list_filter_tuple_has_invalid_empty_value(tuple)) {
+		return true;
+	}
+	const fieldname = filter_row.field.df?.fieldname;
+	const cond = pdc_list_normalize_condition(filter_row.get_condition?.());
+	const val = filter_row.get_selected_value?.();
+	return (
+		fieldname === "name" &&
+		(cond === "=" || cond === "equals") &&
+		pdc_list_is_filter_value_empty(val)
+	);
+}
+
+/** Run before filter_area.set() so saved name="" never hits the query or popover. */
+function pdc_list_install_early_list_hooks() {
+	if (!frappe.views?.ListView?.prototype || frappe.views.ListView.prototype._pdc_early_hooks) {
+		return;
+	}
+	frappe.views.ListView.prototype._pdc_early_hooks = true;
+
+	const origSetupDefaults = frappe.views.ListView.prototype.setup_defaults;
+	frappe.views.ListView.prototype.setup_defaults = function () {
+		const result = origSetupDefaults.apply(this, arguments);
+		if (this.doctype !== PDC_DOCTYPE) {
+			return result;
+		}
+		pdc_list_sanitize_boot_user_list_filters();
+		if (this.user_settings?.List?.filters) {
+			this.user_settings.List.filters = pdc_list_sanitize_filter_tuples(
+				this.user_settings.List.filters
+			);
+		}
+		if (Array.isArray(this.filters)) {
+			this.filters = pdc_list_sanitize_filter_tuples(this.filters);
+		}
+		pdc_list_persist_sanitized_user_list_filters();
+		return result;
+	};
+
+	if (!frappe.views.BaseList.prototype._pdc_setup_filter_patched) {
+		frappe.views.BaseList.prototype._pdc_setup_filter_patched = true;
+		const origSetupFilterArea = frappe.views.BaseList.prototype.setup_filter_area;
+		frappe.views.BaseList.prototype.setup_filter_area = function () {
+			if (this.doctype === PDC_DOCTYPE) {
+				pdc_list_sanitize_boot_user_list_filters();
+				if (Array.isArray(this.filters)) {
+					this.filters = pdc_list_sanitize_filter_tuples(this.filters);
+				}
+			}
+			return origSetupFilterArea.apply(this, arguments);
+		};
+	}
+}
+
+function pdc_list_wrap_filter_area_set(listview) {
+	const filter_area = listview.filter_area;
+	if (!filter_area || filter_area._pdc_set_wrapped) {
+		return;
+	}
+	filter_area._pdc_set_wrapped = true;
+	const orig = filter_area.set.bind(filter_area);
+	filter_area.set = function (filters) {
+		const sanitized = pdc_list_sanitize_filter_tuples(filters || []);
+		return orig(sanitized);
+	};
+}
+
+function pdc_list_bind_popover_cleanup(listview) {
+	const filter_list = listview.filter_area?.filter_list;
+	const btn = filter_list?.filter_button;
+	if (!btn || filter_list._pdc_popover_prune_hooked) {
+		return;
+	}
+	filter_list._pdc_popover_prune_hooked = true;
+	btn.on("show.bs.popover", () => {
+		pdc_list_remove_invalid_empty_filters_sync(listview);
+	});
+	btn.on("shown.bs.popover", () => {
+		const changed = pdc_list_prune_invalid_filter_rows(listview);
+		if (changed && filter_list.filters.length === 0) {
+			filter_list.toggle_empty_filters(true);
+			filter_list.update_filter_button?.();
+		}
+	});
+}
+
+/** Synchronously drop invalid FilterGroup rows and fix button/X state (no refresh). */
+function pdc_list_prune_invalid_filter_rows(listview) {
+	const filter_list = listview.filter_area?.filter_list;
+	if (!filter_list?.filters?.length) {
+		return false;
+	}
+	let changed = false;
+	const keep = [];
+	for (const f of filter_list.filters) {
+		if (pdc_list_filter_row_is_invalid_empty(f)) {
+			try {
+				f.remove(true);
+			} catch (e) {
+				/* ignore */
+			}
+			changed = true;
+			continue;
+		}
+		keep.push(f);
+	}
+	if (changed) {
+		filter_list.filters = keep;
+		filter_list.update_filters?.();
+		filter_list.update_filter_button?.();
+		filter_list.toggle_empty_filters?.(filter_list.filters.length === 0);
+	}
+	return changed;
+}
+
+function pdc_list_remove_invalid_empty_filters_sync(listview) {
+	if (!listview?.filter_area) {
+		return false;
+	}
+	let changed = false;
+	if (Array.isArray(listview.filters)) {
+		const sanitized = pdc_list_sanitize_filter_tuples(listview.filters);
+		if (sanitized.length !== listview.filters.length) {
+			listview.filters = sanitized;
+			changed = true;
+		}
+	}
+	if (pdc_list_prune_invalid_filter_rows(listview)) {
+		changed = true;
+	}
+	const combined = listview.filter_area.get?.() || [];
+	const sanitized_combined = pdc_list_sanitize_filter_tuples(combined);
+	if (sanitized_combined.length !== combined.length) {
+		changed = true;
+		if (typeof listview.save_view_user_settings === "function") {
+			listview.save_view_user_settings({ filters: sanitized_combined });
+		}
+	}
+	pdc_list_persist_sanitized_user_list_filters();
+	if (changed) {
+		listview.filter_area.filter_list?.update_filter_button?.();
+	}
+	return changed;
+}
+
 /**
  * Drop invalid empty-value filters from FilterGroup rows, listview.filters, and saved List settings.
  * Valid filters (e.g. ID Equals PDC-xxx, name Is set) are kept.
@@ -195,37 +384,9 @@ async function pdc_list_remove_invalid_empty_filters(listview, { refresh = false
 	if (!listview?.filter_area) {
 		return false;
 	}
-	let changed = false;
+	let changed = pdc_list_remove_invalid_empty_filters_sync(listview);
 	listview._pdc_programmatic_filter_change = true;
 	try {
-		if (Array.isArray(listview.filters)) {
-			const sanitized = pdc_list_sanitize_filter_tuples(listview.filters);
-			if (sanitized.length !== listview.filters.length) {
-				listview.filters = sanitized;
-				changed = true;
-			}
-		}
-
-		const filter_list = listview.filter_area.filter_list;
-		if (filter_list?.filters?.length) {
-			const to_remove = [];
-			for (const f of filter_list.filters) {
-				if (!f.field) {
-					continue;
-				}
-				const tuple = f.get_value?.();
-				if (tuple && pdc_list_filter_tuple_has_invalid_empty_value(tuple)) {
-					to_remove.push(f);
-				}
-			}
-			if (to_remove.length) {
-				to_remove.forEach((f) => f.remove(true));
-				filter_list.filters = (filter_list.filters || []).filter((f) => f.field);
-				filter_list.update_filters?.();
-				changed = true;
-			}
-		}
-
 		const fields_dict = listview.page?.fields_dict || {};
 		for (const key of Object.keys(fields_dict)) {
 			const field = fields_dict[key];
@@ -242,16 +403,6 @@ async function pdc_list_remove_invalid_empty_filters(listview, { refresh = false
 			}
 		}
 
-		const combined = listview.filter_area.get?.() || [];
-		const sanitized_combined = pdc_list_sanitize_filter_tuples(combined);
-		if (sanitized_combined.length !== combined.length && typeof listview.save_view_user_settings === "function") {
-			await listview.save_view_user_settings({ filters: sanitized_combined });
-			changed = true;
-		}
-
-		if (changed) {
-			listview.filter_area.filter_list?.update_filter_button?.();
-		}
 		if (changed && refresh) {
 			await listview.refresh();
 		}
@@ -261,29 +412,105 @@ async function pdc_list_remove_invalid_empty_filters(listview, { refresh = false
 	return changed;
 }
 
+function pdc_list_wrap_filter_area_get(listview) {
+	const filter_area = listview.filter_area;
+	if (!filter_area || filter_area._pdc_get_wrapped) {
+		return;
+	}
+	filter_area._pdc_get_wrapped = true;
+	const orig = filter_area.get.bind(filter_area);
+	filter_area.get = function () {
+		return pdc_list_sanitize_filter_tuples(orig());
+	};
+}
+
+function pdc_list_wrap_filter_list_get_filters(listview) {
+	const filter_list = listview.filter_area?.filter_list;
+	if (!filter_list || filter_list._pdc_get_filters_wrapped) {
+		return;
+	}
+	filter_list._pdc_get_filters_wrapped = true;
+	const orig = filter_list.get_filters.bind(filter_list);
+	filter_list.get_filters = function () {
+		pdc_list_prune_invalid_filter_rows(listview);
+		return pdc_list_sanitize_filter_tuples(orig());
+	};
+}
+
+function pdc_list_wrap_filter_list_apply(listview) {
+	const filter_list = listview.filter_area?.filter_list;
+	if (!filter_list || filter_list._pdc_apply_wrapped) {
+		return;
+	}
+	filter_list._pdc_apply_wrapped = true;
+	const orig = filter_list.apply.bind(filter_list);
+	filter_list.apply = function () {
+		const had_invalid = pdc_list_remove_invalid_empty_filters_sync(listview);
+		if (had_invalid) {
+			frappe.show_alert(
+				{ message: __("Filter value is required for this condition."), indicator: "orange" },
+				4
+			);
+		}
+		return orig();
+	};
+	const orig_on_change = filter_list.on_change;
+	if (typeof orig_on_change === "function") {
+		filter_list.on_change = function () {
+			pdc_list_prune_invalid_filter_rows(listview);
+			return orig_on_change.apply(this, arguments);
+		};
+	}
+}
+
+function pdc_list_persist_sanitized_user_list_filters() {
+	const list_settings = frappe.get_user_settings?.(PDC_DOCTYPE, "List") || {};
+	const saved = list_settings.filters;
+	if (!Array.isArray(saved)) {
+		return;
+	}
+	const sanitized = pdc_list_sanitize_filter_tuples(saved);
+	if (sanitized.length === saved.length) {
+		return;
+	}
+	frappe.model.user_settings.save(PDC_DOCTYPE, "List", { filters: sanitized });
+}
+
 function pdc_list_bind_invalid_filter_cleanup(listview) {
 	pdc_list_bind_filter_user_interaction(listview);
+	pdc_list_wrap_filter_area_set(listview);
 	pdc_list_wrap_get_filters_for_args(listview);
+	pdc_list_wrap_filter_area_get(listview);
+	pdc_list_wrap_filter_list_get_filters(listview);
+	pdc_list_wrap_filter_list_apply(listview);
 	pdc_list_wrap_before_refresh(listview);
+	pdc_list_bind_popover_cleanup(listview);
+	pdc_list_sanitize_boot_user_list_filters();
+	pdc_list_persist_sanitized_user_list_filters();
+	pdc_list_remove_invalid_empty_filters_sync(listview);
 
-	listview.on("after_refresh", async () => {
-		const state = pdc_list_reconcile_state(listview);
-		if (state.invalid_filter_cleanup_done) {
-			return;
-		}
-		state.invalid_filter_cleanup_done = true;
-		const changed = await pdc_list_remove_invalid_empty_filters(listview, { refresh: false });
-		if (changed) {
-			await listview.refresh();
-		}
-	});
+	if (typeof listview.on === "function") {
+		listview.on("after_refresh", async () => {
+			const state = pdc_list_reconcile_state(listview);
+			if (state.invalid_filter_cleanup_done) {
+				return;
+			}
+			state.invalid_filter_cleanup_done = true;
+			const changed = await pdc_list_remove_invalid_empty_filters(listview, { refresh: false });
+			if (changed) {
+				await listview.refresh();
+			}
+		});
+	}
 }
 
 function pdc_list_apply_filters(listview, filters, { clear = true } = {}) {
 	const chain = clear ? listview.filter_area.clear(false) : Promise.resolve();
 	return chain
 		.then(() => {
-			const promises = (filters || []).map((f) => listview.filter_area.add(f, false));
+			const promises = (filters || []).map((f) =>
+				listview.filter_area.add(f[0], f[1], f[2], f[3], false)
+			);
 			return Promise.all(promises);
 		})
 		.then(() => listview.refresh());
@@ -304,6 +531,38 @@ function pdc_list_wait_refresh(listview, ms = 800) {
 	});
 }
 
+function pdc_list_dump_all_sources(listview) {
+	const boot_raw = frappe.boot?.user?.user_settings?.[PDC_DOCTYPE];
+	let boot_parsed = null;
+	try {
+		boot_parsed = typeof boot_raw === "string" ? JSON.parse(boot_raw || "{}") : boot_raw;
+	} catch (e) {
+		boot_parsed = { _parse_error: String(e) };
+	}
+	const filter_list = listview?.filter_area?.filter_list;
+	return {
+		user_list_settings: frappe.get_user_settings?.(PDC_DOCTYPE, "List") || {},
+		model_user_settings: frappe.model?.user_settings?.[PDC_DOCTYPE] || {},
+		boot_user_settings: boot_parsed,
+		localStorage: pdc_list_storage_snapshot("local"),
+		sessionStorage: pdc_list_storage_snapshot("session"),
+		route_options: frappe.route_options,
+		listview_filters: listview?.filters || [],
+		filter_area_get: listview?.filter_area?.get?.() || [],
+		filter_list_rows: (filter_list?.filters || []).map((f) => ({
+			fieldname: f.field?.df?.fieldname,
+			condition: f.get_condition?.(),
+			value: f.get_selected_value?.(),
+			tuple: f.get_value?.(),
+			invalid: pdc_list_filter_row_is_invalid_empty(f),
+		})),
+		get_filters_for_args: listview?.get_filters_for_args?.() || [],
+	};
+}
+
+pdc_list_install_early_list_hooks();
+
+erpnext_extensions.cheque_management.pdc_list_view.dump_all_sources = pdc_list_dump_all_sources;
 erpnext_extensions.cheque_management.pdc_list_view.get_filter_debug = pdc_list_get_filter_debug;
 erpnext_extensions.cheque_management.pdc_list_view.remove_invalid_empty_filters =
 	pdc_list_remove_invalid_empty_filters;
@@ -329,7 +588,7 @@ erpnext_extensions.cheque_management.pdc_list_view.run_filter_e2e = async functi
 	// A — empty ID Equals "" removed; list shows rows
 	pdc_list_reset_reconcile_state(listview);
 	await listview.filter_area.clear(false);
-	await listview.filter_area.add([PDC_DOCTYPE, "name", "=", ""], false);
+	await listview.filter_area.add(PDC_DOCTYPE, "name", "=", "", false);
 	await pdc_list_remove_invalid_empty_filters(listview, { refresh: true });
 	await pdc_list_wait_refresh(listview);
 	const debug_a = pdc_list_get_filter_debug(listview);
@@ -349,7 +608,7 @@ erpnext_extensions.cheque_management.pdc_list_view.run_filter_e2e = async functi
 		pdc_list_reset_reconcile_state(listview);
 		await listview.filter_area.clear(true);
 		pdc_list_reconcile_state(listview).user_interacted = true;
-		await listview.filter_area.add([PDC_DOCTYPE, "name", "=", sample_name], true);
+		await listview.filter_area.add(PDC_DOCTYPE, "name", "=", sample_name, true);
 		await pdc_list_wait_refresh(listview);
 		const args_b = listview.get_filters_for_args();
 		push(
@@ -367,7 +626,7 @@ erpnext_extensions.cheque_management.pdc_list_view.run_filter_e2e = async functi
 	pdc_list_reset_reconcile_state(listview);
 	await listview.filter_area.clear(true);
 	pdc_list_reconcile_state(listview).user_interacted = true;
-	await listview.filter_area.add([PDC_DOCTYPE, "name", "is", "set"], true);
+	await listview.filter_area.add(PDC_DOCTYPE, "name", "is", "set", true);
 	await pdc_list_wait_refresh(listview);
 	const args_c = listview.get_filters_for_args();
 	push(
@@ -410,7 +669,7 @@ erpnext_extensions.cheque_management.pdc_list_view.run_filter_e2e = async functi
 	// F — invalid empty equals row removed from FilterGroup after cleanup
 	pdc_list_reset_reconcile_state(listview);
 	await listview.filter_area.clear(false);
-	await listview.filter_area.add([PDC_DOCTYPE, "name", "=", ""], false);
+	await listview.filter_area.add(PDC_DOCTYPE, "name", "=", "", false);
 	await listview.refresh();
 	await pdc_list_wait_refresh(listview);
 	const before_f = pdc_list_get_filter_debug(listview);
@@ -461,14 +720,19 @@ frappe.listview_settings[PDC_DOCTYPE] = {
 			listview.filters = pdc_list_sanitize_filter_tuples(listview.filters);
 		}
 		pdc_list_bind_invalid_filter_cleanup(listview);
+		const cleaned = pdc_list_remove_invalid_empty_filters_sync(listview);
+		if (cleaned) {
+			pdc_list_reconcile_state(listview).invalid_filter_cleanup_done = true;
+			listview.refresh();
+		}
 
 		const dt = frappe.datetime;
 
 		const set_due_range = (from, to) => {
 			pdc_list_reconcile_state(listview).user_interacted = true;
 			listview.filter_area.clear();
-			if (from) listview.filter_area.add([PDC_DOCTYPE, "cheque_due_date", ">=", from]);
-			if (to) listview.filter_area.add([PDC_DOCTYPE, "cheque_due_date", "<=", to]);
+			if (from) listview.filter_area.add(PDC_DOCTYPE, "cheque_due_date", ">=", from);
+			if (to) listview.filter_area.add(PDC_DOCTYPE, "cheque_due_date", "<=", to);
 			listview.refresh();
 		};
 
@@ -541,7 +805,9 @@ frappe.listview_settings[PDC_DOCTYPE] = {
 		};
 
 		refresh_counts();
-		listview.on("after_refresh", refresh_counts);
+		if (typeof listview.on === "function") {
+			listview.on("after_refresh", refresh_counts);
+		}
 
 		if (frappe.utils.get_url_arg("run_pdc_list_filter_e2e") === "1" && cur_list === listview) {
 			setTimeout(() => {

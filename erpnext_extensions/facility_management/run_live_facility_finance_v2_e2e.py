@@ -124,6 +124,7 @@ def run():
 	fac_a.loan_payable_account = ctx["loan_payable"]
 	fac_a.bank_account = ctx["bank_gl"]
 	fac_a.deferred_loan_interest_account = ctx["deferred"]
+	fac_a.interest_expense_account = ctx["interest"]
 	fac_a.penalty_expense_account = ctx["penalty"]
 	fac_a.insert(ignore_permissions=True)
 	frappe.db.commit()
@@ -168,8 +169,22 @@ def run():
 	}
 	results["tests"]["B_repayment_excel"] = t_b
 	_log("Test B Repayment", t_b)
-	if t_b["cr_bank"] != 1000 or t_b["dr_loan"] != 800 or t_b["dr_deferred"] != 140 or t_b["dr_penalty"] != 60:
-		errors.append(f"B: amounts {t_b}")
+	if t_b["cr_bank"] != 1000:
+		errors.append(f"B: bank cr {t_b}")
+	loan_dr = dr.get(ctx["loan_payable"])
+	if loan_dr != 940:
+		errors.append(f"B: loan dr {loan_dr} expected 940 (800+140)")
+	if dr.get(ctx["deferred"]):
+		errors.append(f"B: deferred should be credit not debit {dr.get(ctx['deferred'])}")
+	if dr.get(ctx["penalty"]) != 60:
+		errors.append(f"B: penalty dr {dr.get(ctx['penalty'])}")
+	interest_acc = frappe.db.get_value("Facility", fac_a.name, "interest_expense_account") or ctx.get(
+		"interest"
+	)
+	if interest_acc and dr.get(interest_acc) != 140:
+		errors.append(f"B: interest expense dr {dr.get(interest_acc)}")
+	if cr.get(ctx["deferred"]) != 140:
+		errors.append(f"B: deferred credit {cr.get(ctx['deferred'])}")
 
 	# Test C — zero profit
 	rep_c = frappe.new_doc("Facility Repayment")

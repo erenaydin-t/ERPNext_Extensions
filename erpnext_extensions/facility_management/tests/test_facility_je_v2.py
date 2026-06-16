@@ -39,7 +39,12 @@ class TestFacilityPlannedRows(unittest.TestCase):
 
 		rows = _planned_repayment_rows(Decimal("800"), Decimal("140"), Decimal("60"))
 		self.assertEqual(rows[0], (Decimal("1000"), "credit"))
-		self.assertEqual(len(rows), 4)
+		self.assertEqual(len(rows), 6)
+		self.assertEqual(rows[1], (Decimal("800"), "debit"))
+		self.assertEqual(rows[2], (Decimal("140"), "debit"))
+		self.assertEqual(rows[3], (Decimal("60"), "debit"))
+		self.assertEqual(rows[4], (Decimal("140"), "credit"))
+		self.assertEqual(rows[5], (Decimal("140"), "debit"))
 
 	def test_repayment_skip_zero_lines(self):
 		from decimal import Decimal

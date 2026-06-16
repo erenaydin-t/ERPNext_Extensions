@@ -54,9 +54,10 @@ def build_template_context(
 		penalty = flt(repayment.penalty_amount)
 		total_payment = flt(repayment.total_payment_amount) or principal + profit + penalty
 
+	display_name = (getattr(facility, "facility_name", None) or "").strip() or facility.name
 	return {
 		"facility": facility.name,
-		"facility_name": facility.facility_name or facility.name,
+		"facility_name": display_name,
 		"facility_number": facility.name,
 		"company": facility.company,
 		"bank": bank_name,

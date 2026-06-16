@@ -6,7 +6,14 @@ from frappe.model.document import Document
 from frappe.utils import cint, flt, getdate, today
 
 from erpnext_extensions.petty_management.services.allocation_service import validate_request_allocations
-from erpnext_extensions.petty_management.services.constants import EPSILON, SETTLEMENT_PI, SETTLEMENT_SA
+from erpnext_extensions.petty_management.services.constants import (
+	EPSILON,
+	FUNDING_SOURCE_OPENING_ADVANCE,
+	FUNDING_SOURCE_PM_REQUEST,
+	SETTLEMENT_PI,
+	SETTLEMENT_SA,
+)
+from erpnext_extensions.petty_management.services.opening_advance_service import allocation_row_funding_source_type
 from erpnext_extensions.petty_management.services.holder_service import (
 	clearance_petty_cash_account,
 	get_holder_petty_cash_account,
@@ -22,7 +29,21 @@ from erpnext_extensions.petty_management.utils import get_pm_settings
 
 def before_validate_clearance(doc: Document) -> None:
 	if doc.docstatus == 0:
+		normalize_funding_allocation_rows(doc)
 		prune_empty_request_allocation_rows(doc)
+
+
+def normalize_funding_allocation_rows(doc: Document) -> None:
+	for row in doc.get("request_allocations") or []:
+		if getattr(row, "is_legacy_row", 0):
+			continue
+		source_type = allocation_row_funding_source_type(row)
+		if source_type == FUNDING_SOURCE_OPENING_ADVANCE:
+			row.funding_source_type = FUNDING_SOURCE_OPENING_ADVANCE
+			row.pm_request = None
+		else:
+			row.funding_source_type = FUNDING_SOURCE_PM_REQUEST
+			row.pm_opening_advance = None
 
 
 def validate_clearance(doc: Document) -> None:
@@ -46,13 +67,21 @@ def validate_clearance(doc: Document) -> None:
 def validate_clearance_policy(doc: Document) -> None:
 	settings = get_pm_settings()
 	if not doc.request_allocations:
-		frappe.throw(_("Add at least one PM Request allocation line"))
+		frappe.throw(_("Add at least one funding allocation line"))
 	if flt(doc.total_expense_amount) <= 0:
 		frappe.throw(_("Total settlement amount must be greater than zero"))
 
 	allow_neg = bool(settings and settings.allow_negative_balance)
-	if not allow_neg and flt(doc.total_expense_amount) > flt(doc.pending_amount) + EPSILON:
-		frappe.throw(_("Clearance total {0} exceeds available petty request balance {1}.").format(doc.total_expense_amount, doc.pending_amount))
+	total_avail = flt(getattr(doc, "total_available", None) or getattr(doc, "pending_amount", None))
+	if not allow_neg and flt(doc.total_expense_amount) > total_avail + EPSILON:
+		frappe.throw(
+			_("Clearance total {0} exceeds total available balance {1} (Funded {2} + Opening {3}).").format(
+				doc.total_expense_amount,
+				total_avail,
+				flt(getattr(doc, "funded_available", 0)),
+				flt(getattr(doc, "opening_available", 0)),
+			)
+		)
 
 	for row in doc.details:
 		if settings and settings.require_attachment and not row.proof:
@@ -137,8 +166,9 @@ def prune_empty_request_allocation_rows(doc: Document) -> None:
 		if getattr(row, "is_legacy_row", 0):
 			continue
 		has_req = bool((row.pm_request or "").strip())
+		has_opening = bool((getattr(row, "pm_opening_advance", None) or "").strip())
 		has_amt = flt(row.allocated_amount) != 0
-		if not has_req and not has_amt:
+		if not has_req and not has_opening and not has_amt:
 			doc.remove(row)
 
 
@@ -182,8 +212,18 @@ def validate_and_stamp_pi_rows(doc: Document) -> None:
 			frappe.throw(_("Line {0}: only Purchase Invoice is supported for this settlement type.").format(row.idx))
 		row.reference_doctype = "Purchase Invoice"
 		pi = frappe.get_doc("Purchase Invoice", row.purchase_invoice)
-		if pi.docstatus != 1:
-			frappe.throw(_("Row {0}: Purchase Invoice must be submitted.").format(row.idx))
+		if cint(pi.docstatus) == 2:
+			frappe.throw(
+				_("Row {0}: Purchase Invoice {1} is cancelled and cannot be settled.").format(row.idx, row.purchase_invoice),
+				title=_("Invalid Purchase Invoice"),
+			)
+		if cint(pi.docstatus) != 1:
+			frappe.throw(
+				_("Row {0}: Purchase Invoice {1} must be submitted (only docstatus = 1 is allowed).").format(
+					row.idx, row.purchase_invoice
+				),
+				title=_("Invalid Purchase Invoice"),
+			)
 		if pi.company != doc.company:
 			frappe.throw(_("Row {0}: Purchase Invoice belongs to another company.").format(row.idx))
 		if flt(pi.outstanding_amount) <= 0:
@@ -230,7 +270,9 @@ def calc_parent_totals(doc: Document) -> None:
 	doc.total_tax_amount = 0
 	doc.total_expense_amount = total
 	doc.total_petty_cash = total
-	doc.remaining_amount = flt(doc.pending_amount) - flt(doc.total_expense_amount)
+	doc.remaining_amount = flt(getattr(doc, "total_available", None) or doc.pending_amount) - flt(
+		doc.total_expense_amount
+	)
 
 
 def sync_clearance_status_from_workflow(doc: Document) -> None:

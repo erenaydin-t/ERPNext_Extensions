@@ -787,6 +787,149 @@ class TestPMClearanceAllocation(unittest.TestCase):
 		with self.assertRaises(ValidationError):
 			cl2.insert()
 
+	def _submit_pi(self, pi):
+		try:
+			pi.insert(ignore_permissions=True)
+			pi.submit()
+		except TypeError as exc:
+			if "do_not_round_fields" in str(exc):
+				raise unittest.SkipTest("Purchase Invoice submit incompatible with this Frappe version") from exc
+			raise
+
+	def test_opening_advance_funding_clearance_saves(self):
+		from erpnext_extensions.petty_management.services.opening_advance_service import (
+			get_opening_advance_available_amount,
+		)
+
+		emp = _make_employee()
+		self._track("Employee", emp)
+		holder = _make_holder(emp)
+		oa = frappe.new_doc("PM Opening Advance")
+		oa.holder = holder
+		oa.opening_date = today()
+		oa.opening_source_type = "Opening Balance"
+		oa.opening_advance_amount = 12_000
+		oa.previously_settled_before_migration = 4_000
+		oa.insert(ignore_permissions=True)
+		oa.submit()
+		self._track("PM Opening Advance", oa.name)
+		self.assertEqual(get_opening_advance_available_amount(oa.name), 8_000)
+
+		pi = _make_pi_outstanding(4_000)
+		self._submit_pi(pi)
+		self._track("Purchase Invoice", pi.name)
+
+		cl = self._base_clearance(emp, pi, 4_000)
+		cl.append(
+			"request_allocations",
+			{
+				"funding_source_type": "PM Opening Advance",
+				"pm_opening_advance": oa.name,
+				"allocated_amount": 4_000,
+			},
+		)
+		cl.insert(ignore_permissions=True)
+		self._track("PM Clearance", cl.name)
+		row = cl.request_allocations[0]
+		self.assertEqual(row.funding_source_type, "PM Opening Advance")
+		self.assertFalse(row.pm_request)
+		self.assertGreater(flt(row.available_amount), 0)
+
+	def test_opening_allocation_does_not_require_pm_request_field(self):
+		emp = _make_employee()
+		self._track("Employee", emp)
+		holder = _make_holder(emp)
+		oa = frappe.new_doc("PM Opening Advance")
+		oa.holder = holder
+		oa.opening_date = today()
+		oa.opening_source_type = "Opening Balance"
+		oa.opening_advance_amount = 10_000
+		oa.insert(ignore_permissions=True)
+		oa.submit()
+		self._track("PM Opening Advance", oa.name)
+		pi = _make_pi_outstanding(2_000)
+		self._submit_pi(pi)
+		self._track("Purchase Invoice", pi.name)
+		cl = self._base_clearance(emp, pi, 2_000)
+		cl.append(
+			"request_allocations",
+			{
+				"funding_source_type": "PM Opening Advance",
+				"pm_request": "SHOULD-BE-CLEARED",
+				"pm_opening_advance": oa.name,
+				"allocated_amount": 2_000,
+			},
+		)
+		cl.insert(ignore_permissions=True)
+		self._track("PM Clearance", cl.name)
+		self.assertFalse(cl.request_allocations[0].pm_request)
+
+	def test_mixed_pm_request_and_opening_allocation_saves(self):
+		emp = _make_employee()
+		self._track("Employee", emp)
+		holder = _make_holder(emp)
+		req_name, _pe = _fund_pm_request(emp, 10_000.0)
+		self._track("PM Request", req_name)
+		oa = frappe.new_doc("PM Opening Advance")
+		oa.holder = holder
+		oa.opening_date = today()
+		oa.opening_source_type = "Opening Balance"
+		oa.opening_advance_amount = 10_000
+		oa.insert(ignore_permissions=True)
+		oa.submit()
+		self._track("PM Opening Advance", oa.name)
+		pi = _make_pi_outstanding(6_000)
+		self._submit_pi(pi)
+		self._track("Purchase Invoice", pi.name)
+		cl = self._base_clearance(emp, pi, 6_000)
+		cl.append(
+			"request_allocations",
+			{"funding_source_type": "PM Request", "pm_request": req_name, "allocated_amount": 3_000},
+		)
+		cl.append(
+			"request_allocations",
+			{
+				"funding_source_type": "PM Opening Advance",
+				"pm_opening_advance": oa.name,
+				"allocated_amount": 3_000,
+			},
+		)
+		cl.insert(ignore_permissions=True)
+		self._track("PM Clearance", cl.name)
+
+	def test_purchase_invoice_query_excludes_draft(self):
+		from erpnext_extensions.petty_management.doctype.pm_clearance.pm_clearance import (
+			purchase_invoice_query_for_pm_clearance,
+		)
+
+		pi = _make_pi_outstanding(1_000)
+		pi.insert(ignore_permissions=True)
+		self._track("Purchase Invoice", pi.name)
+		rows = purchase_invoice_query_for_pm_clearance(
+			"Purchase Invoice",
+			pi.name,
+			"name",
+			0,
+			20,
+			{"company": COMPANY},
+		)
+		names = {r[0] for r in rows}
+		self.assertNotIn(pi.name, names)
+
+	def test_draft_purchase_invoice_rejected_on_clearance_save(self):
+		emp = _make_employee()
+		self._track("Employee", emp)
+		_make_holder(emp)
+		req_name, _pe = _fund_pm_request(emp, 5_000.0)
+		self._track("PM Request", req_name)
+		pi = _make_pi_outstanding(1_000)
+		pi.insert(ignore_permissions=True)
+		self._track("Purchase Invoice", pi.name)
+		cl = self._base_clearance(emp, pi, 1_000)
+		cl.append("request_allocations", {"pm_request": req_name, "allocated_amount": 1_000})
+		with self.assertRaises(ValidationError):
+			cl.insert(ignore_permissions=True)
+
 	def test_preview_returns_pi_debit_and_petty_credit_without_creating_je(self):
 		mod = _pm()
 		emp = _make_employee()

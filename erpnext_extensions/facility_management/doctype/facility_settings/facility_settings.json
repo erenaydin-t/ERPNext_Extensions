@@ -96,8 +96,9 @@
   },
   {
    "fieldname": "default_department",
-   "fieldtype": "Data",
-   "label": "Default Department"
+   "fieldtype": "Link",
+   "label": "Default Department",
+   "options": "Department"
   },
   {
    "fieldname": "column_break_dim",
@@ -105,13 +106,15 @@
   },
   {
    "fieldname": "default_bank_dimension",
-   "fieldtype": "Data",
-   "label": "Default Bank Dimension"
+   "fieldtype": "Link",
+   "label": "Default Bank Dimension",
+   "options": "Bank"
   },
   {
    "fieldname": "default_bank_account_dimension",
-   "fieldtype": "Data",
-   "label": "Default Bank Account Dimension"
+   "fieldtype": "Link",
+   "label": "Default Bank Account Dimension",
+   "options": "Bank Account"
   },
   {
    "fieldname": "section_receipt_templates",
@@ -122,25 +125,25 @@
    "fieldname": "default_receipt_remarks_template",
    "fieldtype": "Small Text",
    "label": "Default Receipt Remarks Template",
-   "default": "{facility_number} دریافت تسهیلات از {bank}"
+   "default": "{facility_name} دریافت تسهیلات از {bank}"
   },
   {
    "fieldname": "default_receipt_bank_row_description_template",
    "fieldtype": "Small Text",
    "label": "Default Receipt Bank Row Description",
-   "default": "{facility_number} واریز تسهیلات"
+   "default": "{facility_name} واریز تسهیلات"
   },
   {
    "fieldname": "default_receipt_deferred_interest_row_description_template",
    "fieldtype": "Small Text",
    "label": "Default Receipt Deferred Interest Row Description",
-   "default": "{facility_number} ثبت فرع / بهره سنوات آتی تسهیلات"
+   "default": "{facility_name} ثبت فرع / بهره سنوات آتی تسهیلات"
   },
   {
    "fieldname": "default_receipt_loan_payable_row_description_template",
    "fieldtype": "Small Text",
    "label": "Default Receipt Loan Payable Row Description",
-   "default": "{facility_number} ثبت تعهد اصل و فرع تسهیلات"
+   "default": "{facility_name} ثبت تعهد اصل و فرع تسهیلات"
   },
   {
    "fieldname": "section_repayment_templates",
@@ -151,31 +154,31 @@
    "fieldname": "default_repayment_remarks_template",
    "fieldtype": "Small Text",
    "label": "Default Repayment Remarks Template",
-   "default": "{facility_number} پرداخت قسط تسهیلات"
+   "default": "{facility_name} پرداخت قسط تسهیلات"
   },
   {
    "fieldname": "default_repayment_bank_row_description_template",
    "fieldtype": "Small Text",
    "label": "Default Repayment Bank Row Description",
-   "default": "{facility_number} پرداخت قسط تسهیلات از بانک"
+   "default": "{facility_name} پرداخت قسط تسهیلات از بانک"
   },
   {
    "fieldname": "default_repayment_principal_row_description_template",
    "fieldtype": "Small Text",
    "label": "Default Repayment Principal Row Description",
-   "default": "{facility_number} پرداخت اصل قسط تسهیلات"
+   "default": "{facility_name} پرداخت اصل قسط تسهیلات"
   },
   {
    "fieldname": "default_repayment_profit_row_description_template",
    "fieldtype": "Small Text",
    "label": "Default Repayment Profit Row Description",
-   "default": "{facility_number} پرداخت فرع / بهره سنوات آتی قسط تسهیلات"
+   "default": "{facility_name} پرداخت فرع / بهره سنوات آتی قسط تسهیلات"
   },
   {
    "fieldname": "default_repayment_penalty_row_description_template",
    "fieldtype": "Small Text",
    "label": "Default Repayment Penalty Row Description",
-   "default": "{facility_number} پرداخت هزینه دیرکرد / کارمزد تسهیلات"
+   "default": "{facility_name} پرداخت هزینه دیرکرد / کارمزد تسهیلات"
   }
  ],
  "index_web_pages_for_search": 1,

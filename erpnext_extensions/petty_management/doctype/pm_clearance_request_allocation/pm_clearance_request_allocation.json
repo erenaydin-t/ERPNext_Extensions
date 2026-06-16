@@ -9,7 +9,9 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "funding_source_type",
   "pm_request",
+  "pm_opening_advance",
   "request_amount",
   "paid_amount",
   "previously_allocated_amount",
@@ -20,11 +22,28 @@
  ],
  "fields": [
   {
+   "default": "PM Request",
+   "fieldname": "funding_source_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Funding Source Type",
+   "options": "PM Request\nPM Opening Advance"
+  },
+  {
    "fieldname": "pm_request",
    "fieldtype": "Link",
+   "depends_on": "eval:doc.funding_source_type=='PM Request' || !doc.funding_source_type",
    "in_list_view": 1,
    "label": "PM Request",
    "options": "PM Request"
+  },
+  {
+   "fieldname": "pm_opening_advance",
+   "fieldtype": "Link",
+   "depends_on": "eval:doc.funding_source_type=='PM Opening Advance'",
+   "in_list_view": 1,
+   "label": "PM Opening Advance",
+   "options": "PM Opening Advance"
   },
   {
    "fieldname": "request_amount",

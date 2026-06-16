@@ -27,6 +27,17 @@ frappe.query_reports["Facility Balance"] = {
 			options: "Facility",
 		},
 		{
+			fieldname: "facility_name",
+			label: __("Facility Name"),
+			fieldtype: "Data",
+		},
+		{
+			fieldname: "facility_type",
+			label: __("Facility Type"),
+			fieldtype: "Link",
+			options: "Facility Type",
+		},
+		{
 			fieldname: "as_on_date",
 			label: __("As On Date"),
 			fieldtype: "Date",

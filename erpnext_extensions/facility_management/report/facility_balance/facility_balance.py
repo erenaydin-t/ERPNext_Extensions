@@ -8,6 +8,7 @@ from frappe import _
 from frappe.utils import flt, getdate
 
 from erpnext_extensions.facility_management.facility_balances import get_facility_balance_row
+from erpnext_extensions.facility_management.facility_report_filters import apply_facility_filters_to_sql
 
 
 def execute(filters=None):
@@ -21,6 +22,7 @@ def get_columns():
 	return [
 		{"label": _("Facility"), "fieldname": "facility", "fieldtype": "Link", "options": "Facility", "width": 140},
 		{"label": _("Facility Name"), "fieldname": "facility_name", "fieldtype": "Data", "width": 160},
+		{"label": _("Facility Type"), "fieldname": "facility_type", "fieldtype": "Link", "options": "Facility Type", "width": 140},
 		{"label": _("Bank"), "fieldname": "bank", "fieldtype": "Link", "options": "Bank", "width": 120},
 		{"label": _("Status"), "fieldname": "status", "fieldtype": "Data", "width": 90},
 		{"label": _("Principal"), "fieldname": "principal_amount", "fieldtype": "Currency", "width": 120},
@@ -36,6 +38,7 @@ def get_columns():
 
 
 def get_data(filters):
+	filters = frappe._dict(filters or {})
 	if not filters.get("company"):
 		frappe.throw(_("Company is required"))
 	conditions = ["company = %(company)s"]
@@ -46,9 +49,7 @@ def get_data(filters):
 	if filters.get("status"):
 		conditions.append("status = %(status)s")
 		params["status"] = filters.status
-	if filters.get("facility"):
-		conditions.append("name = %(facility)s")
-		params["facility"] = filters.facility
+	apply_facility_filters_to_sql(conditions, params, filters)
 	as_on = filters.get("as_on_date")
 	names = frappe.db.sql_list(
 		f"SELECT name FROM `tabFacility` WHERE {' AND '.join(conditions)} ORDER BY name",

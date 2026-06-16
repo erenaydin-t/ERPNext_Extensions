@@ -7,42 +7,32 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import cint, flt
 
+from erpnext_extensions.petty_management.services.constants import (
+	FUNDING_SOURCE_OPENING_ADVANCE,
+	FUNDING_SOURCE_PM_REQUEST,
+)
 from erpnext_extensions.petty_management.services.holder_service import (
 	clearance_petty_cash_account,
 	get_holder_petty_cash_account,
 	request_petty_cash_account,
 )
+from erpnext_extensions.petty_management.services.opening_advance_service import (
+	allocation_row_funding_source_type,
+	get_opening_advance_allocation_context,
+	get_opening_advance_available_amount,
+	opening_advance_passes_clearance_filters,
+	pm_request_allocation_sql_filter,
+	stamp_opening_advance_display_balances,
+	sum_prior_opening_allocations,
+)
 from erpnext_extensions.petty_management.utils import get_pm_holder_name
 
+from erpnext_extensions.petty_management.services.clearance_reservation import (
+	clearance_reserves_pm_request_balance_sql,
+	pm_request_allocation_sql_filter,
+)
+
 _EPS = 1e-6
-
-
-def clearance_reserves_pm_request_balance_sql(table_alias: str = "p") -> str:
-	"""SQL predicate for clearances whose PM Request allocation rows reserve funding.
-
-	Only submitted (docstatus 1) clearances reserve. Cancelled submissions (docstatus 2),
-	Rejected/Cancelled status, and Cancelled/Rejected workflow states never reserve.
-	Reservation requires approval lifecycle (status or workflow title Approved) or
-	post-approval settlement states (Pending JE / Settled).
-	"""
-	p = table_alias
-	return f"""
-		{p}.docstatus = 1
-		AND IFNULL({p}.status, '') NOT IN ('Cancelled', 'Rejected', 'Draft')
-		AND NOT EXISTS (
-			SELECT 1 FROM `tabWorkflow State` ws
-			WHERE ws.name = {p}.workflow_state
-			AND IFNULL(ws.workflow_state_name, '') IN ('Cancelled', 'Rejected')
-		)
-		AND (
-			IFNULL({p}.status, '') IN ('Approved', 'Pending Journal Entry Submission', 'Settled')
-			OR EXISTS (
-				SELECT 1 FROM `tabWorkflow State` ws
-				WHERE ws.name = {p}.workflow_state
-				AND IFNULL(ws.workflow_state_name, '') = 'Approved'
-			)
-		)
-	"""
 
 
 def get_pm_request_paid_amount(pm_request: str) -> float:
@@ -88,6 +78,7 @@ def sum_prior_pm_request_allocations(pm_request: str, exclude_clearance_name: st
 			WHERE c.parentfield = 'request_allocations'
 				AND IFNULL(c.is_legacy_row, 0) = 0
 				AND c.pm_request = %s
+				AND {pm_request_allocation_sql_filter("c")}
 				AND {res_clause}
 				{excl_sql}
 			""",
@@ -147,12 +138,47 @@ def validate_request_allocations(doc: Document) -> None:
 		return
 
 	seen_req = set()
+	seen_opening = set()
 	sum_alloc = 0.0
 	for row in doc.request_allocations:
 		if getattr(row, "is_legacy_row", 0):
 			continue
+		source_type = allocation_row_funding_source_type(row)
+		has_opening = bool((getattr(row, "pm_opening_advance", None) or "").strip())
 		has_req = bool((row.pm_request or "").strip())
 		has_amt = flt(row.allocated_amount) > 0
+
+		if source_type == FUNDING_SOURCE_OPENING_ADVANCE:
+			if has_req:
+				frappe.throw(
+					_("Row {0}: PM Request must be empty for Opening Advance allocation.").format(row.idx),
+					title=_("Funding allocation"),
+				)
+			if not has_opening and not has_amt:
+				continue
+			if has_opening != has_amt:
+				frappe.throw(
+					_("Row {0}: Select PM Opening Advance and Allocated Amount, or remove the row.").format(row.idx),
+					title=_("Funding allocation"),
+				)
+			row.funding_source_type = FUNDING_SOURCE_OPENING_ADVANCE
+			if row.pm_opening_advance in seen_opening:
+				frappe.throw(
+					_("PM Opening Advance {0} cannot appear on more than one line.").format(row.pm_opening_advance),
+					title=_("Duplicate opening advance"),
+				)
+			seen_opening.add(row.pm_opening_advance)
+			validate_opening_advance_matches_clearance(row, doc, clr_petty)
+			stamp_opening_allocation_snapshot(row, doc, clr_petty)
+			sum_alloc += flt(row.allocated_amount)
+			continue
+
+		row.funding_source_type = FUNDING_SOURCE_PM_REQUEST
+		if has_opening:
+			frappe.throw(
+				_("Row {0}: PM Opening Advance must be empty for PM Request allocation.").format(row.idx),
+				title=_("Funding allocation"),
+			)
 		if not has_req and not has_amt:
 			continue
 		if has_req != has_amt:
@@ -170,7 +196,7 @@ def validate_request_allocations(doc: Document) -> None:
 
 	if abs(sum_alloc - flt(doc.total_expense_amount)) > _EPS:
 		frappe.throw(
-			_("Total PM Request allocation ({0}) must equal total settlement lines amount ({1}).").format(
+			_("Total funding allocation ({0}) must equal total settlement lines amount ({1}).").format(
 				sum_alloc, doc.total_expense_amount
 			),
 			title=_("Settlement totals"),
@@ -203,6 +229,50 @@ def validate_legacy_allocation_rows(doc: Document, legacy_rows: list[Document]) 
 	lr.paid_amount = 0.0
 	lr.previously_allocated_amount = 0.0
 	lr.available_amount = 0.0
+
+
+def validate_opening_advance_matches_clearance(row: Document, doc: Document, clr_petty: str) -> None:
+	oa_name = (row.pm_opening_advance or "").strip()
+	ok, reason = opening_advance_passes_clearance_filters(
+		oa_name,
+		employee=doc.employee,
+		company=doc.company,
+		holder=doc.holder or "",
+		clearance_petty=clr_petty,
+		exclude_clearance_name=doc.name if getattr(doc, "name", None) else None,
+		require_available=False,
+	)
+	if not ok:
+		frappe.throw(_("Row {0}: {1}").format(row.idx, reason))
+
+
+def stamp_opening_allocation_snapshot(row: Document, doc: Document, clr_petty: str) -> None:
+	ctx = get_opening_advance_allocation_context(
+		row.pm_opening_advance,
+		pm_clearance=doc.name if getattr(doc, "name", None) else None,
+		company=doc.company,
+		employee=doc.employee,
+		holder=doc.holder or "",
+		petty_cash_account=clr_petty,
+	)
+	row.request_amount = flt(ctx.get("request_amount"))
+	row.paid_amount = flt(ctx.get("paid_amount"))
+	row.previously_allocated_amount = flt(ctx.get("previously_allocated_amount"))
+	row.available_amount = flt(ctx.get("available_amount"))
+	if flt(row.allocated_amount) <= 0:
+		frappe.throw(_("Row {0}: Allocated Amount must be greater than zero.").format(row.idx))
+	if flt(row.allocated_amount) > flt(row.available_amount) + _EPS:
+		frappe.throw(
+			_("Row {0}: allocated {1} exceeds available opening balance {2} for {3}.").format(
+				row.idx, row.allocated_amount, row.available_amount, row.pm_opening_advance
+			)
+		)
+	if row.pm_opening_advance:
+		try:
+			oa_doc = frappe.get_doc("PM Opening Advance", row.pm_opening_advance)
+			stamp_opening_advance_display_balances(oa_doc)
+		except Exception:
+			pass
 
 
 def validate_pm_request_matches_clearance(row: Document, doc: Document, clr_petty: str) -> None:

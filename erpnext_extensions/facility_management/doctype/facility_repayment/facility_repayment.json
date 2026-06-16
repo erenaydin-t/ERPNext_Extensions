@@ -12,6 +12,7 @@
  "field_order": [
   "facility",
   "facility_name",
+  "facility_type",
   "company",
   "posting_date",
   "column_break_main",
@@ -24,6 +25,7 @@
   "loan_payable_account",
   "deferred_loan_interest_account",
   "column_break_accounts",
+  "interest_expense_account",
   "penalty_expense_account",
   "section_dimensions",
   "cost_center",
@@ -52,7 +54,18 @@
    "fetch_from": "facility.facility_name",
    "fieldname": "facility_name",
    "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Facility Name",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "facility.facility_type",
+   "fieldname": "facility_type",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Facility Type",
+   "options": "Facility Type",
    "read_only": 1
   },
   {
@@ -132,6 +145,12 @@
    "fieldtype": "Column Break"
   },
   {
+   "fieldname": "interest_expense_account",
+   "fieldtype": "Link",
+   "label": "Interest Expense Account",
+   "options": "Account"
+  },
+  {
    "fetch_from": "facility.penalty_expense_account",
    "fieldname": "penalty_expense_account",
    "fieldtype": "Link",
@@ -153,8 +172,9 @@
   {
    "fetch_from": "facility.department",
    "fieldname": "department",
-   "fieldtype": "Data",
-   "label": "Department"
+   "fieldtype": "Link",
+   "label": "Department",
+   "options": "Department"
   },
   {
    "fieldname": "column_break_dimensions",
@@ -163,14 +183,16 @@
   {
    "fetch_from": "facility.bank_dimension",
    "fieldname": "bank_dimension",
-   "fieldtype": "Data",
-   "label": "Bank Dimension"
+   "fieldtype": "Link",
+   "label": "Bank Dimension",
+   "options": "Bank"
   },
   {
    "fetch_from": "facility.bank_account_dimension",
    "fieldname": "bank_account_dimension",
-   "fieldtype": "Data",
-   "label": "Bank Account Dimension"
+   "fieldtype": "Link",
+   "label": "Bank Account Dimension",
+   "options": "Bank Account"
   },
   {
    "fieldname": "section_accounting",
@@ -212,6 +234,7 @@
  "name": "Facility Repayment",
  "naming_rule": "Expression",
  "owner": "Administrator",
+ "search_fields": "facility_name,facility,name",
  "permissions": [
   {
    "amend": 1,

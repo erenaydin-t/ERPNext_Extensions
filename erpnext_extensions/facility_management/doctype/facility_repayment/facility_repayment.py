@@ -11,17 +11,27 @@ from frappe.utils import flt
 from erpnext_extensions.facility_management.facility_accounting import (
 	cancel_journal_entry,
 	create_and_submit_repayment_je,
+	preview_repayment_journal_entry as build_repayment_je_preview,
 	refresh_facility_paid_fields,
 )
 from erpnext_extensions.facility_management.facility_balances import get_facility_balance_row
 from erpnext_extensions.facility_management.facility_settings_doc import (
 	get_facility_settings_doc,
 	resolve_account,
+	validate_repayment_je_prerequisites,
 )
 from erpnext_extensions.facility_management.facility_monetary import (
 	FACILITY_REPAYMENT_CURRENCY_FIELDS,
 	parse_facility_amount,
 	persist_exact_currency_fields,
+)
+
+_REPAYMENT_ACCOUNT_FIELDS = (
+	"bank_account",
+	"loan_payable_account",
+	"deferred_loan_interest_account",
+	"interest_expense_account",
+	"penalty_expense_account",
 )
 
 
@@ -61,6 +71,14 @@ class FacilityRepayment(Document):
 			return
 		persist_exact_currency_fields("Facility Repayment", self.name, self._exact_persist_fields())
 
+	def _fill_empty_repayment_accounts(self, facility, settings) -> None:
+		for fn in _REPAYMENT_ACCOUNT_FIELDS:
+			if self.get(fn):
+				continue
+			val = resolve_account(fn, repayment=self, facility=facility, settings=settings, required=False)
+			if val:
+				self.set(fn, val)
+
 	def before_save(self):
 		self._capture_exact_currency()
 		self._recalculate_total_payment()
@@ -79,20 +97,15 @@ class FacilityRepayment(Document):
 		if flt(self.profit_amount) > flt(bal["remaining_profit"]):
 			frappe.throw(_("Profit amount exceeds remaining profit."))
 		settings = get_facility_settings_doc(facility.company)
-		if flt(self.profit_amount) > 0 and not resolve_account(
-			"deferred_loan_interest_account",
-			repayment=self,
-			facility=facility,
-			settings=settings,
-		):
-			frappe.throw(_("Deferred Loan Interest Account is required when profit amount is set."))
-		if flt(self.penalty_amount) and not resolve_account(
-			"penalty_expense_account",
-			repayment=self,
-			facility=facility,
-			settings=settings,
-		):
-			frappe.throw(_("Penalty expense account is required for penalty payments."))
+		self._fill_empty_repayment_accounts(facility, settings)
+		validate_repayment_je_prerequisites(
+			self,
+			facility,
+			settings,
+			principal=self.principal_amount,
+			profit=self.profit_amount,
+			penalty=self.penalty_amount,
+		)
 
 	def after_insert(self):
 		persist_exact_currency_fields("Facility Repayment", self.name, self._exact_persist_fields())
@@ -111,3 +124,16 @@ class FacilityRepayment(Document):
 		cancel_journal_entry(self.journal_entry)
 		self.db_set("journal_entry", None, update_modified=False)
 		refresh_facility_paid_fields(self.facility)
+
+
+@frappe.whitelist()
+def preview_repayment_journal_entry(doc=None):
+	"""Build repayment JE lines without submitting (same builder as on_submit)."""
+	if isinstance(doc, str):
+		doc = frappe.parse_json(doc)
+	if not doc:
+		frappe.throw(_("Document required for preview."))
+	payload = dict(doc)
+	payload.setdefault("doctype", "Facility Repayment")
+	repayment = frappe.get_doc(payload)
+	return build_repayment_je_preview(repayment)

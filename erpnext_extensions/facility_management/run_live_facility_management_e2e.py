@@ -18,6 +18,8 @@ from erpnext_extensions.facility_management.doctype.facility.facility import (
 )
 from erpnext_extensions.facility_management.facility_accounting import (
 	get_facility_dimension_fieldname,
+	_validate_receipt_je_dimensions,
+	_validate_repayment_je_dimensions,
 )
 from erpnext_extensions.facility_management.facility_accounting_dimensions import (
 	provision_facility_accounting_dimension,
@@ -138,6 +140,20 @@ def _assert_dim(rows: list[dict], dim_fn: str, facility_name: str, label: str, e
 			errors.append(f"{label}: account {r.get('account')} dim={r.get(dim_fn)!r} expected {facility_name!r}")
 
 
+def _assert_receipt_excel_dimensions(facility_doc, je_name: str, errors: list[str]) -> None:
+	try:
+		_validate_receipt_je_dimensions(je_name, facility_doc)
+	except Exception as e:
+		errors.append(f"Receipt JE Excel dimensions: {e}")
+
+
+def _assert_repayment_excel_dimensions(facility_doc, repayment_doc, je_name: str, errors: list[str]) -> None:
+	try:
+		_validate_repayment_je_dimensions(je_name, facility_doc, repayment_doc)
+	except Exception as e:
+		errors.append(f"Repayment JE Excel dimensions: {e}")
+
+
 def run():
 	errors: list[str] = []
 	results: dict = {"tests": {}}
@@ -197,8 +213,7 @@ def run():
 	t4 = {"journal_entry": je_name, "je_rows": je_data, "gl_rows": gl_data}
 	results["tests"]["4_dimension_on_je_gl"] = t4
 	_log("Test 4 JE/GL dimension", t4)
-	_assert_dim(je_data, dim_fn, fac.name, "JE", errors)
-	_assert_dim(gl_data, dim_fn, fac.name, "GL", errors)
+	_assert_receipt_excel_dimensions(fac, je_name, errors)
 	if len(je_data) != 3:
 		errors.append(f"Test 4: expected 3 receipt JE rows, got {len(je_data)}")
 
@@ -222,7 +237,7 @@ def run():
 	_log("Test 5 Partial repayment", t5)
 	if flt(bal["paid_principal"]) != 200_000_000.0 or flt(bal["paid_profit"]) != 50_000_000.0:
 		errors.append(f"Test 5: balance paid mismatch {bal}")
-	_assert_dim(_je_rows(rep1.journal_entry, dim_fn), dim_fn, fac.name, "Repayment JE", errors)
+	_assert_repayment_excel_dimensions(fac, rep1, rep1.journal_entry, errors)
 
 	# Test 6 — Penalty repayment row
 	rep2 = frappe.new_doc("Facility Repayment")
@@ -239,7 +254,7 @@ def run():
 	pen_debit = [r for r in pen_rows if flt(r["debit"]) == 1_000_000.0]
 	if not pen_debit:
 		errors.append("Test 6: penalty debit row missing")
-	_assert_dim(pen_rows, dim_fn, fac.name, "Penalty JE", errors)
+	_assert_repayment_excel_dimensions(fac, rep2, rep2.journal_entry, errors)
 
 	# Test 7 — Close blocked
 	close_blocked = None

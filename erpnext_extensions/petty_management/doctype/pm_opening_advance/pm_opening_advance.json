@@ -1,0 +1,275 @@
+{
+ "actions": [],
+ "allow_import": 1,
+ "allow_rename": 0,
+ "creation": "2026-06-12 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "is_submittable": 1,
+ "field_order": [
+  "section_main",
+  "holder",
+  "employee",
+  "employee_name",
+  "company",
+  "petty_cash_account",
+  "column_break_main",
+  "opening_date",
+  "opening_source_type",
+  "currency",
+  "section_amounts",
+  "opening_advance_amount",
+  "previously_settled_before_migration",
+  "remaining_at_cutover",
+  "column_break_amt",
+  "allocated_in_pm",
+  "available_opening_balance",
+  "section_audit",
+  "reference_no",
+  "opening_reconciliation_reference",
+  "opening_reconciliation_note",
+  "remarks",
+  "status",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_main",
+   "fieldtype": "Section Break",
+   "label": "Opening Advance"
+  },
+  {
+   "description": "Primary entity. Employee, company and petty cash account are synced from the holder.",
+   "fieldname": "holder",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "PM Holder",
+   "options": "PM Holder",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "holder.employee",
+   "fieldname": "employee",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Employee",
+   "options": "Employee",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "holder.employee_name",
+   "fieldname": "employee_name",
+   "fieldtype": "Data",
+   "label": "Employee Name",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "holder.company",
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Company",
+   "options": "Company",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "holder.petty_cash_account",
+   "fieldname": "petty_cash_account",
+   "fieldtype": "Link",
+   "label": "Petty Cash Account",
+   "options": "Account",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_main",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Today",
+   "fieldname": "opening_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Opening Date",
+   "reqd": 1
+  },
+  {
+   "default": "Opening Balance",
+   "fieldname": "opening_source_type",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Opening Source Type",
+   "options": "Opening Balance\nLegacy Advance\nBranch Transfer\nManual Adjustment",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "company.default_currency",
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_amounts",
+   "fieldtype": "Section Break",
+   "label": "Amounts"
+  },
+  {
+   "description": "Fixed after submit. Source of truth for gross opening at cutover.",
+   "fieldname": "opening_advance_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Opening Advance",
+   "options": "currency",
+   "reqd": 1
+  },
+  {
+   "description": "Fixed after submit. Historical settlement before PM module.",
+   "fieldname": "previously_settled_before_migration",
+   "fieldtype": "Currency",
+   "default": "0",
+   "label": "Previously Settled Before Migration",
+   "options": "currency"
+  },
+  {
+   "description": "Derived: Opening Advance minus Previously Settled. Display cache only.",
+   "fieldname": "remaining_at_cutover",
+   "fieldtype": "Currency",
+   "label": "Remaining Opening Balance (at Cutover)",
+   "no_copy": 1,
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_amt",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Ledger-derived from PM Clearance allocations. Display cache only.",
+   "fieldname": "allocated_in_pm",
+   "fieldtype": "Currency",
+   "label": "Allocated in New System",
+   "no_copy": 1,
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "description": "Ledger-derived. Not stored as source of truth.",
+   "fieldname": "available_opening_balance",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Available Opening Balance",
+   "no_copy": 1,
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_audit",
+   "fieldtype": "Section Break",
+   "label": "Reference and Reconciliation"
+  },
+  {
+   "fieldname": "reference_no",
+   "fieldtype": "Data",
+   "label": "Reference No"
+  },
+  {
+   "fieldname": "opening_reconciliation_reference",
+   "fieldtype": "Data",
+   "label": "Opening Reconciliation Reference"
+  },
+  {
+   "fieldname": "opening_reconciliation_note",
+   "fieldtype": "Small Text",
+   "label": "Opening Reconciliation Note"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Draft\nSubmitted\nCancelled",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "PM Opening Advance",
+   "print_hide": 1,
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-06-12 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Petty Management",
+ "name": "PM Opening Advance",
+ "owner": "Administrator",
+ "search_fields": "name,employee,employee_name,reference_no",
+ "permissions": [
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Petty Management Admin",
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Petty Management Manager",
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Petty Management Accountant",
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Petty Management Auditor"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1
+}
