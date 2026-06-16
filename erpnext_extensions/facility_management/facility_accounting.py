@@ -24,10 +24,14 @@ from erpnext_extensions.facility_management.facility_settings_doc import (
 	DEFAULT_REPAYMENT_PRINCIPAL_ROW,
 	DEFAULT_REPAYMENT_PROFIT_ROW,
 	DEFAULT_REPAYMENT_REMARKS,
-	dimensions_for_je_row,
+	_je_account_has_field,
+	account_requires_cost_center,
 	get_facility_settings_doc,
 	resolve_account,
+	resolve_dimension,
+	resolve_repayment_cost_center,
 	template_chain,
+	validate_repayment_je_prerequisites,
 )
 from erpnext_extensions.facility_management.facility_templates import (
 	build_template_context,
@@ -54,6 +58,169 @@ def facility_dimension_on_row(facility_name: str) -> dict[str, Any]:
 	return {fn: facility_name}
 
 
+def _je_row_dim_fieldnames() -> list[str]:
+	fields = ["cost_center", "department", "bank_dimension", "bank_account_dimension"]
+	fn = get_facility_dimension_fieldname()
+	if fn and fn not in fields:
+		fields.append(fn)
+	return [f for f in fields if _je_account_has_field(f)]
+
+
+def _row_dimension_snapshot(row) -> dict[str, Any]:
+	out: dict[str, Any] = {}
+	for fn in _je_row_dim_fieldnames():
+		val = getattr(row, fn, None)
+		if val not in (None, ""):
+			out[fn] = val
+	return out
+
+
+def _assert_row_dims_empty(row, forbidden: set[str], *, label: str) -> None:
+	for fn in forbidden:
+		if not _je_account_has_field(fn):
+			continue
+		val = getattr(row, fn, None)
+		if val not in (None, ""):
+			frappe.throw(
+				frappe._("{0}: row {1} account {2} must not have {3} (got {4!r})").format(
+					label, row.idx, row.account, fn, val
+				)
+			)
+
+
+def _validate_receipt_je_dimensions(je_name: str, facility) -> None:
+	settings = get_facility_settings_doc(facility.company)
+	bank_acc = resolve_account("bank_account", facility=facility, settings=settings, required=True)
+	loan_acc = resolve_account("loan_payable_account", facility=facility, settings=settings, required=True)
+	deferred_acc = resolve_account(
+		"deferred_loan_interest_account", facility=facility, settings=settings, required=False
+	)
+	dim_fn = get_facility_dimension_fieldname()
+	je = frappe.get_doc("Journal Entry", je_name)
+	for row in je.accounts:
+		if row.account == bank_acc:
+			expected = receipt_je_row_dimensions("bank", facility.name, facility=facility, settings=settings)
+			for fn, val in expected.items():
+				if getattr(row, fn, None) != val:
+					frappe.throw(
+						frappe._("Receipt JE bank row: expected {0}={1!r}, got {2!r}").format(
+							fn, val, getattr(row, fn, None)
+						)
+					)
+			forbidden = {dim_fn, "department", "bank_account_dimension", "cost_center"} - set(expected.keys())
+			_assert_row_dims_empty(row, {f for f in forbidden if f}, label="Receipt JE bank row")
+		elif deferred_acc and row.account == deferred_acc:
+			if dim_fn and getattr(row, dim_fn, None) != facility.name:
+				frappe.throw(frappe._("Receipt JE deferred row missing Facility dimension"))
+			forbidden = {"department", "bank_dimension", "bank_account_dimension", "cost_center"}
+			if dim_fn:
+				forbidden.discard(dim_fn)
+			_assert_row_dims_empty(row, forbidden, label="Receipt JE deferred row")
+		elif row.account == loan_acc:
+			if dim_fn and getattr(row, dim_fn, None) != facility.name:
+				frappe.throw(frappe._("Receipt JE loan row missing Facility dimension"))
+			forbidden = {"department", "bank_dimension", "bank_account_dimension", "cost_center"}
+			if dim_fn:
+				forbidden.discard(dim_fn)
+			_assert_row_dims_empty(row, forbidden, label="Receipt JE loan row")
+
+
+def _validate_repayment_je_dimensions(je_name: str, facility, repayment) -> None:
+	plan = build_repayment_je_plan(repayment, facility)
+	je = frappe.get_doc("Journal Entry", je_name)
+	if len(je.accounts) != len(plan):
+		frappe.throw(
+			frappe._("Repayment JE row count {0} does not match expected {1}").format(
+				len(je.accounts), len(plan)
+			)
+		)
+	dim_fn = get_facility_dimension_fieldname()
+	for row, spec in zip(je.accounts, plan, strict=True):
+		if row.account != spec["account"]:
+			frappe.throw(
+				frappe._("Repayment JE row {0}: expected account {1}, got {2}").format(
+					row.idx, spec["account"], row.account
+				)
+			)
+		exp_debit = spec["debit"]
+		if exp_debit:
+			if flt(row.debit_in_account_currency) != flt(spec["amount"]):
+				frappe.throw(frappe._("Repayment JE row {0}: debit amount mismatch").format(row.idx))
+		else:
+			if flt(row.credit_in_account_currency) != flt(spec["amount"]):
+				frappe.throw(frappe._("Repayment JE row {0}: credit amount mismatch").format(row.idx))
+		for fn, val in (spec.get("dims") or {}).items():
+			if getattr(row, fn, None) != val:
+				frappe.throw(
+					frappe._("Repayment JE row {0}: expected {1}={2!r}, got {3!r}").format(
+						row.idx, fn, val, getattr(row, fn, None)
+					)
+				)
+		role = spec.get("role")
+		if role == "bank":
+			forbidden = {dim_fn, "department", "bank_account_dimension", "cost_center"} - set(
+				(spec.get("dims") or {}).keys()
+			)
+			_assert_row_dims_empty(row, {f for f in forbidden if f}, label="Repayment JE bank row")
+		elif role in ("loan", "loan_profit", "deferred_credit"):
+			forbidden = {"department", "bank_dimension", "bank_account_dimension", "cost_center"}
+			if dim_fn:
+				forbidden.discard(dim_fn)
+			_assert_row_dims_empty(row, forbidden, label=f"Repayment JE {role} row")
+		elif role in ("penalty", "interest_expense"):
+			forbidden = {"bank_dimension", "bank_account_dimension"}
+			_assert_row_dims_empty(row, forbidden, label=f"Repayment JE {role} row")
+
+
+def receipt_je_row_dimensions(
+	row_role: str,
+	facility_name: str,
+	*,
+	facility,
+	settings=None,
+) -> dict[str, Any]:
+	"""Finance Excel — receipt JE row dimensions (row-specific, not global)."""
+	if row_role == "bank":
+		out: dict[str, Any] = {}
+		bank_dim = resolve_dimension("bank_dimension", facility=facility, settings=settings)
+		if bank_dim and _je_account_has_field("bank_dimension"):
+			out["bank_dimension"] = bank_dim
+		return out
+	if row_role in ("deferred", "loan"):
+		return facility_dimension_on_row(facility_name)
+	return {}
+
+
+def repayment_je_row_dimensions(
+	row_role: str,
+	facility_name: str,
+	*,
+	repayment,
+	facility,
+	settings=None,
+) -> dict[str, Any]:
+	"""Finance Excel — repayment JE row dimensions (independent from receipt rules)."""
+	if row_role == "bank":
+		out: dict[str, Any] = {}
+		bank_dim = resolve_dimension("bank_dimension", repayment=repayment, facility=facility, settings=settings)
+		if bank_dim and _je_account_has_field("bank_dimension"):
+			out["bank_dimension"] = bank_dim
+		return out
+	if row_role in ("loan", "loan_profit", "deferred_credit"):
+		return facility_dimension_on_row(facility_name)
+	if row_role in ("penalty", "interest_expense"):
+		out: dict[str, Any] = {}
+		cc = resolve_repayment_cost_center(repayment=repayment, facility=facility, settings=settings)
+		if cc and _je_account_has_field("cost_center"):
+			out["cost_center"] = cc
+		dept = resolve_dimension("department", repayment=repayment, facility=facility, settings=settings)
+		if dept and _je_account_has_field("department"):
+			out["department"] = dept
+		out.update(facility_dimension_on_row(facility_name))
+		return out
+	return {}
+
+
 def _je_amount_pair(amount: Decimal, *, debit: bool) -> dict[str, str]:
 	s = format(amount, "f")
 	if debit:
@@ -62,6 +229,7 @@ def _je_amount_pair(amount: Decimal, *, debit: bool) -> dict[str, str]:
 
 
 def _merge_row_dims(facility_name: str, extra: dict[str, Any]) -> dict[str, Any]:
+	"""Deprecated helper — prefer receipt_je_row_dimensions / repayment_je_row_dimensions."""
 	row = dict(facility_dimension_on_row(facility_name))
 	row.update(extra or {})
 	return row
@@ -95,6 +263,7 @@ def _planned_receipt_rows(principal: Decimal, profit: Decimal) -> list[tuple[Dec
 def _planned_repayment_rows(
 	principal: Decimal, profit: Decimal, penalty: Decimal
 ) -> list[tuple[Decimal, str]]:
+	"""Mirror build_repayment_je_plan row order for exact amount SQL sync."""
 	total = principal + profit + penalty
 	rows: list[tuple[Decimal, str]] = [(total, "credit")]
 	if principal > 0:
@@ -103,6 +272,9 @@ def _planned_repayment_rows(
 		rows.append((profit, "debit"))
 	if penalty > 0:
 		rows.append((penalty, "debit"))
+	if profit > 0:
+		rows.append((profit, "credit"))
+		rows.append((profit, "debit"))
 	return rows
 
 
@@ -227,64 +399,88 @@ def _sync_je_credit_to_debit_sum(je_name: str) -> None:
 
 
 def _facility_receipt_amounts(facility) -> tuple[Decimal, Decimal]:
-	principal = get_exact_currency_decimal("Facility", facility.name, "principal_amount")
-	profit = get_exact_currency_decimal("Facility", facility.name, "profit_amount")
+	if getattr(facility, "name", None) and frappe.db.exists("Facility", facility.name):
+		principal = get_exact_currency_decimal("Facility", facility.name, "principal_amount")
+		profit = get_exact_currency_decimal("Facility", facility.name, "profit_amount")
+	else:
+		principal = parse_facility_amount(facility.get("principal_amount"))
+		profit = parse_facility_amount(facility.get("profit_amount"))
 	return principal, profit
 
 
-def create_and_submit_receipt_je(facility) -> str:
-	if facility.receipt_journal_entry:
-		frappe.throw(
-			frappe._("Receipt Journal Entry already exists: {0}").format(facility.receipt_journal_entry),
-			title=frappe._("Facility Receipt"),
-		)
+def _receipt_row_templates(facility, settings) -> dict[str, str]:
+	return {
+		"remark": template_chain(
+			facility_key="receipt_remarks_template",
+			settings_key="default_receipt_remarks_template",
+			facility=facility,
+			settings=settings,
+			default=DEFAULT_RECEIPT_REMARKS,
+		),
+		"bank": template_chain(
+			facility_key="",
+			settings_key="default_receipt_bank_row_description_template",
+			facility=None,
+			settings=settings,
+			default=DEFAULT_RECEIPT_BANK_ROW,
+		),
+		"deferred": template_chain(
+			facility_key="",
+			settings_key="default_receipt_deferred_interest_row_description_template",
+			facility=None,
+			settings=settings,
+			default=DEFAULT_RECEIPT_DEFERRED_ROW,
+		),
+		"loan": template_chain(
+			facility_key="",
+			settings_key="default_receipt_loan_payable_row_description_template",
+			facility=None,
+			settings=settings,
+			default=DEFAULT_RECEIPT_LOAN_ROW,
+		),
+	}
+
+
+def _validate_receipt_je_prerequisites(facility, *, principal: Decimal, profit: Decimal) -> None:
 	if cint(facility.is_opening_facility):
 		frappe.throw(
 			frappe._("Opening / migrated facilities must not create a Receipt Journal Entry."),
 			title=frappe._("Facility Receipt"),
 		)
-	principal, profit = _facility_receipt_amounts(facility)
 	if principal <= 0:
 		frappe.throw(frappe._("Principal amount must be positive to receive facility."))
+	settings = get_facility_settings_doc(facility.company)
 	if profit > 0:
 		resolve_account(
 			"deferred_loan_interest_account",
 			facility=facility,
-			settings=get_facility_settings_doc(facility.company),
+			settings=settings,
 			required=True,
 			required_label="Deferred Loan Interest Account",
 		)
-
-	settings = get_facility_settings_doc(facility.company)
-	ctx = build_template_context(facility)
-	remark_tpl = template_chain(
-		facility_key="receipt_remarks_template",
-		settings_key="default_receipt_remarks_template",
+	resolve_account(
+		"bank_account",
 		facility=facility,
 		settings=settings,
-		default=DEFAULT_RECEIPT_REMARKS,
+		required=True,
+		required_label="Bank Account",
 	)
-	bank_row_tpl = template_chain(
-		facility_key="",
-		settings_key="default_receipt_bank_row_description_template",
-		facility=None,
+	resolve_account(
+		"loan_payable_account",
+		facility=facility,
 		settings=settings,
-		default=DEFAULT_RECEIPT_BANK_ROW,
+		required=True,
+		required_label="Loan Payable Account",
 	)
-	deferred_row_tpl = template_chain(
-		facility_key="",
-		settings_key="default_receipt_deferred_interest_row_description_template",
-		facility=None,
-		settings=settings,
-		default=DEFAULT_RECEIPT_DEFERRED_ROW,
-	)
-	loan_row_tpl = template_chain(
-		facility_key="",
-		settings_key="default_receipt_loan_payable_row_description_template",
-		facility=None,
-		settings=settings,
-		default=DEFAULT_RECEIPT_LOAN_ROW,
-	)
+
+
+def build_receipt_je_plan(facility) -> list[dict[str, Any]]:
+	"""Finance Excel receipt template — shared by preview and submit."""
+	principal, profit = _facility_receipt_amounts(facility)
+	_validate_receipt_je_prerequisites(facility, principal=principal, profit=profit)
+	settings = get_facility_settings_doc(facility.company)
+	ctx = build_template_context(facility)
+	tpl = _receipt_row_templates(facility, settings)
 
 	bank_acc = resolve_account(
 		"bank_account",
@@ -308,10 +504,105 @@ def create_and_submit_receipt_je(facility) -> str:
 		required_label="Deferred Loan Interest Account",
 	)
 
-	row_dims = _merge_row_dims(
-		facility.name,
-		dimensions_for_je_row(facility=facility, settings=settings),
+	plan: list[dict[str, Any]] = []
+
+	def add(role, account, amount, debit, tpl_key, label):
+		if amount <= 0:
+			return
+		plan.append(
+			{
+				"role": role,
+				"row_label": label,
+				"account": account,
+				"amount": amount,
+				"debit": debit,
+				"dims": receipt_je_row_dimensions(role, facility.name, facility=facility, settings=settings),
+				"user_remark": render_facility_template(tpl[tpl_key], ctx),
+			}
+		)
+
+	add("bank", bank_acc, principal, True, "bank", "Bank")
+	if profit > 0:
+		add("deferred", deferred_acc, profit, True, "deferred", "Deferred Loan Interest")
+	add("loan", loan_acc, principal + profit, False, "loan", "Loan Payable")
+	return plan
+
+
+def _je_preview_payload_from_plan(
+	plan: list[dict[str, Any]],
+	*,
+	voucher_type: str,
+	posting_date,
+	remarks: str,
+) -> dict[str, Any]:
+	dim_fn = get_facility_dimension_fieldname()
+	rows = []
+	total_debit = Decimal("0")
+	total_credit = Decimal("0")
+	for spec in plan:
+		amount = spec["amount"]
+		if spec["debit"]:
+			total_debit += amount
+		else:
+			total_credit += amount
+		dims = spec.get("dims") or {}
+		rows.append(
+			{
+				"row_label": spec.get("row_label") or "",
+				"account": spec["account"],
+				"debit": float(amount) if spec["debit"] else 0,
+				"credit": float(amount) if not spec["debit"] else 0,
+				"user_remark": spec.get("user_remark") or "",
+				"facility": dims.get(dim_fn) if dim_fn else None,
+				"department": dims.get("department"),
+				"cost_center": dims.get("cost_center"),
+				"bank_dimension": dims.get("bank_dimension"),
+				"bank_account_dimension": dims.get("bank_account_dimension"),
+			}
+		)
+	return {
+		"rows": rows,
+		"total_debit": float(total_debit),
+		"total_credit": float(total_credit),
+		"balanced": total_debit == total_credit,
+		"voucher_type": voucher_type,
+		"posting_date": str(posting_date) if posting_date else "",
+		"remarks": remarks or "",
+	}
+
+
+def preview_receipt_journal_entry(facility) -> dict[str, Any]:
+	if facility.receipt_journal_entry:
+		frappe.throw(
+			frappe._("Receipt Journal Entry already exists: {0}").format(facility.receipt_journal_entry),
+			title=frappe._("Facility Receipt"),
+		)
+	plan = build_receipt_je_plan(facility)
+	settings = get_facility_settings_doc(facility.company)
+	ctx = build_template_context(facility)
+	tpl = _receipt_row_templates(facility, settings)
+	posting_date = facility.receive_date or facility.contract_date or frappe.utils.today()
+	remark = render_facility_template(tpl["remark"], ctx)
+	return _je_preview_payload_from_plan(
+		plan,
+		voucher_type="Bank Entry",
+		posting_date=posting_date,
+		remarks=remark,
 	)
+
+
+def create_and_submit_receipt_je(facility) -> str:
+	if facility.receipt_journal_entry:
+		frappe.throw(
+			frappe._("Receipt Journal Entry already exists: {0}").format(facility.receipt_journal_entry),
+			title=frappe._("Facility Receipt"),
+		)
+	principal, profit = _facility_receipt_amounts(facility)
+	plan = build_receipt_je_plan(facility)
+	settings = get_facility_settings_doc(facility.company)
+	ctx = build_template_context(facility)
+	tpl = _receipt_row_templates(facility, settings)
+	remark = render_facility_template(tpl["remark"], ctx)
 
 	je = frappe.new_doc("Journal Entry")
 	je.voucher_type = "Bank Entry"
@@ -319,35 +610,18 @@ def create_and_submit_receipt_je(facility) -> str:
 	je.posting_date = facility.receive_date or facility.contract_date or frappe.utils.today()
 	je.cheque_no = facility.name
 	je.cheque_date = je.posting_date
-	remark = render_facility_template(remark_tpl, ctx)
 	je.user_remark = remark
 	je.remark = remark
 
-	_append_je_row(
-		je,
-		account=bank_acc,
-		amount=principal,
-		debit=True,
-		row_dims=row_dims,
-		user_remark=render_facility_template(bank_row_tpl, ctx),
-	)
-	if profit > 0:
+	for spec in plan:
 		_append_je_row(
 			je,
-			account=deferred_acc,
-			amount=profit,
-			debit=True,
-			row_dims=row_dims,
-			user_remark=render_facility_template(deferred_row_tpl, ctx),
+			account=spec["account"],
+			amount=spec["amount"],
+			debit=spec["debit"],
+			row_dims=spec["dims"],
+			user_remark=spec.get("user_remark"),
 		)
-	_append_je_row(
-		je,
-		account=loan_acc,
-		amount=principal + profit,
-		debit=False,
-		row_dims=row_dims,
-		user_remark=render_facility_template(loan_row_tpl, ctx),
-	)
 
 	planned = _planned_receipt_rows(principal, profit)
 	je.insert(ignore_permissions=True)
@@ -356,7 +630,7 @@ def create_and_submit_receipt_je(facility) -> str:
 	je.submit()
 	_apply_exact_je_planned(je.name, planned)
 	_apply_exact_gl_planned(je.name, planned)
-	_validate_je_gl_dimensions(je.name, facility.name)
+	_validate_receipt_je_dimensions(je.name, facility)
 	return je.name
 
 
@@ -368,88 +642,82 @@ def _repayment_line_amounts(repayment) -> tuple[Decimal, Decimal, Decimal]:
 	)
 
 
-def create_and_submit_repayment_je(repayment) -> str:
-	facility = frappe.get_doc("Facility", repayment.facility)
-	principal, profit, penalty = _repayment_line_amounts(repayment)
-	total = principal + profit + penalty
-	if total <= 0:
-		frappe.throw(frappe._("Total payment amount must be greater than zero."))
+def _repayment_amounts(repayment) -> tuple[Decimal, Decimal, Decimal]:
+	if getattr(repayment, "name", None) and frappe.db.exists("Facility Repayment", repayment.name):
+		return _repayment_line_amounts(repayment)
+	return (
+		parse_facility_amount(repayment.get("principal_amount")),
+		parse_facility_amount(repayment.get("profit_amount")),
+		parse_facility_amount(repayment.get("penalty_amount")),
+	)
 
-	settings = get_facility_settings_doc(facility.company)
-	if profit > 0:
-		resolve_account(
-			"deferred_loan_interest_account",
-			repayment=repayment,
-			facility=facility,
-			settings=settings,
-			required=True,
-			required_label="Deferred Loan Interest Account",
-		)
-	if penalty > 0:
-		resolve_account(
-			"penalty_expense_account",
-			repayment=repayment,
-			facility=facility,
-			settings=settings,
-			required=True,
-			required_label="Penalty Expense Account",
-		)
 
-	ctx = build_template_context(facility, repayment)
-	if getattr(repayment, "repayment_remarks_template", None):
-		remark_tpl = repayment.repayment_remarks_template
-	else:
-		remark_tpl = template_chain(
+def _repayment_row_templates(facility, repayment, settings, ctx):
+	remark_tpl = (
+		repayment.repayment_remarks_template
+		if getattr(repayment, "repayment_remarks_template", None)
+		else template_chain(
 			facility_key="repayment_remarks_template",
 			settings_key="default_repayment_remarks_template",
 			facility=facility,
 			settings=settings,
 			default=DEFAULT_REPAYMENT_REMARKS,
 		)
-	bank_row_tpl = template_chain(
-		facility_key="",
-		settings_key="default_repayment_bank_row_description_template",
-		facility=None,
-		settings=settings,
-		default=DEFAULT_REPAYMENT_BANK_ROW,
 	)
-	principal_row_tpl = template_chain(
-		facility_key="",
-		settings_key="default_repayment_principal_row_description_template",
-		facility=None,
-		settings=settings,
-		default=DEFAULT_REPAYMENT_PRINCIPAL_ROW,
+	return {
+		"remark": remark_tpl,
+		"bank": template_chain(
+			facility_key="",
+			settings_key="default_repayment_bank_row_description_template",
+			facility=None,
+			settings=settings,
+			default=DEFAULT_REPAYMENT_BANK_ROW,
+		),
+		"principal": template_chain(
+			facility_key="",
+			settings_key="default_repayment_principal_row_description_template",
+			facility=None,
+			settings=settings,
+			default=DEFAULT_REPAYMENT_PRINCIPAL_ROW,
+		),
+		"profit": template_chain(
+			facility_key="",
+			settings_key="default_repayment_profit_row_description_template",
+			facility=None,
+			settings=settings,
+			default=DEFAULT_REPAYMENT_PROFIT_ROW,
+		),
+		"penalty": template_chain(
+			facility_key="",
+			settings_key="default_repayment_penalty_row_description_template",
+			facility=None,
+			settings=settings,
+			default=DEFAULT_REPAYMENT_PENALTY_ROW,
+		),
+	}
+
+
+def build_repayment_je_plan(repayment, facility=None) -> list[dict[str, Any]]:
+	"""Finance Excel repayment template — shared by preview and submit."""
+	if facility is None:
+		facility = frappe.get_doc("Facility", repayment.facility)
+	principal, profit, penalty = _repayment_amounts(repayment)
+	settings = get_facility_settings_doc(facility.company)
+	validate_repayment_je_prerequisites(
+		repayment, facility, settings, principal=principal, profit=profit, penalty=penalty
 	)
-	profit_row_tpl = template_chain(
-		facility_key="",
-		settings_key="default_repayment_profit_row_description_template",
-		facility=None,
-		settings=settings,
-		default=DEFAULT_REPAYMENT_PROFIT_ROW,
-	)
-	penalty_row_tpl = template_chain(
-		facility_key="",
-		settings_key="default_repayment_penalty_row_description_template",
-		facility=None,
-		settings=settings,
-		default=DEFAULT_REPAYMENT_PENALTY_ROW,
-	)
+	ctx = build_template_context(facility, repayment)
+	tpl = _repayment_row_templates(facility, repayment, settings, ctx)
 
 	bank_acc = resolve_account(
-		"bank_account",
-		repayment=repayment,
-		facility=facility,
-		settings=settings,
-		required=True,
-		required_label="Bank Account",
+		"bank_account", repayment=repayment, facility=facility, settings=settings, required=True
 	)
 	loan_acc = resolve_account(
 		"loan_payable_account",
 		repayment=repayment,
 		facility=facility,
 		settings=settings,
-		required=principal > 0,
-		required_label="Loan Payable Account",
+		required=principal > 0 or profit > 0,
 	)
 	deferred_acc = resolve_account(
 		"deferred_loan_interest_account",
@@ -457,7 +725,13 @@ def create_and_submit_repayment_je(repayment) -> str:
 		facility=facility,
 		settings=settings,
 		required=profit > 0,
-		required_label="Deferred Loan Interest Account",
+	)
+	interest_acc = resolve_account(
+		"interest_expense_account",
+		repayment=repayment,
+		facility=facility,
+		settings=settings,
+		required=profit > 0,
 	)
 	penalty_acc = resolve_account(
 		"penalty_expense_account",
@@ -465,68 +739,93 @@ def create_and_submit_repayment_je(repayment) -> str:
 		facility=facility,
 		settings=settings,
 		required=penalty > 0,
-		required_label="Penalty Expense Account",
 	)
 
-	row_dims = _merge_row_dims(
-		facility.name,
-		dimensions_for_je_row(repayment=repayment, facility=facility, settings=settings),
+	total = principal + profit + penalty
+	plan: list[dict[str, Any]] = []
+
+	def add(role, account, amount, debit, tpl_key, label):
+		if amount <= 0:
+			return
+		plan.append(
+			{
+				"role": role,
+				"row_label": label,
+				"account": account,
+				"amount": amount,
+				"debit": debit,
+				"dims": repayment_je_row_dimensions(
+					role, facility.name, repayment=repayment, facility=facility, settings=settings
+				),
+				"user_remark": render_facility_template(tpl[tpl_key], ctx),
+			}
+		)
+
+	add("bank", bank_acc, total, False, "bank", "Bank")
+	add("loan", loan_acc, principal, True, "principal", "Principal — Loan Payable")
+	add("loan_profit", loan_acc, profit, True, "profit", "Profit — Loan Payable")
+	add("penalty", penalty_acc, penalty, True, "penalty", "Penalty Expense")
+	add("deferred_credit", deferred_acc, profit, False, "profit", "Deferred Loan Interest")
+	add("interest_expense", interest_acc, profit, True, "profit", "Interest Expense")
+	return plan
+
+
+def preview_repayment_journal_entry(repayment) -> dict[str, Any]:
+	facility = frappe.get_doc("Facility", repayment.facility)
+	plan = build_repayment_je_plan(repayment, facility=facility)
+	ctx = build_template_context(facility, repayment)
+	settings = get_facility_settings_doc(facility.company)
+	tpl = _repayment_row_templates(facility, repayment, settings, ctx)
+	remark_tpl = tpl["remark"]
+	remark = render_facility_template(remark_tpl, ctx) if "{" in remark_tpl else remark_tpl
+	posting_date = repayment.posting_date or frappe.utils.today()
+	return _je_preview_payload_from_plan(
+		plan,
+		voucher_type="Bank Entry",
+		posting_date=posting_date,
+		remarks=remark,
 	)
+
+
+def create_and_submit_repayment_je(repayment) -> str:
+	facility = frappe.get_doc("Facility", repayment.facility)
+	principal, profit, penalty = _repayment_amounts(repayment)
+	settings = get_facility_settings_doc(facility.company)
+	validate_repayment_je_prerequisites(
+		repayment, facility, settings, principal=principal, profit=profit, penalty=penalty
+	)
+	plan = build_repayment_je_plan(repayment, facility=facility)
+	ctx = build_template_context(facility, repayment)
+	tpl = _repayment_row_templates(facility, repayment, settings, ctx)
+	remark_tpl = tpl["remark"]
+	remark = render_facility_template(remark_tpl, ctx) if "{" in remark_tpl else remark_tpl
 
 	je = frappe.new_doc("Journal Entry")
 	je.voucher_type = "Bank Entry"
 	je.company = repayment.company or facility.company
 	je.posting_date = repayment.posting_date
-	je.cheque_no = repayment.name
+	je.cheque_no = repayment.name or facility.name
 	je.cheque_date = repayment.posting_date
-	remark = render_facility_template(remark_tpl, ctx) if "{" in remark_tpl else remark_tpl
 	je.user_remark = remark
 	je.remark = remark
 
-	_append_je_row(
-		je,
-		account=bank_acc,
-		amount=total,
-		debit=False,
-		row_dims=row_dims,
-		user_remark=render_facility_template(bank_row_tpl, ctx),
-	)
-	if principal > 0:
+	for spec in plan:
 		_append_je_row(
 			je,
-			account=loan_acc,
-			amount=principal,
-			debit=True,
-			row_dims=row_dims,
-			user_remark=render_facility_template(principal_row_tpl, ctx),
-		)
-	if profit > 0:
-		_append_je_row(
-			je,
-			account=deferred_acc,
-			amount=profit,
-			debit=True,
-			row_dims=row_dims,
-			user_remark=render_facility_template(profit_row_tpl, ctx),
-		)
-	if penalty > 0:
-		_append_je_row(
-			je,
-			account=penalty_acc,
-			amount=penalty,
-			debit=True,
-			row_dims=row_dims,
-			user_remark=render_facility_template(penalty_row_tpl, ctx),
+			account=spec["account"],
+			amount=spec["amount"],
+			debit=spec["debit"],
+			row_dims=spec["dims"],
+			user_remark=spec.get("user_remark"),
 		)
 
 	planned = _planned_repayment_rows(principal, profit, penalty)
 	je.insert(ignore_permissions=True)
-	_sync_je_credit_to_debit_sum(je.name)
 	je.reload()
 	je.submit()
 	_apply_exact_je_planned(je.name, planned)
 	_apply_exact_gl_planned(je.name, planned)
-	_validate_je_gl_dimensions(je.name, facility.name)
+	_validate_repayment_je_dimensions(je.name, facility, repayment)
 	return je.name
 
 
@@ -536,38 +835,6 @@ def cancel_journal_entry(je_name: str | None) -> None:
 	je = frappe.get_doc("Journal Entry", je_name)
 	if je.docstatus == 1:
 		je.cancel()
-
-
-def _validate_je_gl_dimensions(je_name: str, facility_name: str) -> None:
-	fn = get_facility_dimension_fieldname()
-	if not fn:
-		return
-	je = frappe.get_doc("Journal Entry", je_name)
-	for row in je.accounts:
-		val = getattr(row, fn, None)
-		if val and val != facility_name:
-			frappe.throw(
-				frappe._("Journal Entry row {0} has unexpected Facility dimension {1!r}").format(
-					row.idx, val
-				)
-			)
-		if not val:
-			frappe.throw(
-				frappe._("Journal Entry row {0} missing Facility dimension on account {1}").format(
-					row.idx, row.account
-				)
-			)
-	missing = frappe.db.sql(
-		f"""
-		SELECT name FROM `tabGL Entry`
-		WHERE voucher_type = 'Journal Entry' AND voucher_no = %s AND is_cancelled = 0
-		  AND ({fn} IS NULL OR {fn} = '')
-		LIMIT 1
-		""",
-		(je_name,),
-	)
-	if missing:
-		frappe.throw(frappe._("GL Entry missing Facility dimension for Journal Entry {0}").format(je_name))
 
 
 def refresh_facility_paid_fields(facility_name: str) -> None:

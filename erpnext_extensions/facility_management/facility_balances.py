@@ -67,6 +67,7 @@ def get_facility_balance_row(doc, *, as_on_date=None) -> dict[str, Any]:
 	return {
 		"facility": fac.name,
 		"facility_name": fac.facility_name,
+		"facility_type": getattr(fac, "facility_type", None),
 		"bank": fac.bank,
 		"company": fac.company,
 		"status": fac.status,

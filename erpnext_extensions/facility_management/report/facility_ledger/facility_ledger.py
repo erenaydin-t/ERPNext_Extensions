@@ -7,15 +7,14 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate
 
-from erpnext_extensions.facility_management.facility_balances import get_facility_balance_row
+from erpnext_extensions.facility_management.facility_report_filters import resolve_ledger_facility
 
 
 def execute(filters=None):
 	filters = frappe._dict(filters or {})
 	if not filters.get("company"):
 		frappe.throw(_("Company is required"))
-	if not filters.get("facility"):
-		frappe.throw(_("Facility is required"))
+	filters.facility = resolve_ledger_facility(filters)
 	columns = get_columns()
 	data = get_ledger_rows(filters)
 	return columns, data
@@ -23,6 +22,9 @@ def execute(filters=None):
 
 def get_columns():
 	return [
+		{"label": _("Facility"), "fieldname": "facility", "fieldtype": "Link", "options": "Facility", "width": 130},
+		{"label": _("Facility Name"), "fieldname": "facility_name", "fieldtype": "Data", "width": 160},
+		{"label": _("Facility Type"), "fieldname": "facility_type", "fieldtype": "Link", "options": "Facility Type", "width": 130},
 		{"label": _("Date"), "fieldname": "posting_date", "fieldtype": "Date", "width": 100},
 		{"label": _("Entry Type"), "fieldname": "entry_type", "fieldtype": "Data", "width": 140},
 		{"label": _("Reference"), "fieldname": "reference", "fieldtype": "Dynamic Link", "options": "reference_doctype", "width": 140},
@@ -39,6 +41,8 @@ def get_columns():
 def get_ledger_rows(filters):
 	facility = filters.facility
 	fac = frappe.get_doc("Facility", facility)
+	facility_name = fac.facility_name
+	facility_type = fac.facility_type
 	if fac.company != filters.company:
 		frappe.throw(_("Facility does not belong to the selected company."))
 	from_date = getdate(filters.get("from_date") or fac.contract_date or "2000-01-01")
@@ -60,6 +64,9 @@ def get_ledger_rows(filters):
 		running_pr -= opf
 		data.append(
 			{
+				"facility": facility,
+				"facility_name": facility_name,
+				"facility_type": facility_type,
 				"posting_date": opening_date,
 				"entry_type": _("Opening Balance"),
 				"reference_doctype": "",
@@ -91,6 +98,9 @@ def get_ledger_rows(filters):
 		running_pr -= pf
 		data.append(
 			{
+				"facility": facility,
+				"facility_name": facility_name,
+				"facility_type": facility_type,
 				"posting_date": rep.posting_date,
 				"entry_type": _("Facility Repayment"),
 				"reference_doctype": "Facility Repayment",

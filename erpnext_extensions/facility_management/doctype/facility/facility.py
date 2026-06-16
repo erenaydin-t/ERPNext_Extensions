@@ -14,7 +14,9 @@ from erpnext_extensions.facility_management.facility_accounting import (
 )
 from erpnext_extensions.facility_management.facility_balances import get_facility_balance_row
 from erpnext_extensions.facility_management.facility_settings_doc import (
+	apply_facility_settings_defaults,
 	get_facility_settings_doc,
+	get_facility_settings_defaults_payload,
 	resolve_account,
 )
 from erpnext_extensions.facility_management.facility_monetary import (
@@ -25,6 +27,7 @@ from erpnext_extensions.facility_management.facility_monetary import (
 
 class Facility(Document):
 	def validate(self):
+		apply_facility_settings_defaults(self, overwrite=False)
 		self._exact_currency = {}
 		flag_exact = getattr(self.flags, "facility_exact_currency", None) or {}
 		for fn in FACILITY_INPUT_CURRENCY_FIELDS:
@@ -148,6 +151,21 @@ class Facility(Document):
 		company = frappe.get_cached_value("Account", account, "company")
 		if company and company != self.company:
 			frappe.throw(_("{0} must belong to company {1}.").format(label, self.company))
+
+
+@frappe.whitelist()
+def get_facility_settings_defaults(company: str) -> dict:
+	return get_facility_settings_defaults_payload(company)
+
+
+@frappe.whitelist()
+def preview_receipt_journal_entry(name: str) -> dict:
+	from erpnext_extensions.facility_management.facility_accounting import (
+		preview_receipt_journal_entry as build_preview,
+	)
+
+	doc = frappe.get_doc("Facility", name)
+	return build_preview(doc)
 
 
 @frappe.whitelist()

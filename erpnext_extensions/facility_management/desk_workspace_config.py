@@ -22,6 +22,7 @@ WORKSPACE_REPORT_LINKS = (
 
 WORKSPACE_CONFIGURATION_LINKS = (
 	("Facility Settings", "DocType", "Facility Settings", {"icon": "settings"}),
+	("Facility Type", "DocType", "Facility Type", {"icon": "tag"}),
 )
 
 SIDEBAR_HOME_ICON = "home"
@@ -38,4 +39,5 @@ SIDEBAR_LINK_ICONS: dict[str, str] = {
 	"Facility Balance": "pie-chart",
 	"Facility Ledger": "book",
 	"Facility Settings": "settings",
+	"Facility Type": "tag",
 }

@@ -14,6 +14,7 @@
  "field_order": [
   "section_main",
   "facility_name",
+  "facility_type",
   "company",
   "bank",
   "status",
@@ -78,6 +79,14 @@
    "in_standard_filter": 1,
    "label": "Facility Name",
    "reqd": 1
+  },
+  {
+   "fieldname": "facility_type",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Facility Type",
+   "options": "Facility Type"
   },
   {
    "fieldname": "company",
@@ -280,8 +289,9 @@
   },
   {
    "fieldname": "department",
-   "fieldtype": "Data",
-   "label": "Department"
+   "fieldtype": "Link",
+   "label": "Department",
+   "options": "Department"
   },
   {
    "fieldname": "column_break_dimensions",
@@ -289,13 +299,15 @@
   },
   {
    "fieldname": "bank_dimension",
-   "fieldtype": "Data",
-   "label": "Bank Dimension"
+   "fieldtype": "Link",
+   "label": "Bank Dimension",
+   "options": "Bank"
   },
   {
    "fieldname": "bank_account_dimension",
-   "fieldtype": "Data",
-   "label": "Bank Account Dimension"
+   "fieldtype": "Link",
+   "label": "Bank Account Dimension",
+   "options": "Bank Account"
   },
   {
    "fieldname": "section_accounts",
@@ -393,6 +405,7 @@
  "name": "Facility",
  "naming_rule": "Expression",
  "owner": "Administrator",
+ "search_fields": "facility_name,bank,facility_type",
  "permissions": [
   {
    "create": 1,

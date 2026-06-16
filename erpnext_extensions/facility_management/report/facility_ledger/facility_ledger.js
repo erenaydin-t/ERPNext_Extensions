@@ -13,7 +13,17 @@ frappe.query_reports["Facility Ledger"] = {
 			label: __("Facility"),
 			fieldtype: "Link",
 			options: "Facility",
-			reqd: 1,
+		},
+		{
+			fieldname: "facility_name",
+			label: __("Facility Name"),
+			fieldtype: "Data",
+		},
+		{
+			fieldname: "facility_type",
+			label: __("Facility Type"),
+			fieldtype: "Link",
+			options: "Facility Type",
 		},
 		{
 			fieldname: "from_date",

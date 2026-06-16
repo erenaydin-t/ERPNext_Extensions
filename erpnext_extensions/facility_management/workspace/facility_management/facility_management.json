@@ -111,9 +111,20 @@
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "icon": "tag",
+   "is_query_report": 0,
+   "label": "Facility Type",
+   "link_count": 0,
+   "link_to": "Facility Type",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
   }
  ],
- "modified": "2026-06-10 11:56:15.778484",
+ "modified": "2026-06-16 23:10:51.545559",
  "modified_by": "Administrator",
  "module": "Facility Management",
  "name": "Facility Management",

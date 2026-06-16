@@ -72,6 +72,17 @@ doctype_js = {
 	"Sales Order": [
 		"public/js/pdc_create_from_order.js",
 	],
+	"Facility": [
+		"facility_management/public/js/facility_dimension_link_queries.js",
+		"facility_management/public/js/facility_settings_defaults.js",
+		"facility_management/public/js/facility_je_preview_dialog.js",
+	],
+	"Facility Repayment": [
+		"facility_management/public/js/facility_je_preview_dialog.js",
+	],
+	"Facility Settings": [
+		"facility_management/public/js/facility_dimension_link_queries.js",
+	],
 }
 doctype_list_js = {
 	"PM Clearance": "erpnext_extensions/petty_management/doctype/pm_clearance/pm_clearance_list.js",
@@ -360,5 +371,7 @@ fixtures = [
 standard_queries = {
 	"PM Holder": "erpnext_extensions.petty_management.doctype.pm_holder.pm_holder.pm_holder_query",
 	"PM Opening Advance": "erpnext_extensions.petty_management.doctype.pm_opening_advance.pm_opening_advance.pm_opening_advance_link_query",
+	"Facility": "erpnext_extensions.facility_management.facility_queries.facility_link_query",
+	"Facility Type": "erpnext_extensions.facility_management.facility_queries.facility_type_link_query",
 }
 
