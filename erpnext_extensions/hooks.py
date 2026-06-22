@@ -135,6 +135,7 @@ after_migrate = [
 	"erpnext_extensions.petty_management.desk_visibility.after_migrate",
 	"erpnext_extensions.cheque_management.pdc_accounting_dimensions.after_migrate",
 	"erpnext_extensions.facility_management.facility_accounting_dimensions.after_migrate",
+	"erpnext_extensions.iran_accounting.monkey_patches.apply_monkey_patches",
 ]
 
 # ERPNext injects Accounting Dimension custom fields onto these DocTypes (see Accounting Dimension on_update).
@@ -244,6 +245,18 @@ doc_events = {
 		"before_submit": "erpnext_extensions.cheque_management.pdc_invoice_advance_application.before_invoice_submit",
 		"on_submit": "erpnext_extensions.cheque_management.pdc_invoice_advance_application.on_invoice_submit",
 		"on_cancel": "erpnext_extensions.cheque_management.pdc_invoice_advance_application.on_invoice_cancel",
+	},
+	"GL Entry": {
+		"validate": "erpnext_extensions.iran_accounting.gl_entry.validate_gl_entry",
+		"before_insert": "erpnext_extensions.iran_accounting.gl_entry.before_insert_gl_entry",
+	},
+	"Stock Ledger Entry": {
+		"validate": "erpnext_extensions.iran_accounting.stock_ledger.validate_stock_ledger_entry",
+		"before_insert": "erpnext_extensions.iran_accounting.stock_ledger.before_insert_stock_ledger_entry",
+	},
+	"Stock Entry": {
+		"validate": "erpnext_extensions.iran_accounting.stock_entry.validate_stock_entry",
+		"before_submit": "erpnext_extensions.iran_accounting.stock_entry.before_submit_stock_entry",
 	},
 }
 
