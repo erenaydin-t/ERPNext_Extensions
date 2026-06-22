@@ -89,9 +89,9 @@ def stock_reconciliation_tables_and_columns() -> dict[str, list[str]]:
 
 	tables: dict[str, list[str]] = {}
 	for doctype in stock_reconciliation_doctypes():
-		table = get_table_name(doctype)
-		if not frappe.db.table_exists(table):
+		if not frappe.db.table_exists(doctype):
 			continue
+		table = get_table_name(doctype)
 		cols = numeric_fields_for_doctype(doctype)
 		if cols:
 			tables[table] = cols

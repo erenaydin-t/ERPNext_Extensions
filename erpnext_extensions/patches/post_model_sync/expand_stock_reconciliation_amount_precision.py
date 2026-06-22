@@ -59,7 +59,7 @@ def execute() -> None:
 		return (row[0].get("IS_NULLABLE") or "").upper() == "YES"
 
 	def ensure_decimal(table: str, col: str, p: int, s: int) -> None:
-		if not frappe.db.table_exists(table):
+		if table not in frappe.db.get_tables():
 			logger.warning("Skipping missing table %s", table)
 			return
 
