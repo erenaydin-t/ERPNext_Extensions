@@ -235,14 +235,26 @@ doc_events = {
 		"validate": "erpnext_extensions.cheque_management.pdc_payment_request_eligibility.validate_payment_request_invoice_ceiling_on_save",
 	},
 	"Purchase Invoice": {
-		"validate": "erpnext_extensions.cheque_management.pdc_invoice_advance_application.on_invoice_validate",
-		"before_submit": "erpnext_extensions.cheque_management.pdc_invoice_advance_application.before_invoice_submit",
+		"validate": [
+			"erpnext_extensions.cheque_management.pdc_invoice_advance_application.on_invoice_validate",
+			"erpnext_extensions.iran_accounting.accounts_invoice.round_irr_invoice_totals",
+		],
+		"before_submit": [
+			"erpnext_extensions.cheque_management.pdc_invoice_advance_application.before_invoice_submit",
+			"erpnext_extensions.iran_accounting.accounts_invoice.round_irr_invoice_totals",
+		],
 		"on_submit": "erpnext_extensions.cheque_management.pdc_invoice_advance_application.on_invoice_submit",
 		"on_cancel": "erpnext_extensions.cheque_management.pdc_invoice_advance_application.on_invoice_cancel",
 	},
 	"Sales Invoice": {
-		"validate": "erpnext_extensions.cheque_management.pdc_invoice_advance_application.on_invoice_validate",
-		"before_submit": "erpnext_extensions.cheque_management.pdc_invoice_advance_application.before_invoice_submit",
+		"validate": [
+			"erpnext_extensions.cheque_management.pdc_invoice_advance_application.on_invoice_validate",
+			"erpnext_extensions.iran_accounting.accounts_invoice.round_irr_invoice_totals",
+		],
+		"before_submit": [
+			"erpnext_extensions.cheque_management.pdc_invoice_advance_application.before_invoice_submit",
+			"erpnext_extensions.iran_accounting.accounts_invoice.round_irr_invoice_totals",
+		],
 		"on_submit": "erpnext_extensions.cheque_management.pdc_invoice_advance_application.on_invoice_submit",
 		"on_cancel": "erpnext_extensions.cheque_management.pdc_invoice_advance_application.on_invoice_cancel",
 	},

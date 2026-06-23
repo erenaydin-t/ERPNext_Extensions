@@ -224,3 +224,118 @@ def voucher_ledger_snapshot(voucher_type: str, voucher_no: str):
 def enable_perpetual_inventory(company: str) -> None:
 	if not cint(erpnext.is_perpetual_inventory_enabled(company)):
 		frappe.db.set_value("Company", company, "enable_perpetual_inventory", 1)
+
+
+def _company_abbr(company: str) -> str:
+	return frappe.get_cached_value("Company", company, "abbr") or company[:2].upper()
+
+
+def _ensure_currency(code: str) -> None:
+	if frappe.db.exists("Currency", code):
+		return
+	frappe.get_doc({"doctype": "Currency", "currency_name": code, "enabled": 1}).insert(ignore_permissions=True)
+
+
+def _ensure_child_account(
+	company: str,
+	parent: str,
+	account_name: str,
+	currency: str,
+	account_type: str | None = None,
+) -> str:
+	abbr = _company_abbr(company)
+	full_name = f"{account_name} - {abbr}"
+	if frappe.db.exists("Account", full_name):
+		return full_name
+	acc = frappe.new_doc("Account")
+	acc.account_name = account_name
+	acc.company = company
+	acc.parent_account = parent
+	acc.account_currency = currency
+	acc.is_group = 0
+	if account_type:
+		acc.account_type = account_type
+	acc.insert(ignore_permissions=True)
+	return acc.name
+
+
+def ensure_foreign_currency_acceptance_masters(company: str) -> dict:
+	"""Supplier/customer + USD/EUR payable/receivable accounts for acceptance 31–38."""
+	for cur in ("USD", "EUR"):
+		_ensure_currency(cur)
+
+	payable_parent = frappe.db.get_value(
+		"Account", {"company": company, "account_type": "Payable", "is_group": 1}, "name"
+	) or frappe.db.get_value(
+		"Account", {"company": company, "name": ("like", "%Accounts Payable%"), "is_group": 1}, "name"
+	)
+	recv_parent = frappe.db.get_value(
+		"Account", {"company": company, "account_type": "Receivable", "is_group": 1}, "name"
+	) or frappe.db.get_value(
+		"Account", {"company": company, "name": ("like", "%Accounts Receivable%"), "is_group": 1}, "name"
+	)
+	if not payable_parent or not recv_parent:
+		raise frappe.ValidationError("Payable/Receivable group accounts missing for foreign currency bootstrap")
+
+	accounts = {
+		"USD": _ensure_child_account(company, payable_parent, "IA USD Creditors", "USD", "Payable"),
+		"EUR": _ensure_child_account(company, payable_parent, "IA EUR Creditors", "EUR", "Payable"),
+		"USD_RECV": _ensure_child_account(company, recv_parent, "IA USD Debtors", "USD", "Receivable"),
+		"EUR_RECV": _ensure_child_account(company, recv_parent, "IA EUR Debtors", "EUR", "Receivable"),
+	}
+
+	def _ensure_supplier(supplier_name: str, account: str) -> str:
+		acct_cur = frappe.db.get_value("Account", account, "account_currency")
+		if not frappe.db.exists("Supplier", supplier_name):
+			sg = frappe.db.get_value("Supplier Group", {}, "name") or "All Supplier Groups"
+			frappe.get_doc(
+				{
+					"doctype": "Supplier",
+					"supplier_name": supplier_name,
+					"supplier_group": sg,
+					"default_currency": acct_cur,
+				}
+			).insert(ignore_permissions=True)
+		supplier = frappe.get_doc("Supplier", supplier_name)
+		if acct_cur:
+			supplier.default_currency = acct_cur
+		if not any(r.company == company and r.account == account for r in supplier.accounts or []):
+			supplier.set("accounts", [{"company": company, "account": account}])
+			supplier.save(ignore_permissions=True)
+		return supplier_name
+
+	def _ensure_customer(customer_name: str, account: str) -> str:
+		acct_cur = frappe.db.get_value("Account", account, "account_currency")
+		if not frappe.db.exists("Customer", customer_name):
+			cg = frappe.db.get_value("Customer Group", {}, "name") or "All Customer Groups"
+			frappe.get_doc(
+				{
+					"doctype": "Customer",
+					"customer_name": customer_name,
+					"customer_group": cg,
+					"default_currency": acct_cur,
+				}
+			).insert(ignore_permissions=True)
+		customer = frappe.get_doc("Customer", customer_name)
+		if acct_cur:
+			customer.default_currency = acct_cur
+		if not any(r.company == company and r.account == account for r in customer.accounts or []):
+			customer.set("accounts", [{"company": company, "account": account}])
+			customer.save(ignore_permissions=True)
+		return customer_name
+
+	suppliers = {
+		"USD": _ensure_supplier("IA-FC-ACC-SUP-USD", accounts["USD"]),
+		"EUR": _ensure_supplier("IA-FC-ACC-SUP-EUR", accounts["EUR"]),
+	}
+	customers = {
+		"USD": _ensure_customer("IA-FC-ACC-CUS-USD", accounts["USD_RECV"]),
+		"EUR": _ensure_customer("IA-FC-ACC-CUS-EUR", accounts["EUR_RECV"]),
+	}
+
+	frappe.db.commit()
+	return {
+		"suppliers": suppliers,
+		"customers": customers,
+		"accounts": accounts,
+	}

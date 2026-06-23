@@ -6,7 +6,12 @@ from __future__ import annotations
 import frappe
 from frappe.utils import flt
 
-from erpnext_extensions.iran_accounting.rounding import get_company_currency, is_irr_company, round_currency
+from erpnext_extensions.iran_accounting.rounding import (
+	get_company_currency,
+	get_currency_precision,
+	is_irr_company,
+	round_currency,
+)
 from erpnext_extensions.iran_accounting.validation import (
 	amount_is_fractional,
 	gl_debit_credit_totals,
@@ -56,6 +61,19 @@ def preview_rows_to_gl_like(gl_columns: list, gl_data: list) -> list[dict]:
 	return out
 
 
+def merge_preview_gl_like(gl_like: list[dict]) -> list[dict]:
+	"""Merge preview rows by account (Desk preview may list duplicate legs before submit merge)."""
+	from collections import defaultdict
+
+	buckets: dict[str | None, dict] = defaultdict(lambda: {"debit": 0.0, "credit": 0.0, "account": None})
+	for row in gl_like:
+		acct = row.get("account")
+		buckets[acct]["account"] = acct
+		buckets[acct]["debit"] += flt(row.get("debit"))
+		buckets[acct]["credit"] += flt(row.get("credit"))
+	return list(buckets.values())
+
+
 def validate_accounting_ledger_preview(doc, company: str) -> dict:
 	"""Validate preview for zero-value transfer rules and IRR decimals."""
 	if isinstance(doc, str):
@@ -64,6 +82,10 @@ def validate_accounting_ledger_preview(doc, company: str) -> dict:
 	gl_columns = preview.get("gl_columns") or []
 	gl_data = preview.get("gl_data") or []
 	gl_like = preview_rows_to_gl_like(gl_columns, gl_data)
+	purposes = ("Material Transfer", "Material Transfer for Manufacture", "Send to Subcontractor")
+	is_zero = doc.purpose in purposes and flt(doc.value_difference) == 0
+	if is_zero:
+		gl_like = merge_preview_gl_like(gl_like)
 	debit_total, credit_total = gl_debit_credit_totals(gl_like)
 
 	cur = get_company_currency(company)
@@ -87,9 +109,18 @@ def validate_accounting_ledger_preview(doc, company: str) -> dict:
 					preview_irr_decimals.append({f: val, "account": row.get("account")})
 
 	totals_match = flt(debit_total) == flt(expected_in) and flt(credit_total) == flt(expected_out)
+	if is_zero and not totals_match:
+		tol = 1 if get_currency_precision(cur) == 0 else 0.01
+		totals_match = (
+			abs(flt(debit_total) - flt(expected_in)) <= tol
+			and abs(flt(credit_total) - flt(expected_out)) <= tol
+			and flt(debit_total) == flt(credit_total)
+		)
 	no_double = not is_doubled_gl(debit_total, expected_in) and not is_doubled_gl(
 		credit_total, expected_out
 	)
+	if is_zero and totals_match and (is_doubled_gl(debit_total, expected_in) or is_doubled_gl(credit_total, expected_out)):
+		no_double = flt(debit_total) == flt(expected_in) and flt(credit_total) == flt(expected_out)
 	no_adj = not adj
 
 	purposes = ("Material Transfer", "Material Transfer for Manufacture", "Send to Subcontractor")

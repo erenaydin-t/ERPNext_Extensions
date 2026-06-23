@@ -22,7 +22,12 @@ GL_AMOUNT_FIELDS = (
 	"credit_in_reporting_currency",
 )
 
-SLE_MONETARY_FIELDS = ("stock_value", "stock_value_difference")
+SLE_MONETARY_FIELDS = (
+	"stock_value",
+	"stock_value_difference",
+	"incoming_rate",
+	"valuation_rate",
+)
 
 STOCK_ENTRY_TOTAL_FIELDS = ("total_incoming_value", "total_outgoing_value", "value_difference")
 STOCK_ENTRY_ITEM_MONETARY_FIELDS = ("amount", "basic_amount")
@@ -173,6 +178,36 @@ def round_sle_monetary_fields(sle_doc_or_dict, company: str | None = None) -> No
 		val = _get_entry_value(sle, field)
 		if val is not None:
 			_set_entry_value(sle, field, round_currency(val, currency))
+	if is_irr_company(company):
+		reconcile_irr_sle_after_rounding(sle, company)
+
+
+def reconcile_irr_sle_after_rounding(sle_doc_or_dict, company: str | None = None) -> None:
+	"""Preserve value_before + difference = value_after; derive integer valuation_rate from ending balance."""
+	company = company or _get_entry_value(sle_doc_or_dict, "company")
+	if not company or not is_irr_company(company):
+		return
+	qty_raw = _get_entry_value(sle_doc_or_dict, "qty_after_transaction")
+	if qty_raw in (None, ""):
+		return
+	currency = get_company_currency(company)
+	qty_after = flt(qty_raw)
+	after = flt(_get_entry_value(sle_doc_or_dict, "stock_value"))
+	diff = flt(_get_entry_value(sle_doc_or_dict, "stock_value_difference"))
+	if not qty_after:
+		_set_entry_value(sle_doc_or_dict, "valuation_rate", 0)
+		if after:
+			before = after - diff
+			_set_entry_value(sle_doc_or_dict, "stock_value", 0)
+			_set_entry_value(sle_doc_or_dict, "stock_value_difference", -before)
+		return
+	target_rate = after / qty_after
+	candidates = {int(target_rate), int(target_rate) + 1, int(target_rate) - 1, round(target_rate)}
+	best_rate = min(
+		candidates,
+		key=lambda r: abs(after - round_currency(qty_after * r, currency)),
+	)
+	_set_entry_value(sle_doc_or_dict, "valuation_rate", round_currency(best_rate, currency))
 
 
 def round_stock_entry_totals(stock_entry_doc) -> None:
