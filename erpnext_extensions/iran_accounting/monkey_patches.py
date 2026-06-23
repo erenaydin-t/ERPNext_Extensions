@@ -24,6 +24,7 @@ def apply_monkey_patches():
 	_patch_general_ledger()
 	_patch_accounts_controller()
 	_patch_stock_ledger_engine()
+	_patch_stock_ledger_report()
 	_patch_accounting_ledger_preview()
 
 
@@ -303,10 +304,16 @@ def _patch_general_ledger():
 	gl.save_entries = save_entries
 
 	def process_debit_credit_difference(gl_map):
-		precision = get_field_precision(
-			frappe.get_meta("GL Entry").get_field("debit"),
-			currency=frappe.get_cached_value("Company", gl_map[0].company, "default_currency"),
-		)
+		company = gl_map[0].company
+		company_currency = erpnext.get_company_currency(company)
+		from erpnext_extensions.iran_accounting.rounding import get_currency_precision, is_irr_company
+
+		if is_irr_company(company):
+			precision = get_currency_precision(company_currency)
+		else:
+			precision = get_field_precision(
+				frappe.get_meta("GL Entry").get_field("debit"), currency=company_currency
+			)
 
 		voucher_type = gl_map[0].voucher_type
 		voucher_no = gl_map[0].voucher_no
@@ -322,6 +329,10 @@ def _patch_general_ledger():
 			):
 				gl.raise_debit_credit_not_equal_error(debit_credit_diff, voucher_type, voucher_no)
 
+		elif debit_credit_diff and precision == 0 and abs(debit_credit_diff) < 1:
+			zvt.absorb_gl_map_rounding_residual(
+				gl_map, precision, debit_credit_diff, trx_cur_debit_credit_diff
+			)
 		elif abs(debit_credit_diff) >= (1.0 / (10**precision)):
 			if (
 				voucher_type == "Stock Entry"
@@ -332,6 +343,11 @@ def _patch_general_ledger():
 				)
 			else:
 				gl.make_round_off_gle(gl_map, debit_credit_diff, trx_cur_debit_credit_diff, precision)
+				gl_map[:] = [
+					e
+					for e in gl_map
+					if flt(e.get("debit"), precision) != 0 or flt(e.get("credit"), precision) != 0
+				]
 
 		debit_credit_diff, trx_cur_debit_credit_diff = gl.get_debit_credit_difference(gl_map, precision)
 		if abs(debit_credit_diff) > allowance:
@@ -344,6 +360,22 @@ def _patch_general_ledger():
 
 	def make_entry(args, adv_adj, update_outstanding, from_repost=False):
 		round_gl_entry_amounts(args)
+		company = args.get("company") if isinstance(args, dict) else getattr(args, "company", None)
+		if company:
+			company_currency = erpnext.get_company_currency(company)
+			from erpnext_extensions.iran_accounting.rounding import get_currency_precision, is_irr_company
+
+			precision = (
+				get_currency_precision(company_currency)
+				if is_irr_company(company)
+				else get_field_precision(
+					frappe.get_meta("GL Entry").get_field("debit"), currency=company_currency
+				)
+			)
+			debit = flt(args.get("debit") if isinstance(args, dict) else args.debit, precision)
+			credit = flt(args.get("credit") if isinstance(args, dict) else args.credit, precision)
+			if not debit and not credit:
+				return None
 		return gl._iran_original_make_entry(args, adv_adj, update_outstanding, from_repost)
 
 	def get_debit_credit_difference(gl_map, precision):
@@ -394,6 +426,8 @@ def _patch_accounts_controller():
 def _patch_stock_ledger_engine():
 	import erpnext.stock.stock_ledger as sl
 
+	from erpnext_extensions.iran_accounting.rounding import is_irr_company, round_sle_monetary_fields
+
 	if getattr(sl, "_iran_patched_update_entries_after", None):
 		return
 
@@ -409,11 +443,31 @@ def _patch_stock_ledger_engine():
 
 	def process_sle(self, sle):
 		_orig_process_sle(self, sle)
-		if hasattr(self, "currency_precision"):
-			sle.stock_value_difference = flt(sle.stock_value_difference, self.currency_precision)
+		company = getattr(self, "company", None) or (sle.get("company") if hasattr(sle, "get") else None)
+		if company and is_irr_company(company):
+			round_sle_monetary_fields(sle, company)
+			frappe.get_doc(sle).db_update()
 
 	sl.update_entries_after.process_sle = process_sle
 	sl._iran_patched_update_entries_after = True
+
+
+def _patch_stock_ledger_report():
+	import erpnext.stock.report.stock_ledger.stock_ledger as sl_report
+
+	from erpnext_extensions.iran_accounting.reports import sanitize_stock_ledger_report
+
+	if getattr(sl_report, "_iran_patched_execute", None):
+		return
+	sl_report._iran_original_execute = sl_report.execute
+
+	def execute(filters):
+		columns, data = sl_report._iran_original_execute(filters)
+		filters = frappe._dict(filters)
+		return sanitize_stock_ledger_report(columns, data, filters.get("company"), filters)
+
+	sl_report.execute = execute
+	sl_report._iran_patched_execute = True
 
 
 def _patch_accounting_ledger_preview():

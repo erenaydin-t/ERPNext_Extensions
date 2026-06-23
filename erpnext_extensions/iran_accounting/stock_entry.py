@@ -61,6 +61,8 @@ def before_gl_preview_stock_entry(doc, method=None):
 		doc.calculate_rate_and_amount(reset_outgoing_rate=False, raise_error_if_no_rate=False)
 	if is_irr_company(doc.company) and hasattr(doc, "set_total_incoming_outgoing_value"):
 		doc.set_total_incoming_outgoing_value()
+	round_stock_entry_totals(doc)
+	align_zero_value_transfer_totals(doc)
 
 
 def patched_set_total_incoming_outgoing_value(self):

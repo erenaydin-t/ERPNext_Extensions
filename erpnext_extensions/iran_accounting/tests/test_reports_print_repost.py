@@ -52,7 +52,7 @@ class TestIranAccountingReportsPrintRepost(FrappeTestCase):
 			}
 		)
 		self.assertTrue(columns)
-		assert_report_rows_no_irr_decimals(data, self.company, ("stock_value", "stock_value_difference"))
+		assert_report_rows_no_irr_decimals(data, self.company, ("stock_value", "stock_value_difference", "incoming_rate", "valuation_rate", "in_out_rate"))
 
 	def test_statement_of_accounts_no_irr_decimals(self):
 		account = frappe.db.get_value(

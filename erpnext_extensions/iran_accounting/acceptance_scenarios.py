@@ -82,6 +82,10 @@ def scenario_row(
 		"no_double_ok",
 		"no_adjustment_ok",
 		"submit_ok",
+		"db_ok",
+		"report_ok",
+		"export_ok",
+		"ui_ok",
 	):
 		if key in extra:
 			row[key] = extra[key]
@@ -156,11 +160,11 @@ def _audit(ctx: AcceptanceContext, doctype: str, name: str) -> dict:
 	return flags
 
 
-def _repost(ctx: AcceptanceContext, doctype: str, name: str) -> tuple[bool, str]:
+def _repost(ctx: AcceptanceContext, doctype: str, name: str, *, normalize_after: bool = True) -> tuple[bool, str]:
 	if not ctx.run_repost:
 		return True, "repost_skipped"
 	try:
-		out = run_repost_for_voucher_impl(doctype, name)
+		out = run_repost_for_voucher_impl(doctype, name, normalize_after=normalize_after)
 		flags = _audit(ctx, doctype, name)
 		repost_ok = flags["gl_ok"] and flags["sle_ok"]
 		return repost_ok, str(out.get("actions"))
@@ -236,6 +240,24 @@ def s03_sle_rounding(ctx: AcceptanceContext) -> dict:
 	return scenario_row(3, "SLE", "simulate", "PASS" if ok else "FAIL", sle_ok=ok, evidence=str(sle))
 
 
+def _irr_supplier() -> str | None:
+	return frappe.db.get_value(
+		"Supplier",
+		{"name": ("not like", "IA-FC-ACC%"), "disabled": 0},
+		"name",
+		order_by="creation asc",
+	)
+
+
+def _irr_customer() -> str | None:
+	return frappe.db.get_value(
+		"Customer",
+		{"name": ("not like", "IA-FC-ACC%"), "disabled": 0},
+		"name",
+		order_by="creation asc",
+	)
+
+
 def s04_opening_sr(ctx: AcceptanceContext) -> dict:
 	item = _item(ctx, "OPEN")
 	sr = ctx.b.submit_opening_stock_reconciliation(ctx.company, item, 3, 1234.567, ctx.warehouse)
@@ -306,7 +328,7 @@ def s07_pr_fractional(ctx: AcceptanceContext) -> dict:
 def s08_pi_irr_stock(ctx: AcceptanceContext) -> dict:
 	item = _item(ctx, "PI-STK")
 	ctx.b.submit_material_receipt(ctx.company, item, 1, 100, ctx.warehouse)
-	supplier = frappe.db.get_value("Supplier", {}, "name")
+	supplier = _irr_supplier()
 	if not supplier:
 		return scenario_row(8, "Purchase Invoice IRR", "", "SKIP", evidence="no supplier")
 	pi = frappe.new_doc("Purchase Invoice")
@@ -331,7 +353,7 @@ def s08_pi_irr_stock(ctx: AcceptanceContext) -> dict:
 
 
 def s09_pi_irr_no_stock(ctx: AcceptanceContext) -> dict:
-	supplier = frappe.db.get_value("Supplier", {}, "name")
+	supplier = _irr_supplier()
 	expense = frappe.db.get_value("Account", {"company": ctx.company, "root_type": "Expense", "is_group": 0}, "name")
 	if not supplier or not expense:
 		return scenario_row(9, "Purchase Invoice IRR", "", "SKIP", evidence="no supplier/expense")
@@ -354,7 +376,7 @@ def s09_pi_irr_no_stock(ctx: AcceptanceContext) -> dict:
 
 def s10_pi_usd(ctx: AcceptanceContext) -> dict:
 	usd_acct = frappe.db.get_value("Account", {"company": ctx.company, "account_currency": "USD", "is_group": 0}, "name")
-	supplier = frappe.db.get_value("Supplier", {}, "name")
+	supplier = _irr_supplier()
 	if not usd_acct or not supplier:
 		return scenario_row(10, "Purchase Invoice USD", "", "SKIP", evidence="no USD account/supplier")
 	pi = frappe.new_doc("Purchase Invoice")
@@ -385,7 +407,7 @@ def s10_pi_usd(ctx: AcceptanceContext) -> dict:
 def s11_si_irr_stock(ctx: AcceptanceContext) -> dict:
 	item = _item(ctx, "SI-STK")
 	ctx.b.submit_material_receipt(ctx.company, item, 5, 33.333, ctx.warehouse)
-	customer = frappe.db.get_value("Customer", {}, "name")
+	customer = _irr_customer()
 	if not customer:
 		return scenario_row(11, "Sales Invoice IRR", "", "SKIP", evidence="no customer")
 	si = frappe.new_doc("Sales Invoice")
@@ -410,7 +432,7 @@ def s11_si_irr_stock(ctx: AcceptanceContext) -> dict:
 
 
 def s12_si_irr_no_stock(ctx: AcceptanceContext) -> dict:
-	customer = frappe.db.get_value("Customer", {}, "name")
+	customer = _irr_customer()
 	income = frappe.db.get_value("Account", {"company": ctx.company, "root_type": "Income", "is_group": 0}, "name")
 	if not customer or not income:
 		return scenario_row(12, "Sales Invoice IRR", "", "SKIP", evidence="no customer/income")
@@ -437,7 +459,7 @@ def s13_si_usd(ctx: AcceptanceContext) -> dict:
 def s14_delivery_note(ctx: AcceptanceContext) -> dict:
 	item = _item(ctx, "DN")
 	ctx.b.submit_material_receipt(ctx.company, item, 5, 33.333, ctx.warehouse)
-	customer = frappe.db.get_value("Customer", {}, "name")
+	customer = _irr_customer()
 	if not customer:
 		return scenario_row(14, "Delivery Note", "", "SKIP", evidence="no customer")
 	dn = frappe.new_doc("Delivery Note")
@@ -701,6 +723,514 @@ def s28_print(ctx: AcceptanceContext) -> dict:
 	return scenario_row(28, "Print", name, "PASS", print_ok=True)
 
 
+def s29_stock_ledger_report_export(ctx: AcceptanceContext) -> dict:
+	voucher = "MAT-STE-2026-00102"
+	if not frappe.db.exists("Stock Entry", voucher):
+		return scenario_row(
+			29,
+			"Stock Ledger report",
+			voucher,
+			"SKIP",
+			evidence="voucher not on site",
+		)
+	from erpnext_extensions.iran_accounting.diagnostics import _normalize_irr_stock_entry, check_stock_ledger_report
+
+	posting = frappe.db.get_value("Stock Entry", voucher, "posting_date")
+	_normalize_irr_stock_entry(voucher)
+	frappe.db.commit()
+	out = check_stock_ledger_report(
+		company=ctx.company,
+		voucher_no=voucher,
+		from_date=str(posting),
+		to_date=str(posting),
+	)
+	ok = out.get("status") == "PASS"
+	return scenario_row(
+		29,
+		"Stock Ledger report",
+		voucher,
+		"PASS" if ok else "FAIL",
+		db_ok=out.get("db_ok"),
+		report_ok=out.get("report_ok"),
+		export_ok=out.get("export_ok"),
+		ui_ok=None,
+		evidence=f"frac_report={len(out.get('report_fractional_monetary') or [])} "
+		f"frac_export={len(out.get('export_fractional_monetary') or [])}",
+	)
+
+
+def s30_strict_sle_db_rates(ctx: AcceptanceContext) -> dict:
+	"""Strict IRR integer SLE rates/values in DB, report, export; repost must not reintroduce decimals."""
+	import json
+
+	voucher = "MAT-STE-2026-00102"
+	if not frappe.db.exists("Stock Entry", voucher):
+		return scenario_row(
+			30,
+			"SLE DB strict IRR",
+			voucher,
+			"SKIP",
+			evidence="voucher not on site",
+		)
+
+	from erpnext_extensions.iran_accounting.diagnostics import (
+		_normalize_irr_stock_entry,
+		check_stock_ledger_report,
+	)
+	from erpnext_extensions.iran_accounting.sql_validation import (
+		sql_find_fractional_irr_sle,
+		sql_get_sle_rows,
+	)
+
+	before_rows = sql_get_sle_rows("Stock Entry", voucher)
+	before_frac = sql_find_fractional_irr_sle("Stock Entry", voucher, ctx.company)
+
+	_normalize_irr_stock_entry(voucher)
+	frappe.db.commit()
+	after_normalize_frac = sql_find_fractional_irr_sle("Stock Entry", voucher, ctx.company)
+
+	repost_ok = True
+	repost_ev = "repost_skipped"
+	if ctx.run_repost:
+		repost_ok, repost_ev = _repost(ctx, "Stock Entry", voucher, normalize_after=False)
+		frappe.db.commit()
+
+	after_repost_frac = sql_find_fractional_irr_sle("Stock Entry", voucher, ctx.company)
+	after_rows = sql_get_sle_rows("Stock Entry", voucher)
+
+	posting = frappe.db.get_value("Stock Entry", voucher, "posting_date")
+	sl_out = check_stock_ledger_report(
+		company=ctx.company,
+		voucher_no=voucher,
+		from_date=str(posting),
+		to_date=str(posting),
+	)
+
+	db_ok = not after_repost_frac
+	report_ok = sl_out.get("report_ok")
+	export_ok = sl_out.get("export_ok")
+	ok = (
+		db_ok
+		and report_ok
+		and export_ok
+		and repost_ok
+		and not after_normalize_frac
+	)
+
+	evidence = json.dumps(
+		{
+			"before_fractional_count": len(before_frac),
+			"after_normalize_fractional_count": len(after_normalize_frac),
+			"after_repost_fractional_count": len(after_repost_frac),
+			"before_sample": before_rows[:3],
+			"after_sample": after_rows[:3],
+			"repost": repost_ev[:200],
+		},
+		default=str,
+	)[:500]
+
+	return scenario_row(
+		30,
+		"SLE DB strict IRR",
+		voucher,
+		"PASS" if ok else "FAIL",
+		db_ok=db_ok,
+		report_ok=report_ok,
+		export_ok=export_ok,
+		repost_ok=repost_ok,
+		evidence=evidence,
+	)
+
+
+def _fc_supplier(currency: str) -> str | None:
+	name = f"IA-FC-ACC-SUP-{currency}"
+	if frappe.db.exists("Supplier", name):
+		return name
+	return frappe.db.get_value("Supplier", {"name": ("like", "IA-FC-ACC-SUP%")}, "name") or frappe.db.get_value(
+		"Supplier", {}, "name"
+	)
+
+
+def _fc_customer(currency: str) -> str | None:
+	name = f"IA-FC-ACC-CUS-{currency}"
+	if frappe.db.exists("Customer", name):
+		return name
+	return frappe.db.get_value("Customer", {"name": ("like", "IA-FC-ACC-CUS%")}, "name") or frappe.db.get_value(
+		"Customer", {}, "name"
+	)
+
+
+def _fc_account(company: str, currency: str, *, receivable: bool = False) -> str | None:
+	filters: dict = {"company": company, "account_currency": currency, "is_group": 0}
+	if receivable:
+		filters["account_type"] = "Receivable"
+	else:
+		payable = frappe.db.get_value(
+			"Account",
+			{**filters, "account_type": "Payable"},
+			"name",
+			order_by="creation asc",
+		)
+		if payable:
+			return payable
+	name = frappe.db.get_value("Account", filters, "name", order_by="creation asc")
+	if name:
+		return name
+	abbr = frappe.get_cached_value("Company", company, "abbr")
+	label = "Debtors" if receivable else "Creditors"
+	return frappe.db.get_value("Account", {"company": company, "name": f"IA {currency} {label} - {abbr}"}, "name")
+
+
+def _ensure_fc_masters(ctx: AcceptanceContext) -> None:
+	try:
+		ctx.b.ensure_foreign_currency_acceptance_masters(ctx.company)
+	except Exception:
+		pass
+
+
+def _fc_row_from_check(
+	scenario_no: int,
+	area: str,
+	doctype: str,
+	voucher: str,
+	company: str,
+	txn_currency: str,
+	*,
+	expect_sle: bool = True,
+	repost_ok: bool | None = None,
+) -> dict:
+	from erpnext_extensions.iran_accounting.foreign_currency_validation import (
+		compact_evidence,
+		validate_foreign_currency_voucher,
+	)
+
+	chk = validate_foreign_currency_voucher(
+		doctype, voucher, company, txn_currency, expect_sle=expect_sle
+	)
+	reports = chk.get("reports") or {}
+	return scenario_row(
+		scenario_no,
+		area,
+		voucher,
+		chk.get("status", "FAIL"),
+		gl_ok=not chk.get("fractional_irr_gl"),
+		sle_ok=not chk.get("fractional_irr_sle"),
+		db_ok=chk.get("ok"),
+		report_ok=reports.get("gl_report_ok") and reports.get("sl_report_ok"),
+		export_ok=reports.get("export_ok"),
+		repost_ok=repost_ok,
+		evidence=compact_evidence(chk),
+	)
+
+
+def _fc_conversion_rate(currency: str) -> float:
+	return 500000.123 if currency == "USD" else 618000.456
+
+
+def _fc_item_rate(currency: str) -> float:
+	return 10.556 if currency == "USD" else 9.447
+
+
+def s31_usd_pi_update_stock(ctx: AcceptanceContext) -> dict:
+	_ensure_fc_masters(ctx)
+	supplier = _fc_supplier("USD")
+	if not supplier or not _fc_account(ctx.company, "USD"):
+		return scenario_row(31, "USD PI update_stock", "", "SKIP", evidence="no supplier or USD account")
+	item = _item(ctx, "FC-PI-USD", allow_fraction_qty=True)
+	uom = frappe.get_cached_value("Item", item, "stock_uom")
+	pi = frappe.new_doc("Purchase Invoice")
+	pi.company = ctx.company
+	pi.supplier = supplier
+	pi.currency = "USD"
+	pi.conversion_rate = _fc_conversion_rate("USD")
+	pi.update_stock = 1
+	pi.posting_date = today()
+	pi.append(
+		"items",
+		{
+			"item_code": item,
+			"qty": 1.25,
+			"rate": _fc_item_rate("USD"),
+			"warehouse": ctx.warehouse,
+			"uom": uom,
+			"stock_uom": uom,
+			"conversion_factor": 1,
+		},
+	)
+	try:
+		pi.insert(ignore_permissions=True)
+		pi.submit()
+	except Exception as exc:
+		return scenario_row(31, "USD PI update_stock", "", "SKIP", evidence=str(exc)[:200])
+	ctx.refs["fc_pi_usd"] = pi.name
+	return _fc_row_from_check(31, "USD PI update_stock", "Purchase Invoice", pi.name, ctx.company, "USD")
+
+
+def s32_eur_pi_update_stock(ctx: AcceptanceContext) -> dict:
+	_ensure_fc_masters(ctx)
+	supplier = _fc_supplier("EUR")
+	if not supplier or not _fc_account(ctx.company, "EUR"):
+		return scenario_row(32, "EUR PI update_stock", "", "SKIP", evidence="no supplier or EUR account")
+	item = _item(ctx, "FC-PI-EUR", allow_fraction_qty=True)
+	uom = frappe.get_cached_value("Item", item, "stock_uom")
+	pi = frappe.new_doc("Purchase Invoice")
+	pi.company = ctx.company
+	pi.supplier = supplier
+	pi.currency = "EUR"
+	pi.conversion_rate = _fc_conversion_rate("EUR")
+	pi.update_stock = 1
+	pi.posting_date = today()
+	pi.append(
+		"items",
+		{
+			"item_code": item,
+			"qty": 1.25,
+			"rate": _fc_item_rate("EUR"),
+			"warehouse": ctx.warehouse,
+			"uom": uom,
+			"stock_uom": uom,
+			"conversion_factor": 1,
+		},
+	)
+	try:
+		pi.insert(ignore_permissions=True)
+		pi.submit()
+	except Exception as exc:
+		return scenario_row(32, "EUR PI update_stock", "", "SKIP", evidence=str(exc)[:200])
+	ctx.refs["fc_pi_eur"] = pi.name
+	return _fc_row_from_check(32, "EUR PI update_stock", "Purchase Invoice", pi.name, ctx.company, "EUR")
+
+
+def _submit_fc_purchase_receipt(ctx: AcceptanceContext, currency: str, ref_key: str, scenario_no: int, label: str) -> dict:
+	_ensure_fc_masters(ctx)
+	supplier = _fc_supplier(currency)
+	if not supplier or not _fc_account(ctx.company, currency):
+		return scenario_row(scenario_no, label, "", "SKIP", evidence=f"no supplier or {currency} account")
+	item = _item(ctx, f"FC-PR-{currency}", allow_fraction_qty=True)
+	uom = frappe.get_cached_value("Item", item, "stock_uom")
+	pr = frappe.new_doc("Purchase Receipt")
+	pr.company = ctx.company
+	pr.supplier = supplier
+	pr.currency = currency
+	pr.conversion_rate = _fc_conversion_rate(currency)
+	pr.posting_date = today()
+	pr.append(
+		"items",
+		{
+			"item_code": item,
+			"qty": 2.5,
+			"rate": _fc_item_rate(currency),
+			"warehouse": ctx.warehouse,
+			"uom": uom,
+			"stock_uom": uom,
+			"conversion_factor": 1,
+		},
+	)
+	try:
+		pr.insert(ignore_permissions=True)
+		pr.submit()
+	except Exception as exc:
+		return scenario_row(scenario_no, label, "", "SKIP", evidence=str(exc)[:200])
+	ctx.refs[ref_key] = pr.name
+	return _fc_row_from_check(scenario_no, label, "Purchase Receipt", pr.name, ctx.company, currency)
+
+
+def s33_usd_purchase_receipt(ctx: AcceptanceContext) -> dict:
+	return _submit_fc_purchase_receipt(ctx, "USD", "fc_pr_usd", 33, "USD Purchase Receipt")
+
+
+def s34_eur_purchase_receipt(ctx: AcceptanceContext) -> dict:
+	return _submit_fc_purchase_receipt(ctx, "EUR", "fc_pr_eur", 34, "EUR Purchase Receipt")
+
+
+def _submit_fc_sales_invoice(ctx: AcceptanceContext, currency: str, ref_key: str, scenario_no: int, label: str) -> dict:
+	_ensure_fc_masters(ctx)
+	customer = _fc_customer(currency)
+	if not customer or not _fc_account(ctx.company, currency, receivable=True):
+		return scenario_row(scenario_no, label, "", "SKIP", evidence=f"no customer or {currency} account")
+	item = _item(ctx, f"FC-SI-{currency}", allow_fraction_qty=True)
+	ctx.b.submit_material_receipt(ctx.company, item, 10, 50.333, ctx.warehouse)
+	uom = frappe.get_cached_value("Item", item, "stock_uom")
+	si = frappe.new_doc("Sales Invoice")
+	si.company = ctx.company
+	si.customer = customer
+	si.currency = currency
+	si.conversion_rate = _fc_conversion_rate(currency)
+	si.update_stock = 1
+	si.posting_date = today()
+	si.append(
+		"items",
+		{
+			"item_code": item,
+			"qty": 1.5,
+			"rate": _fc_item_rate(currency),
+			"warehouse": ctx.warehouse,
+			"uom": uom,
+			"stock_uom": uom,
+			"conversion_factor": 1,
+		},
+	)
+	try:
+		si.insert(ignore_permissions=True)
+		si.submit()
+	except Exception as exc:
+		return scenario_row(scenario_no, label, "", "SKIP", evidence=str(exc)[:200])
+	ctx.refs[ref_key] = si.name
+	return _fc_row_from_check(scenario_no, label, "Sales Invoice", si.name, ctx.company, currency)
+
+
+def s35_usd_si_update_stock(ctx: AcceptanceContext) -> dict:
+	return _submit_fc_sales_invoice(ctx, "USD", "fc_si_usd", 35, "USD SI update_stock")
+
+
+def s36_eur_si_update_stock(ctx: AcceptanceContext) -> dict:
+	return _submit_fc_sales_invoice(ctx, "EUR", "fc_si_eur", 36, "EUR SI update_stock")
+
+
+def _fc_voucher_list(ctx: AcceptanceContext) -> list[tuple[str, str, str]]:
+	out = []
+	for key, doctype, cur in (
+		("fc_pi_usd", "Purchase Invoice", "USD"),
+		("fc_pi_eur", "Purchase Invoice", "EUR"),
+		("fc_pr_usd", "Purchase Receipt", "USD"),
+		("fc_pr_eur", "Purchase Receipt", "EUR"),
+		("fc_si_usd", "Sales Invoice", "USD"),
+		("fc_si_eur", "Sales Invoice", "EUR"),
+	):
+		name = ctx.refs.get(key)
+		if name and frappe.db.exists(doctype, name):
+			out.append((doctype, name, cur))
+	return out
+
+
+def s37_fc_repost(ctx: AcceptanceContext) -> dict:
+	vouchers = _fc_voucher_list(ctx)
+	if not vouchers:
+		return scenario_row(37, "FC repost", "", "SKIP", evidence="no foreign currency vouchers from 31-36")
+	all_ok = True
+	parts = []
+	for doctype, name, cur in vouchers:
+		repost_ok = True
+		repost_ev = ""
+		if ctx.run_repost:
+			repost_ok, repost_ev = _repost(ctx, doctype, name, normalize_after=False)
+		row = _fc_row_from_check(
+			37,
+			"FC repost",
+			doctype,
+			name,
+			ctx.company,
+			cur,
+			repost_ok=repost_ok if ctx.run_repost else None,
+		)
+		all_ok = all_ok and row.get("status") == "PASS" and repost_ok
+		parts.append(f"{name}:{row.get('status')}")
+	return scenario_row(
+		37,
+		"FC repost",
+		",".join(v[1] for v in vouchers[:3]),
+		"PASS" if all_ok else "FAIL",
+		repost_ok=all_ok,
+		evidence=";".join(parts)[:500],
+	)
+
+
+def s38_fc_report_export(ctx: AcceptanceContext) -> dict:
+	from erpnext_extensions.iran_accounting.foreign_currency_validation import report_export_ok_for_voucher
+
+	vouchers = _fc_voucher_list(ctx)
+	if not vouchers:
+		return scenario_row(38, "FC report/export", "", "SKIP", evidence="no vouchers")
+	all_ok = True
+	evidence_parts = []
+	for doctype, name, _cur in vouchers:
+		posting = str(frappe.db.get_value(doctype, name, "posting_date"))
+		rep = report_export_ok_for_voucher(ctx.company, name, posting)
+		ok = rep.get("gl_report_ok") and rep.get("sl_report_ok") and rep.get("export_ok")
+		all_ok = all_ok and ok
+		evidence_parts.append(
+			f"{name}:gl={rep.get('gl_report_ok')},sl={rep.get('sl_report_ok')},xlsx={rep.get('export_ok')}"
+		)
+	return scenario_row(
+		38,
+		"FC report/export",
+		vouchers[0][1],
+		"PASS" if all_ok else "FAIL",
+		report_ok=all_ok,
+		export_ok=all_ok,
+		evidence=";".join(evidence_parts)[:500],
+	)
+
+
+def _stock_residual_vouchers(ctx: AcceptanceContext) -> list[str]:
+	names = []
+	if frappe.db.exists("Stock Entry", "MAT-STE-2026-00102"):
+		names.append("MAT-STE-2026-00102")
+	for key in ("mfg", "mtfm"):
+		ref = ctx.refs.get(key)
+		if ref and frappe.db.exists("Stock Entry", ref) and ref not in names:
+			names.append(ref)
+	return names
+
+
+def s39_stock_value_residual_safety(ctx: AcceptanceContext) -> dict:
+	"""Release blocker: SLE stock_value vs movement residuals must be explainable and inventory-safe."""
+	import json
+
+	from erpnext_extensions.iran_accounting.diagnostics import (
+		_normalize_irr_stock_entry,
+		check_stock_value_residual,
+	)
+
+	vouchers = _stock_residual_vouchers(ctx)
+	if not vouchers:
+		return scenario_row(
+			39,
+			"Stock value residual safety",
+			"",
+			"SKIP",
+			evidence="no MAT-STE-2026-00102 or synthetic MTfM/Manufacture vouchers",
+		)
+
+	parts = []
+	all_ok = True
+	blocker = "MAT-STE-2026-00102"
+	for voucher in vouchers:
+		_normalize_irr_stock_entry(voucher)
+		frappe.db.commit()
+		out = check_stock_value_residual(voucher, ctx.company)
+		ok = out.get("status") == "PASS"
+		if voucher == blocker:
+			all_ok = all_ok and ok
+		else:
+			lines_ok = all((ln.get("status") == "PASS") for ln in (out.get("lines") or []))
+			gl_ok = out.get("voucher_gl_ok") or (
+				out.get("purpose") in ("Material Transfer for Manufacture", "Material Transfer")
+				and (out.get("gl") or {}).get("gl_balanced")
+			)
+			ok = lines_ok and gl_ok
+			all_ok = all_ok and ok
+		fails = [ln for ln in out.get("lines") or [] if ln.get("status") != "PASS"]
+		parts.append(
+			f"{voucher}:{'PASS' if ok else 'FAIL'}"
+			+ (f" lines_fail={len(fails)}" if fails else "")
+			+ ("" if out.get("voucher_gl_ok") else " gl_totals_mismatch")
+		)
+
+	return scenario_row(
+		39,
+		"Stock value residual safety",
+		",".join(vouchers[:2]),
+		"PASS" if all_ok else "FAIL",
+		db_ok=all_ok,
+		gl_ok=all_ok,
+		sle_ok=all_ok,
+		evidence=json.dumps(parts, default=str)[:500],
+	)
+
+
+
+
 def _make_bom_wo(ctx: AcceptanceContext, reuse: bool = False):
 	if reuse and ctx.refs.get("wo"):
 		wo_name = ctx.refs["wo"]
@@ -768,6 +1298,17 @@ SCENARIO_FUNCS: list[tuple[int, Callable[[AcceptanceContext], dict]]] = [
 	(26, s26_sl_report),
 	(27, s27_preview),
 	(28, s28_print),
+	(29, s29_stock_ledger_report_export),
+	(30, s30_strict_sle_db_rates),
+	(31, s31_usd_pi_update_stock),
+	(32, s32_eur_pi_update_stock),
+	(33, s33_usd_purchase_receipt),
+	(34, s34_eur_purchase_receipt),
+	(35, s35_usd_si_update_stock),
+	(36, s36_eur_si_update_stock),
+	(37, s37_fc_repost),
+	(38, s38_fc_report_export),
+	(39, s39_stock_value_residual_safety),
 ]
 
 

@@ -65,6 +65,22 @@ export function validateGlSql(stockEntry: string): GlValidation {
   }) as GlValidation;
 }
 
+export type StockLedgerReportCheck = {
+  status: string;
+  db_ok: boolean;
+  report_ok: boolean;
+  export_ok: boolean;
+  report_fractional_monetary?: unknown[];
+  export_fractional_monetary?: unknown[];
+};
+
+export function checkStockLedgerReport(kwargs: Record<string, unknown>): StockLedgerReportCheck {
+  return benchExecute(
+    "erpnext_extensions.iran_accounting.diagnostics.check_stock_ledger_report",
+    kwargs
+  ) as StockLedgerReportCheck;
+}
+
 export async function frappeCall<T>(
   page: import("@playwright/test").Page,
   method: string,

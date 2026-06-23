@@ -35,16 +35,19 @@ def absorb_gl_map_rounding_residual(gl_map, precision, debit_credit_diff=None, t
 	if not debit_credit_diff and not trx_cur_debit_credit_diff:
 		return
 
+	def _absorb_priority(entry) -> tuple:
+		account = entry.get("account") or ""
+		account_type = frappe.get_cached_value("Account", account, "account_type") if account else None
+		if account_type in ("Payable", "Receivable"):
+			return (0, max(flt(entry.get("debit")), flt(entry.get("credit"))))
+		if account_type == "Stock":
+			return (1, max(flt(entry.get("debit")), flt(entry.get("credit"))))
+		if account_type in ("Cost of Goods Sold", "Round Off", "Stock Adjustment"):
+			return (9, 0)
+		return (5, max(flt(entry.get("debit")), flt(entry.get("credit"))))
+
 	def _pick_entry(entries):
-		return max(
-			entries,
-			key=lambda e: max(
-				flt(e.get("debit")),
-				flt(e.get("credit")),
-				flt(e.get("debit_in_account_currency")),
-				flt(e.get("credit_in_account_currency")),
-			),
-		)
+		return max(entries, key=_absorb_priority)
 
 	entry = _pick_entry(gl_map)
 	if flt(debit_credit_diff, precision):
