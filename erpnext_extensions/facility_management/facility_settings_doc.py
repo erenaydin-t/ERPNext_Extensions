@@ -13,6 +13,8 @@ DEFAULT_RECEIPT_REMARKS = "{facility_name} دریافت تسهیلات از {ban
 DEFAULT_RECEIPT_BANK_ROW = "{facility_name} واریز تسهیلات"
 DEFAULT_RECEIPT_DEFERRED_ROW = "{facility_name} ثبت فرع / بهره سنوات آتی تسهیلات"
 DEFAULT_RECEIPT_LOAN_ROW = "{facility_name} ثبت تعهد اصل و فرع تسهیلات"
+DEFAULT_RECEIPT_LOAN_PRINCIPAL_ROW = "{facility_name} ثبت تعهد اصل تسهیلات"
+DEFAULT_RECEIPT_LOAN_PROFIT_ROW = "{facility_name} ثبت تعهد فرع تسهیلات"
 
 DEFAULT_REPAYMENT_REMARKS = "{facility_name} پرداخت قسط تسهیلات"
 DEFAULT_REPAYMENT_BANK_ROW = "{facility_name} پرداخت قسط تسهیلات از بانک"
@@ -38,6 +40,10 @@ FACILITY_SETTINGS_TEMPLATE_DEFAULTS: dict[str, str] = {
 	"default_receipt_bank_row_description_template": DEFAULT_RECEIPT_BANK_ROW,
 	"default_receipt_deferred_interest_row_description_template": DEFAULT_RECEIPT_DEFERRED_ROW,
 	"default_receipt_loan_payable_row_description_template": DEFAULT_RECEIPT_LOAN_ROW,
+	"default_receipt_loan_principal_row_description_template": DEFAULT_RECEIPT_LOAN_PRINCIPAL_ROW,
+	"default_receipt_loan_profit_row_description_template": DEFAULT_RECEIPT_LOAN_PROFIT_ROW,
+	"default_receipt_loan_principal_row_description_template": DEFAULT_RECEIPT_LOAN_PRINCIPAL_ROW,
+	"default_receipt_loan_profit_row_description_template": DEFAULT_RECEIPT_LOAN_PROFIT_ROW,
 	"default_repayment_remarks_template": DEFAULT_REPAYMENT_REMARKS,
 	"default_repayment_bank_row_description_template": DEFAULT_REPAYMENT_BANK_ROW,
 	"default_repayment_principal_row_description_template": DEFAULT_REPAYMENT_PRINCIPAL_ROW,

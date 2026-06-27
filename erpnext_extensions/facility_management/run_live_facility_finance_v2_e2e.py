@@ -145,6 +145,9 @@ def run():
 		errors.append("A: voucher_type")
 	if dr.get(ctx["bank_gl"]) != 8000 or dr.get(ctx["deferred"]) != 1000 or cr.get(ctx["loan_payable"]) != 9000:
 		errors.append(f"A: amounts {t_a}")
+	je_row_count = len(frappe.get_doc("Journal Entry", fac_a.receipt_journal_entry).accounts)
+	if je_row_count != 4:
+		errors.append(f"A: expected 4 JE rows, got {je_row_count}")
 	if not remarks or fac_a.name not in "".join(remarks):
 		errors.append("A: row descriptions missing facility number")
 

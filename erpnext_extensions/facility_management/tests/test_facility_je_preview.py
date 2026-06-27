@@ -23,6 +23,10 @@ from erpnext_extensions.facility_management.facility_accounting import (
 	preview_repayment_journal_entry,
 	receipt_je_row_dimensions,
 )
+from erpnext_extensions.facility_management.facility_e2e_context import (
+	apply_facility_test_accounts,
+	ensure_bank_master,
+)
 from erpnext_extensions.facility_management.facility_settings_doc import get_facility_settings_doc, resolve_account
 
 
@@ -72,14 +76,7 @@ def _je_rows_for_compare(je_name: str) -> list[dict]:
 def _new_receipt_facility(principal=8000, profit=1000):
 	frappe.set_user("Administrator")
 	company = frappe.db.get_value("Company", {}, "name", order_by="creation asc")
-	settings = get_facility_settings_doc(company)
-	bank = frappe.db.get_value("Bank", {}, "name", order_by="creation asc")
-	deferred = (settings and settings.get("default_deferred_loan_interest_account")) or frappe.db.get_value(
-		"Account",
-		{"company": company, "root_type": "Liability", "is_group": 0},
-		"name",
-		order_by="modified desc",
-	)
+	bank = frappe.db.get_value("Bank", {}, "name", order_by="creation asc") or ensure_bank_master()
 	fac = frappe.new_doc("Facility")
 	fac.facility_name = f"JE Preview {random_string(5)}"
 	fac.company = company
@@ -88,15 +85,7 @@ def _new_receipt_facility(principal=8000, profit=1000):
 	fac.receive_date = today()
 	fac.principal_amount = principal
 	fac.profit_amount = profit
-	for fn in (
-		"default_bank_account",
-		"default_loan_payable_account",
-		"default_cost_center",
-	):
-		if settings and settings.get(fn):
-			fac.set(fn.replace("default_", ""), settings.get(fn))
-	if flt(profit) > 0 and deferred:
-		fac.deferred_loan_interest_account = deferred
+	apply_facility_test_accounts(fac)
 	fac.insert(ignore_permissions=True)
 	frappe.db.commit()
 	return fac
@@ -141,7 +130,29 @@ class TestReceiptJePreview(unittest.TestCase):
 		dim_fn = get_facility_dimension_fieldname()
 		if dim_fn:
 			self.assertEqual(by_label["Deferred Loan Interest"]["facility"], fac.name)
-			self.assertEqual(by_label["Loan Payable"]["facility"], fac.name)
+			self.assertEqual(by_label["Loan Payable — Principal"]["facility"], fac.name)
+			self.assertEqual(by_label["Loan Payable — Profit"]["facility"], fac.name)
+
+	def test_receipt_four_row_split_amounts(self):
+		frappe.set_user("Administrator")
+		fac = _new_receipt_facility(principal=8000, profit=1000)
+		plan = build_receipt_je_plan(fac)
+		self.assertEqual(len(plan), 4)
+		roles = [p["role"] for p in plan]
+		self.assertEqual(roles, ["bank", "deferred", "loan_principal", "loan_profit"])
+		self.assertEqual(float(plan[0]["amount"]), 8000.0)
+		self.assertEqual(float(plan[1]["amount"]), 1000.0)
+		self.assertTrue(plan[0]["debit"])
+		self.assertTrue(plan[1]["debit"])
+		self.assertFalse(plan[2]["debit"])
+		self.assertFalse(plan[3]["debit"])
+		self.assertEqual(float(plan[2]["amount"]), 8000.0)
+		self.assertEqual(float(plan[3]["amount"]), 1000.0)
+		self.assertEqual(plan[2]["account"], plan[3]["account"])
+		prev = preview_receipt_journal_entry(fac)
+		self.assertEqual(len(prev["rows"]), 4)
+		self.assertEqual(prev["total_debit"], 9000.0)
+		self.assertEqual(prev["total_credit"], 9000.0)
 
 	def test_receipt_submitted_je_matches_preview(self):
 		frappe.set_user("Administrator")

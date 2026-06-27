@@ -38,50 +38,7 @@ def _log(title: str, payload):
 	print(json.dumps(payload, indent=2, default=str))
 
 
-def _site_context():
-	frappe.set_user("Administrator")
-	company = frappe.db.get_value("Company", {"name": ("!=", "")}, "name", order_by="creation asc")
-	if not company:
-		frappe.throw("No Company")
-	bank = frappe.db.get_value("Bank", {}, "name", order_by="modified desc")
-	if not bank:
-		frappe.throw("No Bank master")
-	bank_gl = frappe.db.get_value(
-		"Account", {"company": company, "account_type": "Bank", "is_group": 0}, "name", order_by="modified desc"
-	)
-	loan_payable = None
-	for row in frappe.get_all(
-		"Account",
-		filters={"company": company, "root_type": "Liability", "is_group": 0},
-		fields=["name", "account_type"],
-		order_by="modified desc",
-		limit=50,
-	):
-		if (row.account_type or "") not in ("Payable", "Receivable"):
-			loan_payable = row.name
-			break
-	if not loan_payable:
-		loan_payable = frappe.db.get_value(
-			"Account",
-			{"company": company, "root_type": "Liability", "is_group": 0},
-			"name",
-			order_by="modified desc",
-		)
-	interest = frappe.db.get_value(
-		"Account", {"company": company, "root_type": "Expense", "is_group": 0}, "name", order_by="modified desc"
-	)
-	penalty = interest
-	if not all([bank_gl, loan_payable, interest]):
-		frappe.throw(f"Missing accounts bank={bank_gl} loan={loan_payable} expense={interest}")
-	return {
-		"company": company,
-		"bank": bank,
-		"bank_gl": bank_gl,
-		"loan_payable": loan_payable,
-		"deferred": interest,
-		"interest": interest,
-		"penalty": penalty,
-	}
+from erpnext_extensions.facility_management.facility_e2e_context import site_e2e_context
 
 
 def _new_facility(ctx, *, suffix: str, principal, profit, opening=False, **extra):
@@ -95,6 +52,7 @@ def _new_facility(ctx, *, suffix: str, principal, profit, opening=False, **extra
 	doc.loan_payable_account = ctx["loan_payable"]
 	doc.bank_account = ctx["bank_gl"]
 	doc.deferred_loan_interest_account = ctx["deferred"]
+	doc.interest_expense_account = ctx.get("interest")
 	doc.penalty_expense_account = ctx["penalty"]
 	doc.is_opening_facility = 1 if opening else 0
 	doc.status = extra.pop("status", "Draft")
@@ -157,7 +115,7 @@ def _assert_repayment_excel_dimensions(facility_doc, repayment_doc, je_name: str
 def run():
 	errors: list[str] = []
 	results: dict = {"tests": {}}
-	ctx = _site_context()
+	ctx = site_e2e_context()
 	provision_facility_accounting_dimension()
 	frappe.db.commit()
 	dim_fn = get_facility_dimension_fieldname()
@@ -214,8 +172,10 @@ def run():
 	results["tests"]["4_dimension_on_je_gl"] = t4
 	_log("Test 4 JE/GL dimension", t4)
 	_assert_receipt_excel_dimensions(fac, je_name, errors)
-	if len(je_data) != 3:
-		errors.append(f"Test 4: expected 3 receipt JE rows, got {len(je_data)}")
+	if len(je_data) != 4:
+		errors.append(f"Test 4: expected 4 receipt JE rows, got {len(je_data)}")
+	if len([r for r in je_data if r.get("account") == fac.loan_payable_account and r.get("credit")]) != 2:
+		errors.append("Test 4: expected two Loan Payable credit rows")
 
 	# Test 5 — Partial repayment
 	rep1 = frappe.new_doc("Facility Repayment")

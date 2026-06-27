@@ -73,35 +73,18 @@ def _ensure_core_je_gl_decimal_30_9() -> None:
 	frappe.db.commit()
 
 
+from erpnext_extensions.facility_management.facility_e2e_context import site_e2e_context
+
+
 def _site_accounts():
-	company = frappe.db.get_value("Company", {"name": ("!=", "")}, "name", order_by="creation asc")
-	bank = frappe.db.get_value("Bank", {}, "name", order_by="modified desc")
-	bank_gl = frappe.db.get_value(
-		"Account", {"company": company, "account_type": "Bank", "is_group": 0}, "name", order_by="modified desc"
-	)
-	loan_payable = None
-	for row in frappe.get_all(
-		"Account",
-		filters={"company": company, "root_type": "Liability", "is_group": 0},
-		fields=["name", "account_type"],
-		order_by="modified desc",
-		limit=50,
-	):
-		if (row.account_type or "") not in ("Payable", "Receivable"):
-			loan_payable = row.name
-			break
-	interest = frappe.db.get_value(
-		"Account", {"company": company, "root_type": "Expense", "is_group": 0}, "name", order_by="modified desc"
-	)
-	if not all([company, bank, bank_gl, loan_payable, interest]):
-		frappe.throw("Missing company/bank/accounts for precision E2E")
+	ctx = site_e2e_context()
 	return {
-		"company": company,
-		"bank": bank,
-		"bank_gl": bank_gl,
-		"loan_payable": loan_payable,
-		"deferred": interest,
-		"interest": interest,
+		"company": ctx["company"],
+		"bank": ctx["bank"],
+		"bank_gl": ctx["bank_gl"],
+		"loan_payable": ctx["loan_payable"],
+		"deferred": ctx["deferred"],
+		"interest": ctx.get("interest") or ctx["deferred"],
 	}
 
 

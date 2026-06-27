@@ -84,11 +84,10 @@ class TestRepaymentJeTemplateIntegration(unittest.TestCase):
 		company = frappe.db.get_value("Company", {}, "name", order_by="creation asc")
 		settings = get_facility_settings_doc(company)
 		bank = frappe.db.get_value("Bank", {}, "name", order_by="creation asc")
-		bank_gl = settings.get("default_bank_account") if settings else None
-		loan = settings.get("default_loan_payable_account") if settings else None
-		deferred = settings.get("default_deferred_loan_interest_account") if settings else None
-		interest = settings.get("default_interest_expense_account") if settings else None
-		penalty = settings.get("default_penalty_expense_account") if settings else None
+		if not bank:
+			from erpnext_extensions.facility_management.facility_e2e_context import ensure_bank_master
+
+			bank = ensure_bank_master()
 		cc = resolve_repayment_cost_center(facility=None, settings=settings)
 		fac = frappe.new_doc("Facility")
 		fac.facility_name = f"Rep JE {random_string(5)}"
@@ -98,12 +97,10 @@ class TestRepaymentJeTemplateIntegration(unittest.TestCase):
 		fac.receive_date = today()
 		fac.principal_amount = 10000
 		fac.profit_amount = 2000
-		fac.bank_account = bank_gl
-		fac.loan_payable_account = loan
-		fac.deferred_loan_interest_account = deferred
-		fac.interest_expense_account = interest
-		fac.penalty_expense_account = penalty
-		if cc:
+		from erpnext_extensions.facility_management.facility_e2e_context import apply_facility_test_accounts
+
+		apply_facility_test_accounts(fac)
+		if cc and not fac.cost_center:
 			fac.cost_center = cc
 		fac.insert(ignore_permissions=True)
 		frappe.db.commit()

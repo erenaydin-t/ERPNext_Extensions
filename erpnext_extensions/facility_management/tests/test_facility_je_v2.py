@@ -22,10 +22,11 @@ class TestFacilityPlannedRows(unittest.TestCase):
 		from decimal import Decimal
 
 		rows = _planned_receipt_rows(Decimal("8000"), Decimal("1000"))
-		self.assertEqual(len(rows), 3)
+		self.assertEqual(len(rows), 4)
 		self.assertEqual(rows[0], (Decimal("8000"), "debit"))
 		self.assertEqual(rows[1], (Decimal("1000"), "debit"))
-		self.assertEqual(rows[2], (Decimal("9000"), "credit"))
+		self.assertEqual(rows[2], (Decimal("8000"), "credit"))
+		self.assertEqual(rows[3], (Decimal("1000"), "credit"))
 
 	def test_receipt_rows_profit_zero(self):
 		from decimal import Decimal

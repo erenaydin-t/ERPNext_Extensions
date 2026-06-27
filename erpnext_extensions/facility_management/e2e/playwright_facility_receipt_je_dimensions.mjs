@@ -48,7 +48,7 @@ function assertReceiptRows(prep) {
 	const { je_rows, dim_fn, bank_gl, loan_gl, deferred_gl, expected_bank_dimension, facility } = prep;
 	const bank = je_rows.find((r) => r.account === bank_gl && r.debit > 0);
 	const deferred = je_rows.find((r) => r.account === deferred_gl && r.debit > 0);
-	const loan = je_rows.find((r) => r.account === loan_gl && r.credit > 0);
+	const loanCredits = je_rows.filter((r) => r.account === loan_gl && r.credit > 0);
 	const errors = [];
 	if (!bank?.dims?.bank_dimension) errors.push("bank row missing bank_dimension");
 	if (bank?.dims?.bank_dimension !== expected_bank_dimension) errors.push("bank_dimension mismatch");
@@ -56,9 +56,12 @@ function assertReceiptRows(prep) {
 	if (bank?.dims?.bank_account_dimension) errors.push("bank row has bank_account_dimension");
 	if (dim_fn && bank?.dims?.[dim_fn]) errors.push("bank row has facility dimension");
 
+	if (!deferred) errors.push("deferred row missing");
+	if (loanCredits.length !== 2) errors.push(`expected 2 loan credit rows, got ${loanCredits.length}`);
+
 	for (const [label, row] of [
 		["deferred", deferred],
-		["loan", loan],
+		...loanCredits.map((r, i) => [`loan_credit_${i}`, r]),
 	]) {
 		if (!row) {
 			errors.push(`${label} row missing`);
@@ -69,7 +72,7 @@ function assertReceiptRows(prep) {
 		if (row.dims?.bank_dimension) errors.push(`${label} has bank_dimension`);
 		if (row.dims?.bank_account_dimension) errors.push(`${label} has bank_account_dimension`);
 	}
-	return { ok: !errors.length, errors, bank, deferred, loan };
+	return { ok: !errors.length, errors, bank, deferred, loanCredits };
 }
 
 async function run() {

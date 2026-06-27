@@ -6,14 +6,17 @@ import frappe
 from frappe.utils import random_string, today
 
 from erpnext_extensions.facility_management.facility_accounting import preview_receipt_journal_entry
+from erpnext_extensions.facility_management.facility_e2e_context import (
+	apply_facility_test_accounts,
+	ensure_bank_master,
+)
 from erpnext_extensions.facility_management.facility_settings_doc import get_facility_settings_doc
 
 
 def prepare_receipt_preview_facility():
 	frappe.set_user("Administrator")
 	company = frappe.db.get_value("Company", {}, "name", order_by="creation asc")
-	settings = get_facility_settings_doc(company)
-	bank = frappe.db.get_value("Bank", {}, "name", order_by="creation asc")
+	bank = frappe.db.get_value("Bank", {}, "name", order_by="creation asc") or ensure_bank_master()
 	fac = frappe.new_doc("Facility")
 	fac.facility_name = f"E2E Receipt Preview {random_string(4)}"
 	fac.company = company
@@ -22,20 +25,7 @@ def prepare_receipt_preview_facility():
 	fac.receive_date = today()
 	fac.principal_amount = 8000
 	fac.profit_amount = 1000
-	deferred = (settings and settings.get("default_deferred_loan_interest_account")) or frappe.db.get_value(
-		"Account",
-		{"company": company, "root_type": "Liability", "is_group": 0},
-		"name",
-		order_by="modified desc",
-	)
-	for fn in (
-		"default_bank_account",
-		"default_loan_payable_account",
-	):
-		if settings and settings.get(fn):
-			fac.set(fn.replace("default_", ""), settings.get(fn))
-	if deferred:
-		fac.deferred_loan_interest_account = deferred
+	apply_facility_test_accounts(fac)
 	fac.insert(ignore_permissions=True)
 	frappe.db.commit()
 	prev = preview_receipt_journal_entry(fac)

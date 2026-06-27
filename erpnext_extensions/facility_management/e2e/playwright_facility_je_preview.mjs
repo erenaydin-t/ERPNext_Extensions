@@ -1,14 +1,14 @@
 /**
  * Facility receipt & repayment JE preview E2E (Tests A–E).
  */
-import { chromium } from "/tmp/node_modules/playwright/index.mjs";
+import { chromium } from "/tmp/e2e-npm/node_modules/playwright/index.mjs";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { execSync } from "child_process";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const SCREEN = path.join(__dirname, "screenshots", "je_preview");
+const SCREEN = path.join(__dirname, "screenshots", "receipt_split");
 const BASE = process.env.FRAPPE_E2E_BASE_URL || "http://development.localhost:8000";
 const BENCH = process.env.FRAPPE_BENCH_ROOT || "/workspace/development/frappe-bench";
 
@@ -48,7 +48,7 @@ function rowsMatch(previewRows, jeAccounts) {
 
 async function run() {
 	const receiptPrep = bench(
-		"erpnext_extensions.facility_management.e2e.facility_je_preview_prep.prepare_receipt_preview_facility"
+		"erpnext_extensions.facility_management.e2e.facility_receipt_split_prep.prepare_receipt_split_browser_facility"
 	);
 	const repayPrep = bench(
 		"erpnext_extensions.facility_management.e2e.facility_je_preview_prep.prepare_repayment_preview_draft"
@@ -89,15 +89,17 @@ async function run() {
 			return { ...r.message, receipt_journal_entry: cur_frm.doc.receipt_journal_entry };
 		});
 		await page.waitForSelector(".modal-dialog:visible", { timeout: 30000 });
-		evidence.screenshots.receipt_preview = await shot(page, "A_receipt_preview_dialog");
+		evidence.screenshots.receipt_preview = await shot(page, "preview_receipt_4_rows");
 		const labels = (receiptPreviewUi.rows || []).map((r) => r.row_label);
 		results.push({
 			test: "A_receipt_preview",
 			ok:
 				receiptPreviewUi.balanced &&
+				receiptPreviewUi.rows?.length === 4 &&
 				labels.includes("Bank") &&
 				labels.includes("Deferred Loan Interest") &&
-				labels.includes("Loan Payable") &&
+				labels.includes("Loan Payable — Principal") &&
+				labels.includes("Loan Payable — Profit") &&
 				!receiptPreviewUi.receipt_journal_entry,
 			receiptPreviewUi,
 		});
@@ -121,9 +123,20 @@ async function run() {
 		evidence.receipt.create = createReceipt;
 		results.push({
 			test: "B_receipt_submit_matches_preview",
-			ok: rowsMatch(receiptPreviewUi.rows, createReceipt.accounts),
+			ok:
+				rowsMatch(receiptPreviewUi.rows, createReceipt.accounts) &&
+				createReceipt.accounts.length === 4,
 			createReceipt,
 		});
+
+		await page.goto(
+			`${BASE}/desk/journal-entry/${encodeURIComponent(createReceipt.je)}`,
+			{ waitUntil: "domcontentloaded" }
+		);
+		await page.waitForFunction(() => window.cur_frm?.doc?.doctype === "Journal Entry" && !window.cur_frm.is_loading, {
+			timeout: 180000,
+		});
+		evidence.screenshots.submitted_je = await shot(page, "submitted_je_4_rows");
 
 		// Test C — repayment preview
 		await page.goto(
