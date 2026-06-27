@@ -7,14 +7,14 @@ from frappe.utils import random_string, today
 
 from erpnext_extensions.facility_management.doctype.facility.facility import create_receipt_journal_entry
 from erpnext_extensions.facility_management.facility_accounting import preview_repayment_journal_entry
+from erpnext_extensions.facility_management.facility_e2e_context import apply_facility_test_accounts, ensure_bank_master
 from erpnext_extensions.facility_management.facility_settings_doc import get_facility_settings_doc
 
 
 def prepare_active_facility():
 	frappe.set_user("Administrator")
 	company = frappe.db.get_value("Company", {}, "name", order_by="creation asc")
-	settings = get_facility_settings_doc(company)
-	bank = frappe.db.get_value("Bank", {}, "name", order_by="creation asc")
+	bank = frappe.db.get_value("Bank", {}, "name", order_by="creation asc") or ensure_bank_master()
 	fac = frappe.new_doc("Facility")
 	fac.facility_name = f"E2E Repay {random_string(5)}"
 	fac.company = company
@@ -23,17 +23,7 @@ def prepare_active_facility():
 	fac.receive_date = today()
 	fac.principal_amount = 50000
 	fac.profit_amount = 5000
-	for fn in (
-		"default_bank_account",
-		"default_loan_payable_account",
-		"default_deferred_loan_interest_account",
-		"default_interest_expense_account",
-		"default_penalty_expense_account",
-		"default_cost_center",
-	):
-		if settings and settings.get(fn):
-			target = fn.replace("default_", "")
-			fac.set(target, settings.get(fn))
+	apply_facility_test_accounts(fac)
 	fac.insert(ignore_permissions=True)
 	frappe.db.commit()
 	create_receipt_journal_entry(fac.name)

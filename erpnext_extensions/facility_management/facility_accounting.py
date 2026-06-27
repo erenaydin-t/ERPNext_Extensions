@@ -17,6 +17,8 @@ from erpnext_extensions.facility_management.facility_monetary import (
 from erpnext_extensions.facility_management.facility_settings_doc import (
 	DEFAULT_RECEIPT_BANK_ROW,
 	DEFAULT_RECEIPT_DEFERRED_ROW,
+	DEFAULT_RECEIPT_LOAN_PRINCIPAL_ROW,
+	DEFAULT_RECEIPT_LOAN_PROFIT_ROW,
 	DEFAULT_RECEIPT_LOAN_ROW,
 	DEFAULT_RECEIPT_REMARKS,
 	DEFAULT_REPAYMENT_BANK_ROW,
@@ -89,40 +91,47 @@ def _assert_row_dims_empty(row, forbidden: set[str], *, label: str) -> None:
 
 
 def _validate_receipt_je_dimensions(je_name: str, facility) -> None:
-	settings = get_facility_settings_doc(facility.company)
-	bank_acc = resolve_account("bank_account", facility=facility, settings=settings, required=True)
-	loan_acc = resolve_account("loan_payable_account", facility=facility, settings=settings, required=True)
-	deferred_acc = resolve_account(
-		"deferred_loan_interest_account", facility=facility, settings=settings, required=False
-	)
-	dim_fn = get_facility_dimension_fieldname()
+	plan = build_receipt_je_plan(facility)
 	je = frappe.get_doc("Journal Entry", je_name)
-	for row in je.accounts:
-		if row.account == bank_acc:
-			expected = receipt_je_row_dimensions("bank", facility.name, facility=facility, settings=settings)
-			for fn, val in expected.items():
-				if getattr(row, fn, None) != val:
-					frappe.throw(
-						frappe._("Receipt JE bank row: expected {0}={1!r}, got {2!r}").format(
-							fn, val, getattr(row, fn, None)
-						)
+	if len(je.accounts) != len(plan):
+		frappe.throw(
+			frappe._("Receipt JE row count {0} does not match expected {1}").format(
+				len(je.accounts), len(plan)
+			)
+		)
+	dim_fn = get_facility_dimension_fieldname()
+	for row, spec in zip(je.accounts, plan, strict=True):
+		if row.account != spec["account"]:
+			frappe.throw(
+				frappe._("Receipt JE row {0}: expected account {1}, got {2}").format(
+					row.idx, spec["account"], row.account
+				)
+			)
+		exp_debit = spec["debit"]
+		if exp_debit:
+			if flt(row.debit_in_account_currency) != flt(spec["amount"]):
+				frappe.throw(frappe._("Receipt JE row {0}: debit amount mismatch").format(row.idx))
+		else:
+			if flt(row.credit_in_account_currency) != flt(spec["amount"]):
+				frappe.throw(frappe._("Receipt JE row {0}: credit amount mismatch").format(row.idx))
+		for fn, val in (spec.get("dims") or {}).items():
+			if getattr(row, fn, None) != val:
+				frappe.throw(
+					frappe._("Receipt JE row {0}: expected {1}={2!r}, got {3!r}").format(
+						row.idx, fn, val, getattr(row, fn, None)
 					)
-			forbidden = {dim_fn, "department", "bank_account_dimension", "cost_center"} - set(expected.keys())
+				)
+		role = spec.get("role")
+		if role == "bank":
+			forbidden = {dim_fn, "department", "bank_account_dimension", "cost_center"} - set(
+				(spec.get("dims") or {}).keys()
+			)
 			_assert_row_dims_empty(row, {f for f in forbidden if f}, label="Receipt JE bank row")
-		elif deferred_acc and row.account == deferred_acc:
-			if dim_fn and getattr(row, dim_fn, None) != facility.name:
-				frappe.throw(frappe._("Receipt JE deferred row missing Facility dimension"))
+		elif role in ("deferred", "loan_principal", "loan_profit"):
 			forbidden = {"department", "bank_dimension", "bank_account_dimension", "cost_center"}
 			if dim_fn:
 				forbidden.discard(dim_fn)
-			_assert_row_dims_empty(row, forbidden, label="Receipt JE deferred row")
-		elif row.account == loan_acc:
-			if dim_fn and getattr(row, dim_fn, None) != facility.name:
-				frappe.throw(frappe._("Receipt JE loan row missing Facility dimension"))
-			forbidden = {"department", "bank_dimension", "bank_account_dimension", "cost_center"}
-			if dim_fn:
-				forbidden.discard(dim_fn)
-			_assert_row_dims_empty(row, forbidden, label="Receipt JE loan row")
+			_assert_row_dims_empty(row, forbidden, label=f"Receipt JE {role} row")
 
 
 def _validate_repayment_je_dimensions(je_name: str, facility, repayment) -> None:
@@ -186,7 +195,7 @@ def receipt_je_row_dimensions(
 		if bank_dim and _je_account_has_field("bank_dimension"):
 			out["bank_dimension"] = bank_dim
 		return out
-	if row_role in ("deferred", "loan"):
+	if row_role in ("deferred", "loan", "loan_principal", "loan_profit"):
 		return facility_dimension_on_row(facility_name)
 	return {}
 
@@ -252,11 +261,26 @@ def _append_je_row(
 	je.append("accounts", payload)
 
 
+def _enforce_receipt_je_row_dims_from_plan(je, plan: list[dict[str, Any]]) -> None:
+	_enforce_je_row_dims_from_plan(je, plan)
+
+
+def _enforce_je_row_dims_from_plan(je, plan: list[dict[str, Any]]) -> None:
+	"""Strip ERPNext default dimensions so submitted rows match the JE plan."""
+	fields = _je_row_dim_fieldnames()
+	for row, spec in zip(je.accounts, plan, strict=True):
+		dims = spec.get("dims") or {}
+		for fn in fields:
+			row.set(fn, dims.get(fn))
+
+
 def _planned_receipt_rows(principal: Decimal, profit: Decimal) -> list[tuple[Decimal, str]]:
 	rows: list[tuple[Decimal, str]] = [(principal, "debit")]
 	if profit > 0:
 		rows.append((profit, "debit"))
-	rows.append((principal + profit, "credit"))
+	rows.append((principal, "credit"))
+	if profit > 0:
+		rows.append((profit, "credit"))
 	return rows
 
 
@@ -438,6 +462,20 @@ def _receipt_row_templates(facility, settings) -> dict[str, str]:
 			settings=settings,
 			default=DEFAULT_RECEIPT_LOAN_ROW,
 		),
+		"loan_principal": template_chain(
+			facility_key="",
+			settings_key="default_receipt_loan_principal_row_description_template",
+			facility=None,
+			settings=settings,
+			default=DEFAULT_RECEIPT_LOAN_PRINCIPAL_ROW,
+		),
+		"loan_profit": template_chain(
+			facility_key="",
+			settings_key="default_receipt_loan_profit_row_description_template",
+			facility=None,
+			settings=settings,
+			default=DEFAULT_RECEIPT_LOAN_PROFIT_ROW,
+		),
 	}
 
 
@@ -447,9 +485,11 @@ def _validate_receipt_je_prerequisites(facility, *, principal: Decimal, profit: 
 			frappe._("Opening / migrated facilities must not create a Receipt Journal Entry."),
 			title=frappe._("Facility Receipt"),
 		)
+	if principal < 0 or profit < 0:
+		frappe.throw(frappe._("Principal and profit amounts cannot be negative."))
+	settings = get_facility_settings_doc(facility.company)
 	if principal <= 0:
 		frappe.throw(frappe._("Principal amount must be positive to receive facility."))
-	settings = get_facility_settings_doc(facility.company)
 	if profit > 0:
 		resolve_account(
 			"deferred_loan_interest_account",
@@ -524,8 +564,23 @@ def build_receipt_je_plan(facility) -> list[dict[str, Any]]:
 	add("bank", bank_acc, principal, True, "bank", "Bank")
 	if profit > 0:
 		add("deferred", deferred_acc, profit, True, "deferred", "Deferred Loan Interest")
-	add("loan", loan_acc, principal + profit, False, "loan", "Loan Payable")
+	add("loan_principal", loan_acc, principal, False, "loan_principal", "Loan Payable — Principal")
+	if profit > 0:
+		add("loan_profit", loan_acc, profit, False, "loan_profit", "Loan Payable — Profit")
+	_assert_receipt_plan_balanced(plan, principal=principal, profit=profit)
 	return plan
+
+
+def _assert_receipt_plan_balanced(plan: list[dict[str, Any]], *, principal: Decimal, profit: Decimal) -> None:
+	total_debit = sum(p["amount"] for p in plan if p["debit"])
+	total_credit = sum(p["amount"] for p in plan if not p["debit"])
+	expected = principal + profit
+	if total_debit != expected or total_credit != expected:
+		frappe.throw(
+			frappe._("Receipt JE plan is not balanced: debit {0}, credit {1}, expected {2}").format(
+				total_debit, total_credit, expected
+			)
+		)
 
 
 def _je_preview_payload_from_plan(
@@ -625,8 +680,8 @@ def create_and_submit_receipt_je(facility) -> str:
 
 	planned = _planned_receipt_rows(principal, profit)
 	je.insert(ignore_permissions=True)
-	_sync_je_credit_to_debit_sum(je.name)
 	je.reload()
+	_enforce_receipt_je_row_dims_from_plan(je, plan)
 	je.submit()
 	_apply_exact_je_planned(je.name, planned)
 	_apply_exact_gl_planned(je.name, planned)
@@ -822,6 +877,7 @@ def create_and_submit_repayment_je(repayment) -> str:
 	planned = _planned_repayment_rows(principal, profit, penalty)
 	je.insert(ignore_permissions=True)
 	je.reload()
+	_enforce_je_row_dims_from_plan(je, plan)
 	je.submit()
 	_apply_exact_je_planned(je.name, planned)
 	_apply_exact_gl_planned(je.name, planned)
