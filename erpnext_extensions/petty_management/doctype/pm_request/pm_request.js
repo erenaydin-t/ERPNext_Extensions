@@ -37,7 +37,7 @@ frappe.ui.form.on("PM Request", {
 		if (!frm.is_new() && frm.doc.docstatus === 1) {
 			frm.trigger("refresh_payment_entry_list");
 		}
-		frm.trigger("setup_pm_request_toolbar");
+		schedule_pm_request_toolbar(frm);
 	},
 	details_add(frm) {
 		frm.trigger("recalc_totals");
@@ -189,8 +189,20 @@ function bind_pm_request_funding_realtime(frm) {
 			active._pm_pe_response_version = String(data.response_version_id);
 		}
 		active.trigger("refresh_payment_entry_list");
-		active.trigger("setup_pm_request_toolbar");
+		schedule_pm_request_toolbar(active);
 	});
+}
+
+function schedule_pm_request_toolbar(frm) {
+	if (frm.is_new() || !frm.doc.name) {
+		return;
+	}
+	const run = () => frm.trigger("setup_pm_request_toolbar");
+	// Workflow clears/rebuilds the standard Actions menu on render_complete; apply PM actions after.
+	$(frm.wrapper).off("render_complete.pm_request_toolbar").one("render_complete.pm_request_toolbar", () => {
+		setTimeout(run, 0);
+	});
+	setTimeout(run, 400);
 }
 
 function apply_pm_request_pe_list_payload(frm, $wrapper, payload, currency) {
@@ -231,7 +243,7 @@ function apply_pm_request_toolbar(frm, f) {
 				}
 				// Deterministic desk sync after whitelisted create (server also publishes realtime).
 				frm.trigger("refresh_payment_entry_list");
-				frm.trigger("setup_pm_request_toolbar");
+				schedule_pm_request_toolbar(frm);
 			},
 			error(r) {
 				frappe.msgprint({
@@ -331,17 +343,14 @@ function apply_pm_request_toolbar(frm, f) {
 
 	if (f.workflow_state_title === "Approved" && !cint(f.is_closed)) {
 		if (f.can_create_payment_entry) {
-			frm.add_custom_button(__("Create Payment Entry"), promptCreatePe, null);
-			if (frm.change_custom_button_type) {
-				frm.change_custom_button_type(__("Create Payment Entry"), null, "primary");
-			}
+			add_pm_request_action_item(frm, __("Create Payment Entry"), promptCreatePe);
 		}
 		if (f.can_close_pm_request) {
-			frm.add_custom_button(__("Close PM Request"), runClose, __("Actions"));
+			add_pm_request_action_item(frm, __("Close PM Request"), runClose);
 		}
 	}
 	if (f.can_open_payment_entry && frm.doc.payment_entry) {
-		frm.add_custom_button(__("Open Payment Entry"), () =>
+		add_pm_request_action_item(frm, __("Open Payment Entry"), () =>
 			frappe.set_route("Form", "Payment Entry", frm.doc.payment_entry)
 		);
 	}
@@ -408,26 +417,41 @@ function format_currency(amount, currency) {
 	return flt(amount);
 }
 
+function add_pm_request_action_item(frm, label, fn) {
+	if (!frm.page || typeof frm.page.add_action_item !== "function") {
+		frm.add_custom_button(label, fn);
+		return;
+	}
+	frm.page.add_action_item(label, fn);
+}
+
 function remove_pm_request_toolbar_buttons(frm) {
-	["Create Payment Entry", "Open Payment Entry", "Close PM Request"].forEach((raw) => {
+	const labels = ["Create Payment Entry", "Open Payment Entry", "Close PM Request"];
+	labels.forEach((raw) => {
 		const L = __(raw);
 		frm.remove_custom_button(L);
+		frm.remove_custom_button(L, __("Actions"));
 		frm.page.remove_inner_button(L);
-		frm.page.remove_inner_button(raw);
+		frm.page.remove_inner_button(L, __("Actions"));
+		remove_pm_request_action_menu_item(frm, L);
 	});
+}
+
+function remove_pm_request_action_menu_item(frm, label) {
+	if (!frm.page || !frm.page.actions) {
+		return;
+	}
+	const enc = encodeURIComponent(label);
+	frm.page.actions.find(`a.dropdown-item[data-label="${enc}"]`).remove();
 }
 
 function hide_pm_request_reject_when_not_allowed(frm, flags) {
 	if (!flags || flags.can_reject) {
 		return;
 	}
-	const rejectLabels = [__("PM Reject"), "PM Reject", __("Reject")];
-	if (frm.page && frm.page.actions_menu_items) {
-		frm.page.actions_menu_items = frm.page.actions_menu_items.filter((item) => {
-			const label = (item.label || item.action || "").toString();
-			return !rejectLabels.some((r) => label.indexOf(r) >= 0 || label === r);
-		});
-	}
+	[__("PM Reject"), "PM Reject", __("Reject")].forEach((label) => {
+		remove_pm_request_action_menu_item(frm, label);
+	});
 }
 
 frappe.ui.form.on("PM Request Detail", {
