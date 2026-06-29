@@ -41,6 +41,20 @@ class TestStockLedgerReportOpeningSR(unittest.TestCase):
 		self.assertEqual(row["in_out_rate"], 0)
 		self.assertEqual(row["incoming_rate"], 3000)
 
+	def test_align_clears_valuation_copied_to_outgoing_rate(self):
+		row = {
+			"voucher_type": "Stock Reconciliation",
+			"in_qty": 100,
+			"out_qty": 0,
+			"qty_after_transaction": 100,
+			"stock_value_difference": 300000,
+			"valuation_rate": 3000,
+			"incoming_rate": 3000,
+			"in_out_rate": 3000,
+		}
+		_align_stock_reconciliation_report_row(row)
+		self.assertEqual(row["in_out_rate"], 0)
+
 	def test_opening_non_batch_report_outgoing_rate_zero(self):
 		item = ensure_test_item(self.company, prefix="IA-TEST-SR-OUTR")
 		sr = submit_opening_stock_reconciliation(self.company, item, 6, 3000, self.warehouse)

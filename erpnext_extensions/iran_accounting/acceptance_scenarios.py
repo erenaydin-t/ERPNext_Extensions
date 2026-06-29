@@ -1403,6 +1403,75 @@ def s47_negative_reco_outgoing_rate(ctx: AcceptanceContext) -> dict:
 	)
 
 
+def s48_real_voucher_mat_reco_gate(ctx: AcceptanceContext, voucher_no: str = "MAT-RECO-2026-02753") -> dict:
+	"""Gate on production voucher when present on site."""
+	if not frappe.db.exists("Stock Reconciliation", voucher_no):
+		return scenario_row(
+			48,
+			"Real voucher MAT-RECO-2026-02753 inspection",
+			voucher_no,
+			"SKIP",
+			evidence="voucher not on this site",
+		)
+	company = frappe.db.get_value("Stock Reconciliation", voucher_no, "company")
+	from erpnext_extensions.iran_accounting.stock_reconciliation_debug import _report_row_for_voucher
+
+	sles = frappe.db.sql(
+		"""
+		select item_code, outgoing_rate, incoming_rate, valuation_rate, stock_value_difference,
+		       qty_after_transaction, actual_qty
+		from `tabStock Ledger Entry`
+		where voucher_type='Stock Reconciliation' and voucher_no=%s and is_cancelled=0
+		""",
+		voucher_no,
+		as_dict=True,
+	)
+	posting = frappe.db.get_value("Stock Reconciliation", voucher_no, "posting_date")
+	fail = []
+	for sle in sles:
+		if flt(sle.stock_value_difference) > 0 or (
+			flt(sle.qty_after_transaction) > 0 and flt(sle.actual_qty) <= 0
+		):
+			if flt(sle.outgoing_rate):
+				fail.append(f"DB {sle.item_code} outgoing_rate={sle.outgoing_rate}")
+			rpt = _report_row_for_voucher(company, voucher_no, str(posting))
+			if flt(rpt.get("in_out_rate")):
+				fail.append(f"Report in_out_rate={rpt.get('in_out_rate')}")
+	ok = not fail
+	return scenario_row(
+		48,
+		"Real voucher MAT-RECO-2026-02753 inspection",
+		voucher_no,
+		"PASS" if ok else "FAIL",
+		db_ok=ok,
+		report_ok=ok,
+		sle_ok=ok,
+		evidence="; ".join(fail) or f"sle_rows={len(sles)}",
+	)
+
+
+def s49_stock_ledger_monkey_patch_runtime(ctx: AcceptanceContext) -> dict:
+	from erpnext_extensions.iran_accounting.monkey_patches import apply_monkey_patches
+	from erpnext_extensions.iran_accounting.stock_ledger_report import stock_ledger_report_runtime_info
+
+	apply_monkey_patches()
+	info = stock_ledger_report_runtime_info()
+	ok = info.get("stock_ledger_execute_is_wrapped") and info.get("stock_ledger_execute_patched_flag")
+	return scenario_row(
+		49,
+		"Stock Ledger report monkey patch runtime",
+		info.get("align_module_path") or "",
+		"PASS" if ok else "FAIL",
+		report_ok=ok,
+		evidence=(
+			f"patched={info.get('stock_ledger_execute_patched_flag')} "
+			f"wrapped={info.get('stock_ledger_execute_is_wrapped')} "
+			f"align_sha={info.get('align_source_sha256_16')} "
+			f"restart_if_stale={info.get('bench_restart_required_if_stale')}"
+		),
+	)
+
+
 def _make_bom_wo(ctx: AcceptanceContext, reuse: bool = False):
 	if reuse and ctx.refs.get("wo"):
 		wo_name = ctx.refs["wo"]
@@ -1489,6 +1558,8 @@ SCENARIO_FUNCS: list[tuple[int, Callable[[AcceptanceContext], dict]]] = [
 	(45, s45_opening_positive_no_outgoing_rate),
 	(46, s46_opening_batch_nonbatch_outgoing),
 	(47, s47_negative_reco_outgoing_rate),
+	(48, s48_real_voucher_mat_reco_gate),
+	(49, s49_stock_ledger_monkey_patch_runtime),
 ]
 
 

@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import inspect
 import re
 from typing import Any
 
@@ -135,19 +137,41 @@ def sanitize_stock_ledger_row(
 
 
 def sanitize_stock_ledger_report(columns: list, data: list, company: str, filters: dict | None = None) -> tuple[list, list]:
-	if not company or not is_irr_company(company):
-		return columns, data
 	valuation_field_type = (filters or {}).get("valuation_field_type") or "Currency"
 	monetary = tuple(monetary_fieldnames_from_columns(columns, valuation_field_type))
+	irr = bool(company and is_irr_company(company))
 	for row in data or []:
-		if isinstance(row, dict):
+		if not isinstance(row, dict):
+			continue
+		if irr:
 			sanitize_stock_ledger_row(row, company, monetary)
+		if row.get("voucher_type") == "Stock Reconciliation":
 			_align_stock_reconciliation_report_row(row)
 	return columns, data
 
 
+def stock_ledger_report_runtime_info() -> dict[str, Any]:
+	"""Whether Stock Ledger execute is patched and where alignment code lives."""
+	import erpnext.stock.report.stock_ledger.stock_ledger as sl_report
+
+	src = inspect.getsource(_align_stock_reconciliation_report_row)
+	checksum = hashlib.sha256(src.encode("utf-8")).hexdigest()[:16]
+	patched = bool(getattr(sl_report, "_iran_patched_execute", None))
+	execute_fn = sl_report.execute
+	wrapped = patched and execute_fn is not getattr(sl_report, "_iran_original_execute", None)
+	return {
+		"align_module_path": __file__,
+		"align_function": "_align_stock_reconciliation_report_row",
+		"align_source_sha256_16": checksum,
+		"stock_ledger_execute_module": getattr(execute_fn, "__module__", None),
+		"stock_ledger_execute_patched_flag": patched,
+		"stock_ledger_execute_is_wrapped": wrapped,
+		"bench_restart_required_if_stale": not patched,
+	}
+
+
 def _align_stock_reconciliation_report_row(row: dict) -> None:
-	"""Desk report leaves in_qty/out_qty zero for some opening Stock Reconciliation rows (non-batch)."""
+	"""Normalize Stock Reconciliation rows for Desk Stock Ledger (in_qty / rates)."""
 	if row.get("voucher_type") != "Stock Reconciliation":
 		return
 
@@ -157,31 +181,44 @@ def _align_stock_reconciliation_report_row(row: dict) -> None:
 	value_change = flt(row.get("stock_value_difference"))
 	val_rate = flt(row.get("valuation_rate"))
 
-	# Non-batch SR rows often have actual_qty=0; core may leave in_qty/out_qty unset (e.g. voucher-only filter).
+	# Opening / positive intro: SLE actual_qty is often 0; core may leave movement qty unset.
 	if not in_qty and not out_qty:
 		if value_change > 0 and qty_after > 0:
 			row["in_qty"] = qty_after
 			row["out_qty"] = 0
-			if not flt(row.get("incoming_rate")) and val_rate:
-				row["incoming_rate"] = val_rate
-			row["in_out_rate"] = 0
-			return
-		if value_change < 0:
-			rate = val_rate or flt(row.get("incoming_rate"))
-			if rate:
-				row["out_qty"] = flt(value_change) / rate
+		elif value_change < 0 and val_rate:
+			row["out_qty"] = flt(value_change) / val_rate
 			row["in_qty"] = 0
-			row["incoming_rate"] = 0
-			if rate and not flt(row.get("in_out_rate")):
-				row["in_out_rate"] = rate
-			return
 
-	# Positive stock added (in only): never copy avg rate into Outgoing Rate (in_out_rate).
-	if in_qty > 0 and out_qty >= 0:
-		if not flt(row.get("incoming_rate")) and flt(row.get("valuation_rate")):
-			row["incoming_rate"] = row.get("valuation_rate")
-		if not out_qty:
-			row["in_out_rate"] = 0
+	in_qty = flt(row.get("in_qty"))
+	out_qty = flt(row.get("out_qty"))
+	value_change = flt(row.get("stock_value_difference"))
+	val_rate = flt(row.get("valuation_rate"))
+
+	positive_intro = value_change > 0 or (in_qty > 0 and out_qty >= 0 and value_change >= 0)
+	negative_reduction = value_change < 0 or (out_qty < 0 and in_qty <= 0)
+
+	if positive_intro and not negative_reduction:
+		if not flt(row.get("incoming_rate")) and val_rate:
+			row["incoming_rate"] = val_rate
+		if in_qty <= 0 and qty_after > 0 and value_change > 0:
+			row["in_qty"] = qty_after
+		row["out_qty"] = 0
+		row["in_out_rate"] = 0
+		return
+
+	if negative_reduction:
+		rate = val_rate or flt(row.get("in_out_rate")) or flt(row.get("incoming_rate"))
+		row["in_qty"] = 0
+		row["incoming_rate"] = 0
+		if rate and not flt(row.get("in_out_rate")):
+			row["in_out_rate"] = rate
+		if not out_qty and rate and value_change < 0:
+			row["out_qty"] = flt(value_change) / rate
+		return
+
+	row["incoming_rate"] = 0
+	row["in_out_rate"] = 0
 
 
 def fractional_cells_in_report_rows(
