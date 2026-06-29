@@ -7,7 +7,7 @@ import frappe
 from frappe import _
 from frappe.exceptions import QueryTimeoutError
 from frappe.model.document import Document
-from frappe.utils import getdate, today
+from frappe.utils import cint, getdate, today
 
 from erpnext_extensions.petty_management.services.clearance_lock_diagnostics import (
 	log_pm_clearance_lock_diagnostics,
@@ -68,6 +68,12 @@ class PMClearance(Document):
 		frappe.logger("pm_clearance").info("PM Clearance autoname done name=%s", self.name)
 
 	def insert(self, *args, **kwargs):
+		if cint(self.docstatus) == 0:
+			from erpnext_extensions.petty_management.services.clearance_service import (
+				normalize_funding_allocation_rows,
+			)
+
+			normalize_funding_allocation_rows(self)
 		try:
 			return super().insert(*args, **kwargs)
 		except QueryTimeoutError as exc:

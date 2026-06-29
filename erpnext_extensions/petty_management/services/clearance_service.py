@@ -15,7 +15,10 @@ from erpnext_extensions.petty_management.services.constants import (
 )
 from erpnext_extensions.petty_management.services.opening_advance_service import allocation_row_funding_source_type
 from erpnext_extensions.petty_management.services.holder_service import (
+	clearance_exclude_name_for_validation,
 	clearance_petty_cash_account,
+	get_holder,
+	get_holder_balances,
 	get_holder_petty_cash_account,
 	sync_clearance_holder_fields,
 )
@@ -64,6 +67,47 @@ def validate_clearance(doc: Document) -> None:
 	validate_clearance_policy(doc)
 
 
+def _policy_available_for_clearance(doc: Document) -> tuple[float, float, float]:
+	"""Holder-level available for policy; submitted clearances exclude their own reservation."""
+	exclude = clearance_exclude_name_for_validation(doc)
+
+	holder_name = (doc.holder or "").strip()
+	if not holder_name and doc.employee and doc.company:
+		h = get_holder(doc.employee, doc.company, required=False)
+		holder_name = (h.name if h else "").strip()
+
+	if holder_name:
+		balances = get_holder_balances(
+			holder_name,
+			posting_date=getdate(doc.transaction_date or today()),
+			exclude_clearance_name=exclude,
+		)
+		total_avail = balances.available_amount
+		funded_avail = balances.funded_available_amount
+		opening_avail = balances.opening_available_amount
+	else:
+		total_avail = flt(getattr(doc, "total_available", None) or getattr(doc, "pending_amount", None))
+		funded_avail = flt(getattr(doc, "funded_available", 0))
+		opening_avail = flt(getattr(doc, "opening_available", 0))
+
+	if cint(doc.docstatus) == 1 and doc.get("request_allocations"):
+		non_legacy = [r for r in doc.request_allocations if not getattr(r, "is_legacy_row", 0)]
+		if non_legacy:
+			# Row snapshots (just validated) use per-source SQL with exclude_clearance; use as floor when
+			# holder aggregate paid SQL is stale under heavy sequential suites.
+			row_headroom = sum(flt(r.available_amount) for r in non_legacy)
+			if row_headroom > total_avail + EPSILON:
+				total_avail = row_headroom
+				if funded_avail + opening_avail < total_avail - EPSILON:
+					funded_avail = max(funded_avail, row_headroom - opening_avail)
+
+	doc.funded_available = funded_avail
+	doc.opening_available = opening_avail
+	doc.total_available = total_avail
+	doc.pending_amount = total_avail
+	return total_avail, funded_avail, opening_avail
+
+
 def validate_clearance_policy(doc: Document) -> None:
 	settings = get_pm_settings()
 	if not doc.request_allocations:
@@ -72,14 +116,14 @@ def validate_clearance_policy(doc: Document) -> None:
 		frappe.throw(_("Total settlement amount must be greater than zero"))
 
 	allow_neg = bool(settings and settings.allow_negative_balance)
-	total_avail = flt(getattr(doc, "total_available", None) or getattr(doc, "pending_amount", None))
+	total_avail, funded_avail, opening_avail = _policy_available_for_clearance(doc)
 	if not allow_neg and flt(doc.total_expense_amount) > total_avail + EPSILON:
 		frappe.throw(
 			_("Clearance total {0} exceeds total available balance {1} (Funded {2} + Opening {3}).").format(
 				doc.total_expense_amount,
 				total_avail,
-				flt(getattr(doc, "funded_available", 0)),
-				flt(getattr(doc, "opening_available", 0)),
+				funded_avail,
+				opening_avail,
 			)
 		)
 

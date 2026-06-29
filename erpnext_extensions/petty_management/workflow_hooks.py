@@ -18,4 +18,13 @@ def apply_workflow(doc, action):
 		cl_doc = frappe.get_doc("PM Clearance", payload["name"])
 		validate_apply_workflow_action(cl_doc, action)
 
+	if isinstance(payload, dict) and payload.get("doctype") == "PM Request" and payload.get("name"):
+		from erpnext_extensions.petty_management.services.request_action_policy import (
+			validate_pm_request_workflow_action,
+		)
+		from erpnext_extensions.petty_management.services.request_api_guard import get_pm_request_doc_for_read
+
+		req_doc = get_pm_request_doc_for_read(payload["name"])
+		validate_pm_request_workflow_action(req_doc, action)
+
 	return _apply_workflow(doc, action)

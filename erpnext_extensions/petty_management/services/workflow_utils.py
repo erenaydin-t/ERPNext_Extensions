@@ -98,6 +98,12 @@ def apply_pm_workflow(doc: Document | str, action: str) -> Document:
 			),
 			title=_("Workflow"),
 		)
+	if doc.doctype == "PM Request":
+		from erpnext_extensions.petty_management.services.request_action_policy import (
+			validate_pm_request_workflow_action,
+		)
+
+		validate_pm_request_workflow_action(doc, action)
 	return frappe_apply_workflow(doc, action)
 
 

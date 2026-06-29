@@ -27,6 +27,8 @@ from erpnext_extensions.petty_management.services.opening_advance_service import
 )
 from erpnext_extensions.petty_management.utils import get_pm_holder_name
 
+from erpnext_extensions.petty_management.services.request_api_guard import get_pm_request_doc_for_read
+
 from erpnext_extensions.petty_management.services.clearance_reservation import (
 	clearance_reserves_pm_request_balance_sql,
 	pm_request_allocation_sql_filter,
@@ -36,28 +38,9 @@ _EPS = 1e-6
 
 
 def get_pm_request_paid_amount(pm_request: str) -> float:
-	req = frappe.db.get_value(
-		"PM Request",
-		pm_request,
-		["payment_entry", "payment_status", "total_requested_amount"],
-		as_dict=True,
-	)
-	if not req or not req.payment_entry:
-		return 0.0
-	pe = frappe.db.get_value(
-		"Payment Entry",
-		req.payment_entry,
-		["docstatus", "paid_amount", "received_amount"],
-		as_dict=True,
-	)
-	if not pe or cint(pe.docstatus) != 1:
-		return 0.0
-	for fieldname in ("paid_amount", "received_amount"):
-		if flt(pe.get(fieldname)) > 0:
-			return flt(pe.get(fieldname))
-	if (req.payment_status or "").strip() == "Paid":
-		return flt(req.total_requested_amount)
-	return 0.0
+	from erpnext_extensions.petty_management.services.funding_queries import sum_submitted_pe_amount
+
+	return flt(sum_submitted_pe_amount(pm_request))
 
 
 def sum_prior_pm_request_allocations(pm_request: str, exclude_clearance_name: str | None) -> float:
@@ -88,6 +71,7 @@ def sum_prior_pm_request_allocations(pm_request: str, exclude_clearance_name: st
 
 
 def get_pm_request_available_amount(pm_request: str, exclude_clearance_name: str | None = None) -> float:
+	"""Internal availability math: aggregate submitted PE minus reserved allocations (SQL only)."""
 	return flt(get_pm_request_paid_amount(pm_request)) - flt(
 		sum_prior_pm_request_allocations(pm_request, exclude_clearance_name)
 	)
@@ -100,10 +84,12 @@ def pm_request_passes_clearance_filters(
 	company: str,
 	holder: str,
 	clearance_petty: str,
+	exclude_clearance_name: str | None = None,
 ) -> tuple[bool, str]:
 	if not pm_request_name:
 		return False, _("PM Request is empty")
-	req = frappe.get_doc("PM Request", pm_request_name)
+	# User-facing clearance validation: enforce PM Request read permission.
+	req = get_pm_request_doc_for_read(pm_request_name)
 	if req.docstatus != 1:
 		return False, _("PM Request must be submitted")
 	if req.company != company:
@@ -114,12 +100,14 @@ def pm_request_passes_clearance_filters(
 		return False, _("PM Request belongs to another PM Holder")
 	if request_petty_cash_account(req) != (clearance_petty or "").strip():
 		return False, _("PM Request petty cash account does not match this clearance holder")
-	if not req.payment_entry or frappe.db.get_value("Payment Entry", req.payment_entry, "docstatus") != 1:
-		return False, _("PM Request {0} has no submitted Payment Entry. Please create/submit Payment Entry first.").format(pm_request_name)
-	if (req.payment_status or "").strip() != "Paid":
-		return False, _("PM Request payment status must be Paid with a submitted Payment Entry")
-	if get_pm_request_paid_amount(pm_request_name) <= 0:
-		return False, _("PM Request {0} has no submitted Payment Entry. Please create/submit Payment Entry first.").format(pm_request_name)
+	paid = get_pm_request_paid_amount(pm_request_name)
+	if paid <= 0:
+		return False, _("PM Request {0} has no submitted Payment Entry. Please create/submit Payment Entry first.").format(
+			pm_request_name
+		)
+	available = get_pm_request_available_amount(pm_request_name, exclude_clearance_name)
+	if available <= _EPS:
+		return False, _("PM Request {0} has no available balance for clearance.").format(pm_request_name)
 	return True, ""
 
 
@@ -276,7 +264,7 @@ def stamp_opening_allocation_snapshot(row: Document, doc: Document, clr_petty: s
 
 
 def validate_pm_request_matches_clearance(row: Document, doc: Document, clr_petty: str) -> None:
-	req = frappe.get_doc("PM Request", row.pm_request)
+	req = get_pm_request_doc_for_read(row.pm_request)
 	req_petty = request_petty_cash_account(req)
 	if req.employee != doc.employee:
 		frappe.throw(
@@ -314,6 +302,7 @@ def validate_pm_request_matches_clearance(row: Document, doc: Document, clr_pett
 		company=doc.company,
 		holder=doc.holder or "",
 		clearance_petty=clr_petty,
+		exclude_clearance_name=doc.name if getattr(doc, "name", None) else None,
 	)
 	if not ok:
 		frappe.throw(_("Row {0}: {1}").format(row.idx, reason))
@@ -364,8 +353,6 @@ def get_pm_request_allocation_context(
 	"""
 	if not pm_request:
 		return {}
-	if not frappe.has_permission("PM Request", "read", pm_request):
-		frappe.throw(_("Not permitted"), frappe.PermissionError)
 
 	exclude_clearance = pm_clearance if pm_clearance and frappe.db.exists("PM Clearance", pm_clearance) else None
 	if exclude_clearance:
@@ -377,7 +364,7 @@ def get_pm_request_allocation_context(
 		holder = cl.holder or get_pm_holder_name(cl.employee, cl.company) or ""
 		petty_cash_account = clearance_petty_cash_account(cl) or get_holder_petty_cash_account(holder)
 
-	req = frappe.get_doc("PM Request", pm_request)
+	req = get_pm_request_doc_for_read(pm_request)
 	req_holder = req.holder or get_pm_holder_name(req.employee, req.company) or ""
 	req_petty = get_holder_petty_cash_account(req_holder)
 
@@ -396,6 +383,7 @@ def get_pm_request_allocation_context(
 		company=company or req.company,
 		holder=holder or req_holder,
 		clearance_petty=(petty_cash_account or req_petty or "").strip(),
+		exclude_clearance_name=exclude_clearance,
 	)
 	if not ok:
 		frappe.throw(msg, title=_("Invalid PM Request"))

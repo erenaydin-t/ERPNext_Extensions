@@ -25,7 +25,13 @@ def workflow_state_title(doc: Document) -> str:
 
 
 def reconcile_payment_entry_link(doc: Document) -> None:
-	"""Clear stale Payment Entry links (missing or cancelled PE)."""
+	"""Clear stale Latest Payment Entry link (missing or cancelled PE)."""
+	from erpnext_extensions.petty_management.services.funding_queries import resolve_latest_payment_entry
+
+	latest = resolve_latest_payment_entry(doc.name)
+	if latest != getattr(doc, "payment_entry", None):
+		doc.payment_entry = latest
+		return
 	if not getattr(doc, "payment_entry", None):
 		return
 	if not frappe.db.exists("Payment Entry", doc.payment_entry):
@@ -33,11 +39,20 @@ def reconcile_payment_entry_link(doc: Document) -> None:
 		return
 	ds = cint(frappe.db.get_value("Payment Entry", doc.payment_entry, "docstatus"))
 	if ds == 2:
-		doc.payment_entry = None
+		doc.payment_entry = resolve_latest_payment_entry(doc.name)
 
 
 def derive_payment_status(doc: Document) -> None:
-	"""payment_status reflects accounting truth: Paid only when linked PE is submitted."""
+	meta = frappe.get_meta("PM Request")
+	if meta.has_field("total_paid_amount"):
+		from erpnext_extensions.petty_management.services.funding_service import derive_payment_status_from_totals
+
+		if doc.total_paid_amount is None:
+			from erpnext_extensions.petty_management.services.funding_queries import sum_submitted_pe_amount
+
+			doc.total_paid_amount = sum_submitted_pe_amount(doc.name)
+		derive_payment_status_from_totals(doc)
+		return
 	if not getattr(doc, "payment_entry", None):
 		doc.payment_status = "Not Paid"
 		return
@@ -47,7 +62,13 @@ def derive_payment_status(doc: Document) -> None:
 
 def validate_request(doc: Document) -> None:
 	reconcile_payment_entry_link(doc)
-	derive_payment_status(doc)
+	meta = frappe.get_meta("PM Request")
+	if meta.has_field("total_paid_amount"):
+		from erpnext_extensions.petty_management.services.funding_service import sync_pm_request_funding_fields
+
+		sync_pm_request_funding_fields(doc)
+	else:
+		derive_payment_status(doc)
 
 	holder = sync_request_holder_fields(doc)
 	compute_totals(doc)
@@ -80,6 +101,7 @@ def validate_request(doc: Document) -> None:
 
 def enforce_request_state_machine(doc: Document) -> None:
 	"""Disallow impossible combinations (rejected + funded, paid without PE, etc.)."""
+	meta = frappe.get_meta("PM Request")
 	ws_title = workflow_state_title(doc)
 	st = (doc.status or "").strip()
 	rejected = ws_title == "Rejected" or st == "Rejected"
@@ -98,15 +120,35 @@ def enforce_request_state_machine(doc: Document) -> None:
 					title=_("Invalid state"),
 				)
 
-	if doc.payment_status == "Paid" and not doc.payment_entry:
-		frappe.throw(_("Payment Status cannot be Paid without a Payment Entry."), title=_("Invalid state"))
+	if doc.payment_status == "Paid":
+		paid = flt(getattr(doc, "total_paid_amount", None))
+		if meta.has_field("total_paid_amount"):
+			from erpnext_extensions.petty_management.services.funding_queries import sum_submitted_pe_amount
+
+			paid = sum_submitted_pe_amount(doc.name)
+		if paid + 1e-6 < flt(doc.total_requested_amount):
+			frappe.throw(_("Payment Status Paid requires funded amount to cover the request."), title=_("Invalid state"))
+		if paid <= 0:
+			frappe.throw(_("Payment Status cannot be Paid without submitted funding."), title=_("Invalid state"))
+	elif doc.payment_status == "Partially Paid":
+		if not meta.has_field("total_paid_amount"):
+			frappe.throw(_("Partially Paid is not supported on this site."), title=_("Invalid state"))
+		from erpnext_extensions.petty_management.services.funding_queries import sum_submitted_pe_amount
+
+		paid = sum_submitted_pe_amount(doc.name)
+		if paid <= 1e-6 or paid + 1e-6 >= flt(doc.total_requested_amount):
+			frappe.throw(_("Payment Status Partially Paid does not match funded amount."), title=_("Invalid state"))
+
+	if doc.payment_status in ("Paid", "Partially Paid") and not doc.payment_entry:
+		from erpnext_extensions.petty_management.services.funding_queries import count_linked_payment_entries
+
+		if count_linked_payment_entries(doc.name, docstatus=(1,)) <= 0:
+			frappe.throw(_("Payment Status requires at least one submitted Payment Entry."), title=_("Invalid state"))
 
 	if doc.payment_entry:
 		pe_ds = cint(frappe.db.get_value("Payment Entry", doc.payment_entry, "docstatus"))
-		if pe_ds == 1 and doc.payment_status != "Paid":
-			frappe.throw(_("Payment Status must be Paid when Payment Entry is submitted."), title=_("Invalid state"))
-		if pe_ds != 1 and doc.payment_status == "Paid":
-			frappe.throw(_("Payment Status Paid requires a submitted Payment Entry."), title=_("Invalid state"))
+		if pe_ds == 1 and doc.payment_status == "Not Paid":
+			frappe.throw(_("Payment Status must reflect submitted Payment Entries."), title=_("Invalid state"))
 
 
 def compute_totals(doc: Document) -> None:
@@ -128,6 +170,11 @@ def sync_request_status_from_workflow(doc: Document) -> None:
 
 	if doc.payment_status == "Paid":
 		doc.status = "Paid"
+		return
+
+	if doc.payment_status == "Partially Paid":
+		if ws_title == "Approved":
+			doc.status = "Payable"
 		return
 
 	if not ws_title:
@@ -196,13 +243,32 @@ def request_ready_for_payment_entry(doc: Document) -> tuple[bool, str]:
 	if doc.docstatus != 1:
 		return False, _("Submit the PM Request first.")
 	reconcile_payment_entry_link(doc)
-	derive_payment_status(doc)
 
 	ws_title = workflow_state_title(doc)
 	if ws_title == "Rejected" or (doc.status or "").strip() == "Rejected":
 		return False, _("This request was rejected.")
 	if ws_title != "Approved":
 		return False, _("Payment Entry is only available after workflow approval (Approved state).")
+
+	if cint(getattr(doc, "is_closed", 0)):
+		return False, _("This PM Request is closed.")
+
+	meta = frappe.get_meta("PM Request")
+	if meta.has_field("remaining_to_pay"):
+		from erpnext_extensions.petty_management.services.funding_queries import (
+			has_draft_payment_entry,
+			sum_submitted_pe_amount,
+		)
+
+		if has_draft_payment_entry(doc.name):
+			return False, _(
+				"A draft Payment Entry exists. Submit or cancel it before creating another."
+			)
+		submitted = sum_submitted_pe_amount(doc.name)
+		requested = flt(doc.total_requested_amount)
+		if submitted + 1e-6 >= requested:
+			return False, _("This request is fully funded.")
+		return True, ""
 
 	if doc.payment_status == "Paid":
 		return False, _("This request is already funded.")
@@ -269,12 +335,14 @@ def _throw_payment_entry_busy() -> None:
 	)
 
 
-def create_payment_entry(pm_request: str) -> str:
+def create_payment_entry(pm_request: str, paid_amount: float | None = None) -> str:
 	"""Create funding PE with a short row lock on PM Request (validate/build outside the lock)."""
-	doc = frappe.get_doc("PM Request", pm_request)
-	if not frappe.has_permission("PM Request", "read", doc=doc):
-		frappe.throw(_("Not permitted"), frappe.PermissionError)
-	doc.check_permission("write")
+	from erpnext_extensions.petty_management.services.request_api_guard import (
+		get_pm_request_doc_for_write,
+		get_pm_request_doc_for_write_lock,
+	)
+
+	doc = get_pm_request_doc_for_write(pm_request)
 	if doc.docstatus != 1:
 		frappe.throw(_("Please submit PM Request before creating Payment Entry."))
 	if not frappe.has_permission("PM Request", "submit", doc=doc):
@@ -290,21 +358,27 @@ def create_payment_entry(pm_request: str) -> str:
 	if not ok:
 		frappe.throw(reason, title=_("Cannot create Payment Entry"))
 
-	assert_no_active_payment_entry_for_request(doc)
-
 	paid_from = settings.default_bank_account if settings else None
 	if not paid_from:
 		frappe.throw(_("Please configure Default Bank Account in PM Settings."))
 
-	amount = flt(doc.total_requested_amount)
-	if amount <= 0:
-		frappe.throw(_("Total Requested Amount must be positive"))
+	from erpnext_extensions.petty_management.services.funding_queries import sum_submitted_pe_amount
+	from erpnext_extensions.petty_management.services.funding_service import validate_new_pe_amount
 
-	# Build PE (incl. narration templates) before acquiring PM Request row lock.
+	requested = flt(doc.total_requested_amount)
+	if requested <= 0:
+		frappe.throw(_("Total Requested Amount must be positive"))
+	submitted = sum_submitted_pe_amount(doc.name)
+	default_amount = max(0.0, requested - submitted)
+	amount = flt(paid_amount) if paid_amount is not None else default_amount
+	if amount <= 0:
+		frappe.throw(_("Payment amount must be greater than zero."))
+	validate_new_pe_amount(doc.name, amount)
+
 	pe = _build_payment_entry(doc, paid_from, amount)
 
 	try:
-		doc_locked = frappe.get_doc("PM Request", pm_request, for_update=True)
+		doc_locked = get_pm_request_doc_for_write_lock(pm_request)
 	except QueryTimeoutError:
 		_throw_payment_entry_busy()
 
@@ -312,7 +386,7 @@ def create_payment_entry(pm_request: str) -> str:
 		ok, reason = request_ready_for_payment_entry(doc_locked)
 		if not ok:
 			frappe.throw(reason, title=_("Cannot create Payment Entry"))
-		assert_no_active_payment_entry_for_request(doc_locked)
+		validate_new_pe_amount(doc_locked.name, amount)
 
 		pe.insert(ignore_permissions=True)
 		from erpnext_extensions.petty_management.services.narration_service import (
@@ -325,22 +399,16 @@ def create_payment_entry(pm_request: str) -> str:
 			update_modified=False,
 		)
 		dupes = find_active_payment_entries_for_pm_request(doc_locked.name, exclude_pe=pe.name)
-		if dupes:
+		if dupes and not frappe.get_meta("PM Request").has_field("total_paid_amount"):
 			frappe.throw(
 				_("Another Payment Entry already exists for this PM Request ({0}).").format(dupes[0]),
 				title=_("Duplicate funding Payment Entry"),
 			)
 
-		doc_locked.db_set("payment_entry", pe.name, update_modified=False)
+		from erpnext_extensions.petty_management.services.funding_service import sync_pm_request_funding_fields
+
 		doc_locked.payment_entry = pe.name
-		derive_payment_status(doc_locked)
-		sync_request_status_from_workflow(doc_locked)
-		frappe.db.set_value(
-			"PM Request",
-			doc_locked.name,
-			{"payment_status": doc_locked.payment_status, "status": doc_locked.status},
-			update_modified=False,
-		)
+		sync_pm_request_funding_fields(doc_locked)
 		frappe.db.commit()
 	except QueryTimeoutError:
 		frappe.db.rollback()
@@ -360,6 +428,9 @@ def create_payment_entry(pm_request: str) -> str:
 				update_modified=False,
 			)
 			pe.submit()
+			from erpnext_extensions.petty_management.services.funding_service import sync_pm_request_funding_fields
+
+			sync_pm_request_funding_fields(doc.name)
 		except Exception as e:
 			frappe.db.rollback()
 			frappe.throw(_("Payment Entry could not be submitted: {0}").format(str(e)), title=_("Payment Entry failed"))
@@ -422,27 +493,28 @@ def _build_payment_entry(doc: Document, paid_from: str, amount: float) -> Docume
 	return pe
 
 
-def get_pm_request_action_flags(pm_request: str) -> dict:
-	"""Desk UI: toolbar guards aligned with server rules."""
-	from erpnext_extensions.petty_management.services.workflow_utils import get_allowed_workflow_actions
+def get_pm_request_action_flags_for_doc(doc: Document) -> dict:
+	"""Desk UI flags for a PM Request document already loaded via request_api_guard."""
+	from erpnext_extensions.petty_management.services.request_action_policy import compute_pm_request_action_flags
 
-	doc = frappe.get_doc("PM Request", pm_request)
-	if not frappe.has_permission("PM Request", "read", doc=doc):
-		frappe.throw(_("Not permitted"), frappe.PermissionError)
-	can_create, reason = request_ready_for_payment_entry(doc)
-	can_open = bool(doc.payment_entry)
-	transitions = get_allowed_workflow_actions(doc)
-	actions = [t.get("action") for t in transitions if t.get("action")]
-	can_reject_wf = "PM Reject" in actions
-	if doc.payment_status == "Paid" or (doc.payment_entry and frappe.db.get_value("Payment Entry", doc.payment_entry, "docstatus") == 1):
-		can_reject_wf = False
-	return {
-		"can_create_payment_entry": bool(can_create),
-		"can_open_payment_entry": can_open,
-		"reason": reason or "",
-		"workflow_state_title": workflow_state_title(doc),
-		"workflow_state": doc.workflow_state,
-		"payment_status": doc.payment_status or "",
-		"allowed_workflow_actions": actions,
-		"can_reject": can_reject_wf,
-	}
+	flags = compute_pm_request_action_flags(doc)
+	flags["reason"] = flags.get("create_block_reason") or ""
+	return flags
+
+
+def get_pm_request_action_flags(pm_request: str) -> dict:
+	"""Deprecated: use whitelisted API with request_api_guard. Kept for internal callers."""
+	from erpnext_extensions.petty_management.services.request_api_guard import get_pm_request_doc_for_read
+
+	doc = get_pm_request_doc_for_read(pm_request)
+	return get_pm_request_action_flags_for_doc(doc)
+
+
+def close_pm_request(
+	pm_request: str,
+	close_reason: str | None = None,
+	close_reason_detail: str | None = None,
+) -> None:
+	from erpnext_extensions.petty_management.services.funding_service import close_pm_request as _close
+
+	_close(pm_request, close_reason=close_reason, close_reason_detail=close_reason_detail)

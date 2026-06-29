@@ -24,4 +24,4 @@ duplicate-reference guards, and row locks during creation.
 from __future__ import annotations
 
 # Architecture flag — used by guards and documentation consumers.
-SINGLE_PAYMENT_ENTRY_PER_PM_REQUEST: bool = True
+SINGLE_PAYMENT_ENTRY_PER_PM_REQUEST: bool = False

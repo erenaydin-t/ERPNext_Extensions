@@ -155,6 +155,35 @@ def sync_clearance_status_from_workflow(doc: Document) -> None:
 	sync_clearance_lifecycle(doc, persist=False)
 
 
+def _pm_clearance_workflow_defines_reject(doc: Document) -> bool:
+	"""True when PM Reject is defined from the clearance's current workflow state."""
+	from erpnext_extensions.petty_management.services.workflow_utils import resolve_workflow_state_link
+
+	ws = (getattr(doc, "workflow_state", None) or "").strip()
+	if not ws:
+		return False
+	canonical_ws = resolve_workflow_state_link(ws) or ws
+	ws_title = workflow_state_title(ws)
+
+	wf_name = frappe.db.get_value("Workflow", {"document_type": "PM Clearance", "is_active": 1}, "name")
+	if not wf_name:
+		return False
+	for row in frappe.get_all(
+		"Workflow Transition",
+		filters={"parent": wf_name, "action": "PM Reject"},
+		fields=["state"],
+	):
+		state_link = (row.get("state") or "").strip()
+		if not state_link:
+			continue
+		canonical_state = resolve_workflow_state_link(state_link) or state_link
+		if canonical_state == canonical_ws or state_link == ws:
+			return True
+		if ws_title and workflow_state_title(state_link) == ws_title:
+			return True
+	return False
+
+
 def get_pm_clearance_action_flags(pm_clearance: str | Document) -> dict:
 	doc = frappe.get_doc("PM Clearance", pm_clearance) if isinstance(pm_clearance, str) else pm_clearance
 	if not frappe.has_permission("PM Clearance", "read", doc=doc):
@@ -187,7 +216,12 @@ def get_pm_clearance_action_flags(pm_clearance: str | Document) -> dict:
 	from erpnext_extensions.petty_management.services.workflow_utils import get_allowed_workflow_actions
 
 	wf_actions = [t.get("action") for t in get_allowed_workflow_actions(doc) if t.get("action")]
-	if "PM Reject" not in wf_actions:
+	has_reject_transition = (
+		lifecycle == LIFECYCLE_APPROVED
+		or "PM Reject" in wf_actions
+		or _pm_clearance_workflow_defines_reject(doc)
+	)
+	if can_reject and not has_reject_transition:
 		can_reject = False
 	can_cancel = cint(doc.docstatus) == 1 and not locked and lifecycle != LIFECYCLE_CANCELLED
 

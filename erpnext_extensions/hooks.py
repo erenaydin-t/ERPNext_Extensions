@@ -211,6 +211,10 @@ doc_events = {
 	},
 	"Payment Entry": {
 		"validate": "erpnext_extensions.cheque_management.payment_entry_pdc_validation.validate_payment_entry_against_pdc_settlement",
+		"after_insert": "erpnext_extensions.petty_management.payment_entry_hooks.on_payment_entry_after_insert",
+		"before_cancel": [
+			"erpnext_extensions.petty_management.payment_entry_hooks.on_payment_entry_before_cancel",
+		],
 		"on_submit": [
 			"erpnext_extensions.cheque_management.pdc_payment_request_status.on_payment_entry_changed",
 			"erpnext_extensions.petty_management.payment_entry_hooks.on_payment_entry_submit",
@@ -219,6 +223,7 @@ doc_events = {
 			"erpnext_extensions.cheque_management.pdc_payment_request_status.on_payment_entry_changed",
 			"erpnext_extensions.petty_management.payment_entry_hooks.on_payment_entry_cancel",
 		],
+		"on_trash": "erpnext_extensions.petty_management.payment_entry_hooks.on_payment_entry_trash",
 	},
 	"Post Dated Cheque": {
 		"on_submit": [

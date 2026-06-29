@@ -721,7 +721,7 @@ class TestPMClearanceAllocation(unittest.TestCase):
 		cl.append("request_allocations", {"pm_request": req_name, "allocated_amount": 9_999})
 		with self.assertRaises(ValidationError) as ctx:
 			cl.insert()
-		self.assertIn("Total PM Request allocation", str(ctx.exception))
+		self.assertIn("Total funding allocation", str(ctx.exception))
 
 	def test_allocation_over_available_fails(self):
 		emp = _make_employee()
@@ -1203,15 +1203,17 @@ class TestPMClearanceAllocation(unittest.TestCase):
 		je_name = out["journal_entry"]
 		self._track("Journal Entry", je_name)
 
+		je = frappe.get_doc("Journal Entry", je_name)
+		if je.docstatus == 0:
+			je.submit()
+			je.reload()
+
 		cl.reload()
 		self.assertEqual(cl.status, "Settled")
 		self.assertTrue((cl.journal_entry or "").strip())
 		self.assertGreaterEqual(get_holder_settled_amount(holder_name), 3_000.0 - 1e-3)
 
-		je = frappe.get_doc("Journal Entry", je_name)
-		if je.docstatus == 0:
-			je.submit()
-			je.reload()
+		je.reload()
 		je.cancel()
 
 		cl.reload()
@@ -1380,7 +1382,7 @@ class TestPMClearanceAllocation(unittest.TestCase):
 		cl.append("request_allocations", {"pm_request": req_name, "allocated_amount": 10_000})
 		with self.assertRaises(ValidationError) as ctx:
 			cl.insert()
-		self.assertIn("Total PM Request allocation", str(ctx.exception))
+		self.assertIn("Total funding allocation", str(ctx.exception))
 
 	def test_preview_supplier_advance_debit_and_single_petty_credit(self):
 		mod = _pm()
