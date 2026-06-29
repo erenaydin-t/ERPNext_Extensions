@@ -146,7 +146,8 @@ class TestPMProductionHardening(unittest.TestCase):
 
 		with self.assertRaises(ValidationError) as ctx:
 			create_pm_pe(req.name)
-		self.assertIn("Payment Entry", str(ctx.exception))
+		msg = str(ctx.exception).lower()
+		self.assertTrue("exceeds" in msg or "over-funding" in msg or "remaining" in msg)
 
 	def test_pm_clearance_rapid_insert_names_unique(self):
 		"""Monthly naming series must not block concurrent/rapid saves (no per-employee Series row)."""
@@ -184,7 +185,9 @@ class TestPMProductionHardening(unittest.TestCase):
 		with self.assertRaises(ValidationError) as ctx:
 			create_payment_entry(req_name)
 		msg = str(ctx.exception).lower()
-		self.assertTrue("payment entry" in msg or "funded" in msg or "already" in msg)
+		self.assertTrue(
+			"fully funded" in msg or "funded" in msg or "payment entry" in msg or "already" in msg
+		)
 
 
 if __name__ == "__main__":

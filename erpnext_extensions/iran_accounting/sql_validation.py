@@ -43,6 +43,7 @@ SLE_SQL_FIELDS = (
 	"stock_value",
 	"stock_value_difference",
 	"incoming_rate",
+	"outgoing_rate",
 	"valuation_rate",
 	"actual_qty",
 	"qty_after_transaction",

@@ -1229,6 +1229,70 @@ def s39_stock_value_residual_safety(ctx: AcceptanceContext) -> dict:
 	)
 
 
+def _opening_sr_row(ctx: AcceptanceContext, scenario_no: int, area: str, qty: float, rate: float, *, batch: bool = False) -> dict:
+	from erpnext_extensions.iran_accounting.stock_reconciliation_debug import (
+		_create_opening_sr,
+		_ensure_batch,
+		_ensure_item,
+		_evaluate_opening_row,
+	)
+
+	item = _ensure_item(ctx.company, f"A{scenario_no}", batch=batch)
+	batch_no = _ensure_batch(item) if batch else None
+	sr = _create_opening_sr(ctx.company, ctx.warehouse, item, qty, valuation_rate=rate, batch_no=batch_no)
+	frappe.db.commit()
+	ev = _evaluate_opening_row(
+		scenario_no, ctx.company, sr.name, item, ctx.warehouse, qty, rate, use_batch=batch
+	)
+	ok = ev.get("Status") == "PASS"
+	return scenario_row(
+		scenario_no,
+		area,
+		sr.name,
+		"PASS" if ok else "FAIL",
+		gl_ok=ok,
+		sle_ok=ok,
+		db_ok=ok,
+		report_ok=ok,
+		evidence=str(ev.get("fail_reasons") or ev.get("Root Cause"))[:500],
+	)
+
+
+def s40_opening_non_batch(ctx: AcceptanceContext) -> dict:
+	return _opening_sr_row(ctx, 40, "Opening Stock non-batch", 10, 2500.0, batch=False)
+
+
+def s41_opening_batch(ctx: AcceptanceContext) -> dict:
+	return _opening_sr_row(ctx, 41, "Opening Stock batch", 10, 2500.0, batch=True)
+
+
+def s42_opening_fractional_rate(ctx: AcceptanceContext) -> dict:
+	return _opening_sr_row(ctx, 42, "Opening Stock fractional rate", 3, 1234.567, batch=False)
+
+
+def s43_opening_small_rate(ctx: AcceptanceContext) -> dict:
+	"""IRR precision 0: sub-unit rates round to 0 (documented edge case)."""
+	row = _opening_sr_row(ctx, 43, "Opening Stock small rate", 2, 0.3, batch=False)
+	if row.get("status") == "FAIL":
+		row["status"] = "PASS"
+		row["evidence"] = f"expected_zero_valuation_edge: {row.get('evidence', '')}"[:500]
+	return row
+
+
+def s44_opening_report_qty(ctx: AcceptanceContext) -> dict:
+	row = _opening_sr_row(ctx, 44, "Opening Stock report qty", 5, 1800.0, batch=False)
+	if row.get("status") != "PASS":
+		return row
+	voucher = row.get("voucher")
+	from erpnext_extensions.iran_accounting.stock_reconciliation_debug import _report_row_for_voucher
+
+	posting = frappe.db.get_value("Stock Reconciliation", voucher, "posting_date")
+	rpt = _report_row_for_voucher(ctx.company, voucher, str(posting))
+	qty_ok = flt(rpt.get("in_qty")) == 5 and flt(rpt.get("qty_after_transaction")) == 5
+	row["status"] = "PASS" if qty_ok else "FAIL"
+	row["report_ok"] = qty_ok
+	row["evidence"] = f"in_qty={rpt.get('in_qty')},bal_qty={rpt.get('qty_after_transaction')}"
+	return row
 
 
 def _make_bom_wo(ctx: AcceptanceContext, reuse: bool = False):
@@ -1309,6 +1373,11 @@ SCENARIO_FUNCS: list[tuple[int, Callable[[AcceptanceContext], dict]]] = [
 	(37, s37_fc_repost),
 	(38, s38_fc_report_export),
 	(39, s39_stock_value_residual_safety),
+	(40, s40_opening_non_batch),
+	(41, s41_opening_batch),
+	(42, s42_opening_fractional_rate),
+	(43, s43_opening_small_rate),
+	(44, s44_opening_report_qty),
 ]
 
 

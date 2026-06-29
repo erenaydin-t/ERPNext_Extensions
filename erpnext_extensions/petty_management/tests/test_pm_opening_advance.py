@@ -133,7 +133,8 @@ class TestPMOpeningAdvance(unittest.TestCase):
 		emp = pm_ct._make_employee()
 		holder = pm_ct._make_holder(emp)
 		oa = self._create_opening(holder, "OVER", 10_000, 0)
-		pi = pm_ct._make_pi_outstanding(5_000)
+		over_amount = 10_001
+		pi = pm_ct._make_pi_outstanding(over_amount)
 		_submit_pi_or_skip(pi)
 		cl = frappe.new_doc("PM Clearance")
 		cl.company = pm_ct.COMPANY
@@ -141,14 +142,18 @@ class TestPMOpeningAdvance(unittest.TestCase):
 		cl.transaction_date = today()
 		pm_ct._append_pm_clearance_detail_row(
 			cl,
-			{"settlement_type": "Purchase Invoice", "purchase_invoice": pi.name, "allocated_amount": 5_000},
+			{
+				"settlement_type": "Purchase Invoice",
+				"purchase_invoice": pi.name,
+				"allocated_amount": over_amount,
+			},
 		)
 		cl.append(
 			"request_allocations",
 			{
 				"funding_source_type": "PM Opening Advance",
 				"pm_opening_advance": oa,
-				"allocated_amount": 5_000,
+				"allocated_amount": over_amount,
 			},
 		)
 		with self.assertRaises(ValidationError):
@@ -190,6 +195,9 @@ class TestPMOpeningAdvance(unittest.TestCase):
 
 		cl2 = frappe.copy_doc(cl)
 		cl2.name = None
+		cl2.docstatus = 0
+		cl2.workflow_state = None
+		cl2.status = "Draft"
 		cl2.details = []
 		cl2.request_allocations = []
 		pm_ct._append_pm_clearance_detail_row(

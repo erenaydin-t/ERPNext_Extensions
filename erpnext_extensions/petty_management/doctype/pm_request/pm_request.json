@@ -28,11 +28,24 @@
   "currency",
   "section_amounts",
   "total_requested_amount",
+  "total_paid_amount",
+  "remaining_to_pay",
+  "total_draft_pe_amount",
+  "allocated_amount",
+  "available_for_clearance",
   "payment_status",
   "column_break_amt",
   "status",
   "workflow_state",
+  "section_close",
+  "is_closed",
+  "closed_on",
+  "closed_by",
+  "close_reason",
+  "close_reason_detail",
   "section_accounting",
+  "section_payment_entries",
+  "payment_entries_html",
   "payment_entry",
   "column_break_acc",
   "journal_entry",
@@ -151,12 +164,49 @@
    "read_only": 1
   },
   {
+   "fieldname": "total_paid_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Paid Amount",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "remaining_to_pay",
+   "fieldtype": "Currency",
+   "label": "Remaining To Pay",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_draft_pe_amount",
+   "fieldtype": "Currency",
+   "label": "Draft Payment Entry Total",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "allocated_amount",
+   "fieldtype": "Currency",
+   "label": "Allocated Amount",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "available_for_clearance",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Available for Clearance",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
    "default": "Not Paid",
    "fieldname": "payment_status",
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Payment Status",
-   "options": "Not Paid\nPaid",
+   "options": "Not Paid\nPartially Paid\nPaid",
    "read_only": 1
   },
   {
@@ -185,10 +235,70 @@
    "read_only": 1
   },
   {
+   "collapsible": 1,
+   "depends_on": "eval:doc.is_closed",
+   "fieldname": "section_close",
+   "fieldtype": "Section Break",
+   "label": "Close"
+  },
+  {
+   "allow_on_submit": 1,
+   "default": "0",
+   "fieldname": "is_closed",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Closed",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "closed_on",
+   "fieldtype": "Datetime",
+   "label": "Closed On",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "closed_by",
+   "fieldtype": "Link",
+   "label": "Closed By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "close_reason",
+   "fieldtype": "Select",
+   "label": "Close Reason",
+   "options": "Budget Limitation\nPartial Approval\nCancelled by Requester\nOther",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "depends_on": "eval:doc.close_reason=='Other'",
+   "fieldname": "close_reason_detail",
+   "fieldtype": "Small Text",
+   "label": "Close Reason Detail",
+   "read_only": 1
+  },
+  {
    "fieldname": "section_accounting",
    "fieldtype": "Section Break",
    "label": "Accounting / Payment",
    "collapsible": 1
+  },
+  {
+   "depends_on": "eval:doc.docstatus==1",
+   "fieldname": "section_payment_entries",
+   "fieldtype": "Section Break",
+   "label": "Payment Entries"
+  },
+  {
+   "depends_on": "eval:doc.docstatus==1",
+   "fieldname": "payment_entries_html",
+   "fieldtype": "HTML",
+   "label": "Payment Entry List",
+   "read_only": 1
   },
   {
    "description": "Deprecated: funding account is chosen on Payment Entry. Populated only from legacy data.",
@@ -201,9 +311,10 @@
   },
   {
    "allow_on_submit": 1,
+   "description": "Latest linked funding Payment Entry (navigation only; totals use submitted PE aggregate).",
    "fieldname": "payment_entry",
    "fieldtype": "Link",
-   "label": "Payment Entry",
+   "label": "Latest Payment Entry",
    "options": "Payment Entry",
    "read_only": 1
   },

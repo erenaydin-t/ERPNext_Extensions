@@ -13,7 +13,7 @@ from frappe.utils import getdate, today
 from erpnext_extensions.petty_management.services.holder_service import get_holder_context
 from erpnext_extensions.petty_management.services.request_service import (
 	create_payment_entry as create_payment_entry_service,
-	get_pm_request_action_flags as get_pm_request_action_flags_service,
+	get_pm_request_action_flags_for_doc,
 	validate_request,
 	validate_request_cancel,
 )
@@ -102,10 +102,55 @@ def get_pm_request_holder_context(employee: str | None = None, company: str | No
 
 
 @frappe.whitelist()
-def create_payment_entry(pm_request: str):
-	return create_payment_entry_service(pm_request)
+def create_payment_entry(pm_request: str, paid_amount=None):
+	from erpnext_extensions.petty_management.services.request_api_guard import (
+		get_pm_request_doc_for_write,
+		get_pm_request_response_version,
+		notify_pm_request_funding_updated,
+	)
+
+	doc = get_pm_request_doc_for_write(pm_request)
+	pa = None
+	if paid_amount not in (None, ""):
+		pa = float(paid_amount)
+	pe_name = create_payment_entry_service(doc.name, paid_amount=pa)
+	notify_pm_request_funding_updated(doc.name, "on_payment_entry_created")
+	return {
+		"payment_entry": pe_name,
+		"response_version_id": get_pm_request_response_version(doc.name),
+	}
+
+
+@frappe.whitelist()
+def close_pm_request(pm_request: str, close_reason: str | None = None, close_reason_detail: str | None = None):
+	from erpnext_extensions.petty_management.services.request_api_guard import (
+		get_pm_request_doc_for_write,
+		get_pm_request_response_version,
+		notify_pm_request_funding_updated,
+	)
+	from erpnext_extensions.petty_management.services.request_service import close_pm_request as _close
+
+	get_pm_request_doc_for_write(pm_request)
+	_close(pm_request, close_reason=close_reason, close_reason_detail=close_reason_detail)
+	notify_pm_request_funding_updated(pm_request, "on_pm_request_updated")
+	return {"ok": True, "response_version_id": get_pm_request_response_version(pm_request)}
+
+
+@frappe.whitelist()
+def get_pm_request_payment_entries(pm_request: str):
+	from erpnext_extensions.petty_management.services.request_api_guard import (
+		build_pm_request_payment_entries_payload,
+	)
+
+	return build_pm_request_payment_entries_payload(pm_request)
 
 
 @frappe.whitelist()
 def get_pm_request_action_flags(pm_request: str):
-	return get_pm_request_action_flags_service(pm_request)
+	from erpnext_extensions.petty_management.services.request_api_guard import (
+		get_pm_request_doc_for_read,
+		wrap_action_flags_with_version,
+	)
+
+	doc = get_pm_request_doc_for_read(pm_request)
+	return wrap_action_flags_with_version(get_pm_request_action_flags_for_doc(doc), doc.name)

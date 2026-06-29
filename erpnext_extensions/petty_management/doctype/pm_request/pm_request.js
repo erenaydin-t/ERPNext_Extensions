@@ -1,13 +1,12 @@
 // Copyright (c) 2026, Farbod Siyahpoosh and contributors
 // For license information, please see license.txt
-//
-// PM Request vs PM Clearance:
-// - PM Request funds the holder’s Petty Cash Account (Payment Entry: Dr petty cash, Cr bank).
-// - PM Request funding is later consumed by PM Clearance through PM Clearance Request Allocation rows.
-// - Settlement posting (Journal Entry) uses Purchase Invoice lines; allocation rows are control / traceability.
 
 frappe.ui.form.on("PM Request", {
 	setup(frm) {
+		frm._pm_toolbar_applied_version = 0;
+		frm._pm_pe_list_applied_version = 0;
+		frm._pm_pe_response_version = "0";
+		bind_pm_request_funding_realtime(frm);
 		frm.set_query("employee_bank_account", () => {
 			if (!frm.doc.employee) {
 				return {
@@ -32,17 +31,19 @@ frappe.ui.form.on("PM Request", {
 	transaction_date(frm) {
 		frm.trigger("refresh_holder_balances");
 	},
-	workflow_state(frm) {
-		frm.trigger("setup_payment_entry_buttons");
+	refresh(frm) {
+		frappe.workflow.setup(frm.doctype);
+		frm.trigger("recalc_totals");
+		if (!frm.is_new() && frm.doc.docstatus === 1) {
+			frm.trigger("refresh_payment_entry_list");
+		}
+		frm.trigger("setup_pm_request_toolbar");
 	},
-	status(frm) {
-		frm.trigger("setup_payment_entry_buttons");
+	details_add(frm) {
+		frm.trigger("recalc_totals");
 	},
-	payment_status(frm) {
-		frm.trigger("setup_payment_entry_buttons");
-	},
-	docstatus(frm) {
-		frm.trigger("setup_payment_entry_buttons");
+	details_remove(frm) {
+		frm.trigger("recalc_totals");
 	},
 	refresh_holder_balances(frm) {
 		if (!frm.doc.employee || !frm.doc.company) {
@@ -83,80 +84,72 @@ frappe.ui.form.on("PM Request", {
 							} else if (rows.length === 1) {
 								frm.set_value("employee_bank_account", rows[0].name);
 							}
-							frm.trigger("setup_payment_entry_buttons");
 						});
 				};
 
 				if (r.default_employee_bank_account) {
 					frm.set_value("employee_bank_account", r.default_employee_bank_account);
-					frm.trigger("setup_payment_entry_buttons");
 				} else {
 					setBankFromList();
 				}
 			},
 		});
 	},
-	details_add(frm) {
-		frm.trigger("recalc_totals");
+	refresh_payment_entry_list(frm) {
+		if (frm.is_new() || frm.doc.docstatus !== 1) {
+			return;
+		}
+		const field = frm.fields_dict.payment_entries_html;
+		if (!field) {
+			return;
+		}
+		frappe.call({
+			method: "erpnext_extensions.petty_management.doctype.pm_request.pm_request.get_pm_request_payment_entries",
+			args: { pm_request: frm.doc.name },
+			callback(r) {
+				if (r.exc) {
+					render_pm_request_payment_entry_table(field.$wrapper, [], frm.doc.currency, {
+						failed: true,
+					});
+					log_pm_pe_list_error(r.exc);
+					return;
+				}
+				apply_pm_request_pe_list_payload(frm, field.$wrapper, r.message || {}, frm.doc.currency);
+			},
+			error(r) {
+				render_pm_request_payment_entry_table(field.$wrapper, [], frm.doc.currency, {
+					failed: true,
+				});
+				log_pm_pe_list_error(r);
+			},
+		});
 	},
-	details_remove(frm) {
-		frm.trigger("recalc_totals");
-	},
-	refresh(frm) {
-		frappe.workflow.setup(frm.doctype);
-		frm.trigger("recalc_totals");
-		frm.trigger("setup_payment_entry_buttons");
-		setTimeout(() => frm.trigger("setup_payment_entry_buttons"), 120);
-	},
-	/* Toolbar: server-side flags = source of truth (workflow + PE state). */
-	setup_payment_entry_buttons(frm) {
+	setup_pm_request_toolbar(frm) {
 		remove_pm_request_toolbar_buttons(frm);
 		if (frm.is_new() || !frm.doc.name) {
 			return;
 		}
-		const runCreate = () => {
-			frappe.call({
-				method: "erpnext_extensions.petty_management.doctype.pm_request.pm_request.create_payment_entry",
-				args: { pm_request: frm.doc.name },
-				freeze: true,
-				freeze_message: __("Creating Payment Entry…"),
-				callback(r) {
-					if (r.exc) {
-						return;
-					}
-					frappe.show_alert({
-						message: __("Payment Entry created"),
-						indicator: "green",
-					});
-					frm.reload_doc();
-				},
-				error(r) {
-					frappe.msgprint({
-						title: __("Payment Entry failed"),
-						message: parse_pm_request_server_error(r),
-						indicator: "red",
-					});
-				},
-			});
-		};
+		frm.set_intro("");
 
 		frappe.call({
 			method: "erpnext_extensions.petty_management.doctype.pm_request.pm_request.get_pm_request_action_flags",
 			args: { pm_request: frm.doc.name },
 			callback(r) {
+				if (r.exc) {
+					return;
+				}
 				const f = r.message || {};
+				const incoming = cint(f.response_version_id || 0);
+				const applied = cint(frm._pm_toolbar_applied_version || 0);
+				if (incoming > 0 && incoming < applied) {
+					return;
+				}
+				if (incoming >= applied) {
+					frm._pm_toolbar_applied_version = incoming;
+				}
+				apply_pm_request_toolbar(frm, f);
+				apply_pm_request_intro(frm, f);
 				hide_pm_request_reject_when_not_allowed(frm, f);
-				if (f.can_create_payment_entry) {
-					frm.add_custom_button(__("Create Payment Entry"), runCreate, null);
-					if (frm.change_custom_button_type) {
-						frm.change_custom_button_type(__("Create Payment Entry"), null, "primary");
-					}
-				}
-				if (f.can_open_payment_entry && frm.doc.payment_entry) {
-					frm.add_custom_button(__("Open Payment Entry"), () =>
-						frappe.set_route("Form", "Payment Entry", frm.doc.payment_entry)
-					);
-				}
 			},
 		});
 	},
@@ -173,12 +166,250 @@ frappe.ui.form.on("PM Request", {
 			});
 			frm.refresh_field("details");
 		}
-		frm.trigger("setup_payment_entry_buttons");
 	},
 });
 
+function bind_pm_request_funding_realtime(frm) {
+	if (frappe._pm_request_funding_realtime_bound) {
+		return;
+	}
+	frappe._pm_request_funding_realtime_bound = true;
+	frappe.realtime.on("pm_request_funding_updated", (data) => {
+		if (typeof frappe.ui.form.get_open_form !== "function") {
+			return;
+		}
+		const active = frappe.ui.form.get_open_form();
+		if (!active || active.doctype !== "PM Request" || !active.doc?.name) {
+			return;
+		}
+		if (data.pm_request !== active.doc.name) {
+			return;
+		}
+		if (data.response_version_id) {
+			active._pm_pe_response_version = String(data.response_version_id);
+		}
+		active.trigger("refresh_payment_entry_list");
+		active.trigger("setup_pm_request_toolbar");
+	});
+}
+
+function apply_pm_request_pe_list_payload(frm, $wrapper, payload, currency) {
+	const incoming = cint(payload.response_version_id || 0);
+	const applied = cint(frm._pm_pe_list_applied_version || 0);
+	if (incoming < applied) {
+		return;
+	}
+	frm._pm_pe_list_applied_version = incoming;
+	frm._pm_pe_response_version = String(payload.response_version_id || incoming);
+	const rows = Array.isArray(payload.payment_entries) ? payload.payment_entries : [];
+	render_pm_request_payment_entry_table($wrapper, rows, currency);
+}
+
+function apply_pm_request_toolbar(frm, f) {
+	const runCreate = (paidAmount) => {
+		const args = { pm_request: frm.doc.name };
+		if (paidAmount != null && paidAmount !== "") {
+			args.paid_amount = paidAmount;
+		}
+		frappe.call({
+			method: "erpnext_extensions.petty_management.doctype.pm_request.pm_request.create_payment_entry",
+			args,
+			freeze: true,
+			freeze_message: __("Creating Payment Entry…"),
+			callback(r) {
+				if (r.exc) {
+					return;
+				}
+				frappe.show_alert({ message: __("Payment Entry created"), indicator: "green" });
+				const msg = r.message || {};
+				if (msg.response_version_id) {
+					frm._pm_pe_response_version = String(msg.response_version_id);
+					frm._pm_pe_list_applied_version = Math.max(
+						cint(frm._pm_pe_list_applied_version || 0),
+						cint(msg.response_version_id) - 1
+					);
+				}
+				// Deterministic desk sync after whitelisted create (server also publishes realtime).
+				frm.trigger("refresh_payment_entry_list");
+				frm.trigger("setup_pm_request_toolbar");
+			},
+			error(r) {
+				frappe.msgprint({
+					title: __("Payment Entry failed"),
+					message: parse_pm_request_server_error(r),
+					indicator: "red",
+				});
+			},
+		});
+	};
+
+	const promptCreatePe = () => {
+		const remaining = flt(f.remaining_to_pay);
+		const defaultAmt = remaining > 0 ? remaining : flt(frm.doc.total_requested_amount);
+		frappe.prompt(
+			[
+				{
+					fieldname: "paid_amount",
+					fieldtype: "Currency",
+					label: __("Payment Amount"),
+					default: defaultAmt,
+					reqd: 1,
+				},
+			],
+			(values) => runCreate(values.paid_amount),
+			__("Create Payment Entry"),
+			__("Create")
+		);
+	};
+
+	const runClose = () => {
+		const remaining = flt(f.remaining_to_pay);
+		const fields = [];
+		if (remaining > 0) {
+			fields.push({
+				fieldname: "close_reason",
+				fieldtype: "Select",
+				label: __("Close Reason"),
+				options: [
+					"Budget Limitation",
+					"Partial Approval",
+					"Cancelled by Requester",
+					"Other",
+				].join("\n"),
+				reqd: 1,
+			});
+			fields.push({
+				fieldname: "close_reason_detail",
+				fieldtype: "Small Text",
+				label: __("Close Reason Detail"),
+				depends_on: "eval:doc.close_reason=='Other'",
+			});
+		} else {
+			fields.push({
+				fieldname: "close_reason",
+				fieldtype: "Select",
+				label: __("Close Reason (optional)"),
+				options: [
+					"",
+					"Budget Limitation",
+					"Partial Approval",
+					"Cancelled by Requester",
+					"Other",
+				].join("\n"),
+			});
+			fields.push({
+				fieldname: "close_reason_detail",
+				fieldtype: "Small Text",
+				label: __("Close Reason Detail"),
+				depends_on: "eval:doc.close_reason=='Other'",
+			});
+		}
+		frappe.prompt(
+			fields,
+			(values) => {
+				frappe.call({
+					method: "erpnext_extensions.petty_management.doctype.pm_request.pm_request.close_pm_request",
+					args: {
+						pm_request: frm.doc.name,
+						close_reason: values.close_reason || null,
+						close_reason_detail: values.close_reason_detail || null,
+					},
+					freeze: true,
+					callback(r) {
+						if (r.exc) {
+							return;
+						}
+						frappe.show_alert({ message: __("PM Request closed"), indicator: "blue" });
+						frm.reload_doc();
+					},
+				});
+			},
+			__("Close PM Request"),
+			__("Close")
+		);
+	};
+
+	if (f.workflow_state_title === "Approved" && !cint(f.is_closed)) {
+		if (f.can_create_payment_entry) {
+			frm.add_custom_button(__("Create Payment Entry"), promptCreatePe, null);
+			if (frm.change_custom_button_type) {
+				frm.change_custom_button_type(__("Create Payment Entry"), null, "primary");
+			}
+		}
+		if (f.can_close_pm_request) {
+			frm.add_custom_button(__("Close PM Request"), runClose, __("Actions"));
+		}
+	}
+	if (f.can_open_payment_entry && frm.doc.payment_entry) {
+		frm.add_custom_button(__("Open Payment Entry"), () =>
+			frappe.set_route("Form", "Payment Entry", frm.doc.payment_entry)
+		);
+	}
+}
+
+function apply_pm_request_intro(frm, f) {
+	const messages = (f.ui_messages || []).filter(Boolean);
+	if (!messages.length) {
+		return;
+	}
+	const color = cint(f.is_closed) ? "blue" : "orange";
+	frm.set_intro(messages.join(" "), color);
+}
+
+function render_pm_request_payment_entry_table($wrapper, rows, currency, opts) {
+	opts = opts || {};
+	const esc = frappe.utils.escape_html;
+	let html = `<div id="pm-request-pe-list" class="pm-request-pe-list">`;
+	if (opts.failed) {
+		html += `<p class="text-muted small">${__(
+			"Payment Entry list could not be loaded. Refresh the page to try again."
+		)}</p>`;
+	}
+	html += `<table class="table table-bordered table-sm" style="margin-top:0">`;
+	html += `<thead><tr>`;
+	html += `<th>${__("Payment Entry")}</th>`;
+	html += `<th>${__("Amount")}</th>`;
+	html += `<th>${__("Status")}</th>`;
+	html += `<th>${__("Posting Date")}</th>`;
+	html += `</tr></thead><tbody>`;
+	if (!rows.length) {
+		html += `<tr><td colspan="4" class="text-muted">${__("No Payment Entries linked yet.")}</td></tr>`;
+	} else {
+		rows.forEach((row) => {
+			const link = `<a href="/app/payment-entry/${encodeURIComponent(row.payment_entry)}">${esc(
+				row.payment_entry
+			)}</a>`;
+			html += `<tr data-pe-status="${esc(row.status || "")}">`;
+			html += `<td>${link}</td>`;
+			html += `<td>${format_currency(row.amount, currency)}</td>`;
+			html += `<td>${esc(row.status || "")}</td>`;
+			html += `<td>${esc(row.posting_date || "")}</td>`;
+			html += `</tr>`;
+		});
+	}
+	html += `</tbody></table></div>`;
+	$wrapper.html(html);
+}
+
+function log_pm_pe_list_error(err) {
+	try {
+		if (typeof console !== "undefined" && console.debug) {
+			console.debug("[PM Request] payment entry list fetch failed", err);
+		}
+	} catch (e) {
+		/* ignore */
+	}
+}
+
+function format_currency(amount, currency) {
+	if (typeof frappe.format === "function") {
+		return frappe.format(amount, { fieldtype: "Currency", options: currency });
+	}
+	return flt(amount);
+}
+
 function remove_pm_request_toolbar_buttons(frm) {
-	["Create Payment Entry", "Open Payment Entry"].forEach((raw) => {
+	["Create Payment Entry", "Open Payment Entry", "Close PM Request"].forEach((raw) => {
 		const L = __(raw);
 		frm.remove_custom_button(L);
 		frm.page.remove_inner_button(L);
@@ -212,9 +443,7 @@ function parse_pm_request_server_error(r) {
 	if (r && r.exc && typeof r.exc === "string") {
 		const lockMatch = r.exc.match(/Lock wait timeout|QueryTimeoutError/i);
 		if (lockMatch) {
-			return __(
-				"This PM Request is currently being processed. Please refresh and try again."
-			);
+			return __("This PM Request is currently being processed. Please refresh and try again.");
 		}
 	}
 	if (r && r._server_messages) {
@@ -234,10 +463,15 @@ function parse_pm_request_server_error(r) {
 			/* use fallback */
 		}
 	}
-	return __("Could not create Payment Entry");
+	return __("Could not complete the request.");
 }
 
 function flt(v) {
 	const parsed = parseFloat(v);
+	return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function cint(v) {
+	const parsed = parseInt(v, 10);
 	return Number.isFinite(parsed) ? parsed : 0;
 }

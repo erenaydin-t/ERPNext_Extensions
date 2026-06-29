@@ -83,18 +83,20 @@ def _repair_pm_request_workflow():
 	if changed:
 		w.save(ignore_permissions=True)
 	_repair_workflow_common(name, "PM Request")
+
+
+def _ensure_pm_clearance_workflow():
 	if frappe.db.exists("Workflow", "PM Clearance Workflow"):
 		return
 	_wf_state("Pending Finance Review")
 	_wf_state("Approved")
+	_wf_state("Rejected")
 
 	w = frappe.new_doc("Workflow")
 	w.workflow_name = "PM Clearance Workflow"
 	w.document_type = "PM Clearance"
 	w.is_active = 1
 	w.workflow_state_field = "workflow_state"
-	# DocStatus 1 while in review/approval matches submittable petty clearance flow.
-	# Rejected must use doc_status 1: see PM Request workflow note (no 1 -> 0 transitions).
 	for state, doc_status in (
 		("Draft", "0"),
 		("Pending Finance Review", "1"),

@@ -39,6 +39,7 @@ SLE_ROW_FIELDS = [
 	"stock_value_difference",
 	"valuation_rate",
 	"incoming_rate",
+	"outgoing_rate",
 	"actual_qty",
 	"qty_after_transaction",
 ]

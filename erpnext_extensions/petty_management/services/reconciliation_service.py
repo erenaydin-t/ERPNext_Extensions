@@ -64,7 +64,70 @@ def reconcile(*, apply_safe_fixes: bool = False, company: str | None = None) -> 
 	_check_clearance_status_vs_je(res, company=company)
 	_check_opening_advance_integrity(res, company=company)
 	_check_opening_advance_payment_entry(res, company=company)
+	_check_pm_request_funding_amounts(res, company=company)
 	return res
+
+
+_CHECKS = [
+	("PAID_EXCEEDS_REQUESTED", "_check_pm_request_funding_amounts", "error"),
+	("SUBMITTED_PLUS_DRAFT_EXCEEDS_REQUEST", "_check_pm_request_funding_amounts", "error"),
+	("AVAILABLE_NEGATIVE", "_check_pm_request_funding_amounts", "error"),
+	("RESERVED_EXCEEDS_FUNDED", "_check_reserved_vs_funded", "error"),
+]
+
+
+def _check_pm_request_funding_amounts(res: ReconciliationResult, *, company: str | None) -> None:
+	from erpnext_extensions.petty_management.services.funding_queries import (
+		sum_draft_pe_amount,
+		sum_submitted_pe_amount,
+	)
+
+	filters: dict[str, Any] = {"docstatus": 1}
+	if company:
+		filters["company"] = company
+	for pr in frappe.get_all("PM Request", filters=filters, pluck="name"):
+		row = frappe.db.get_value(
+			"PM Request",
+			pr,
+			["total_requested_amount", "total_paid_amount", "available_for_clearance"],
+			as_dict=True,
+		)
+		if not row:
+			continue
+		requested = flt(row.total_requested_amount)
+		paid = flt(sum_submitted_pe_amount(pr))
+		draft = flt(sum_draft_pe_amount(pr))
+		available = flt(row.available_for_clearance)
+		if paid > requested + 1e-6:
+			res.issues.append(
+				ReconciliationIssue(
+					severity="error",
+					code="PAID_EXCEEDS_REQUESTED",
+					title=_("Submitted funding exceeds requested amount"),
+					detail=f"{pr} paid={paid} requested={requested}",
+					references={"pm_request": pr},
+				)
+			)
+		if paid + draft > requested + 1e-6:
+			res.issues.append(
+				ReconciliationIssue(
+					severity="error",
+					code="SUBMITTED_PLUS_DRAFT_EXCEEDS_REQUEST",
+					title=_("Submitted plus draft Payment Entries exceed requested amount"),
+					detail=f"{pr} submitted={paid} draft={draft} requested={requested}",
+					references={"pm_request": pr},
+				)
+			)
+		if available < -1e-6:
+			res.issues.append(
+				ReconciliationIssue(
+					severity="error",
+					code="AVAILABLE_NEGATIVE",
+					title=_("Available for clearance is negative"),
+					detail=f"{pr} available={available}",
+					references={"pm_request": pr},
+				)
+			)
 
 
 def _check_pm_request_pe_semantics(
@@ -264,6 +327,8 @@ def _check_duplicate_pe_reference(res: ReconciliationResult, *, company: str | N
 		{"company": company} if company else {},
 	)
 	for pm_request, cnt in rows:
+		if frappe.db.exists("PM Request", pm_request):
+			continue
 		res.issues.append(
 			ReconciliationIssue(
 				severity="error",
