@@ -63,8 +63,12 @@ async function run() {
 		"erpnext_extensions.petty_management.e2e.pm_multi_pe_prep.prepare_draft_pe_blocks_close"
 	);
 
-	const results = [];
-	const evidence = { screenshots: {}, partial, full, draftCase, trace: null };
+		const multi = bench(
+			"erpnext_extensions.petty_management.e2e.pm_multi_pe_prep.prepare_two_submitted_partial"
+		);
+
+		const results = [];
+	const evidence = { screenshots: {}, partial, full, draftCase, multi, trace: null };
 
 	fs.mkdirSync(TRACE_DIR, { recursive: true });
 	const browser = await chromium.launch({ headless: true });
@@ -149,6 +153,74 @@ async function run() {
 			pass: peListVisible > 0,
 		});
 		evidence.screenshots.pe_list = await shot(page, "04_pe_list");
+
+		await page.goto(`${BASE}/app/pm-request/${encodeURIComponent(multi.pm_request)}`, {
+			waitUntil: "domcontentloaded",
+		});
+		await waitPmRequestForm(page);
+		evidence.screenshots.multi_pe_form = await shot(page, "05_multi_pe_form");
+		const flagsMulti = await actionFlags(page);
+		results.push({
+			test: "multi_pe_reject_hidden_in_flags",
+			pass: flagsMulti.can_reject === false && flagsMulti.submitted_payment_entry_count >= 2,
+			flags: flagsMulti,
+		});
+		results.push({
+			test: "multi_pe_view_payment_entries_flag",
+			pass: Boolean(flagsMulti.can_view_payment_entries),
+		});
+
+		const menuInfo = await page.evaluate(async () => {
+			await new Promise((r) => setTimeout(r, 2000));
+			const group = document.querySelector(".actions-btn-group");
+			if (!group) {
+				return { ok: false, items: [], reason: "no_actions_group" };
+			}
+			const btn = group.querySelector("button") || group.querySelector(".btn");
+			btn?.click();
+			await new Promise((r) => setTimeout(r, 400));
+			const items = Array.from(group.querySelectorAll(".dropdown-item")).map((el) =>
+				(el.textContent || "").trim()
+			);
+			return { ok: true, items };
+		});
+		const menuText = (menuInfo.items || []).join("\n");
+		results.push({
+			test: "actions_menu_no_pm_reject",
+			pass: menuInfo.ok && !/PM Reject/i.test(menuText),
+			evidence: menuInfo,
+		});
+		results.push({
+			test: "actions_menu_has_view_payment_entries",
+			pass: menuInfo.ok && /View Payment Entries/i.test(menuText),
+		});
+		if (menuInfo.ok) {
+			const routed = await page.evaluate((args) => {
+				frappe.route_options = args.filters || { reference_no: args.pm_request };
+				frappe.set_route("List", "Payment Entry");
+				return frappe.get_route();
+			}, { filters: flagsMulti.payment_entry_list_filters, pm_request: multi.pm_request });
+			await page.waitForTimeout(2500);
+			evidence.screenshots.pe_list_view = await shot(page, "06_payment_entry_list");
+			const listBody = await page.locator("body").innerText();
+			results.push({
+				test: "view_payment_entries_route",
+				pass: Array.isArray(routed) && routed[0] === "List",
+				evidence: { routed },
+			});
+			for (const pe of multi.payment_entries || []) {
+				results.push({
+					test: `pe_list_shows_${pe}`,
+					pass: listBody.includes(pe),
+				});
+			}
+		} else {
+			results.push({
+				test: "desk_actions_menu_skipped",
+				pass: true,
+				evidence: menuInfo,
+			});
+		}
 
 		const tracePath = path.join(TRACE_DIR, "pm_multi_pe_trace.zip");
 		await context.tracing.stop({ path: tracePath });

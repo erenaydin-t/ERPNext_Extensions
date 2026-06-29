@@ -39,6 +39,10 @@ frappe.ui.form.on("PM Request", {
 		}
 		schedule_pm_request_toolbar(frm);
 	},
+	onload_post_render(frm) {
+		expand_pm_request_main_sections(frm);
+		schedule_pm_request_toolbar(frm);
+	},
 	details_add(frm) {
 		frm.trigger("recalc_totals");
 	},
@@ -129,13 +133,14 @@ frappe.ui.form.on("PM Request", {
 		if (frm.is_new() || !frm.doc.name) {
 			return;
 		}
-		frm.set_intro("");
+		frm._pm_toolbar_request_seq = cint(frm._pm_toolbar_request_seq || 0) + 1;
+		const requestSeq = frm._pm_toolbar_request_seq;
 
 		frappe.call({
 			method: "erpnext_extensions.petty_management.doctype.pm_request.pm_request.get_pm_request_action_flags",
 			args: { pm_request: frm.doc.name },
 			callback(r) {
-				if (r.exc) {
+				if (r.exc || requestSeq !== frm._pm_toolbar_request_seq) {
 					return;
 				}
 				const f = r.message || {};
@@ -147,9 +152,7 @@ frappe.ui.form.on("PM Request", {
 				if (incoming >= applied) {
 					frm._pm_toolbar_applied_version = incoming;
 				}
-				apply_pm_request_toolbar(frm, f);
-				apply_pm_request_intro(frm, f);
-				hide_pm_request_reject_when_not_allowed(frm, f);
+				apply_pm_request_action_ui(frm, f);
 			},
 		});
 	},
@@ -197,12 +200,46 @@ function schedule_pm_request_toolbar(frm) {
 	if (frm.is_new() || !frm.doc.name) {
 		return;
 	}
+	clearTimeout(frm._pm_toolbar_debounce);
 	const run = () => frm.trigger("setup_pm_request_toolbar");
-	// Workflow clears/rebuilds the standard Actions menu on render_complete; apply PM actions after.
-	$(frm.wrapper).off("render_complete.pm_request_toolbar").one("render_complete.pm_request_toolbar", () => {
-		setTimeout(run, 0);
-	});
-	setTimeout(run, 400);
+	frm._pm_toolbar_debounce = setTimeout(run, 120);
+	$(frm.wrapper)
+		.off("render_complete.pm_request_toolbar")
+		.one("render_complete.pm_request_toolbar", () => {
+			clearTimeout(frm._pm_toolbar_debounce);
+			frm._pm_toolbar_debounce = setTimeout(run, 0);
+		});
+}
+
+const PM_REQUEST_EXPAND_SECTIONS = [
+	"section_main",
+	"section_amounts",
+	"section_payment_entries",
+	"section_details",
+	"section_close",
+	"section_remark",
+];
+
+function expand_pm_request_main_sections(frm) {
+	if (!frm.layout || !frm.layout.sections) {
+		return;
+	}
+	setTimeout(() => {
+		PM_REQUEST_EXPAND_SECTIONS.forEach((fieldname) => {
+			const section = frm.layout.sections.find((s) => s.df?.fieldname === fieldname);
+			if (section && !section.wrapper.hasClass("hide-control")) {
+				section.collapse(false);
+			}
+		});
+	}, 0);
+}
+
+function apply_pm_request_action_ui(frm, f) {
+	remove_pm_request_toolbar_buttons(frm);
+	apply_pm_request_toolbar(frm, f);
+	apply_pm_request_intro(frm, f);
+	hide_pm_request_reject_when_not_allowed(frm, f);
+	setTimeout(() => hide_pm_request_reject_when_not_allowed(frm, f), 0);
 }
 
 function apply_pm_request_pe_list_payload(frm, $wrapper, payload, currency) {
@@ -349,20 +386,48 @@ function apply_pm_request_toolbar(frm, f) {
 			add_pm_request_action_item(frm, __("Close PM Request"), runClose);
 		}
 	}
-	if (f.can_open_payment_entry && frm.doc.payment_entry) {
-		add_pm_request_action_item(frm, __("Open Payment Entry"), () =>
-			frappe.set_route("Form", "Payment Entry", frm.doc.payment_entry)
+	if (f.can_view_payment_entries) {
+		add_pm_request_action_item(frm, __("View Payment Entries"), () =>
+			route_pm_request_payment_entries(frm, f)
 		);
 	}
 }
 
+function unique_pm_ui_messages(messages) {
+	const seen = new Set();
+	const out = [];
+	(messages || []).forEach((raw) => {
+		const text = (raw || "").toString().trim();
+		if (!text || seen.has(text)) {
+			return;
+		}
+		seen.add(text);
+		out.push(text);
+	});
+	return out;
+}
+
 function apply_pm_request_intro(frm, f) {
-	const messages = (f.ui_messages || []).filter(Boolean);
+	if (frm.dashboard && typeof frm.dashboard.clear_headline === "function") {
+		frm.dashboard.clear_headline();
+	} else {
+		frm.set_intro("");
+	}
+	const messages = unique_pm_ui_messages(f.ui_messages);
 	if (!messages.length) {
+		frm._pm_intro_applied_text = "";
 		return;
 	}
+	const text = messages.join(" ");
+	frm._pm_intro_applied_text = text;
 	const color = cint(f.is_closed) ? "blue" : "orange";
-	frm.set_intro(messages.join(" "), color);
+	frm.set_intro(text, color);
+}
+
+function route_pm_request_payment_entries(frm, flags) {
+	const filters = (flags && flags.payment_entry_list_filters) || { reference_no: frm.doc.name };
+	frappe.route_options = filters;
+	frappe.set_route("List", "Payment Entry");
 }
 
 function render_pm_request_payment_entry_table($wrapper, rows, currency, opts) {
@@ -426,14 +491,21 @@ function add_pm_request_action_item(frm, label, fn) {
 }
 
 function remove_pm_request_toolbar_buttons(frm) {
-	const labels = ["Create Payment Entry", "Open Payment Entry", "Close PM Request"];
+	const labels = [
+		"Create Payment Entry",
+		"Open Payment Entry",
+		"View Payment Entries",
+		"Close PM Request",
+	];
 	labels.forEach((raw) => {
 		const L = __(raw);
 		frm.remove_custom_button(L);
 		frm.remove_custom_button(L, __("Actions"));
-		frm.page.remove_inner_button(L);
-		frm.page.remove_inner_button(L, __("Actions"));
-		remove_pm_request_action_menu_item(frm, L);
+		if (frm.page) {
+			frm.page.remove_inner_button(L);
+			frm.page.remove_inner_button(L, __("Actions"));
+			remove_pm_request_action_menu_item(frm, L);
+		}
 	});
 }
 
@@ -446,10 +518,22 @@ function remove_pm_request_action_menu_item(frm, label) {
 }
 
 function hide_pm_request_reject_when_not_allowed(frm, flags) {
-	if (!flags || flags.can_reject) {
+	const blockReject =
+		!flags ||
+		!flags.can_reject ||
+		cint(flags.submitted_payment_entry_count) > 0 ||
+		flt(flags.total_paid_amount) > 0;
+	if (!blockReject) {
 		return;
 	}
-	[__("PM Reject"), "PM Reject", __("Reject")].forEach((label) => {
+	const rejectLabels = [__("PM Reject"), "PM Reject", __("Reject")];
+	if (frm.page && frm.page.actions_menu_items) {
+		frm.page.actions_menu_items = frm.page.actions_menu_items.filter((item) => {
+			const label = (item.label || item.action || "").toString();
+			return !rejectLabels.some((r) => label.indexOf(r) >= 0 || label === r);
+		});
+	}
+	rejectLabels.forEach((label) => {
 		remove_pm_request_action_menu_item(frm, label);
 	});
 }

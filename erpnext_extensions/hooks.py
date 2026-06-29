@@ -224,6 +224,7 @@ doc_events = {
 			"erpnext_extensions.petty_management.payment_entry_hooks.on_payment_entry_cancel",
 		],
 		"on_trash": "erpnext_extensions.petty_management.payment_entry_hooks.on_payment_entry_trash",
+		"after_delete": "erpnext_extensions.petty_management.payment_entry_hooks.on_payment_entry_after_delete",
 	},
 	"Post Dated Cheque": {
 		"on_submit": [
@@ -325,7 +326,7 @@ override_whitelisted_methods = {
 # Ignore links to specified DocTypes when deleting documents
 # -----------------------------------------------------------
 
-# ignore_links_on_delete = ["Communication", "ToDo"]
+ignore_links_on_delete = ["PM Request"]
 
 # Request Events
 # ----------------

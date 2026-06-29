@@ -37,25 +37,28 @@
   "column_break_amt",
   "status",
   "workflow_state",
+  "section_payment_entries",
+  "payment_entries_html",
+  "paid_from_account",
+  "payment_entry",
+  "column_break_acc",
+  "journal_entry",
+  "section_details",
+  "details",
   "section_close",
   "is_closed",
   "closed_on",
   "closed_by",
   "close_reason",
   "close_reason_detail",
-  "section_accounting",
-  "section_payment_entries",
-  "payment_entries_html",
-  "payment_entry",
-  "column_break_acc",
-  "journal_entry",
-  "section_details",
-  "details",
   "section_remark",
   "remark"
  ],
  "fields": [
   {
+   "collapsible": 1,
+   "collapsible_depends_on": "eval:1==1",
+   "css_class": "pm-request-section-request",
    "fieldname": "section_main",
    "fieldtype": "Section Break",
    "label": "Request"
@@ -151,6 +154,9 @@
    "read_only": 1
   },
   {
+   "collapsible": 1,
+   "collapsible_depends_on": "eval:1==1",
+   "css_class": "pm-request-section-amounts",
    "fieldname": "section_amounts",
    "fieldtype": "Section Break",
    "label": "Amounts"
@@ -236,6 +242,8 @@
   },
   {
    "collapsible": 1,
+   "collapsible_depends_on": "eval:1==1",
+   "css_class": "pm-request-section-close",
    "depends_on": "eval:doc.is_closed",
    "fieldname": "section_close",
    "fieldtype": "Section Break",
@@ -282,12 +290,9 @@
    "read_only": 1
   },
   {
-   "fieldname": "section_accounting",
-   "fieldtype": "Section Break",
-   "label": "Accounting / Payment",
-   "collapsible": 1
-  },
-  {
+   "collapsible": 1,
+   "collapsible_depends_on": "eval:1==1",
+   "css_class": "pm-request-section-payment-entries",
    "depends_on": "eval:doc.docstatus==1",
    "fieldname": "section_payment_entries",
    "fieldtype": "Section Break",
@@ -331,6 +336,9 @@
    "read_only": 1
   },
   {
+   "collapsible": 1,
+   "collapsible_depends_on": "eval:1==1",
+   "css_class": "pm-request-section-details",
    "fieldname": "section_details",
    "fieldtype": "Section Break",
    "label": "Details"
@@ -346,7 +354,9 @@
    "fieldname": "section_remark",
    "fieldtype": "Section Break",
    "label": "Remark",
-   "collapsible": 1
+   "collapsible": 1,
+   "collapsible_depends_on": "eval:1==1",
+   "css_class": "pm-request-section-remark"
   },
   {
    "fieldname": "remark",
