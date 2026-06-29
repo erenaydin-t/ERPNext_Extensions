@@ -41,7 +41,7 @@ function toPythonKwargs(obj: Record<string, unknown>): string {
   return `{${parts.join(", ")}}`;
 }
 
-function benchExecute(method: string, kwargs: Record<string, unknown> = {}): unknown {
+export function benchExecute(method: string, kwargs: Record<string, unknown> = {}): unknown {
   const kwargsPy = toPythonKwargs(kwargs);
   const cmd = `cd ${config.benchRoot} && bench --site ${config.site} execute ${method} --kwargs '${kwargsPy}'`;
   const out = execSync(cmd, { encoding: "utf8", maxBuffer: 10 * 1024 * 1024 });

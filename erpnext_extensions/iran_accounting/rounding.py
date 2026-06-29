@@ -214,10 +214,25 @@ def reconcile_irr_sle_after_rounding(sle_doc_or_dict, company: str | None = None
 	)
 	_set_entry_value(sle_doc_or_dict, "valuation_rate", round_currency(best_rate, currency))
 	_align_stock_reconciliation_incoming_rate(sle_doc_or_dict)
+	_zero_positive_opening_stock_reconciliation_outgoing_rate(sle_doc_or_dict)
 	# Keep outgoing_rate integer for IRR issue rows when populated.
 	out = flt(_get_entry_value(sle_doc_or_dict, "outgoing_rate"))
 	if out and is_irr_company(company):
 		_set_entry_value(sle_doc_or_dict, "outgoing_rate", round_currency(out, currency))
+
+
+def _zero_positive_opening_stock_reconciliation_outgoing_rate(sle_doc_or_dict) -> None:
+	if _get_entry_value(sle_doc_or_dict, "voucher_type") != "Stock Reconciliation":
+		return
+	diff = flt(_get_entry_value(sle_doc_or_dict, "stock_value_difference"))
+	actual_qty = flt(_get_entry_value(sle_doc_or_dict, "actual_qty"))
+	qty_after = flt(_get_entry_value(sle_doc_or_dict, "qty_after_transaction"))
+	if diff > 0:
+		_set_entry_value(sle_doc_or_dict, "outgoing_rate", 0)
+	elif actual_qty > 0 and diff >= 0:
+		_set_entry_value(sle_doc_or_dict, "outgoing_rate", 0)
+	elif actual_qty == 0 and qty_after > 0 and diff >= 0:
+		_set_entry_value(sle_doc_or_dict, "outgoing_rate", 0)
 
 
 def _align_stock_reconciliation_incoming_rate(sle_doc_or_dict) -> None:
@@ -232,6 +247,7 @@ def _align_stock_reconciliation_incoming_rate(sle_doc_or_dict) -> None:
 	rate = flt(_get_entry_value(sle_doc_or_dict, "valuation_rate"))
 	if rate > 0:
 		_set_entry_value(sle_doc_or_dict, "incoming_rate", rate)
+	_zero_positive_opening_stock_reconciliation_outgoing_rate(sle_doc_or_dict)
 
 
 def round_stock_entry_totals(stock_entry_doc) -> None:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import frappe
-from frappe.utils import add_days, flt, today
+from frappe.utils import add_days, cint, flt, today
 
 from erpnext_extensions.iran_accounting.rounding import (
 	get_company_currency,
@@ -1040,19 +1040,57 @@ def check_stock_value_residual(voucher_no: str, company: str | None = None) -> d
 
 
 @frappe.whitelist()
+def create_opening_sr_e2e_fixture(company=None, qty=100, valuation_rate=3000, warehouse=None):
+	"""Fresh non-batch Opening Stock Reconciliation for E2E (Playwright / gates)."""
+	import erpnext_extensions.iran_accounting  # noqa: F401
+	from erpnext_extensions.iran_accounting.e2e_bootstrap import (
+		ensure_test_item,
+		get_irr_company,
+		get_warehouse,
+		submit_opening_stock_reconciliation,
+	)
+
+	frappe.set_user("Administrator")
+	company = company or get_irr_company(None)
+	warehouse = warehouse or get_warehouse(company)
+	item = ensure_test_item(company, prefix="IA-E2E-SR-OPEN")
+	sr = submit_opening_stock_reconciliation(company, item, flt(qty), flt(valuation_rate), warehouse)
+	frappe.db.commit()
+	posting = frappe.db.get_value("Stock Reconciliation", sr.name, "posting_date")
+	out = {
+		"voucher_no": sr.name,
+		"posting_date": str(posting),
+		"item_code": item,
+		"company": company,
+		"warehouse": warehouse,
+	}
+	print(out)
+	return out
+
+
+@frappe.whitelist()
 def inspect_stock_reconciliation_voucher(voucher_no, company=None):
 	"""SQL + Stock Ledger report row for one Stock Reconciliation voucher."""
 	import erpnext_extensions.iran_accounting  # noqa: F401
+	from erpnext_extensions.iran_accounting.monkey_patches import apply_monkey_patches
+	from erpnext_extensions.iran_accounting.stock_ledger_report import (
+		run_stock_ledger_report_raw,
+		stock_ledger_report_runtime_info,
+	)
+	from erpnext_extensions.iran_accounting.reports import run_stock_ledger_report
 	from erpnext_extensions.iran_accounting.stock_reconciliation_debug import _report_row_for_voucher
 
+	apply_monkey_patches()
 	frappe.set_user("Administrator")
+	runtime = stock_ledger_report_runtime_info()
 	if not frappe.db.exists("Stock Reconciliation", voucher_no):
 		frappe.throw(f"Stock Reconciliation {voucher_no} not found")
 	company = company or frappe.db.get_value("Stock Reconciliation", voucher_no, "company")
 	sles = frappe.db.sql(
 		"""
 		select name, item_code, warehouse, batch_no, actual_qty, qty_after_transaction,
-		       incoming_rate, outgoing_rate, valuation_rate, stock_value, stock_value_difference
+		       incoming_rate, outgoing_rate, valuation_rate, stock_value, stock_value_difference,
+		       voucher_type, voucher_no
 		from `tabStock Ledger Entry`
 		where voucher_type='Stock Reconciliation' and voucher_no=%s and is_cancelled=0
 		order by creation
@@ -1061,24 +1099,80 @@ def inspect_stock_reconciliation_voucher(voucher_no, company=None):
 		as_dict=True,
 	)
 	posting = frappe.db.get_value("Stock Reconciliation", voucher_no, "posting_date")
+	filters = {
+		"company": company,
+		"from_date": str(posting),
+		"to_date": str(posting),
+		"voucher_no": voucher_no,
+		"valuation_field_type": "Currency",
+	}
+	raw_columns, raw_data = run_stock_ledger_report_raw(filters)
+	raw_rows = [r for r in raw_data or [] if isinstance(r, dict) and r.get("voucher_no") == voucher_no]
+	patched_columns, patched_data = run_stock_ledger_report(filters)
+	patched_rows = [
+		r for r in patched_data or [] if isinstance(r, dict) and r.get("voucher_no") == voucher_no
+	]
 	report_rows = []
 	for sle in sles:
 		rpt = _report_row_for_voucher(company, voucher_no, str(posting))
 		report_rows.append(
 			{
 				"item_code": sle.item_code,
+				"batch_no": sle.batch_no,
 				"in_qty": rpt.get("in_qty"),
 				"out_qty": rpt.get("out_qty"),
 				"balance_qty": rpt.get("qty_after_transaction"),
 				"incoming_rate": rpt.get("incoming_rate"),
+				"in_out_rate": rpt.get("in_out_rate"),
 				"outgoing_rate": rpt.get("in_out_rate"),
 				"valuation_rate": rpt.get("valuation_rate"),
 				"avg_rate": rpt.get("valuation_rate"),
 				"balance_value": rpt.get("stock_value"),
 				"value_change": rpt.get("stock_value_difference"),
+				"voucher_no": voucher_no,
 			}
 		)
-	out = {"company": company, "voucher_no": voucher_no, "sle": sles, "report": report_rows}
+	out = {
+		"company": company,
+		"voucher_no": voucher_no,
+		"runtime": runtime,
+		"bench_restart_required": bool(runtime.get("bench_restart_required_if_stale")),
+		"sle": sles,
+		"report": report_rows,
+		"report_raw_before_sanitize": raw_rows,
+		"report_after_sanitize": patched_rows,
+	}
+	print(out)
+	return out
+
+
+@frappe.whitelist()
+def repair_positive_opening_sr_outgoing_rates(voucher_no=None, company=None, dry_run=True):
+	"""Set outgoing_rate=0 on positive Stock Reconciliation SLE rows (existing data)."""
+	import erpnext_extensions.iran_accounting  # noqa: F401
+
+	frappe.set_user("Administrator")
+	dry_run = bool(cint(dry_run)) if isinstance(dry_run, (int, str)) else bool(dry_run)
+	filters = {"voucher_type": "Stock Reconciliation", "is_cancelled": 0, "stock_value_difference": (">", 0)}
+	if voucher_no:
+		filters["voucher_no"] = voucher_no
+	if company:
+		filters["company"] = company
+	rows = frappe.get_all(
+		"Stock Ledger Entry",
+		filters=filters,
+		fields=["name", "voucher_no", "item_code", "outgoing_rate", "stock_value_difference"],
+	)
+	updated = []
+	for row in rows:
+		if not flt(row.outgoing_rate):
+			continue
+		if not dry_run:
+			frappe.db.set_value("Stock Ledger Entry", row.name, "outgoing_rate", 0, update_modified=False)
+		updated.append(row)
+	if not dry_run:
+		frappe.db.commit()
+	out = {"dry_run": dry_run, "candidates": len(updated), "updated": [r.name for r in updated]}
 	print(out)
 	return out
 
