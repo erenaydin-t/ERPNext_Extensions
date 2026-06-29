@@ -15,6 +15,8 @@ from erpnext_extensions.petty_management.utils import (
 	get_pm_settings,
 )
 
+_EPS = 1e-6
+
 
 def workflow_state_title(doc: Document) -> str:
 	if not getattr(doc, "workflow_state", None):
@@ -266,7 +268,8 @@ def request_ready_for_payment_entry(doc: Document) -> tuple[bool, str]:
 			)
 		submitted = sum_submitted_pe_amount(doc.name)
 		requested = flt(doc.total_requested_amount)
-		if submitted + 1e-6 >= requested:
+		remaining = max(0.0, requested - submitted)
+		if remaining <= _EPS:
 			return False, _("This request is fully funded.")
 		return True, ""
 

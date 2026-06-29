@@ -91,7 +91,13 @@ async function confirmFrappePrompt(page) {
 }
 
 async function createPeFromToolbar(page, amount) {
-	await page.getByRole("button", { name: /Create Payment Entry/i }).click();
+	const actionsBtn = page.locator(".actions-btn-group .btn").filter({ hasText: /^Actions$/i }).first();
+	if (await actionsBtn.count()) {
+		await actionsBtn.click();
+		await page.locator('.actions-btn-group .dropdown-menu a.dropdown-item').filter({ hasText: /Create Payment Entry/i }).first().click();
+	} else {
+		await page.getByRole("button", { name: /Create Payment Entry/i }).click();
+	}
 	const modal = page.locator(".modal-dialog:visible");
 	await modal.locator('input[data-fieldname="paid_amount"]').fill(String(amount));
 	await confirmFrappePrompt(page);

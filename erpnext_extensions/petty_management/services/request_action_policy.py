@@ -42,6 +42,11 @@ def pm_request_has_submitted_funding(pm_request: str) -> bool:
 
 def compute_pm_request_action_flags(doc: Document) -> dict:
 	"""All toolbar / workflow visibility rules for PM Request."""
+	if doc.name and doc.docstatus == 1:
+		from erpnext_extensions.petty_management.services.funding_service import sync_pm_request_funding_fields
+
+		sync_pm_request_funding_fields(doc)
+
 	can_create, create_block_reason = request_ready_for_payment_entry(doc)
 	can_close, close_block_reason = close_pm_request_action_flags(doc)
 

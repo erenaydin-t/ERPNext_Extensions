@@ -37,10 +37,13 @@ def _print_matrix(rows: list[dict]) -> None:
 		"Rpt BalQty",
 		"Rpt InRate",
 		"Rpt ValRate",
+		"Rpt OutRate",
+		"Rpt BalVal",
+		"SLE OutRate",
 		"Status",
 		"Root Cause",
 	)
-	widths = [4, 18, 6, 6, 8, 18, 6, 8, 6, 8, 8, 8, 6, 8, 6, 6, 8, 8, 8, 6, 24]
+	widths = [4, 18, 6, 6, 8, 18, 6, 8, 6, 8, 8, 8, 6, 8, 6, 6, 8, 8, 8, 8, 8, 8, 6, 24]
 	line = " | ".join(h.ljust(widths[i])[: widths[i]] for i, h in enumerate(headers))
 	print(line)
 	print("-" * len(line))
@@ -145,7 +148,8 @@ def _evaluate_opening_row(
 	sri = sri[0] if sri else {}
 	sle = frappe.db.sql(
 		"""
-		select actual_qty, qty_after_transaction, incoming_rate, valuation_rate, stock_value, stock_value_difference
+		select actual_qty, qty_after_transaction, incoming_rate, outgoing_rate, valuation_rate,
+		       stock_value, stock_value_difference
 		from `tabStock Ledger Entry`
 		where voucher_type='Stock Reconciliation' and voucher_no=%s and item_code=%s
 		order by creation desc limit 1
@@ -171,6 +175,7 @@ def _evaluate_opening_row(
 			(flt(sle.get("qty_after_transaction")) > 0, "SLE qty_after_transaction"),
 			(flt(sle.get("valuation_rate")) > 0, "SLE valuation_rate"),
 			(flt(sle.get("incoming_rate")) > 0, "SLE incoming_rate"),
+			(flt(sle.get("outgoing_rate")) == 0, "SLE outgoing_rate must be 0 on positive opening"),
 			(flt(sle.get("stock_value")) > 0, "SLE stock_value"),
 			(flt((bin_row or {}).get("actual_qty")) > 0, "Bin qty"),
 			(flt((bin_row or {}).get("valuation_rate")) > 0, "Bin valuation_rate"),
@@ -179,6 +184,7 @@ def _evaluate_opening_row(
 			(flt(report.get("qty_after_transaction")) > 0, "Report balance qty"),
 			(flt(report.get("incoming_rate")) > 0, "Report incoming_rate"),
 			(flt(report.get("valuation_rate")) > 0, "Report valuation_rate"),
+			(flt(report.get("in_out_rate")) == 0, "Report outgoing rate (in_out_rate) must be 0 on positive opening"),
 			(flt(report.get("stock_value")) > 0, "Report balance value"),
 		]
 		for ok, label in checks:
@@ -226,7 +232,9 @@ def _evaluate_opening_row(
 		"Rpt BalQty": report.get("qty_after_transaction"),
 		"Rpt InRate": report.get("incoming_rate"),
 		"Rpt ValRate": report.get("valuation_rate"),
+		"Rpt OutRate": report.get("in_out_rate"),
 		"Rpt BalVal": report.get("stock_value"),
+		"SLE OutRate": sle.get("outgoing_rate"),
 		"Status": status,
 		"Root Cause": root,
 		"fail_reasons": fail_reasons,

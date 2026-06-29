@@ -92,6 +92,19 @@ async function run() {
 			test: "partial_create_pe_visible",
 			pass: Boolean(flagsPartial.can_create_payment_entry),
 		});
+		const duplicateActions = await page.evaluate(() => {
+			const innerActions = Array.from(document.querySelectorAll(".inner-group-button .dropdown-toggle"))
+				.filter((el) => (el.textContent || "").trim() === "Actions").length;
+			const std = Array.from(document.querySelectorAll(".actions-btn-group")).filter(
+				(el) => el.offsetParent !== null
+			).length;
+			return { innerActions, std };
+		});
+		results.push({
+			test: "single_actions_menu_no_duplicate_toolbar_group",
+			pass: duplicateActions.innerActions === 0 && duplicateActions.std >= 1,
+			evidence: duplicateActions,
+		});
 
 		// Fully paid: Close still visible
 		await page.goto(`${BASE}/app/pm-request/${encodeURIComponent(full.pm_request)}`, {
@@ -118,6 +131,11 @@ async function run() {
 			pass: flagsDraft.can_close_pm_request === false && /draft payment entries exist/i.test(
 				flagsDraft.close_block_reason || ""
 			),
+			flags: flagsDraft,
+		});
+		results.push({
+			test: "draft_pe_hides_create_pe",
+			pass: flagsDraft.can_create_payment_entry === false,
 			flags: flagsDraft,
 		});
 
