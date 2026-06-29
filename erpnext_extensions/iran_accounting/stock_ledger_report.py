@@ -7,7 +7,7 @@ import re
 from typing import Any
 
 import frappe
-from frappe.utils import cstr
+from frappe.utils import cstr, flt
 
 from erpnext_extensions.iran_accounting.rounding import (
 	amount_is_fractional,
@@ -142,7 +142,25 @@ def sanitize_stock_ledger_report(columns: list, data: list, company: str, filter
 	for row in data or []:
 		if isinstance(row, dict):
 			sanitize_stock_ledger_row(row, company, monetary)
+			_align_stock_reconciliation_report_row(row)
 	return columns, data
+
+
+def _align_stock_reconciliation_report_row(row: dict) -> None:
+	"""Desk report leaves in_qty/out_qty zero for opening Stock Reconciliation rows."""
+	if row.get("voucher_type") != "Stock Reconciliation":
+		return
+	if flt(row.get("in_qty")) or flt(row.get("out_qty")):
+		return
+	qty_after = flt(row.get("qty_after_transaction"))
+	if qty_after <= 0:
+		return
+	row["in_qty"] = qty_after
+	row["out_qty"] = 0
+	if not flt(row.get("incoming_rate")) and flt(row.get("valuation_rate")):
+		row["incoming_rate"] = row.get("valuation_rate")
+	if not flt(row.get("in_out_rate")) and flt(row.get("valuation_rate")):
+		row["in_out_rate"] = row.get("valuation_rate")
 
 
 def fractional_cells_in_report_rows(

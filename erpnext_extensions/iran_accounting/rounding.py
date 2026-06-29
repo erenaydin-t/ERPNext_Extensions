@@ -26,6 +26,7 @@ SLE_MONETARY_FIELDS = (
 	"stock_value",
 	"stock_value_difference",
 	"incoming_rate",
+	"outgoing_rate",
 	"valuation_rate",
 )
 
@@ -194,6 +195,10 @@ def reconcile_irr_sle_after_rounding(sle_doc_or_dict, company: str | None = None
 	qty_after = flt(qty_raw)
 	after = flt(_get_entry_value(sle_doc_or_dict, "stock_value"))
 	diff = flt(_get_entry_value(sle_doc_or_dict, "stock_value_difference"))
+	# Stock ledger engine has not computed balances yet (common on before_insert).
+	if not after and not diff:
+		_align_stock_reconciliation_incoming_rate(sle_doc_or_dict)
+		return
 	if not qty_after:
 		_set_entry_value(sle_doc_or_dict, "valuation_rate", 0)
 		if after:
@@ -208,6 +213,25 @@ def reconcile_irr_sle_after_rounding(sle_doc_or_dict, company: str | None = None
 		key=lambda r: abs(after - round_currency(qty_after * r, currency)),
 	)
 	_set_entry_value(sle_doc_or_dict, "valuation_rate", round_currency(best_rate, currency))
+	_align_stock_reconciliation_incoming_rate(sle_doc_or_dict)
+	# Keep outgoing_rate integer for IRR issue rows when populated.
+	out = flt(_get_entry_value(sle_doc_or_dict, "outgoing_rate"))
+	if out and is_irr_company(company):
+		_set_entry_value(sle_doc_or_dict, "outgoing_rate", round_currency(out, currency))
+
+
+def _align_stock_reconciliation_incoming_rate(sle_doc_or_dict) -> None:
+	"""ERPNext opening Stock Reconciliation SLEs often keep actual_qty=0; expose rate on incoming_rate."""
+	voucher_type = _get_entry_value(sle_doc_or_dict, "voucher_type")
+	if voucher_type != "Stock Reconciliation":
+		return
+	if flt(_get_entry_value(sle_doc_or_dict, "qty_after_transaction")) <= 0:
+		return
+	if flt(_get_entry_value(sle_doc_or_dict, "incoming_rate")):
+		return
+	rate = flt(_get_entry_value(sle_doc_or_dict, "valuation_rate"))
+	if rate > 0:
+		_set_entry_value(sle_doc_or_dict, "incoming_rate", rate)
 
 
 def round_stock_entry_totals(stock_entry_doc) -> None:

@@ -97,6 +97,26 @@ class TestIranAccountingRounding(unittest.TestCase):
 		self.assertEqual(round_if_irr(10.6, "IRR"), 11)
 		self.assertEqual(round_if_irr(10.4, "IRR"), 10)
 
+	def test_irr_round_sle_preserves_rate_before_stock_value_computed(self):
+		"""Opening Stock Reconciliation SLE: qty_after set before stock_value (before_insert)."""
+		sle = {
+			"company": "Test IRR Company",
+			"voucher_type": "Stock Reconciliation",
+			"actual_qty": 0,
+			"qty_after_transaction": 5,
+			"valuation_rate": 1234.567,
+			"incoming_rate": 0,
+			"stock_value": 0,
+			"stock_value_difference": 0,
+		}
+		with mock.patch(
+			"erpnext_extensions.iran_accounting.rounding.get_company_currency", return_value="IRR"
+		):
+			round_sle_monetary_fields(sle, company="Test IRR Company")
+		self.assertEqual(sle["valuation_rate"], 1235)
+		self.assertEqual(sle["incoming_rate"], 1235)
+		self.assertEqual(sle["stock_value"], 0)
+
 	def test_qty_not_rounded_by_rounding_module(self):
 		qty = 1.2345
 		self.assertEqual(qty, 1.2345)

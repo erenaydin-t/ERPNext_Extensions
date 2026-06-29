@@ -228,7 +228,7 @@ def run(
 	)
 
 	rows: list[dict] = []
-	rows.extend(run_scenarios(ctx, min(scenario_count, 39)))
+	rows.extend(run_scenarios(ctx, min(scenario_count, 44)))
 
 	vouchers = _parse_list(stock_entry_vouchers)
 	if vouchers is None:

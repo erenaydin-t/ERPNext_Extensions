@@ -1037,3 +1037,29 @@ def check_stock_value_residual(voucher_no: str, company: str | None = None) -> d
 		"voucher_gl_ok": voucher_gl_ok,
 		"lines": lines,
 	}
+
+
+@frappe.whitelist()
+def debug_stock_reconciliation_opening(company=None):
+	"""Run opening Stock Reconciliation matrix (batch/non-batch) and print comparison table."""
+	import erpnext_extensions.iran_accounting  # noqa: F401
+	from erpnext_extensions.iran_accounting.monkey_patches import apply_monkey_patches
+	from erpnext_extensions.iran_accounting.stock_reconciliation_debug import (
+		_print_matrix,
+		run_opening_stock_matrix,
+	)
+
+	apply_monkey_patches()
+	frappe.set_user("Administrator")
+	company = company or frappe.db.get_value("Company", {"default_currency": "IRR"}, "name")
+	rows = run_opening_stock_matrix(company)
+	_print_matrix(rows)
+	summary = {
+		"company": company,
+		"total": len(rows),
+		"passed": sum(1 for r in rows if r.get("Status") == "PASS"),
+		"failed": sum(1 for r in rows if r.get("Status") == "FAIL"),
+		"rows": rows,
+	}
+	print(f"\nOpening SR matrix: {summary['passed']}/{summary['total']} PASS")
+	return summary
