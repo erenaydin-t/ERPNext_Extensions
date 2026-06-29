@@ -34,6 +34,30 @@ def _pm_request_filter_values(pm_request: str) -> dict:
 	return {"pm_request": pm_request}
 
 
+def count_payment_entries_for_pm_request(pm_request: str) -> dict[str, int]:
+	"""Counts aligned with Desk payment entry table (reference_no / custom_pm_request link)."""
+	rows = list_payment_entries_for_pm_request(pm_request)
+	submitted = sum(1 for r in rows if (r.get("status") or "") == "Submitted")
+	draft = sum(1 for r in rows if (r.get("status") or "") == "Draft")
+	cancelled = sum(1 for r in rows if (r.get("status") or "") == "Cancelled")
+	payment_entry_count = len(rows)
+	return {
+		"submitted_payment_entry_count": submitted,
+		"draft_payment_entry_count": draft,
+		"cancelled_payment_entry_count": cancelled,
+		"payment_entry_count": payment_entry_count,
+	}
+
+
+def payment_entry_list_filters_for_pm_request(pm_request: str) -> dict:
+	"""Desk List/Payment Entry route filters for a PM Request."""
+	meta = frappe.get_meta("Payment Entry")
+	filters: dict = {"reference_no": pm_request}
+	if meta.has_field("custom_pm_request"):
+		filters["custom_pm_request"] = pm_request
+	return filters
+
+
 def sum_submitted_pe_amount(pm_request: str) -> float:
 	req = frappe.db.get_value(
 		"PM Request",
@@ -70,7 +94,7 @@ def sum_submitted_pe_amount(pm_request: str) -> float:
 	)
 
 
-def sum_draft_pe_amount(pm_request: str) -> float:
+def sum_draft_pe_amount(pm_request: str, exclude_pe: str | None = None) -> float:
 	req = frappe.db.get_value(
 		"PM Request",
 		pm_request,
@@ -85,6 +109,14 @@ def sum_draft_pe_amount(pm_request: str) -> float:
 		link_parts.append("pe.custom_pm_request = %(pm_request)s")
 	link_sql = " OR ".join(link_parts)
 	amt = pe_line_amount_sql("pe")
+	exclude_sql = " and pe.name != %(exclude_pe)s " if exclude_pe else ""
+	params = {
+		"pm_request": pm_request,
+		"company": req.company,
+		"employee": req.employee,
+	}
+	if exclude_pe:
+		params["exclude_pe"] = exclude_pe
 	return flt(
 		frappe.db.sql(
 			f"""
@@ -96,12 +128,9 @@ def sum_draft_pe_amount(pm_request: str) -> float:
 				and pe.party_type = 'Employee'
 				and pe.party = %(employee)s
 				and ({link_sql})
+				{exclude_sql}
 			""",
-			{
-				"pm_request": pm_request,
-				"company": req.company,
-				"employee": req.employee,
-			},
+			params,
 		)[0][0]
 	)
 
@@ -192,24 +221,31 @@ def list_payment_entries_for_pm_request(pm_request: str) -> list[dict]:
 	return out
 
 
-def resolve_latest_payment_entry(pm_request: str) -> str | None:
+def resolve_latest_payment_entry(pm_request: str, exclude_pe: str | None = None) -> str | None:
 	meta = frappe.get_meta("Payment Entry")
 	link_parts = ["pe.reference_no = %(pm_request)s"]
 	if meta.has_field("custom_pm_request"):
 		link_parts.append("pe.custom_pm_request = %(pm_request)s")
 	link_sql = " OR ".join(link_parts)
+	exclude_sql = " and pe.name != %(exclude_pe)s " if exclude_pe else ""
+	params: dict = {"pm_request": pm_request}
+	if exclude_pe:
+		params["exclude_pe"] = exclude_pe
 	row = frappe.db.sql(
 		f"""
 		select pe.name
 		from `tabPayment Entry` pe
 		where ({link_sql})
 			and pe.docstatus in (0, 1)
+			{exclude_sql}
 		order by pe.docstatus desc, pe.modified desc, pe.creation desc
 		limit 1
 		""",
-		{"pm_request": pm_request},
+		params,
 	)
 	if row:
 		return row[0][0]
 	scalar = frappe.db.get_value("PM Request", pm_request, "payment_entry")
+	if exclude_pe and scalar == exclude_pe:
+		return None
 	return scalar or None

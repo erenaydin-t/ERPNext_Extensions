@@ -132,6 +132,23 @@ async function openDraftPeFromTable(page) {
 	);
 }
 
+async function deleteDraftPeFromDesk(page) {
+	await page.locator(".menu-btn-group .btn").filter({ hasText: /^Menu$/i }).first().click();
+	await page.locator(".dropdown-menu a").filter({ hasText: /^Delete$/i }).first().click();
+	await confirmFrappePrompt(page);
+	await page.waitForURL(/\/app\/pm-request\//, { timeout: 180000 }).catch(() => {});
+}
+
+async function createPeVisible(page) {
+	return page.evaluate(() => {
+		const w = window;
+		const items = Array.from(
+			document.querySelectorAll(".actions-btn-group .dropdown-menu a.dropdown-item, .custom-actions .btn")
+		).map((el) => (el.textContent || "").trim());
+		return items.some((t) => /Create Payment Entry/i.test(t));
+	});
+}
+
 async function run() {
 	const prep = bench(
 		"erpnext_extensions.petty_management.e2e.pm_multi_pe_prep.prepare_partial_funded_for_close_ui"
@@ -195,19 +212,8 @@ async function run() {
 		await createPeFromToolbar(page, 3000);
 		await waitTableRowCount(page, beforeCount + 2);
 		const countBeforeDelete = await countDataRows(page);
-		const draft2 = await page.evaluate(() => {
-			const rows = document.querySelectorAll("#pm-request-pe-list table tbody tr[data-pe-status]");
-			for (const tr of rows) {
-				if ((tr.getAttribute("data-pe-status") || "") === "Draft") {
-					const a = tr.querySelector("a");
-					return a ? a.textContent.trim() : null;
-				}
-			}
-			return null;
-		});
-		bench("erpnext_extensions.petty_management.e2e.pm_request_pe_list_e2e_prep.cancel_payment_entry_for_e2e", {
-			payment_entry: draft2,
-		});
+		await openDraftPeFromTable(page);
+		await deleteDraftPeFromDesk(page);
 		await openPmRequest(page, prep.pm_request);
 		await page.waitForFunction(
 			(before) => {
@@ -223,8 +229,10 @@ async function run() {
 			countBeforeDelete,
 			{ timeout: 180000 }
 		);
+		const createVisible = await createPeVisible(page);
+		results.push({ test: "desk_draft_delete_from_pe_form", pass: createVisible });
+		evidence.screenshots.after_desk_delete = await shot(page, "04_after_desk_delete_draft");
 		results.push({ test: "desk_table_updates_after_draft_delete", pass: true });
-		evidence.screenshots.after_delete = await shot(page, "04_after_delete_draft");
 
 		let invalidOk = false;
 		try {

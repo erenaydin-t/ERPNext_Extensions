@@ -40,12 +40,12 @@ def derive_payment_status_from_totals(doc: Document) -> None:
 		doc.payment_status = "Paid"
 
 
-def sync_pm_request_funding_fields(pm_request: str | Document) -> None:
+def sync_pm_request_funding_fields(pm_request: str | Document, exclude_payment_entry: str | None = None) -> None:
 	from erpnext_extensions.petty_management.services.request_api_guard import get_pm_request_doc_internal
 
 	doc = pm_request if isinstance(pm_request, Document) else get_pm_request_doc_internal(pm_request)
 	submitted = sum_submitted_pe_amount(doc.name)
-	draft = sum_draft_pe_amount(doc.name)
+	draft = sum_draft_pe_amount(doc.name, exclude_pe=exclude_payment_entry)
 	requested = flt(doc.total_requested_amount)
 	allocated = flt(sum_prior_pm_request_allocations(doc.name, None))
 	remaining = max(0.0, requested - submitted)
@@ -57,7 +57,7 @@ def sync_pm_request_funding_fields(pm_request: str | Document) -> None:
 	doc.allocated_amount = allocated
 	doc.available_for_clearance = available
 	derive_payment_status_from_totals(doc)
-	latest = resolve_latest_payment_entry(doc.name)
+	latest = resolve_latest_payment_entry(doc.name, exclude_pe=exclude_payment_entry)
 	if latest:
 		doc.payment_entry = latest
 	sync_request_status_from_workflow(doc)

@@ -111,7 +111,7 @@ class TestPMRequestActionFlagScenarios(unittest.TestCase):
 		self._track("Payment Entry", draft)
 		pe = frappe.get_doc("Payment Entry", draft)
 		if pe.docstatus == 0:
-			frappe.delete_doc("Payment Entry", draft, force=1)
+			frappe.delete_doc("Payment Entry", draft, force=0)
 		else:
 			pe.cancel()
 		_sync_funding_fields(req)
