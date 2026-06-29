@@ -1040,6 +1040,50 @@ def check_stock_value_residual(voucher_no: str, company: str | None = None) -> d
 
 
 @frappe.whitelist()
+def inspect_stock_reconciliation_voucher(voucher_no, company=None):
+	"""SQL + Stock Ledger report row for one Stock Reconciliation voucher."""
+	import erpnext_extensions.iran_accounting  # noqa: F401
+	from erpnext_extensions.iran_accounting.stock_reconciliation_debug import _report_row_for_voucher
+
+	frappe.set_user("Administrator")
+	if not frappe.db.exists("Stock Reconciliation", voucher_no):
+		frappe.throw(f"Stock Reconciliation {voucher_no} not found")
+	company = company or frappe.db.get_value("Stock Reconciliation", voucher_no, "company")
+	sles = frappe.db.sql(
+		"""
+		select name, item_code, warehouse, batch_no, actual_qty, qty_after_transaction,
+		       incoming_rate, outgoing_rate, valuation_rate, stock_value, stock_value_difference
+		from `tabStock Ledger Entry`
+		where voucher_type='Stock Reconciliation' and voucher_no=%s and is_cancelled=0
+		order by creation
+		""",
+		voucher_no,
+		as_dict=True,
+	)
+	posting = frappe.db.get_value("Stock Reconciliation", voucher_no, "posting_date")
+	report_rows = []
+	for sle in sles:
+		rpt = _report_row_for_voucher(company, voucher_no, str(posting))
+		report_rows.append(
+			{
+				"item_code": sle.item_code,
+				"in_qty": rpt.get("in_qty"),
+				"out_qty": rpt.get("out_qty"),
+				"balance_qty": rpt.get("qty_after_transaction"),
+				"incoming_rate": rpt.get("incoming_rate"),
+				"outgoing_rate": rpt.get("in_out_rate"),
+				"valuation_rate": rpt.get("valuation_rate"),
+				"avg_rate": rpt.get("valuation_rate"),
+				"balance_value": rpt.get("stock_value"),
+				"value_change": rpt.get("stock_value_difference"),
+			}
+		)
+	out = {"company": company, "voucher_no": voucher_no, "sle": sles, "report": report_rows}
+	print(out)
+	return out
+
+
+@frappe.whitelist()
 def debug_stock_reconciliation_opening(company=None):
 	"""Run opening Stock Reconciliation matrix (batch/non-batch) and print comparison table."""
 	import erpnext_extensions.iran_accounting  # noqa: F401

@@ -1295,6 +1295,114 @@ def s44_opening_report_qty(ctx: AcceptanceContext) -> dict:
 	return row
 
 
+def _opening_outgoing_rate_ok(company: str, voucher: str, item: str, warehouse: str) -> tuple[bool, str]:
+	from erpnext_extensions.iran_accounting.stock_reconciliation_debug import _report_row_for_voucher
+
+	sle = frappe.db.get_value(
+		"Stock Ledger Entry",
+		{"voucher_type": "Stock Reconciliation", "voucher_no": voucher, "item_code": item},
+		["outgoing_rate", "incoming_rate", "valuation_rate", "actual_qty", "qty_after_transaction"],
+		as_dict=True,
+	)
+	posting = frappe.db.get_value("Stock Reconciliation", voucher, "posting_date")
+	rpt = _report_row_for_voucher(company, voucher, str(posting)) if posting else {}
+	fail = []
+	if flt((sle or {}).get("outgoing_rate")):
+		fail.append(f"DB outgoing_rate={sle.get('outgoing_rate')}")
+	if flt(rpt.get("in_out_rate")):
+		fail.append(f"Report in_out_rate={rpt.get('in_out_rate')}")
+	if flt(rpt.get("in_qty")) <= 0 or flt(rpt.get("out_qty")):
+		pass  # qty checks done elsewhere
+	elif flt(rpt.get("in_qty")) > 0 and flt(rpt.get("out_qty")) == 0:
+		if flt(rpt.get("incoming_rate")) <= 0:
+			fail.append("Report incoming_rate")
+	ok = not fail
+	ev = (
+		f"db_out={sle.get('outgoing_rate')},rpt_out={rpt.get('in_out_rate')},"
+		f"in_qty={rpt.get('in_qty')},out_qty={rpt.get('out_qty')},"
+		f"in_rate={rpt.get('incoming_rate')},val_rate={rpt.get('valuation_rate')}"
+	)
+	return ok, "; ".join(fail) or ev
+
+
+def s45_opening_positive_no_outgoing_rate(ctx: AcceptanceContext) -> dict:
+	"""Regression: report must not copy valuation into Outgoing Rate (in_out_rate)."""
+	row = _opening_sr_row(ctx, 45, "Opening SR positive no outgoing rate", 6, 3000.0, batch=False)
+	if row.get("status") != "PASS":
+		return row
+	voucher = row.get("voucher")
+	item = frappe.db.get_value(
+		"Stock Reconciliation Item", {"parent": voucher}, "item_code", order_by="idx asc"
+	)
+	ok, ev = _opening_outgoing_rate_ok(ctx.company, voucher, item, ctx.warehouse)
+	row["status"] = "PASS" if ok else "FAIL"
+	row["report_ok"] = ok
+	row["sle_ok"] = ok
+	row["db_ok"] = ok
+	row["evidence"] = ev
+	return row
+
+
+def s46_opening_batch_nonbatch_outgoing(ctx: AcceptanceContext) -> dict:
+	parts = []
+	all_ok = True
+	for batch, tag in ((False, "nb"), (True, "b")):
+		sub = _opening_sr_row(ctx, 46, f"Opening SR outgoing {tag}", 4, 2500.0, batch=batch)
+		if sub.get("status") != "PASS":
+			all_ok = False
+			parts.append(f"{tag}:FAIL {sub.get('evidence')}")
+			continue
+		voucher = sub.get("voucher")
+		item = frappe.db.get_value(
+			"Stock Reconciliation Item", {"parent": voucher}, "item_code", order_by="idx asc"
+		)
+		ok, ev = _opening_outgoing_rate_ok(ctx.company, voucher, item, ctx.warehouse)
+		all_ok = all_ok and ok
+		parts.append(f"{tag}:{'OK' if ok else ev}")
+	return scenario_row(
+		46,
+		"Opening SR batch/non-batch outgoing",
+		",".join(p for p in parts if p),
+		"PASS" if all_ok else "FAIL",
+		report_ok=all_ok,
+		sle_ok=all_ok,
+		db_ok=all_ok,
+		evidence="; ".join(parts)[:500],
+	)
+
+
+def s47_negative_reco_outgoing_rate(ctx: AcceptanceContext) -> dict:
+	"""Qty reduction: outgoing rate column populated; incoming rate 0."""
+	item = _item(ctx, "SR-OUT")
+	ctx.b.submit_material_receipt(ctx.company, item, 10, 100, ctx.warehouse)
+	frappe.db.commit()
+	sr = ctx.b.submit_stock_reconciliation_adjustment(ctx.company, item, 4, 100, ctx.warehouse)
+	voucher = sr.name
+	posting = frappe.db.get_value("Stock Reconciliation", voucher, "posting_date")
+	from erpnext_extensions.iran_accounting.stock_reconciliation_debug import _report_row_for_voucher
+
+	rpt = _report_row_for_voucher(ctx.company, voucher, str(posting))
+	fail = []
+	if flt(rpt.get("out_qty")) >= 0:
+		fail.append(f"out_qty={rpt.get('out_qty')}")
+	if flt(rpt.get("in_qty")) > 0:
+		fail.append(f"unexpected in_qty={rpt.get('in_qty')}")
+	if not flt(rpt.get("in_out_rate")):
+		fail.append(f"in_out_rate={rpt.get('in_out_rate')}")
+	if flt(rpt.get("incoming_rate")):
+		fail.append(f"incoming_rate={rpt.get('incoming_rate')}")
+	ok = not fail
+	return scenario_row(
+		47,
+		"Stock Reconciliation negative outgoing rate",
+		voucher,
+		"PASS" if ok else "FAIL",
+		report_ok=ok,
+		evidence="; ".join(fail)
+		or f"out_qty={rpt.get('out_qty')},in_out_rate={rpt.get('in_out_rate')}",
+	)
+
+
 def _make_bom_wo(ctx: AcceptanceContext, reuse: bool = False):
 	if reuse and ctx.refs.get("wo"):
 		wo_name = ctx.refs["wo"]
@@ -1378,6 +1486,9 @@ SCENARIO_FUNCS: list[tuple[int, Callable[[AcceptanceContext], dict]]] = [
 	(42, s42_opening_fractional_rate),
 	(43, s43_opening_small_rate),
 	(44, s44_opening_report_qty),
+	(45, s45_opening_positive_no_outgoing_rate),
+	(46, s46_opening_batch_nonbatch_outgoing),
+	(47, s47_negative_reco_outgoing_rate),
 ]
 
 

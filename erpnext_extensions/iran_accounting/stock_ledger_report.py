@@ -147,20 +147,41 @@ def sanitize_stock_ledger_report(columns: list, data: list, company: str, filter
 
 
 def _align_stock_reconciliation_report_row(row: dict) -> None:
-	"""Desk report leaves in_qty/out_qty zero for opening Stock Reconciliation rows."""
+	"""Desk report leaves in_qty/out_qty zero for some opening Stock Reconciliation rows (non-batch)."""
 	if row.get("voucher_type") != "Stock Reconciliation":
 		return
-	if flt(row.get("in_qty")) or flt(row.get("out_qty")):
-		return
+
+	in_qty = flt(row.get("in_qty"))
+	out_qty = flt(row.get("out_qty"))
 	qty_after = flt(row.get("qty_after_transaction"))
-	if qty_after <= 0:
-		return
-	row["in_qty"] = qty_after
-	row["out_qty"] = 0
-	if not flt(row.get("incoming_rate")) and flt(row.get("valuation_rate")):
-		row["incoming_rate"] = row.get("valuation_rate")
-	if not flt(row.get("in_out_rate")) and flt(row.get("valuation_rate")):
-		row["in_out_rate"] = row.get("valuation_rate")
+	value_change = flt(row.get("stock_value_difference"))
+	val_rate = flt(row.get("valuation_rate"))
+
+	# Non-batch SR rows often have actual_qty=0; core may leave in_qty/out_qty unset (e.g. voucher-only filter).
+	if not in_qty and not out_qty:
+		if value_change > 0 and qty_after > 0:
+			row["in_qty"] = qty_after
+			row["out_qty"] = 0
+			if not flt(row.get("incoming_rate")) and val_rate:
+				row["incoming_rate"] = val_rate
+			row["in_out_rate"] = 0
+			return
+		if value_change < 0:
+			rate = val_rate or flt(row.get("incoming_rate"))
+			if rate:
+				row["out_qty"] = flt(value_change) / rate
+			row["in_qty"] = 0
+			row["incoming_rate"] = 0
+			if rate and not flt(row.get("in_out_rate")):
+				row["in_out_rate"] = rate
+			return
+
+	# Positive stock added (in only): never copy avg rate into Outgoing Rate (in_out_rate).
+	if in_qty > 0 and out_qty >= 0:
+		if not flt(row.get("incoming_rate")) and flt(row.get("valuation_rate")):
+			row["incoming_rate"] = row.get("valuation_rate")
+		if not out_qty:
+			row["in_out_rate"] = 0
 
 
 def fractional_cells_in_report_rows(
