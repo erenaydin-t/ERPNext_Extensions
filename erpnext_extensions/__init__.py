@@ -1,5 +1,5 @@
 app_name = "erpnext_extensions"
-__version__ = "2.9.3"
+__version__ = "3.0.0"
 
 # Load IRR accounting patches when the app is imported on the bench worker / console.
 try:
