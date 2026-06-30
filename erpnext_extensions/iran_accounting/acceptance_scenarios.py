@@ -1472,6 +1472,300 @@ def s49_stock_ledger_monkey_patch_runtime(ctx: AcceptanceContext) -> dict:
 	)
 
 
+def _qty_rate_consistency_row(
+	ctx: AcceptanceContext,
+	scenario_no: int,
+	area: str,
+	doctype: str,
+	voucher: str,
+) -> dict:
+	from erpnext_extensions.iran_accounting.qty_rate_consistency import check_qty_rate_amount_consistency
+
+	chk = check_qty_rate_amount_consistency(doctype, voucher, ctx.company)
+	ok = chk.get("status") == "PASS"
+	ev = chk.get("consistency_failures") or []
+	if chk.get("row_fail_count"):
+		ev = list(ev) + [f"row_fail={chk['row_fail_count']}"]
+	if not ev and chk.get("totals"):
+		ev = [json.dumps(chk["totals"], default=str)[:400]]
+	return scenario_row(
+		scenario_no,
+		area,
+		voucher,
+		"PASS" if ok else "FAIL",
+		db_ok=ok,
+		totals_ok=ok,
+		evidence="; ".join(str(x) for x in ev)[:500],
+	)
+
+
+def _irr_customer() -> str | None:
+	return frappe.db.get_value(
+		"Customer",
+		{"disabled": 0, "default_currency": ("in", ["IRR", "", None])},
+		"name",
+		order_by="creation asc",
+	) or frappe.db.get_value("Customer", {"disabled": 0, "name": ("like", "%IRR%")}, "name")
+
+
+def s54_purchase_order_qty_rate(ctx: AcceptanceContext) -> dict:
+	supplier = _irr_supplier()
+	if not supplier:
+		return scenario_row(54, "PO IRR qty×rate", "", "SKIP", evidence="no supplier")
+	item = _item(ctx, "PO-QR", allow_fraction_qty=True)
+	po = frappe.new_doc("Purchase Order")
+	po.company = ctx.company
+	po.supplier = supplier
+	po.transaction_date = today()
+	po.schedule_date = today()
+	uom = frappe.get_cached_value("Item", item, "stock_uom")
+	po.append(
+		"items",
+		{"item_code": item, "qty": 1.333, "rate": 1000.4, "uom": uom, "stock_uom": uom, "conversion_factor": 1, "schedule_date": today()},
+	)
+	try:
+		po.insert(ignore_permissions=True)
+		po.submit()
+	except Exception as exc:
+		return scenario_row(54, "PO IRR qty×rate", "", "FAIL", evidence=str(exc))
+	return _qty_rate_consistency_row(ctx, 54, "PO IRR qty×rate", "Purchase Order", po.name)
+
+
+def s55_purchase_invoice_irr_no_stock_qty_rate(ctx: AcceptanceContext) -> dict:
+	supplier = _irr_supplier()
+	expense = frappe.db.get_value("Account", {"company": ctx.company, "root_type": "Expense", "is_group": 0}, "name")
+	if not supplier or not expense:
+		return scenario_row(55, "PI IRR update_stock=0 qty×rate", "", "SKIP", evidence="no supplier/expense")
+	item = _item(ctx, "PI-QR-NS", allow_fraction_qty=True)
+	uom = frappe.get_cached_value("Item", item, "stock_uom")
+	pi = frappe.new_doc("Purchase Invoice")
+	pi.company = ctx.company
+	pi.supplier = supplier
+	pi.posting_date = today()
+	pi.currency = "IRR"
+	pi.conversion_rate = 1
+	pi.update_stock = 0
+	pi.append(
+		"items",
+		{
+			"item_code": item,
+			"qty": 1.333,
+			"rate": 1000.4,
+			"expense_account": expense,
+			"uom": uom,
+			"stock_uom": uom,
+			"conversion_factor": 1,
+		},
+	)
+	try:
+		pi.insert(ignore_permissions=True)
+		pi.submit()
+	except Exception as exc:
+		return scenario_row(55, "PI IRR update_stock=0 qty×rate", "", "FAIL", evidence=str(exc))
+	return _qty_rate_consistency_row(ctx, 55, "PI IRR update_stock=0 qty×rate", "Purchase Invoice", pi.name)
+
+
+def s56_purchase_invoice_irr_update_stock_qty_rate(ctx: AcceptanceContext) -> dict:
+	item = _item(ctx, "PI-QR-STK", allow_fraction_qty=True)
+	ctx.b.submit_material_receipt(ctx.company, item, 1, 100, ctx.warehouse)
+	supplier = _irr_supplier()
+	if not supplier:
+		return scenario_row(56, "PI IRR update_stock=1 qty×rate", "", "SKIP", evidence="no supplier")
+	pi = frappe.new_doc("Purchase Invoice")
+	pi.company = ctx.company
+	pi.supplier = supplier
+	pi.posting_date = today()
+	pi.currency = "IRR"
+	pi.conversion_rate = 1
+	pi.update_stock = 1
+	uom = frappe.get_cached_value("Item", item, "stock_uom")
+	pi.append(
+		"items",
+		{"item_code": item, "qty": 1.333, "rate": 1000.4, "warehouse": ctx.warehouse, "uom": uom, "stock_uom": uom, "conversion_factor": 1},
+	)
+	try:
+		pi.insert(ignore_permissions=True)
+		pi.submit()
+	except Exception as exc:
+		return scenario_row(56, "PI IRR update_stock=1 qty×rate", "", "FAIL", evidence=str(exc))
+	return _qty_rate_consistency_row(ctx, 56, "PI IRR update_stock=1 qty×rate", "Purchase Invoice", pi.name)
+
+
+def s57_purchase_receipt_qty_rate(ctx: AcceptanceContext) -> dict:
+	item = _item(ctx, "PR-QR")
+	try:
+		from erpnext.buying.doctype.purchase_order.test_purchase_order import create_purchase_order
+		from erpnext.buying.doctype.purchase_order.purchase_order import make_purchase_receipt
+
+		po = create_purchase_order(
+			item_code=item, qty=1.333, rate=1000.4, company=ctx.company, warehouse=ctx.warehouse
+		)
+		po.insert(ignore_permissions=True)
+		po.submit()
+		pr = make_purchase_receipt(po.name)
+		pr.company = ctx.company
+		for r in pr.items:
+			r.warehouse = ctx.warehouse
+		pr.insert(ignore_permissions=True)
+		pr.submit()
+	except Exception as exc:
+		return scenario_row(57, "Purchase Receipt IRR qty×rate", "", "SKIP", evidence=str(exc))
+	return _qty_rate_consistency_row(ctx, 57, "Purchase Receipt IRR qty×rate", "Purchase Receipt", pr.name)
+
+
+def s58_delivery_note_qty_rate(ctx: AcceptanceContext) -> dict:
+	customer = _irr_customer()
+	if not customer:
+		return scenario_row(58, "Delivery Note IRR qty×rate", "", "SKIP", evidence="no IRR customer")
+	item = _item(ctx, "DN-QR", allow_fraction_qty=True)
+	ctx.b.submit_material_receipt(ctx.company, item, 5, 100, ctx.warehouse)
+	dn = frappe.new_doc("Delivery Note")
+	dn.company = ctx.company
+	dn.customer = customer
+	dn.posting_date = today()
+	uom = frappe.get_cached_value("Item", item, "stock_uom")
+	dn.append(
+		"items",
+		{"item_code": item, "qty": 1.333, "rate": 1000.4, "warehouse": ctx.warehouse, "uom": uom, "stock_uom": uom, "conversion_factor": 1},
+	)
+	try:
+		dn.insert(ignore_permissions=True)
+		dn.submit()
+	except Exception as exc:
+		return scenario_row(58, "Delivery Note IRR qty×rate", "", "SKIP", evidence=str(exc))
+	return _qty_rate_consistency_row(ctx, 58, "Delivery Note IRR qty×rate", "Delivery Note", dn.name)
+
+
+def s59_stock_entry_qty_rate(ctx: AcceptanceContext) -> dict:
+	item = _item(ctx, "STE-QR", allow_fraction_qty=True)
+	se = ctx.b.submit_material_receipt(ctx.company, item, 1.333, 1000.4, ctx.warehouse)
+	return _qty_rate_consistency_row(ctx, 59, "Stock Entry IRR qty×rate", "Stock Entry", se.name)
+
+
+def s60_sales_invoice_irr_no_stock_qty_rate(ctx: AcceptanceContext) -> dict:
+	customer = _irr_customer()
+	income = frappe.db.get_value("Account", {"company": ctx.company, "root_type": "Income", "is_group": 0}, "name")
+	if not customer or not income:
+		return scenario_row(60, "SI IRR update_stock=0 qty×rate", "", "SKIP", evidence="no customer/income")
+	si = frappe.new_doc("Sales Invoice")
+	si.company = ctx.company
+	si.customer = customer
+	si.posting_date = today()
+	si.currency = "IRR"
+	si.conversion_rate = 1
+	si.update_stock = 0
+	si.append("items", {"item_name": "IA svc SI", "qty": 1.333, "rate": 1000.4, "income_account": income, "uom": ctx.b.fractional_uom()})
+	try:
+		si.insert(ignore_permissions=True)
+		si.submit()
+	except Exception as exc:
+		return scenario_row(60, "SI IRR update_stock=0 qty×rate", "", "FAIL", evidence=str(exc))
+	return _qty_rate_consistency_row(ctx, 60, "SI IRR update_stock=0 qty×rate", "Sales Invoice", si.name)
+
+
+def s61_sales_invoice_irr_update_stock_qty_rate(ctx: AcceptanceContext) -> dict:
+	customer = _irr_customer()
+	if not customer:
+		return scenario_row(61, "SI IRR update_stock=1 qty×rate", "", "SKIP", evidence="no IRR customer")
+	item = _item(ctx, "SI-QR-STK", allow_fraction_qty=True)
+	ctx.b.submit_material_receipt(ctx.company, item, 5, 100, ctx.warehouse)
+	si = frappe.new_doc("Sales Invoice")
+	si.company = ctx.company
+	si.customer = customer
+	si.posting_date = today()
+	si.currency = "IRR"
+	si.conversion_rate = 1
+	si.update_stock = 1
+	uom = frappe.get_cached_value("Item", item, "stock_uom")
+	si.append(
+		"items",
+		{"item_code": item, "qty": 1.333, "rate": 1000.4, "warehouse": ctx.warehouse, "uom": uom, "stock_uom": uom, "conversion_factor": 1},
+	)
+	try:
+		si.insert(ignore_permissions=True)
+		si.submit()
+	except Exception as exc:
+		return scenario_row(61, "SI IRR update_stock=1 qty×rate", "", "SKIP", evidence=str(exc))
+	return _qty_rate_consistency_row(ctx, 61, "SI IRR update_stock=1 qty×rate", "Sales Invoice", si.name)
+
+
+def s62_stock_reconciliation_multiline_qty_rate(ctx: AcceptanceContext) -> dict:
+	from erpnext_extensions.iran_accounting.stock_reconciliation_debug import _create_opening_sr
+
+	item_a = _item(ctx, "SR-ML-A")
+	item_b = _item(ctx, "SR-ML-B")
+	sr_a = _create_opening_sr(ctx.company, ctx.warehouse, item_a, 3, valuation_rate=1234.567)
+	sr_b = _create_opening_sr(ctx.company, ctx.warehouse, item_b, 2, valuation_rate=999.999)
+	# Combined gate on last voucher; both exercised row rounding
+	ok_a = _qty_rate_consistency_row(ctx, 62, "SR multiline A", "Stock Reconciliation", sr_a.name)
+	ok_b = _qty_rate_consistency_row(ctx, 62, "SR multiline B", "Stock Reconciliation", sr_b.name)
+	status = "PASS" if ok_a.get("status") == "PASS" and ok_b.get("status") == "PASS" else "FAIL"
+	return scenario_row(
+		62,
+		"Stock Reconciliation IRR multiline qty×rate",
+		f"{sr_a.name},{sr_b.name}",
+		status,
+		db_ok=status == "PASS",
+		totals_ok=status == "PASS",
+		evidence=f"A:{ok_a.get('evidence')};B:{ok_b.get('evidence')}"[:500],
+	)
+
+
+def s63_fc_qty_rate_irr_base(ctx: AcceptanceContext) -> dict:
+	_ensure_fc_masters(ctx)
+	supplier = _fc_supplier("USD")
+	if not supplier or not _fc_account(ctx.company, "USD"):
+		return scenario_row(63, "USD PI qty×rate IRR base", "", "SKIP", evidence="no USD supplier/account")
+	item = _item(ctx, "FC-QR", allow_fraction_qty=True)
+	uom = frappe.get_cached_value("Item", item, "stock_uom")
+	pi = frappe.new_doc("Purchase Invoice")
+	pi.company = ctx.company
+	pi.supplier = supplier
+	pi.currency = "USD"
+	pi.conversion_rate = _fc_conversion_rate("USD")
+	pi.update_stock = 0
+	pi.posting_date = today()
+	expense = frappe.db.get_value("Account", {"company": ctx.company, "root_type": "Expense", "is_group": 0}, "name")
+	pi.append(
+		"items",
+		{
+			"item_code": item,
+			"qty": 1.333,
+			"rate": _fc_item_rate("USD"),
+			"uom": uom,
+			"stock_uom": uom,
+			"conversion_factor": 1,
+			"expense_account": expense,
+		},
+	)
+	try:
+		pi.insert(ignore_permissions=True)
+		pi.submit()
+	except Exception as exc:
+		return scenario_row(63, "USD PI qty×rate IRR base", "", "SKIP", evidence=str(exc)[:200])
+	return _qty_rate_consistency_row(ctx, 63, "USD PI qty×rate IRR base", "Purchase Invoice", pi.name)
+
+
+def s64_production_voucher_mat_reco_02761(ctx: AcceptanceContext) -> dict:
+	voucher_no = "MAT-RECO-2026-02761"
+	if not frappe.db.exists("Stock Reconciliation", voucher_no):
+		return scenario_row(
+			64,
+			"Production MAT-RECO-2026-02761 qty×rate gate",
+			voucher_no,
+			"SKIP",
+			evidence="voucher not on this site",
+		)
+	company = frappe.db.get_value("Stock Reconciliation", voucher_no, "company")
+	return _qty_rate_consistency_row(
+		ctx,
+		64,
+		"Production MAT-RECO-2026-02761 qty×rate gate",
+		"Stock Reconciliation",
+		voucher_no,
+	)
+
+
 def _make_bom_wo(ctx: AcceptanceContext, reuse: bool = False):
 	if reuse and ctx.refs.get("wo"):
 		wo_name = ctx.refs["wo"]
@@ -1560,6 +1854,17 @@ SCENARIO_FUNCS: list[tuple[int, Callable[[AcceptanceContext], dict]]] = [
 	(47, s47_negative_reco_outgoing_rate),
 	(48, s48_real_voucher_mat_reco_gate),
 	(49, s49_stock_ledger_monkey_patch_runtime),
+	(54, s54_purchase_order_qty_rate),
+	(55, s55_purchase_invoice_irr_no_stock_qty_rate),
+	(56, s56_purchase_invoice_irr_update_stock_qty_rate),
+	(57, s57_purchase_receipt_qty_rate),
+	(58, s58_delivery_note_qty_rate),
+	(59, s59_stock_entry_qty_rate),
+	(60, s60_sales_invoice_irr_no_stock_qty_rate),
+	(61, s61_sales_invoice_irr_update_stock_qty_rate),
+	(62, s62_stock_reconciliation_multiline_qty_rate),
+	(63, s63_fc_qty_rate_irr_base),
+	(64, s64_production_voucher_mat_reco_02761),
 ]
 
 

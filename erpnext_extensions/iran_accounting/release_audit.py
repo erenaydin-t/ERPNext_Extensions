@@ -28,7 +28,7 @@ def run_release_audit(
 		stock_entry_vouchers=vouchers,
 		include_synthetic=include_synthetic,
 		run_repost=run_repost,
-		scenario_count=47,
+		scenario_count=64,
 	)
 	residual = check_stock_value_residual(blocker, acceptance.get("company"))
 	repair_company_fractional_irr(company=acceptance.get("company") or company)
@@ -41,7 +41,13 @@ def run_release_audit(
 		"s999_scan": next((r for r in rows if r.get("scenario_no") == 999), {}),
 	}
 	fc_fail = [r for r in gates["s31_38_fc"] if r.get("status") == "FAIL"]
-	s40_47_fail = [r for r in rows if 40 <= (r.get("scenario_no") or 0) <= 47 and r.get("status") == "FAIL"]
+	s40_64_fail = [
+		r
+		for r in rows
+		if (40 <= (r.get("scenario_no") or 0) <= 64)
+		and r.get("status") == "FAIL"
+		and r.get("status") != "SKIP"
+	]
 	company_scan = classify_company_fractional_irr(company=acceptance.get("company") or company)
 	fail_new_count = (company_scan.get("counts") or {}).get("fail_new_irr_fractional", 0)
 	release_ready = (
@@ -53,7 +59,7 @@ def run_release_audit(
 		and gates["s39_residual"].get("status") == "PASS"
 		and not fc_fail
 		and gates["s999_scan"].get("status") == "PASS"
-		and not s40_47_fail
+		and not s40_64_fail
 		and fail_new_count == 0
 	)
 	return {

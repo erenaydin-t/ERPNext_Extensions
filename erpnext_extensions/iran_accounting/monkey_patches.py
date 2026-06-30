@@ -7,10 +7,36 @@ from frappe.model.meta import get_field_precision
 from frappe.utils import cint, flt
 
 import erpnext
-from erpnext_extensions.iran_accounting import zero_value_transfer as zvt
+import erpnext_extensions.iran_accounting.zero_value_transfer as zvt
 from erpnext_extensions.iran_accounting.rounding import get_currency_precision, round_gl_entry_amounts
 
 _PATCHED = False
+
+_ROUNDING_REQUIRED = (
+	"round_currency_amount",
+	"round_row_amount",
+	"get_currency_precision",
+	"amount_is_fractional",
+	"round_sle_monetary_fields",
+	"round_gl_entry_amounts",
+	"round_stock_entry_totals",
+)
+
+
+def _ensure_rounding_module_complete() -> None:
+	"""Recover from a partially-initialized rounding module (stale long-lived workers)."""
+	import importlib
+
+	import erpnext_extensions.iran_accounting.rounding as rounding
+
+	if all(hasattr(rounding, name) for name in _ROUNDING_REQUIRED):
+		return
+	importlib.reload(rounding)
+	missing = [name for name in _ROUNDING_REQUIRED if not hasattr(rounding, name)]
+	if missing:
+		raise ImportError(
+			f"erpnext_extensions.iran_accounting.rounding incomplete after reload; missing: {missing}"
+		)
 
 
 def apply_monkey_patches():
@@ -18,6 +44,8 @@ def apply_monkey_patches():
 	if _PATCHED:
 		return
 	_PATCHED = True
+
+	_ensure_rounding_module_complete()
 
 	_patch_stock_controller()
 	_patch_stock_entry()
@@ -178,7 +206,7 @@ def _patch_stock_controller():
 
 def _patch_stock_entry():
 	from erpnext.stock.doctype.stock_entry.stock_entry import StockEntry
-	from erpnext_extensions.iran_accounting import stock_entry as se_hooks
+	import erpnext_extensions.iran_accounting.stock_entry as se_hooks
 
 	if getattr(StockEntry, "_iran_patched", None):
 		return
@@ -427,6 +455,9 @@ def _patch_stock_ledger_engine():
 	import erpnext.stock.stock_ledger as sl
 
 	from erpnext_extensions.iran_accounting.rounding import is_irr_company, round_sle_monetary_fields
+	from erpnext_extensions.iran_accounting.stock_reconciliation_sync import (
+		sync_irr_sle_from_stock_reconciliation_row,
+	)
 
 	if getattr(sl, "_iran_patched_update_entries_after", None):
 		return
@@ -445,6 +476,7 @@ def _patch_stock_ledger_engine():
 		_orig_process_sle(self, sle)
 		company = getattr(self, "company", None) or (sle.get("company") if hasattr(sle, "get") else None)
 		if company and is_irr_company(company):
+			sync_irr_sle_from_stock_reconciliation_row(sle)
 			round_sle_monetary_fields(sle, company)
 			frappe.get_doc(sle).db_update()
 

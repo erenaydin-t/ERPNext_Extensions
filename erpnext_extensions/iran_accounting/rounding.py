@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from decimal import ROUND_HALF_UP, Decimal
+from functools import lru_cache
 
 import frappe
 from frappe.model.meta import get_field_precision
@@ -34,7 +35,7 @@ STOCK_ENTRY_TOTAL_FIELDS = ("total_incoming_value", "total_outgoing_value", "val
 STOCK_ENTRY_ITEM_MONETARY_FIELDS = ("amount", "basic_amount")
 
 
-@frappe.request_cache
+@lru_cache(maxsize=256)
 def get_currency_precision(currency: str | None) -> int:
 	if not currency:
 		return get_currency_precision(erpnext.get_default_currency())
@@ -85,6 +86,16 @@ def round_currency(value, currency: str | None):
 	if precision == 0:
 		return int(Decimal(str(value)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 	return flt(value, precision)
+
+
+def round_currency_amount(value, currency: str | None):
+	"""Public alias: round monetary amount to currency precision."""
+	return round_currency(value, currency)
+
+
+def round_row_amount(qty, rate, currency: str | None):
+	"""Row amount = round(qty × rate, currency precision)."""
+	return round_currency(flt(qty) * flt(rate), currency)
 
 
 def get_company_currency(company: str | None) -> str | None:

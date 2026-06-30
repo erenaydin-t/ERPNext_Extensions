@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+from erpnext_extensions.iran_accounting.qty_rate_amount import (
+	align_delivery_note_item_amounts,
+	align_purchase_invoice_item_amounts,
+	align_purchase_order_item_amounts,
+	align_purchase_receipt_item_amounts,
+	align_sales_invoice_item_amounts,
+)
 from erpnext_extensions.iran_accounting.rounding import (
 	get_company_currency,
 	is_irr_company,
@@ -33,6 +40,10 @@ def round_irr_invoice_totals(doc, method=None) -> None:
 		return
 	if not is_irr_company(doc.company):
 		return
+	if doc.doctype == "Purchase Invoice":
+		align_purchase_invoice_item_amounts(doc)
+	else:
+		align_sales_invoice_item_amounts(doc)
 	currency = get_company_currency(doc.company)
 	for field in IRR_INVOICE_BASE_FIELDS:
 		if doc.meta.has_field(field) and doc.get(field) is not None:
