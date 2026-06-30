@@ -34,3 +34,31 @@ def sync_irr_sle_from_stock_reconciliation_row(sle) -> None:
 	sle.stock_value_difference = amt_diff
 	if flt(sle.qty_after_transaction) and amount:
 		sle.stock_value = amount
+
+
+def assert_stock_reconciliation_row_sle_mirror(voucher_no: str, company: str) -> list[str]:
+	"""SLE movement must equal row amount_difference (not engine output)."""
+	failures: list[str] = []
+	ccy = get_company_currency(company)
+	sles = frappe.get_all(
+		"Stock Ledger Entry",
+		filters={"voucher_type": "Stock Reconciliation", "voucher_no": voucher_no, "is_cancelled": 0},
+		fields=["name", "voucher_detail_no", "stock_value_difference"],
+	)
+	for sle in sles:
+		if not sle.voucher_detail_no:
+			continue
+		row = frappe.db.get_value(
+			"Stock Reconciliation Item",
+			sle.voucher_detail_no,
+			["amount_difference"],
+			as_dict=True,
+		)
+		if not row or row.amount_difference in (None, ""):
+			continue
+		expected = flt(round_currency(row.amount_difference, ccy))
+		if flt(sle.stock_value_difference) != expected:
+			failures.append(
+				f"SLE {sle.name}: movement {sle.stock_value_difference} != row amount_difference {expected}"
+			)
+	return failures

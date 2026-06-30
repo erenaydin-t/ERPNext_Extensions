@@ -514,10 +514,12 @@ def check_any_voucher(doctype, voucher_no):
 
 @frappe.whitelist()
 def run_repost_for_voucher(doctype, voucher_no):
+	"""Supported repost path: RIV/RAL (engine) + mandatory deterministic pipeline. Not repost alone."""
 	return run_repost_for_voucher_impl(doctype, _voucher_no_arg(voucher_no))
 
 
 def run_repost_for_voucher_impl(doctype: str, voucher_no: str, normalize_after: bool = True) -> dict:
+	"""Engine repost (RIV/RAL) then mandatory deterministic pipeline (raise_on_fail=True)."""
 	if not frappe.db.exists(doctype, voucher_no):
 		frappe.throw(f"{doctype} {voucher_no} not found")
 	doc = frappe.get_doc(doctype, voucher_no)
@@ -568,6 +570,21 @@ def run_repost_for_voucher_impl(doctype: str, voucher_no: str, normalize_after: 
 
 	if doctype == "Stock Entry" and normalize_after:
 		actions.extend(_normalize_irr_stock_entry(voucher_no))
+		from erpnext_extensions.iran_accounting.domain.repost_determinism import (
+			run_post_repost_deterministic_pipeline,
+		)
+
+		pipe = run_post_repost_deterministic_pipeline(doc, raise_on_fail=True)
+		actions.extend(pipe.get("reconcile", {}).get("actions") or [])
+		actions.append(f"deterministic_validation:{pipe.get('validation', {}).get('status')}")
+	elif doctype == "Stock Reconciliation" and normalize_after:
+		from erpnext_extensions.iran_accounting.domain.repost_determinism import (
+			run_post_repost_deterministic_pipeline,
+		)
+
+		pipe = run_post_repost_deterministic_pipeline(doc, raise_on_fail=True)
+		actions.extend(pipe.get("reconcile", {}).get("actions") or [])
+		actions.append(f"deterministic_validation:{pipe.get('validation', {}).get('status')}")
 
 	frappe.db.commit()
 	return {"actions": actions, "voucher_type": doctype, "voucher_no": voucher_no}
