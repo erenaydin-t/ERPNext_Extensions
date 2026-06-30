@@ -64,7 +64,7 @@ class TestPDCAssertChequeLeafUsableByPDC(FrappeTestCase):
 
 	def test_void_blocked(self):
 		with self.assertRaises(ValidationError):
-			_pdc_assert_cheque_leaf_usable_by_pdc(_row(status="Void"), "PDC-A")
+			_pdc_assert_cheque_leaf_usable_by_pdc(_row(status="Void", name="LEAF-1"), "PDC-A")
 
 
 class TestPDCValidateChequeLeafIntegrationUsedSamePDC(FrappeTestCase):

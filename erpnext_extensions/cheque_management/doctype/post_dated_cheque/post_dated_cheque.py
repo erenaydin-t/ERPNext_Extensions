@@ -3640,7 +3640,9 @@ def _pdc_assert_cheque_leaf_usable_by_pdc(row, pdc_name: str) -> None:
 
 	if status == "Void":
 		frappe.throw(
-			frappe._("Cannot use a voided Cheque Leaf."),
+			frappe._("Cheque Leaf {0} is void/spoiled and cannot be used.").format(
+				getattr(row, "name", None) or getattr(row, "cheque_number", "") or ""
+			),
 			title=frappe._("Cheque Leaf"),
 		)
 	if status == "Available":
@@ -3781,12 +3783,19 @@ def _pdc_cancel_leaf_for_pdc(leaf_name: str, pdc: "PostDatedCheque") -> None:
 		)
 		return
 	if row.status == "Used" and (row.linked_post_dated_cheque or "") == (pdc.name or ""):
+		frappe.flags.skip_cheque_leaf_void_field_guard = True
 		frappe.db.set_value(
 			"Cheque Leaf",
 			leaf_name,
-			{"status": "Void", "voided_on": now_datetime()},
+			{
+				"status": "Void",
+				"voided_on": now_datetime(),
+				"void_reason": frappe._("Voided because Post Dated Cheque {0} was cancelled.").format(pdc.name),
+				"voided_by": frappe.session.user,
+			},
 			update_modified=False,
 		)
+		frappe.flags.skip_cheque_leaf_void_field_guard = False
 		return
 
 
