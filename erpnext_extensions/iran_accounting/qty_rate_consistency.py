@@ -159,14 +159,16 @@ def check_qty_rate_amount_consistency(
 	totals: dict[str, Any] = {"company_currency": ccy}
 
 	if doctype == "Stock Reconciliation":
-		sum_diff = round_currency(
-			sum(flt(i.amount_difference) for i in doc.get("items") or []),
-			ccy,
-		)
+		sum_amount = sum(flt(i.amount) for i in doc.get("items") or [])
+		sum_diff = sum(flt(i.amount_difference) for i in doc.get("items") or [])
 		header = flt(doc.difference_amount)
+		totals["sum_row_amount"] = sum_amount
 		totals["sum_amount_difference"] = sum_diff
 		totals["difference_amount"] = header
+		totals["purpose"] = doc.get("purpose")
 		totals["header_vs_rows_residual"] = header - sum_diff
+		totals["header_vs_amount_difference_residual"] = header - sum_diff
+		totals["header_vs_gross_amount_residual"] = header - sum_amount
 		gl = _gl_stock_totals(doctype, voucher_no)
 		totals["gl_debit"] = gl["debit"]
 		totals["gl_credit"] = gl["credit"]

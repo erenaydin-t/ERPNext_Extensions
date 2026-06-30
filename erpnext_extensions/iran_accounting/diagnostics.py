@@ -1299,6 +1299,12 @@ def repair_positive_opening_sr_outgoing_rates(voucher_no=None, company=None, dry
 @frappe.whitelist()
 def check_qty_rate_amount_consistency(doctype=None, voucher_no=None, company=None):
 	"""Row qty×rate vs stored amounts; document vs GL vs SLE totals."""
+	if company and not doctype and not voucher_no:
+		from erpnext_extensions.iran_accounting.validation_e2e_company import (
+			check_qty_rate_amount_consistency_for_company,
+		)
+
+		return check_qty_rate_amount_consistency_for_company(company=company)
 	from erpnext_extensions.iran_accounting.qty_rate_consistency import (
 		check_qty_rate_amount_consistency as _check,
 	)
