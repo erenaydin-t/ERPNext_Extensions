@@ -177,8 +177,8 @@ def align_stock_entry_item_amounts(doc) -> None:
 		qty = flt(row.qty)
 		if row.get("basic_rate") is not None:
 			row.basic_amount = rounding.round_row_amount(qty, row.basic_rate, currency)
-		rate = row.basic_rate if row.get("basic_rate") is not None else row.get("valuation_rate")
-		if rate is not None and row.get("amount") is not None:
+		rate = row.basic_rate if row.get("basic_rate") not in (None, "") else row.get("valuation_rate")
+		if qty and rate not in (None, ""):
 			row.amount = rounding.round_row_amount(qty, rate, currency)
 
 

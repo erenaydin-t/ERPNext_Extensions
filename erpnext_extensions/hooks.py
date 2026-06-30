@@ -271,14 +271,17 @@ doc_events = {
 	"Stock Ledger Entry": {
 		"validate": "erpnext_extensions.iran_accounting.stock_ledger.validate_stock_ledger_entry",
 		"before_insert": "erpnext_extensions.iran_accounting.stock_ledger.before_insert_stock_ledger_entry",
+		"after_insert": "erpnext_extensions.iran_accounting.stock_ledger.after_insert_stock_ledger_entry",
 	},
 	"Stock Entry": {
 		"validate": "erpnext_extensions.iran_accounting.stock_entry.validate_stock_entry",
 		"before_submit": "erpnext_extensions.iran_accounting.stock_entry.before_submit_stock_entry",
+		"on_submit": "erpnext_extensions.iran_accounting.stock_entry.on_submit_stock_entry",
 	},
 	"Stock Reconciliation": {
 		"validate": "erpnext_extensions.iran_accounting.stock_reconciliation.validate_stock_reconciliation",
 		"before_submit": "erpnext_extensions.iran_accounting.stock_reconciliation.before_submit_stock_reconciliation",
+		"on_submit": "erpnext_extensions.iran_accounting.stock_reconciliation.on_submit_stock_reconciliation",
 	},
 	"Purchase Order": {
 		"validate": "erpnext_extensions.iran_accounting.buying_selling.validate_purchase_order",

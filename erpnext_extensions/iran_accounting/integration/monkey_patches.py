@@ -31,6 +31,86 @@ def apply_monkey_patches():
 	_patch_stock_ledger_report()
 	_patch_accounting_ledger_preview()
 	_patch_stock_reconciliation()
+	_patch_repost_compatibility()
+
+
+def _patch_repost_compatibility():
+	from erpnext_extensions.iran_accounting.domain.currency import is_irr_company
+
+	try:
+		import erpnext.stock.doctype.repost_item_valuation.repost_item_valuation as riv_mod
+	except ImportError:
+		riv_mod = None
+
+	if riv_mod and not getattr(riv_mod, "_iran_patched_repost", None):
+		_orig_repost = riv_mod.repost
+
+		def repost(doc):
+			voucher_type = getattr(doc, "voucher_type", None)
+			voucher_no = getattr(doc, "voucher_no", None)
+			company = getattr(doc, "company", None)
+			try:
+				return _orig_repost(doc)
+			finally:
+				frappe.flags.through_repost_item_valuation = False
+				if not (voucher_type and voucher_no and company and is_irr_company(company)):
+					return
+				status = frappe.db.get_value("Repost Item Valuation", doc.name, "status")
+				if status != "Completed":
+					return
+				try:
+					doc = frappe.get_doc(voucher_type, voucher_no)
+					from erpnext_extensions.iran_accounting.domain.repost_determinism import (
+						run_post_repost_deterministic_pipeline,
+					)
+
+					run_post_repost_deterministic_pipeline(doc, raise_on_fail=False)
+				except Exception:
+					frappe.log_error(
+						title="IRR repost reconcile failed",
+						message=frappe.get_traceback(),
+					)
+
+		riv_mod.repost = repost
+		riv_mod._iran_patched_repost = True
+
+	try:
+		import erpnext.accounts.doctype.repost_accounting_ledger.repost_accounting_ledger as ral_mod
+	except ImportError:
+		ral_mod = None
+
+	if ral_mod and not getattr(ral_mod, "_iran_patched_start_repost", None):
+		_orig_start = ral_mod.start_repost
+
+		def start_repost(account_repost_doc: str | None = None):
+			_orig_start(account_repost_doc)
+			if not account_repost_doc:
+				return
+			try:
+				repost_doc = frappe.get_doc("Repost Accounting Ledger", account_repost_doc)
+			except Exception:
+				return
+			for row in repost_doc.get("vouchers") or []:
+				company = frappe.db.get_value(row.voucher_type, row.voucher_no, "company")
+				if not company or not is_irr_company(company):
+					continue
+				if row.voucher_type not in ("Stock Reconciliation", "Stock Entry"):
+					continue
+				try:
+					doc = frappe.get_doc(row.voucher_type, row.voucher_no)
+					from erpnext_extensions.iran_accounting.domain.repost_determinism import (
+						run_post_repost_deterministic_pipeline,
+					)
+
+					run_post_repost_deterministic_pipeline(doc, raise_on_fail=False)
+				except Exception:
+					frappe.log_error(
+						title="IRR accounting repost reconcile failed",
+						message=frappe.get_traceback(),
+					)
+
+		ral_mod.start_repost = start_repost
+		ral_mod._iran_patched_start_repost = True
 
 
 def _patch_stock_controller():
@@ -453,6 +533,9 @@ def _patch_stock_ledger_engine():
 
 	from erpnext_extensions.iran_accounting.domain.currency import is_irr_company
 	from erpnext_extensions.iran_accounting.domain.ledger_rounding import round_sle_monetary_fields
+	from erpnext_extensions.iran_accounting.domain.stock_entry_sync import (
+		sync_irr_sle_from_stock_entry_row,
+	)
 	from erpnext_extensions.iran_accounting.domain.stock_reconciliation_sync import (
 		sync_irr_sle_from_stock_reconciliation_row,
 	)
@@ -475,7 +558,9 @@ def _patch_stock_ledger_engine():
 		company = getattr(self, "company", None) or (sle.get("company") if hasattr(sle, "get") else None)
 		if company and is_irr_company(company):
 			sync_irr_sle_from_stock_reconciliation_row(sle)
+			sync_irr_sle_from_stock_entry_row(sle)
 			round_sle_monetary_fields(sle, company)
+			sync_irr_sle_from_stock_entry_row(sle)
 			frappe.get_doc(sle).db_update()
 
 	sl.update_entries_after.process_sle = process_sle

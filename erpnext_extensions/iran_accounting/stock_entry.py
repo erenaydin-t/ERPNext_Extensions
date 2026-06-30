@@ -56,6 +56,16 @@ def before_submit_stock_entry(doc, method=None):
 	align_zero_value_transfer_totals(doc)
 
 
+def on_submit_stock_entry(doc, method=None):
+	if not is_irr_company(doc.company):
+		return
+	from erpnext_extensions.iran_accounting.domain.stock_entry_ledger_contract import (
+		enforce_stock_entry_ledger_contract,
+	)
+
+	enforce_stock_entry_ledger_contract(doc.name, doc.company, raise_on_fail=True)
+
+
 def before_gl_preview_stock_entry(doc, method=None):
 	if doc.doctype != "Stock Entry":
 		return
@@ -75,7 +85,6 @@ def patched_set_total_incoming_outgoing_value(self):
 		return
 
 	company_currency = get_company_currency(self.company)
-	precision = get_currency_precision(company_currency)
 	self.total_incoming_value = self.total_outgoing_value = 0.0
 	for d in self.get("items"):
 		if d.t_warehouse:
@@ -83,9 +92,8 @@ def patched_set_total_incoming_outgoing_value(self):
 		if d.s_warehouse:
 			self.total_outgoing_value += flt(d.amount)
 
-	self.total_incoming_value = flt(self.total_incoming_value, precision)
-	self.total_outgoing_value = flt(self.total_outgoing_value, precision)
-	self.value_difference = flt(self.total_incoming_value - self.total_outgoing_value, precision)
+	# Do not round summed totals — rows are already IRR integers.
+	self.value_difference = flt(self.total_incoming_value) - flt(self.total_outgoing_value)
 	align_zero_value_transfer_totals(self)
 
 

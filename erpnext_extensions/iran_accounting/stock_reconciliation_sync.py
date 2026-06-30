@@ -2,5 +2,6 @@
 """Re-export for legacy imports."""
 
 from erpnext_extensions.iran_accounting.domain.stock_reconciliation_sync import (  # noqa: F401
+	assert_stock_reconciliation_row_sle_mirror,
 	sync_irr_sle_from_stock_reconciliation_row,
 )

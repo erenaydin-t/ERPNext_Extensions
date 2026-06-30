@@ -13,6 +13,7 @@ from erpnext.accounts.doctype.accounting_dimension.accounting_dimension import g
 from erpnext.accounts.general_ledger import process_gl_map
 from erpnext.stock.doctype.inventory_dimension.inventory_dimension import get_inventory_dimensions
 
+from erpnext_extensions.iran_accounting.domain.stock_entry_sync import gl_movement_from_row_only
 from erpnext_extensions.iran_accounting.rounding import get_company_currency, get_currency_precision, round_currency
 
 ZERO_VALUE_TRANSFER_STOCK_ENTRY_PURPOSES = (
@@ -97,7 +98,8 @@ def _get_transfer_expense_account(self, item_row, inventory_account_map, sle=Non
 
 
 def _append_zero_value_transfer_inventory_gl(self, gl_list, amount, sle, inv_dict, item_row, precision):
-	amount = flt(amount, precision)
+	_ = precision
+	amount = round_currency(amount, get_company_currency(self.company))
 	if not amount:
 		return
 
@@ -306,6 +308,15 @@ def _append_balanced_transfer_item_gl(self, gl_list, item_row, inventory_account
 def get_gl_entries(
 	self, inventory_account_map=None, default_expense_account=None, default_cost_center=None
 ):
+	if self.doctype == "Stock Reconciliation":
+		from erpnext_extensions.iran_accounting.domain.stock_reconciliation_gl import (
+			get_stock_reconciliation_gl_entries,
+		)
+
+		return get_stock_reconciliation_gl_entries(
+			self, inventory_account_map, default_expense_account, default_cost_center
+		)
+
 	if not inventory_account_map:
 		inventory_account_map = self.get_inventory_account_map()
 
@@ -345,11 +356,12 @@ def get_gl_entries(
 			_inv_dict = self.get_inventory_account_dict(sle, inventory_account_map)
 
 			if _inv_dict.get("account"):
-				sle_rounding_diff += flt(sle.stock_value_difference)
+				mov = gl_movement_from_row_only(item_row, sle, self.company)
+				sle_rounding_diff += mov
 				self.check_expense_account(item_row)
 
 				group_key = _get_transfer_gl_aggregate_key(self, sle, item_row, _inv_dict)
-				group_amounts[group_key] += flt(sle.stock_value_difference)
+				group_amounts[group_key] += mov
 				group_meta[group_key] = (sle, _inv_dict)
 			elif sle.warehouse not in warehouse_with_no_account:
 				warehouse_with_no_account.append(sle.warehouse)
@@ -372,6 +384,7 @@ def get_gl_entries(
 					continue
 
 				expense_account = _get_transfer_expense_account(self, item_row, inventory_account_map, sle=sle)
+				mov = gl_movement_from_row_only(item_row, sle, self.company)
 
 				gl_list.append(
 					self.get_gl_dict(
@@ -381,7 +394,7 @@ def get_gl_entries(
 							"cost_center": item_row.cost_center,
 							"project": sle.get("project") or item_row.project or self.get("project"),
 							"remarks": self.get("remarks") or _("Accounting Entry for Stock"),
-							"debit": flt(sle.stock_value_difference, precision),
+							"debit": mov,
 							"is_opening": item_row.get("is_opening") or self.get("is_opening") or "No",
 						},
 						_inv_dict["account_currency"],
@@ -396,7 +409,7 @@ def get_gl_entries(
 							"against": _inv_dict["account"],
 							"cost_center": item_row.cost_center,
 							"remarks": self.get("remarks") or _("Accounting Entry for Stock"),
-							"debit": -1 * flt(sle.stock_value_difference, precision),
+							"debit": -1 * mov,
 							"project": sle.get("project") or item_row.get("project") or self.get("project"),
 							"is_opening": item_row.get("is_opening") or self.get("is_opening") or "No",
 						},

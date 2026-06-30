@@ -106,42 +106,20 @@ def round_sle_monetary_fields(sle_doc_or_dict, company: str | None = None) -> No
 		if val is not None:
 			_set_entry_value(sle, field, round_currency(val, currency))
 	if is_irr_company(company):
-		reconcile_irr_sle_after_rounding(sle, company)
+		from erpnext_extensions.iran_accounting.domain.stock_ledger_deterministic import (
+			apply_irr_deterministic_sle_valuation,
+		)
+
+		apply_irr_deterministic_sle_valuation(sle, company)
 
 
 def reconcile_irr_sle_after_rounding(sle_doc_or_dict, company: str | None = None) -> None:
-	company = company or _get_entry_value(sle_doc_or_dict, "company")
-	if not company or not is_irr_company(company):
-		return
-	qty_raw = _get_entry_value(sle_doc_or_dict, "qty_after_transaction")
-	if qty_raw in (None, ""):
-		return
-	currency = get_company_currency(company)
-	qty_after = flt(qty_raw)
-	after = flt(_get_entry_value(sle_doc_or_dict, "stock_value"))
-	diff = flt(_get_entry_value(sle_doc_or_dict, "stock_value_difference"))
-	if not after and not diff:
-		_align_stock_reconciliation_incoming_rate(sle_doc_or_dict)
-		return
-	if not qty_after:
-		_set_entry_value(sle_doc_or_dict, "valuation_rate", 0)
-		if after:
-			before = after - diff
-			_set_entry_value(sle_doc_or_dict, "stock_value", 0)
-			_set_entry_value(sle_doc_or_dict, "stock_value_difference", -before)
-		return
-	target_rate = after / qty_after
-	candidates = {int(target_rate), int(target_rate) + 1, int(target_rate) - 1, round(target_rate)}
-	best_rate = min(
-		candidates,
-		key=lambda r: abs(after - round_currency(qty_after * r, currency)),
+	"""Backward-compatible entry: deterministic IRR balance (no engine avg)."""
+	from erpnext_extensions.iran_accounting.domain.stock_ledger_deterministic import (
+		apply_irr_deterministic_sle_valuation,
 	)
-	_set_entry_value(sle_doc_or_dict, "valuation_rate", round_currency(best_rate, currency))
-	_align_stock_reconciliation_incoming_rate(sle_doc_or_dict)
-	_zero_positive_opening_stock_reconciliation_outgoing_rate(sle_doc_or_dict)
-	out = flt(_get_entry_value(sle_doc_or_dict, "outgoing_rate"))
-	if out and is_irr_company(company):
-		_set_entry_value(sle_doc_or_dict, "outgoing_rate", round_currency(out, currency))
+
+	apply_irr_deterministic_sle_valuation(sle_doc_or_dict, company)
 
 
 def _zero_positive_opening_stock_reconciliation_outgoing_rate(sle_doc_or_dict) -> None:
@@ -176,10 +154,13 @@ def round_stock_entry_totals(stock_entry_doc) -> None:
 	if not is_irr_company(stock_entry_doc.company):
 		return
 	currency = get_company_currency(stock_entry_doc.company)
-	for field in STOCK_ENTRY_TOTAL_FIELDS:
-		if stock_entry_doc.get(field) is not None:
-			stock_entry_doc.set(field, round_currency(stock_entry_doc.get(field), currency))
 	for row in stock_entry_doc.get("items") or []:
 		for field in STOCK_ENTRY_ITEM_MONETARY_FIELDS:
 			if row.get(field) is not None:
 				row.set(field, round_currency(row.get(field), currency))
+	# Header totals = sum of per-row rounded amounts only (no post-aggregation round).
+	inc = sum(flt(d.amount) for d in stock_entry_doc.get("items") or [] if d.get("t_warehouse"))
+	out = sum(flt(d.amount) for d in stock_entry_doc.get("items") or [] if d.get("s_warehouse"))
+	stock_entry_doc.total_incoming_value = inc
+	stock_entry_doc.total_outgoing_value = out
+	stock_entry_doc.value_difference = inc - out
