@@ -1,0 +1,505 @@
+# Copyright (c) 2026, ERPNext Extensions contributors
+
+from __future__ import annotations
+
+import frappe
+from frappe.model.meta import get_field_precision
+from frappe.utils import cint, flt
+
+import erpnext
+import erpnext_extensions.iran_accounting.zero_value_transfer as zvt
+from erpnext_extensions.iran_accounting.domain.ledger_rounding import round_gl_entry_amounts
+from erpnext_extensions.iran_accounting.domain.currency import get_currency_precision
+
+_PATCHED = False
+
+
+def apply_monkey_patches():
+	global _PATCHED
+	from erpnext_extensions.iran_accounting.worker.guard import ensure_runtime_ready
+
+	ensure_runtime_ready()
+	if _PATCHED:
+		return
+	_PATCHED = True
+
+	_patch_stock_controller()
+	_patch_stock_entry()
+	_patch_general_ledger()
+	_patch_accounts_controller()
+	_patch_stock_ledger_engine()
+	_patch_stock_ledger_report()
+	_patch_accounting_ledger_preview()
+	_patch_stock_reconciliation()
+
+
+def _patch_stock_controller():
+	from erpnext.controllers import stock_controller as sc
+	from erpnext.controllers.stock_controller import StockController
+
+	if not getattr(StockController, "_iran_original_get_gl_entries", None):
+		StockController._iran_original_get_gl_entries = StockController.get_gl_entries
+		StockController._iran_original_get_debit_field_precision = StockController.get_debit_field_precision
+		StockController._iran_original_make_gl_entries = StockController.make_gl_entries
+		StockController._iran_original_get_stock_ledger_details = StockController.get_stock_ledger_details
+
+	for name, func in zvt.STOCK_CONTROLLER_METHODS.items():
+		setattr(StockController, name, func)
+
+	def get_debit_field_precision(self):
+		if getattr(self, "company", None):
+			return zvt.get_debit_field_precision_for_company(self)
+		return self._iran_original_get_debit_field_precision()
+
+	StockController.get_debit_field_precision = get_debit_field_precision
+
+	def make_gl_entries(self, gl_entries=None, from_repost=False, via_landed_cost_voucher=False):
+		from erpnext.accounts.general_ledger import make_gl_entries as _make_gl_entries
+		from erpnext.accounts.general_ledger import make_reverse_gl_entries
+
+		if self.docstatus == 2:
+			make_reverse_gl_entries(voucher_type=self.doctype, voucher_no=self.name)
+
+		provisional_accounting_for_non_stock_items = cint(
+			frappe.get_cached_value(
+				"Company", self.company, "enable_provisional_accounting_for_non_stock_items"
+			)
+		)
+
+		is_asset_pr = any(d.get("is_fixed_asset") for d in self.get("items"))
+		need_inventory_map = (self.get_stock_items() or self.get("packed_items")) and (
+			cint(erpnext.is_perpetual_inventory_enabled(self.company))
+		)
+
+		inventory_account_map = frappe._dict()
+		if need_inventory_map:
+			inventory_account_map = self.get_inventory_account_map()
+
+		if need_inventory_map or provisional_accounting_for_non_stock_items or is_asset_pr:
+			if self.docstatus == 1:
+				if not gl_entries:
+					gl_entries = (
+						self.get_gl_entries(inventory_account_map, via_landed_cost_voucher)
+						if self.doctype == "Purchase Receipt"
+						else self.get_gl_entries(inventory_account_map)
+					)
+				skip_round_off = None
+				if self.doctype == "Stock Entry":
+					precision = self.get_debit_field_precision()
+					if zvt._should_force_balanced_transfer_gl(self, precision):
+						skip_round_off = self.name
+				try:
+					if skip_round_off:
+						frappe.flags.skip_round_off_for_zero_value_stock_entry = skip_round_off
+					_make_gl_entries(gl_entries, from_repost=from_repost)
+				finally:
+					frappe.flags.skip_round_off_for_zero_value_stock_entry = None
+
+	StockController.make_gl_entries = make_gl_entries
+
+	def get_stock_ledger_details(self):
+		from erpnext.stock.doctype.inventory_dimension.inventory_dimension import get_inventory_dimensions
+
+		stock_ledger = {}
+
+		table = frappe.qb.DocType("Stock Ledger Entry")
+
+		select_fields = [
+			table.name,
+			table.warehouse,
+			table.stock_value_difference,
+			table.valuation_rate,
+			table.voucher_detail_no,
+			table.item_code,
+			table.posting_date,
+			table.posting_time,
+			table.actual_qty,
+			table.qty_after_transaction,
+			table.project,
+		]
+
+		sle_meta = frappe.get_meta("Stock Ledger Entry")
+		for dimension in get_inventory_dimensions():
+			if sle_meta.has_field(dimension.fieldname):
+				select_fields.append(getattr(table, dimension.fieldname))
+
+		stock_ledger_entries = (
+			frappe.qb.from_(table)
+			.select(*select_fields)
+			.where(
+				(table.voucher_type == self.doctype)
+				& (table.voucher_no == self.name)
+				& (table.is_cancelled == 0)
+			)
+		).run(as_dict=True)
+
+		for sle in stock_ledger_entries:
+			stock_ledger.setdefault(sle.voucher_detail_no, []).append(sle)
+
+		return stock_ledger
+
+	StockController.get_stock_ledger_details = get_stock_ledger_details
+
+	if not getattr(sc, "_iran_original_get_accounting_ledger_preview", None):
+		sc._iran_original_get_accounting_ledger_preview = sc.get_accounting_ledger_preview
+
+	def get_accounting_ledger_preview(doc, filters):
+		from erpnext.accounts.report.general_ledger.general_ledger import get_columns as get_gl_columns
+		from erpnext.controllers.stock_controller import get_columns, get_data, get_gl_entries_for_preview
+
+		gl_columns, gl_data = [], []
+		fields = [
+			"posting_date",
+			"account",
+			"debit",
+			"credit",
+			"against",
+			"party_type",
+			"party",
+			"cost_center",
+			"against_voucher_type",
+			"against_voucher",
+		]
+
+		doc.docstatus = 1
+
+		if doc.doctype == "Stock Entry":
+			doc.make_bundle_using_old_serial_batch_fields()
+			doc.update_stock_ledger()
+		elif doc.get("update_stock") or doc.doctype in ("Purchase Receipt", "Delivery Note"):
+			doc.update_stock_ledger()
+
+		doc.make_gl_entries()
+		columns = get_gl_columns(filters)
+		gl_entries = get_gl_entries_for_preview(doc.doctype, doc.name, fields)
+
+		gl_columns = get_columns(columns, fields)
+		gl_data = get_data(fields, gl_entries)
+
+		return gl_columns, gl_data
+
+	sc.get_accounting_ledger_preview = get_accounting_ledger_preview
+
+
+def _patch_stock_reconciliation():
+	from erpnext.stock.doctype.stock_reconciliation.stock_reconciliation import StockReconciliation
+	from erpnext_extensions.iran_accounting.domain.stock_reconciliation_erpnext import (
+		patched_calculate_difference_amount,
+		patched_remove_items_with_no_change,
+		patched_set_total_qty_and_amount,
+	)
+
+	if getattr(StockReconciliation, "_iran_patched_set_total", None):
+		return
+
+	StockReconciliation._iran_original_set_total_qty_and_amount = StockReconciliation.set_total_qty_and_amount
+	StockReconciliation._iran_original_calculate_difference_amount = StockReconciliation.calculate_difference_amount
+	StockReconciliation._iran_original_remove_items_with_no_change = StockReconciliation.remove_items_with_no_change
+	StockReconciliation.set_total_qty_and_amount = patched_set_total_qty_and_amount
+	StockReconciliation.calculate_difference_amount = patched_calculate_difference_amount
+	StockReconciliation.remove_items_with_no_change = patched_remove_items_with_no_change
+	StockReconciliation._iran_patched_set_total = True
+
+
+def _patch_stock_entry():
+	from erpnext.stock.doctype.stock_entry.stock_entry import StockEntry
+	import erpnext_extensions.iran_accounting.stock_entry as se_hooks
+
+	if getattr(StockEntry, "_iran_patched", None):
+		return
+
+	se_hooks._original_set_total_incoming_outgoing_value = StockEntry.set_total_incoming_outgoing_value
+	StockEntry.set_total_incoming_outgoing_value = se_hooks.patched_set_total_incoming_outgoing_value
+
+	if not getattr(StockEntry, "before_gl_preview", None) or not getattr(
+		StockEntry.before_gl_preview, "_iran_wrapped", None
+	):
+		_orig_before = getattr(StockEntry, "before_gl_preview", None)
+
+		def before_gl_preview(self):
+			se_hooks.before_gl_preview_stock_entry(self)
+			if _orig_before:
+				return _orig_before(self)
+
+		before_gl_preview._iran_wrapped = True
+		StockEntry.before_gl_preview = before_gl_preview
+
+	_orig_get_gl = StockEntry.get_gl_entries
+
+	def get_gl_entries(self, inventory_account_map):
+		gl_entries = _orig_get_gl(self, inventory_account_map)
+		return zvt.finalize_zero_value_transfer_gl_map(self, gl_entries)
+
+	StockEntry.get_gl_entries = get_gl_entries
+	StockEntry._iran_patched = True
+
+
+def _patch_general_ledger():
+	import erpnext.accounts.general_ledger as gl
+
+	if getattr(gl, "_iran_patched", None):
+		return
+
+	gl._iran_original_merge_similar_entries = gl.merge_similar_entries
+	gl._iran_original_save_entries = gl.save_entries
+	gl._iran_original_process_debit_credit_difference = gl.process_debit_credit_difference
+	gl._iran_original_make_entry = gl.make_entry
+	gl._iran_original_get_debit_credit_difference = gl.get_debit_credit_difference
+
+	gl.absorb_gl_map_rounding_residual = zvt.absorb_gl_map_rounding_residual
+
+	def _is_non_zero_gl_entry(x, precision):
+		if (
+			x.voucher_type == "Journal Entry"
+			and frappe.get_cached_value("Journal Entry", x.voucher_no, "voucher_type")
+			== "Exchange Gain Or Loss"
+		):
+			return True
+
+		if flt(x.debit, precision) != 0 or flt(x.credit, precision) != 0:
+			return True
+
+		if (
+			x.voucher_type == "Stock Entry"
+			and frappe.flags.get("skip_round_off_for_zero_value_stock_entry") == x.voucher_no
+		):
+			acct_precision = precision
+			if x.get("account_currency"):
+				acct_precision = get_field_precision(
+					frappe.get_meta("GL Entry").get_field("debit_in_account_currency"),
+					currency=x.account_currency,
+				)
+			if flt(x.debit_in_account_currency, acct_precision) != 0:
+				return True
+			if flt(x.credit_in_account_currency, acct_precision) != 0:
+				return True
+
+		return False
+
+	def merge_similar_entries(gl_map, precision=None):
+		merged = gl._iran_original_merge_similar_entries(gl_map, precision)
+		if not merged:
+			return merged
+		company = merged[0].company if merged else erpnext.get_default_company()
+		company_currency = erpnext.get_company_currency(company)
+		if not precision:
+			precision = get_field_precision(
+				frappe.get_meta("GL Entry").get_field("debit"), currency=company_currency
+			)
+		return list(filter(lambda x: _is_non_zero_gl_entry(x, precision), merged))
+
+	gl.merge_similar_entries = merge_similar_entries
+
+	def _finalize_zero_value_stock_entry_gl_map_before_save(gl_map):
+		if not gl_map or gl_map[0].voucher_type != "Stock Entry":
+			return gl_map
+
+		voucher_no = gl_map[0].voucher_no
+		if frappe.flags.get("skip_round_off_for_zero_value_stock_entry") != voucher_no:
+			return gl_map
+
+		from erpnext.stock.doctype.stock_entry.stock_entry import StockEntry
+
+		doc = StockEntry({"doctype": "Stock Entry", "name": voucher_no, "company": gl_map[0].company})
+		doc.purpose = frappe.get_cached_value("Stock Entry", voucher_no, "purpose")
+		doc.total_incoming_value = frappe.get_cached_value("Stock Entry", voucher_no, "total_incoming_value")
+		doc.total_outgoing_value = frappe.get_cached_value("Stock Entry", voucher_no, "total_outgoing_value")
+		doc.value_difference = frappe.get_cached_value("Stock Entry", voucher_no, "value_difference")
+		return zvt.finalize_zero_value_transfer_gl_map(doc, gl_map)
+
+	def save_entries(gl_map, adv_adj, update_outstanding, from_repost=False):
+		if not from_repost:
+			gl.validate_cwip_accounts(gl_map)
+
+		gl_map = _finalize_zero_value_stock_entry_gl_map_before_save(gl_map)
+		gl.process_debit_credit_difference(gl_map)
+		gl_map = _finalize_zero_value_stock_entry_gl_map_before_save(gl_map)
+
+		dimension_filter_map = gl.get_dimension_filter_map()
+		if gl_map:
+			gl.check_freezing_date(gl_map[0]["posting_date"], gl_map[0]["company"], adv_adj)
+			is_opening = any(d.get("is_opening") == "Yes" for d in gl_map)
+			if gl_map[0]["voucher_type"] != "Period Closing Voucher":
+				gl.validate_against_pcv(is_opening, gl_map[0]["posting_date"], gl_map[0]["company"])
+
+		for entry in gl_map:
+			gl.validate_allowed_dimensions(entry, dimension_filter_map)
+			gl.make_entry(entry, adv_adj, update_outstanding, from_repost)
+
+	gl.save_entries = save_entries
+
+	def process_debit_credit_difference(gl_map):
+		company = gl_map[0].company
+		company_currency = erpnext.get_company_currency(company)
+		from erpnext_extensions.iran_accounting.domain.currency import get_currency_precision, is_irr_company
+
+		if is_irr_company(company):
+			precision = get_currency_precision(company_currency)
+		else:
+			precision = get_field_precision(
+				frappe.get_meta("GL Entry").get_field("debit"), currency=company_currency
+			)
+
+		voucher_type = gl_map[0].voucher_type
+		voucher_no = gl_map[0].voucher_no
+		allowance = gl.get_debit_credit_allowance(voucher_type, precision)
+
+		debit_credit_diff, trx_cur_debit_credit_diff = gl.get_debit_credit_difference(gl_map, precision)
+
+		if abs(debit_credit_diff) > allowance:
+			if not (
+				voucher_type == "Journal Entry"
+				and frappe.get_cached_value("Journal Entry", voucher_no, "voucher_type")
+				== "Exchange Gain Or Loss"
+			):
+				gl.raise_debit_credit_not_equal_error(debit_credit_diff, voucher_type, voucher_no)
+
+		elif debit_credit_diff and precision == 0 and abs(debit_credit_diff) < 1:
+			zvt.absorb_gl_map_rounding_residual(
+				gl_map, precision, debit_credit_diff, trx_cur_debit_credit_diff
+			)
+		elif abs(debit_credit_diff) >= (1.0 / (10**precision)):
+			if (
+				voucher_type == "Stock Entry"
+				and frappe.flags.get("skip_round_off_for_zero_value_stock_entry") == voucher_no
+			):
+				zvt.absorb_gl_map_rounding_residual(
+					gl_map, precision, debit_credit_diff, trx_cur_debit_credit_diff
+				)
+			else:
+				gl.make_round_off_gle(gl_map, debit_credit_diff, trx_cur_debit_credit_diff, precision)
+				gl_map[:] = [
+					e
+					for e in gl_map
+					if flt(e.get("debit"), precision) != 0 or flt(e.get("credit"), precision) != 0
+				]
+
+		debit_credit_diff, trx_cur_debit_credit_diff = gl.get_debit_credit_difference(gl_map, precision)
+		if abs(debit_credit_diff) > allowance:
+			if not (
+				voucher_type == "Journal Entry"
+				and frappe.get_cached_value("Journal Entry", voucher_no, "voucher_type")
+				== "Exchange Gain Or Loss"
+			):
+				gl.raise_debit_credit_not_equal_error(debit_credit_diff, voucher_type, voucher_no)
+
+	def make_entry(args, adv_adj, update_outstanding, from_repost=False):
+		round_gl_entry_amounts(args)
+		company = args.get("company") if isinstance(args, dict) else getattr(args, "company", None)
+		if company:
+			company_currency = erpnext.get_company_currency(company)
+			from erpnext_extensions.iran_accounting.domain.currency import get_currency_precision, is_irr_company
+
+			precision = (
+				get_currency_precision(company_currency)
+				if is_irr_company(company)
+				else get_field_precision(
+					frappe.get_meta("GL Entry").get_field("debit"), currency=company_currency
+				)
+			)
+			debit = flt(args.get("debit") if isinstance(args, dict) else args.debit, precision)
+			credit = flt(args.get("credit") if isinstance(args, dict) else args.credit, precision)
+			if not debit and not credit:
+				return None
+		return gl._iran_original_make_entry(args, adv_adj, update_outstanding, from_repost)
+
+	def get_debit_credit_difference(gl_map, precision):
+		for entry in gl_map:
+			round_gl_entry_amounts(entry)
+		return gl._iran_original_get_debit_credit_difference(gl_map, precision)
+
+	gl.process_debit_credit_difference = process_debit_credit_difference
+	gl.make_entry = make_entry
+	gl.get_debit_credit_difference = get_debit_credit_difference
+	gl._iran_patched = True
+
+
+def _patch_accounts_controller():
+	from erpnext.controllers import accounts_controller as ac
+
+	if getattr(ac, "_iran_patched_set_balance", None):
+		return
+
+	_orig = ac.set_balance_in_account_currency
+
+	def set_balance_in_account_currency(gl_dict, account_currency=None, conversion_rate=None, company_currency=None):
+		_orig(gl_dict, account_currency, conversion_rate, company_currency)
+		if not company_currency and gl_dict.get("company"):
+			company_currency = erpnext.get_company_currency(gl_dict.company)
+		if not account_currency:
+			account_currency = gl_dict.get("account_currency") or company_currency
+		acct_precision = get_currency_precision(account_currency)
+
+		if flt(gl_dict.debit) and not flt(gl_dict.debit_in_account_currency):
+			gl_dict.debit_in_account_currency = (
+				gl_dict.debit
+				if account_currency == company_currency
+				else flt(gl_dict.debit / conversion_rate, acct_precision)
+			)
+
+		if flt(gl_dict.credit) and not flt(gl_dict.credit_in_account_currency):
+			gl_dict.credit_in_account_currency = (
+				gl_dict.credit
+				if account_currency == company_currency
+				else flt(gl_dict.credit / conversion_rate, acct_precision)
+			)
+
+	ac.set_balance_in_account_currency = set_balance_in_account_currency
+	ac._iran_patched_set_balance = True
+
+
+def _patch_stock_ledger_engine():
+	import erpnext.stock.stock_ledger as sl
+
+	from erpnext_extensions.iran_accounting.domain.currency import is_irr_company
+	from erpnext_extensions.iran_accounting.domain.ledger_rounding import round_sle_monetary_fields
+	from erpnext_extensions.iran_accounting.domain.stock_reconciliation_sync import (
+		sync_irr_sle_from_stock_reconciliation_row,
+	)
+
+	if getattr(sl, "_iran_patched_update_entries_after", None):
+		return
+
+	_orig_set_precision = sl.update_entries_after.set_precision
+	_orig_process_sle = sl.update_entries_after.process_sle
+
+	def set_precision(self):
+		_orig_set_precision(self)
+		company_currency = erpnext.get_company_currency(self.company)
+		self.currency_precision = get_currency_precision(company_currency)
+
+	sl.update_entries_after.set_precision = set_precision
+
+	def process_sle(self, sle):
+		_orig_process_sle(self, sle)
+		company = getattr(self, "company", None) or (sle.get("company") if hasattr(sle, "get") else None)
+		if company and is_irr_company(company):
+			sync_irr_sle_from_stock_reconciliation_row(sle)
+			round_sle_monetary_fields(sle, company)
+			frappe.get_doc(sle).db_update()
+
+	sl.update_entries_after.process_sle = process_sle
+	sl._iran_patched_update_entries_after = True
+
+
+def _patch_stock_ledger_report():
+	import erpnext.stock.report.stock_ledger.stock_ledger as sl_report
+
+	from erpnext_extensions.iran_accounting.reports import sanitize_stock_ledger_report
+
+	if getattr(sl_report, "_iran_patched_execute", None):
+		return
+	sl_report._iran_original_execute = sl_report.execute
+
+	def execute(filters):
+		columns, data = sl_report._iran_original_execute(filters)
+		filters = frappe._dict(filters)
+		return sanitize_stock_ledger_report(columns, data, filters.get("company"), filters)
+
+	sl_report.execute = execute
+	sl_report._iran_patched_execute = True
+
+
+def _patch_accounting_ledger_preview():
+	# Applied inside _patch_stock_controller on stock_controller module
+	pass

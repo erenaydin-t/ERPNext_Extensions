@@ -146,7 +146,7 @@ def sanitize_stock_ledger_report(columns: list, data: list, company: str, filter
 		if irr:
 			sanitize_stock_ledger_row(row, company, monetary)
 		if row.get("voucher_type") == "Stock Reconciliation":
-			_align_stock_reconciliation_report_row(row)
+			_align_stock_reconciliation_report_row(row, company)
 	return columns, data
 
 
@@ -170,7 +170,7 @@ def stock_ledger_report_runtime_info() -> dict[str, Any]:
 	}
 
 
-def _align_stock_reconciliation_report_row(row: dict) -> None:
+def _align_stock_reconciliation_report_row(row: dict, company: str | None = None) -> None:
 	"""Normalize Stock Reconciliation rows for Desk Stock Ledger (in_qty / rates)."""
 	if row.get("voucher_type") != "Stock Reconciliation":
 		return
@@ -219,6 +219,12 @@ def _align_stock_reconciliation_report_row(row: dict) -> None:
 
 	row["incoming_rate"] = 0
 	row["in_out_rate"] = 0
+
+	if company and is_irr_company(company):
+		ccy = get_company_currency(company)
+		for field in STOCK_LEDGER_MONETARY_FIELDNAMES:
+			if row.get(field) not in (None, ""):
+				row[field] = round_currency(row[field], ccy)
 
 
 def fractional_cells_in_report_rows(

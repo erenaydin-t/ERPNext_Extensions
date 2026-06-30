@@ -135,7 +135,7 @@ after_migrate = [
 	"erpnext_extensions.petty_management.desk_visibility.after_migrate",
 	"erpnext_extensions.cheque_management.pdc_accounting_dimensions.after_migrate",
 	"erpnext_extensions.facility_management.facility_accounting_dimensions.after_migrate",
-	"erpnext_extensions.iran_accounting.monkey_patches.apply_monkey_patches",
+	"erpnext_extensions.iran_accounting.integration.bootstrap.apply",
 ]
 
 # ERPNext injects Accounting Dimension custom fields onto these DocTypes (see Accounting Dimension on_update).
@@ -276,6 +276,19 @@ doc_events = {
 		"validate": "erpnext_extensions.iran_accounting.stock_entry.validate_stock_entry",
 		"before_submit": "erpnext_extensions.iran_accounting.stock_entry.before_submit_stock_entry",
 	},
+	"Stock Reconciliation": {
+		"validate": "erpnext_extensions.iran_accounting.stock_reconciliation.validate_stock_reconciliation",
+		"before_submit": "erpnext_extensions.iran_accounting.stock_reconciliation.before_submit_stock_reconciliation",
+	},
+	"Purchase Order": {
+		"validate": "erpnext_extensions.iran_accounting.buying_selling.validate_purchase_order",
+	},
+	"Purchase Receipt": {
+		"validate": "erpnext_extensions.iran_accounting.buying_selling.validate_purchase_receipt",
+	},
+	"Delivery Note": {
+		"validate": "erpnext_extensions.iran_accounting.buying_selling.validate_delivery_note",
+	},
 }
 
 # Scheduled Tasks
@@ -330,12 +343,18 @@ ignore_links_on_delete = ["PM Request"]
 
 # Request Events
 # ----------------
-# before_request = ["erpnext_extensions.utils.before_request"]
+# Ensure IRR monkey patches are applied on boot/request paths.
+# apply_monkey_patches is idempotent (guarded), so calling it on requests is safe.
+before_request = [
+	"erpnext_extensions.iran_accounting.integration.bootstrap.apply",
+]
 # after_request = ["erpnext_extensions.utils.after_request"]
 
 # Job Events
 # ----------
-# before_job = ["erpnext_extensions.utils.before_job"]
+before_job = [
+	"erpnext_extensions.iran_accounting.integration.bootstrap.apply",
+]
 # after_job = ["erpnext_extensions.utils.after_job"]
 
 # User Data Protection

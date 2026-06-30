@@ -850,6 +850,125 @@ def _previous_sle_for_row(sle: dict) -> dict | None:
 	return rows[0] if rows else None
 
 
+def _import_integrity_snapshot() -> dict:
+	import os
+	import sys
+	import hashlib
+	import importlib
+
+	import erpnext_extensions.iran_accounting.rounding as rounding
+	from erpnext_extensions.iran_accounting.monkey_patches import apply_monkey_patches
+
+	apply_monkey_patches()
+
+	required = (
+		"round_currency_amount",
+		"round_row_amount",
+		"get_currency_precision",
+		"amount_is_fractional",
+		"round_sle_monetary_fields",
+		"round_gl_entry_amounts",
+		"round_stock_entry_totals",
+	)
+
+	before_has = {k: hasattr(rounding, k) for k in required}
+	try:
+		rounding = importlib.reload(rounding)
+	except Exception:
+		pass
+	after_has = {k: hasattr(rounding, k) for k in required}
+
+	try:
+		with open(getattr(rounding, "__file__", "") or "", "rb") as f:
+			src = f.read()
+		src_sha1 = hashlib.sha1(src).hexdigest()
+		src_head = src[:600].decode("utf-8", errors="replace")
+		src_has_round_row_amount = b"def round_row_amount" in src
+		src_has_round_currency_amount = b"def round_currency_amount" in src
+	except Exception:
+		src_sha1 = None
+		src_head = None
+		src_has_round_row_amount = None
+		src_has_round_currency_amount = None
+
+	return {
+		"pid": os.getpid(),
+		"rounding_file": getattr(rounding, "__file__", None),
+		"rounding_cached": getattr(rounding, "__cached__", None),
+		"rounding_loader": getattr(getattr(rounding, "__spec__", None), "loader", None).__class__.__name__
+		if getattr(rounding, "__spec__", None) and getattr(rounding.__spec__, "loader", None)
+		else None,
+		"rounding_spec_origin": getattr(getattr(rounding, "__spec__", None), "origin", None),
+		"rounding_spec_cached": getattr(getattr(rounding, "__spec__", None), "cached", None),
+		"rounding_src_sha1": src_sha1,
+		"rounding_src_head": src_head,
+		"rounding_src_has_round_row_amount": src_has_round_row_amount,
+		"rounding_src_has_round_currency_amount": src_has_round_currency_amount,
+		"rounding_obj_id": id(rounding),
+		"rounding_sysmodules_id": id(sys.modules.get("erpnext_extensions.iran_accounting.rounding")),
+		"rounding_sysmodules_type": str(type(sys.modules.get("erpnext_extensions.iran_accounting.rounding"))),
+		"has": after_has,
+		"has_before_reload": before_has,
+		"rounding_keys_sample": sorted(list(rounding.__dict__.keys()))[:60],
+		"iran_patches_applied": True,
+	}
+
+
+def _worker_import_integrity_job(cache_key: str) -> None:
+	"""Enqueued job target (must be top-level for pickle)."""
+	import frappe as _frappe
+
+	_frappe.cache().set_value(
+		cache_key,
+		{"ok": True, "snapshot": _import_integrity_snapshot()},
+		expires_in_sec=300,
+	)
+
+
+@frappe.whitelist()
+def check_worker_import_integrity(mode: str = "direct", wait_s: int = 60):
+	"""Verify rounding symbols exist in both web and real worker process.
+
+	mode:
+	- direct: run in current process
+	- enqueue: enqueue a background job and wait for its result via cache key
+	"""
+	import time
+	import uuid
+
+	if mode == "direct":
+		out = {"mode": "direct", "snapshot": _import_integrity_snapshot()}
+		missing = [k for k, ok in out["snapshot"]["has"].items() if not ok]
+		if missing:
+			frappe.throw(f"Import integrity FAIL (direct). Missing: {missing}")
+		return out
+
+	if mode != "enqueue":
+		frappe.throw("mode must be direct|enqueue")
+
+	key = f"ia:worker_import_integrity:{uuid.uuid4().hex}"
+	frappe.enqueue(
+		"erpnext_extensions.iran_accounting.diagnostics._worker_import_integrity_job",
+		queue="default",
+		is_async=True,
+		now=False,
+		cache_key=key,
+	)
+
+	deadline = time.time() + int(wait_s)
+	while time.time() < deadline:
+		val = frappe.cache().get_value(key)
+		if val:
+			out = {"mode": "enqueue", "result": val}
+			missing = [k for k, ok in val["snapshot"]["has"].items() if not ok]
+			if missing:
+				frappe.throw(f"Import integrity FAIL (worker). Missing: {missing}")
+			return out
+		time.sleep(1)
+
+	frappe.throw(f"Timed out waiting for worker import integrity ({wait_s}s)")
+
+
 def _gl_residual_for_stock_entry(voucher_no: str, company: str) -> dict:
 	gl_rows = fetch_gl_rows("Stock Entry", voucher_no)
 	debit, credit = gl_debit_credit_totals(gl_rows)
@@ -1175,6 +1294,22 @@ def repair_positive_opening_sr_outgoing_rates(voucher_no=None, company=None, dry
 	out = {"dry_run": dry_run, "candidates": len(updated), "updated": [r.name for r in updated]}
 	print(out)
 	return out
+
+
+@frappe.whitelist()
+def check_qty_rate_amount_consistency(doctype=None, voucher_no=None, company=None):
+	"""Row qty×rate vs stored amounts; document vs GL vs SLE totals."""
+	if company and not doctype and not voucher_no:
+		from erpnext_extensions.iran_accounting.validation_e2e_company import (
+			check_qty_rate_amount_consistency_for_company,
+		)
+
+		return check_qty_rate_amount_consistency_for_company(company=company)
+	from erpnext_extensions.iran_accounting.qty_rate_consistency import (
+		check_qty_rate_amount_consistency as _check,
+	)
+
+	return _check(doctype, voucher_no, company=company)
 
 
 @frappe.whitelist()

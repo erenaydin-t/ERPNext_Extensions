@@ -5,6 +5,7 @@ from __future__ import annotations
 import frappe
 from frappe.utils import flt
 
+from erpnext_extensions.iran_accounting.qty_rate_amount import align_stock_entry_item_amounts
 from erpnext_extensions.iran_accounting.rounding import (
 	get_company_currency,
 	get_currency_precision,
@@ -42,6 +43,7 @@ def align_zero_value_transfer_totals(doc) -> None:
 def validate_stock_entry(doc, method=None):
 	if not is_irr_company(doc.company):
 		return
+	align_stock_entry_item_amounts(doc)
 	round_stock_entry_totals(doc)
 
 

@@ -1,6 +1,6 @@
 # Copyright (c) 2026, ERPNext Extensions contributors
-"""Iranian Rial (IRR) accounting and zero-value stock transfer GL corrections."""
+"""Iranian Rial (IRR) accounting — layered packages (core/domain/integration/worker).
 
-from erpnext_extensions.iran_accounting.monkey_patches import apply_monkey_patches
+Do not apply monkey patches or import integration modules at package import time.
+"""
 
-apply_monkey_patches()
