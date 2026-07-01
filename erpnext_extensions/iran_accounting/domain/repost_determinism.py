@@ -45,6 +45,7 @@ from erpnext_extensions.iran_accounting.domain.stock_entry_sync import (
 from erpnext_extensions.iran_accounting.domain.stock_ledger_deterministic import (
 	apply_irr_deterministic_sle_valuation,
 	irr_avg_rate_from_balance,
+	resolve_irr_balance_avg_rate,
 )
 from erpnext_extensions.iran_accounting.domain.stock_reconciliation_sync import (
 	assert_stock_reconciliation_row_sle_mirror,
@@ -317,10 +318,16 @@ def _avg_rate_determinism_failures(voucher_type: str, voucher_no: str, company: 
 	for sle in frappe.get_all(
 		"Stock Ledger Entry",
 		filters={"voucher_type": voucher_type, "voucher_no": voucher_no, "is_cancelled": 0},
-		fields=["name", "stock_value", "qty_after_transaction", "valuation_rate"],
+		fields=["name", "stock_value", "qty_after_transaction", "valuation_rate", "voucher_detail_no"],
 	):
-		expected = irr_avg_rate_from_balance(
-			sle.get("stock_value"), sle.get("qty_after_transaction"), ccy
+		expected = resolve_irr_balance_avg_rate(
+			{
+				"stock_value": sle.get("stock_value"),
+				"qty_after_transaction": sle.get("qty_after_transaction"),
+				"voucher_type": voucher_type,
+				"voucher_detail_no": sle.get("voucher_detail_no"),
+			},
+			company,
 		)
 		if flt(sle.get("valuation_rate")) != expected:
 			failures.append(
