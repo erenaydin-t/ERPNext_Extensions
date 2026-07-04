@@ -1,10 +1,16 @@
 # Copyright (c) 2026, ERPNext Extensions contributors
 # License: MIT
-"""Custom fields required by the payroll accrual override.
+"""Custom fields used by the payroll accrual override.
 
-Adds ``Company.custom_payroll_round_off_department`` — the Department stamped on
-the accrual round-off line (the round-off account is P&L, so the line needs a
-Department). Created idempotently on ``after_migrate``.
+* ``Company.custom_payroll_round_off_department`` — the Department stamped on the
+  accrual round-off line (the round-off account is P&L, so the line needs one).
+* ``Salary Component.custom_process_based_on_employee`` — when checked, the
+  component bypasses the Cost Center / Department group-by and is booked as a
+  separate row per employee (with the Employee as Party). Intended for
+  employee-tied components such as loans (``وام``) and advances (``مساعده``) so
+  accountants can reconcile per-person repayments.
+
+Created idempotently on ``after_migrate``.
 """
 
 from __future__ import annotations
@@ -12,7 +18,10 @@ from __future__ import annotations
 import frappe
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
-ROUND_OFF_DEPARTMENT_FIELD = {
+# Fieldname read by the override to decide which components skip aggregation.
+PROCESS_BASED_ON_EMPLOYEE_FIELD = "custom_process_based_on_employee"
+
+CUSTOM_FIELDS = {
 	"Company": [
 		{
 			"fieldname": "custom_payroll_round_off_department",
@@ -26,14 +35,33 @@ ROUND_OFF_DEPARTMENT_FIELD = {
 				"Department) is enabled, because the round-off account is P&L."
 			),
 		}
-	]
+	],
+	"Salary Component": [
+		{
+			"fieldname": PROCESS_BASED_ON_EMPLOYEE_FIELD,
+			"label": "Process Based on Employee",
+			"fieldtype": "Check",
+			"insert_after": "accounts",
+			"description": (
+				"If checked, payroll accounting entries for this component bypass "
+				"the Cost Center / Department aggregation: a separate Journal Entry "
+				"row is generated for each employee, with the Employee set as Party. "
+				"Use for employee-tied components such as loans and advances."
+			),
+		}
+	],
 }
 
 
+def create_payroll_custom_fields() -> None:
+	create_custom_fields(CUSTOM_FIELDS, ignore_validate=True)
+
+
+# Backwards-compatible alias (used by install.after_migrate).
 def create_payroll_round_off_department_field() -> None:
-	create_custom_fields(ROUND_OFF_DEPARTMENT_FIELD, ignore_validate=True)
+	create_payroll_custom_fields()
 
 
 def after_migrate() -> None:
-	create_payroll_round_off_department_field()
+	create_payroll_custom_fields()
 	frappe.db.commit()

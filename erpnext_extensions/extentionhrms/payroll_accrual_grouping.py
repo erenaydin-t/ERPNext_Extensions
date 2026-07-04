@@ -119,6 +119,10 @@ class AccrualConfig:
 	``round_off_department`` : Department stamped on the round-off line — needed
 	                           when the round-off account is a P&L account. Set
 	                           by the shim from a Company custom field.
+	``per_employee_components``: components flagged "Process Based on Employee" —
+	                           they bypass the Cost Center / Department group-by
+	                           and are booked as a separate row per employee, with
+	                           the Employee as Party (e.g. loans, advances).
 	``precision``            : currency precision (``0`` for a zero-decimal
 	                           currency).
 	"""
@@ -129,6 +133,7 @@ class AccrualConfig:
 	round_off_account: str
 	round_off_cost_center: str
 	round_off_department: str | None
+	per_employee_components: frozenset[str] = frozenset()
 	precision: int = 0
 
 	def account_for(self, component: str) -> str | None:
@@ -138,6 +143,9 @@ class AccrualConfig:
 		if not account:
 			return False
 		return self.account_root_type.get(account) in PL_ROOT_TYPES
+
+	def is_per_employee(self, component: str) -> bool:
+		return component in self.per_employee_components
 
 
 @dataclass
@@ -283,10 +291,16 @@ def build_accrual_journal_accounts(
 				continue
 			earnings_total += _dec(item.amount)
 			department = slip_department if config.is_pl_account(account) else None
+			# Components flagged "Process Based on Employee" keep employee-level
+			# granularity (a distinct row per employee, with Party = Employee)
+			# instead of being aggregated by cost centre / department.
+			employee = slip.employee if config.is_per_employee(item.component) else None
 			for cost_center, part in split_amount_by_cost_centers(
 				item.amount, splits, precision
 			):
-				_accumulate(debit_bucket, (account, cost_center, department), part)
+				_accumulate(
+					debit_bucket, (account, cost_center, department, employee), part
+				)
 
 		# --- deductions -> credit --------------------------------------------
 		deductions_total = Decimal(0)
@@ -297,10 +311,13 @@ def build_accrual_journal_accounts(
 				continue
 			deductions_total += _dec(item.amount)
 			department = slip_department if config.is_pl_account(account) else None
+			employee = slip.employee if config.is_per_employee(item.component) else None
 			for cost_center, part in split_amount_by_cost_centers(
 				item.amount, splits, precision
 			):
-				_accumulate(credit_bucket, (account, cost_center, department), part)
+				_accumulate(
+					credit_bucket, (account, cost_center, department, employee), part
+				)
 
 		# --- net payable -> credit (Balance-Sheet, no department) ------------
 		net_payable = earnings_total - deductions_total
@@ -308,7 +325,7 @@ def build_accrual_journal_accounts(
 			net_payable, splits, precision
 		):
 			_accumulate(
-				payable_bucket, (config.payable_account, cost_center, None), part
+				payable_bucket, (config.payable_account, cost_center, None, None), part
 			)
 
 	result = AccrualResult()
@@ -323,8 +340,9 @@ def build_accrual_journal_accounts(
 
 def _emit_rows(result: AccrualResult, bucket: dict[tuple, Decimal], *, is_debit: bool) -> None:
 	# Deterministic ordering keeps output stable and diff-friendly for review.
-	for (account, cost_center, department), amount in sorted(
-		bucket.items(), key=lambda kv: (kv[0][0], kv[0][1] or "", kv[0][2] or "")
+	for (account, cost_center, department, employee), amount in sorted(
+		bucket.items(),
+		key=lambda kv: (kv[0][0], kv[0][1] or "", kv[0][2] or "", kv[0][3] or ""),
 	):
 		if amount == 0:
 			continue
@@ -333,15 +351,18 @@ def _emit_rows(result: AccrualResult, bucket: dict[tuple, Decimal], *, is_debit:
 		credit = Decimal(0) if is_debit else amount
 		if amount < 0:
 			debit, credit = -credit, -debit
-		result.rows.append(
-			AccountRow(
-				account=account,
-				cost_center=cost_center,
-				department=department,
-				debit=debit,
-				credit=credit,
-			)
+		row = AccountRow(
+			account=account,
+			cost_center=cost_center,
+			department=department,
+			debit=debit,
+			credit=credit,
 		)
+		# Employee-keyed rows (flagged components) carry the Employee as Party.
+		if employee:
+			row.party_type = "Employee"
+			row.party = employee
+		result.rows.append(row)
 
 
 def _append_round_off(result: AccrualResult, config: AccrualConfig) -> None:
