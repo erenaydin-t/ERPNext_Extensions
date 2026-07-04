@@ -182,8 +182,27 @@ class PayrollEntryWithAccountingDimensions(PayrollEntry):
 			round_off_cost_center=round_off_cost_center or self.cost_center,
 			round_off_department=self._round_off_department(),
 			per_employee_components=self._per_employee_components(),
+			account_parties=self._account_party_map(),
 			precision=self._currency_precision(),
 		)
+
+	def _account_party_map(self) -> dict[str, tuple[str, str]]:
+		"""``{account: (party_type, party)}`` from the Salary Component Account
+		rows that carry a Party (e.g. the SSO / tax Supplier). Replaces the old
+		party-assignment Server Script. Empty if the custom fields are absent."""
+		meta = frappe.get_meta("Salary Component Account")
+		if not (meta.has_field("custom_party_type") and meta.has_field("custom_party")):
+			return {}
+		rows = frappe.get_all(
+			"Salary Component Account",
+			filters={"company": self.company, "custom_party": ["is", "set"]},
+			fields=["account", "custom_party_type", "custom_party"],
+		)
+		mapping: dict[str, tuple[str, str]] = {}
+		for r in rows:
+			if r.account and r.custom_party_type and r.custom_party:
+				mapping.setdefault(r.account, (r.custom_party_type, r.custom_party))
+		return mapping
 
 	def _per_employee_components(self) -> frozenset[str]:
 		"""Salary Components flagged ``Process Based on Employee`` — booked as a

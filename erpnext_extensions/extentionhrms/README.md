@@ -57,6 +57,16 @@ components such as loans (`وام`) and advances (`مساعده`) so repayments 
 per person. All other components keep the group-by behaviour. (P&L flagged
 components still carry their Department; balance-sheet ones don't.)
 
+### Fixed Party on the account (SSO / tax suppliers)
+
+The **Salary Component Account** child table gains **Party Type** / **Party**
+columns (`custom_party_type` / `custom_party`). Set them on the per-company
+account mapping to stamp a fixed Party — e.g. the Social-Security / tax
+**Supplier** — on the generated rows for that account. The override applies it
+after grouping (without overriding an employee Party), which lets you **delete
+the old party-assignment Server Script** and keep everything in one place. Set
+the same Party on every component that maps to a shared payable account.
+
 ## Layout
 
 | File | Runs without bench? | Purpose |
