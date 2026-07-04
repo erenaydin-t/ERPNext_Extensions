@@ -50,6 +50,25 @@ CUSTOM_FIELDS = {
 			),
 		}
 	],
+	# Party defaults on the per-company account mapping. Lets the accrual stamp a
+	# fixed Party (e.g. the SSO / tax Supplier) on the generated rows for this
+	# account — replacing the old party-assignment Server Script.
+	"Salary Component Account": [
+		{
+			"fieldname": "custom_party_type",
+			"label": "Party Type",
+			"fieldtype": "Link",
+			"options": "Party Type",
+			"insert_after": "account",
+		},
+		{
+			"fieldname": "custom_party",
+			"label": "Party",
+			"fieldtype": "Dynamic Link",
+			"options": "custom_party_type",
+			"insert_after": "custom_party_type",
+		},
+	],
 }
 
 
