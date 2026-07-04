@@ -1,0 +1,403 @@
+# Copyright (c) 2026, ERPNext Extensions contributors
+# License: MIT
+"""Unit tests for the framework-free payroll accrual grouping logic.
+
+These tests import **no Frappe** and run under plain ``pytest``::
+
+    pytest erpnext_extensions/extentionhrms/tests/test_payroll_accrual_grouping.py
+
+The fixtures use fictional accounts/components/departments but reproduce the
+data *shapes* the module must handle: a zero-decimal currency, employer-
+contribution "expense" earnings, deductions mapped both to liability payables
+*and* to expense accounts (a deduction sharing an earning's expense account, and
+a penalty expense account), per-employee cost-centre percentage splits, and a
+P&L round-off account.
+"""
+
+from __future__ import annotations
+
+import random
+from decimal import Decimal
+
+import pytest
+
+from erpnext_extensions.extentionhrms.payroll_accrual_grouping import (
+	AccrualConfig,
+	ComponentAmount,
+	CostCenterSplit,
+	SalarySlip,
+	UnmappedSalaryComponentError,
+	build_accrual_journal_accounts,
+	split_amount_by_cost_centers,
+)
+
+# ---------------------------------------------------------------------------
+# Fixtures (fictional identifiers; structure mirrors a real payroll)
+# ---------------------------------------------------------------------------
+
+# Accounts
+SALARY_EXP = "EXP-SALARY"  # base salary / overtime (and shared by a deduction)
+EMPLOYER_INS_EXP = "EXP-EMPLOYER-INS"  # employer contribution booked as expense
+PENALTY_EXP = "EXP-PENALTY"  # absence penalty (deduction -> expense)
+TAX_PAYABLE = "LIA-TAX"
+INS_PAYABLE = "LIA-INS"
+PAYROLL_PAYABLE = "LIA-PAYABLE"
+ADVANCE = "AST-ADVANCE"
+LOAN = "AST-LOAN"
+ROUND_OFF = "EXP-ROUNDOFF"  # round-off account is P&L!
+
+# Salary component -> GL account
+COMPONENT_ACCOUNTS = {
+	# earnings (Expense)
+	"Basic Salary": SALARY_EXP,
+	"Overtime": SALARY_EXP,
+	"Employer Insurance (Expense)": EMPLOYER_INS_EXP,
+	# deductions -> Liability payables
+	"Income Tax": TAX_PAYABLE,
+	"Employee Insurance": INS_PAYABLE,
+	# deductions -> Expense accounts (the ones the old script silently dropped)
+	"Time Deduction": SALARY_EXP,  # shares the base-salary expense account
+	"Absence": PENALTY_EXP,
+	# deductions -> Asset (advances/loans)
+	"Advance": ADVANCE,
+	"Loan": LOAN,
+}
+
+ACCOUNT_ROOT_TYPE = {
+	SALARY_EXP: "Expense",
+	EMPLOYER_INS_EXP: "Expense",
+	PENALTY_EXP: "Expense",
+	TAX_PAYABLE: "Liability",
+	INS_PAYABLE: "Liability",
+	PAYROLL_PAYABLE: "Liability",
+	ADVANCE: "Asset",
+	LOAN: "Asset",
+	ROUND_OFF: "Expense",
+}
+
+ROUND_OFF_DEPARTMENT = "Adjustments"
+ROUND_OFF_COST_CENTER = "CC-ADMIN"
+
+
+def make_config(precision: int = 0) -> AccrualConfig:
+	return AccrualConfig(
+		component_accounts=dict(COMPONENT_ACCOUNTS),
+		account_root_type=dict(ACCOUNT_ROOT_TYPE),
+		payable_account=PAYROLL_PAYABLE,
+		round_off_account=ROUND_OFF,
+		round_off_cost_center=ROUND_OFF_COST_CENTER,
+		round_off_department=ROUND_OFF_DEPARTMENT,
+		precision=precision,
+	)
+
+
+def slip(
+	name,
+	department,
+	splits,
+	earnings,
+	deductions=(),
+	employee=None,
+):
+	return SalarySlip.make(
+		name=name,
+		employee=employee or name,
+		department=department,
+		cost_center_splits=[CostCenterSplit.make(cc, pct) for cc, pct in splits],
+		earnings=[ComponentAmount.make(c, a) for c, a in earnings],
+		deductions=[ComponentAmount.make(c, a) for c, a in deductions],
+	)
+
+
+# ---------------------------------------------------------------------------
+# Balance / reconciliation
+# ---------------------------------------------------------------------------
+
+
+def test_single_cost_center_is_exact_and_balanced():
+	config = make_config()
+	slips = [
+		slip(
+			"SS-1",
+			"Finance",
+			splits=[("CC-ADMIN", 100)],
+			earnings=[("Basic Salary", 10_000_000), ("Overtime", 2_500_000)],
+			deductions=[("Income Tax", 1_200_000), ("Employee Insurance", 875_000)],
+		)
+	]
+	result = build_accrual_journal_accounts(slips, config)
+
+	assert result.is_balanced()
+	# no rounding needed with a single 100% split
+	assert result.round_off_amount == Decimal(0)
+	assert not result.rows_for(ROUND_OFF)
+	# expense debit = gross earnings
+	debit_salary = sum(r.debit for r in result.rows_for(SALARY_EXP))
+	assert debit_salary == Decimal(12_500_000)
+	# payable credit = net (earnings - deductions)
+	payable = sum(r.credit for r in result.rows_for(PAYROLL_PAYABLE))
+	assert payable == Decimal(12_500_000 - 1_200_000 - 875_000)
+
+
+# A 3-way 33.33% split where the earnings side and the payable side round in
+# different directions leaves a residue. Values are small on purpose to isolate
+# the rounding behaviour; the magnitude is irrelevant to the mechanism.
+THREE_WAY = [("CC-P1", Decimal("33.34")), ("CC-P2", Decimal("33.33")), ("CC-P3", Decimal("33.33"))]
+
+
+def test_debits_equal_credits_after_round_off_three_way_split():
+	"""A 3-way split whose earnings/payable rounding diverges forces a residual
+	that must land on the round-off account, and the entry must still balance."""
+	config = make_config()
+	slips = [
+		slip(
+			"SS-2",
+			"Production",
+			splits=THREE_WAY,
+			earnings=[("Basic Salary", 5)],
+			deductions=[("Income Tax", 1)],
+		)
+	]
+	result = build_accrual_journal_accounts(slips, config)
+
+	# a residual actually occurred and was pushed to the round-off account
+	assert result.round_off_amount != Decimal(0)
+	assert result.rows_for(ROUND_OFF)
+	# and, with the round-off line, the entry balances exactly
+	assert result.is_balanced()
+	# the round-off line equals the pre-round-off imbalance
+	non_round = [r for r in result.rows if r.account != ROUND_OFF]
+	pre_debit = sum(r.debit for r in non_round)
+	pre_credit = sum(r.credit for r in non_round)
+	assert result.round_off_amount == pre_debit - pre_credit
+
+
+def test_round_off_line_carries_cost_center_and_department():
+	config = make_config()
+	slips = [
+		slip(
+			"SS-3",
+			"Management",
+			splits=THREE_WAY,
+			earnings=[("Basic Salary", 5)],
+			deductions=[("Income Tax", 1)],
+		)
+	]
+	result = build_accrual_journal_accounts(slips, config)
+	assert result.is_balanced()
+	round_rows = result.rows_for(ROUND_OFF)
+	assert len(round_rows) == 1
+	assert round_rows[0].cost_center == ROUND_OFF_COST_CENTER
+	assert round_rows[0].department == ROUND_OFF_DEPARTMENT
+	# the round-off line is on exactly one side
+	assert bool(round_rows[0].debit) != bool(round_rows[0].credit)
+
+
+# ---------------------------------------------------------------------------
+# Multi-cost-center fractional splits
+# ---------------------------------------------------------------------------
+
+
+def test_sixty_forty_split_allocates_proportionally():
+	config = make_config()
+	slips = [
+		slip(
+			"SS-4",
+			"Security",
+			splits=[("CC-PROD", 60), ("CC-ADMIN", 40)],
+			earnings=[("Basic Salary", 10_000_000)],
+		)
+	]
+	result = build_accrual_journal_accounts(slips, config)
+
+	by_cc = {r.cost_center: r.debit for r in result.rows_for(SALARY_EXP)}
+	assert by_cc["CC-PROD"] == Decimal(6_000_000)
+	assert by_cc["CC-ADMIN"] == Decimal(4_000_000)
+	assert result.is_balanced()
+
+
+def test_split_helper_matches_hrms_naive_rounding():
+	splits = [CostCenterSplit.make("A", 60), CostCenterSplit.make("B", 40)]
+	parts = dict(split_amount_by_cost_centers(101, splits, precision=0))
+	# 101*0.6 = 60.6 -> 61 ; 101*0.4 = 40.4 -> 40
+	assert parts == {"A": Decimal(61), "B": Decimal(40)}
+
+
+# ---------------------------------------------------------------------------
+# Deductions mapped to Expense accounts must NOT be lost
+# ---------------------------------------------------------------------------
+
+
+def test_deduction_mapped_to_expense_is_kept_as_credit_with_department():
+	config = make_config()
+	dept = "Maintenance"
+	slips = [
+		slip(
+			"SS-5",
+			dept,
+			splits=[("CC-PROD", 100)],
+			earnings=[("Basic Salary", 8_000_000)],
+			deductions=[("Time Deduction", 500_000), ("Absence", 300_000)],
+		)
+	]
+	result = build_accrual_journal_accounts(slips, config)
+
+	# credit rows on the expense accounts exist (the old script deleted these)
+	salary_rows = result.rows_for(SALARY_EXP)
+	credit_on_salary = sum(r.credit for r in salary_rows)
+	assert credit_on_salary == Decimal(500_000)
+
+	penalty = result.rows_for(PENALTY_EXP)
+	assert len(penalty) == 1
+	assert penalty[0].credit == Decimal(300_000)
+	# and both P&L credit rows carry the slip department
+	assert penalty[0].department == dept
+	assert all(r.department == dept for r in salary_rows)
+
+	assert result.is_balanced()
+
+
+# ---------------------------------------------------------------------------
+# Every P&L row carries a Department
+# ---------------------------------------------------------------------------
+
+
+def test_all_pl_rows_have_department_and_bs_rows_do_not():
+	config = make_config()
+	slips = [
+		slip(
+			"SS-6",
+			"Finance",
+			splits=[("CC-ADMIN", 100)],
+			earnings=[
+				("Basic Salary", 9_000_000),
+				("Employer Insurance (Expense)", 1_800_000),
+			],
+			deductions=[
+				("Income Tax", 700_000),
+				("Employee Insurance", 630_000),
+				("Time Deduction", 200_000),
+				("Advance", 1_000_000),
+			],
+		)
+	]
+	result = build_accrual_journal_accounts(slips, config)
+
+	assert result.pl_rows_missing_department(config) == []
+	# Balance-Sheet rows (payable/liability/asset) must NOT get a department
+	for r in result.rows:
+		if not config.is_pl_account(r.account):
+			assert r.department is None
+	assert result.is_balanced()
+
+
+def test_same_cost_center_different_departments_produce_distinct_rows():
+	"""A shared cost centre used by several departments must NOT collapse rows."""
+	config = make_config()
+	slips = [
+		slip("SS-A", "Micro Lab", [("CC-PROD", 100)], [("Basic Salary", 5_000_000)]),
+		slip("SS-B", "Warehouse", [("CC-PROD", 100)], [("Basic Salary", 4_000_000)]),
+	]
+	result = build_accrual_journal_accounts(slips, config)
+
+	rows = result.rows_for(SALARY_EXP)
+	depts = {r.department for r in rows}
+	assert depts == {"Micro Lab", "Warehouse"}
+	assert len(rows) == 2  # not merged into one aggregate row
+	assert result.is_balanced()
+
+
+# ---------------------------------------------------------------------------
+# Aggregation across many slips
+# ---------------------------------------------------------------------------
+
+
+def test_aggregates_same_account_cost_center_department():
+	config = make_config()
+	dept = "Admin"
+	slips = [
+		slip("SS-C", dept, [("CC-ADMIN", 100)], [("Basic Salary", 3_000_000)]),
+		slip("SS-D", dept, [("CC-ADMIN", 100)], [("Basic Salary", 2_000_000)]),
+	]
+	result = build_accrual_journal_accounts(slips, config)
+	rows = result.rows_for(SALARY_EXP)
+	assert len(rows) == 1  # merged: same (account, cc, dept)
+	assert rows[0].debit == Decimal(5_000_000)
+
+
+# ---------------------------------------------------------------------------
+# Error handling
+# ---------------------------------------------------------------------------
+
+
+def test_unmapped_component_raises():
+	config = make_config()
+	slips = [slip("SS-E", "Finance", [("CC-ADMIN", 100)], [("Unknown Bonus", 100)])]
+	with pytest.raises(UnmappedSalaryComponentError):
+		build_accrual_journal_accounts(slips, config)
+
+
+# ---------------------------------------------------------------------------
+# Randomised property test: whatever the data, the entry always balances and
+# every P&L row has a department.
+# ---------------------------------------------------------------------------
+
+DEPARTMENTS = ["Finance", "Micro Lab", "Warehouse", "Production", "Security"]
+COST_CENTERS = ["CC-PROD", "CC-ADMIN", "CC-SALES", "CC-QC", "CC-P2"]
+EARNING_COMPONENTS = ["Basic Salary", "Overtime", "Employer Insurance (Expense)"]
+DEDUCTION_COMPONENTS = ["Income Tax", "Employee Insurance", "Time Deduction", "Absence", "Advance", "Loan"]
+
+
+def _random_splits(rng: random.Random) -> list[tuple[str, Decimal]]:
+	n = rng.choice([1, 1, 2, 3])  # bias toward single, but exercise multi
+	ccs = rng.sample(COST_CENTERS, n)
+	if n == 1:
+		return [(ccs[0], Decimal(100))]
+	# integer percentages that sum to exactly 100
+	cuts = sorted(rng.sample(range(1, 100), n - 1))
+	bounds = [0, *cuts, 100]
+	pcts = [Decimal(bounds[i + 1] - bounds[i]) for i in range(n)]
+	return list(zip(ccs, pcts, strict=True))
+
+
+def _random_slip(rng: random.Random, idx: int) -> SalarySlip:
+	earnings = [
+		(c, rng.randint(1, 50) * 100_000)
+		for c in rng.sample(EARNING_COMPONENTS, rng.randint(1, len(EARNING_COMPONENTS)))
+	]
+	deductions = [
+		(c, rng.randint(1, 20) * 50_000)
+		for c in rng.sample(DEDUCTION_COMPONENTS, rng.randint(0, len(DEDUCTION_COMPONENTS)))
+	]
+	return slip(
+		f"SS-R{idx}",
+		rng.choice(DEPARTMENTS),
+		_random_splits(rng),
+		earnings,
+		deductions,
+	)
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_randomised_entries_always_balance_and_are_dimension_complete(seed):
+	rng = random.Random(seed)
+	config = make_config()
+	slips = [_random_slip(rng, i) for i in range(rng.randint(1, 25))]
+
+	result = build_accrual_journal_accounts(slips, config)
+
+	# 1) always balances (round-off absorbs any residue)
+	assert result.is_balanced(), f"seed={seed} unbalanced: {result.round_off_amount}"
+
+	# 2) every P&L row has a department
+	assert result.pl_rows_missing_department(config) == [], f"seed={seed} missing dept"
+
+	# 3) round-off residue is tiny relative to the entry (a few currency units)
+	total = result.total_debit
+	assert abs(result.round_off_amount) <= len(slips) * 5, (
+		f"seed={seed} residue too large: {result.round_off_amount} on total {total}"
+	)
+
+	# 4) no row has both a debit and a credit
+	for r in result.rows:
+		assert not (r.debit and r.credit)

@@ -193,6 +193,16 @@ has_permission = {
 # 	"ToDo": "custom_app.overrides.CustomToDo"
 # }
 
+# Group the HRMS payroll accrual entry by (Account, Cost Center, Department) so
+# it satisfies the mandatory-for-P&L Department accounting dimension. See
+# ``extentionhrms/payroll_entry_override.py``.
+override_doctype_class = {
+	"Payroll Entry": (
+		"erpnext_extensions.extentionhrms.payroll_entry_override."
+		"PayrollEntryWithAccountingDimensions"
+	),
+}
+
 # Document Events
 # ---------------
 # Hook on document methods and events
