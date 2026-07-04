@@ -71,6 +71,14 @@ class PayrollEntryWithAccountingDimensions(PayrollEntry):
 		config = self._build_accrual_config(company_currency)
 		result = build_accrual_journal_accounts(slips, config)
 
+		if result.skipped_components:
+			# Statistical / calculation-base components with no GL account are not
+			# booked (same as stock HRMS). Record which ones for traceability.
+			frappe.logger("payroll").info(
+				f"[{self.name}] accrual skipped unmapped salary components: "
+				+ ", ".join(result.skipped_components)
+			)
+
 		accounts = self._to_journal_entry_rows(result, config)
 
 		return self.make_journal_entry(
