@@ -2222,13 +2222,19 @@ class PostDatedCheque(Document):
 		loaded in ``check_if_latest`` / ``load_doc_before_save``. That snapshot stays on the doc through
 		``on_update`` / ``on_update_after_submit`` **before** any nested reload.
 
-		Never uses the database here: after ``db_update``, the row can already hold the **new**
+		Never uses the database row here: after ``db_update``, the row can already hold the **new**
 		workflow state, so ``get_value`` would mis-report the previous step and break accounting
 		(e.g. Registered→Sent to Bank misread as Draft→Sent to Bank).
 
 		On brand-new insert there is no snapshot → ``None`` (normalized to **Draft** in policy helpers).
 		"""
-		return self.get_value_before_save("workflow_state")
+		prev = self.get_value_before_save("workflow_state")
+		if prev is not None:
+			return prev
+		before = self.get_doc_before_save()
+		if before is not None:
+			return before.get("workflow_state")
+		return None
 
 	def _capture_previous_workflow_for_accounting(self):
 		"""Step 1 (pre-save): store snapshot from :meth:`_get_previous_workflow_state_for_accounting` for logs/cache."""
@@ -2263,7 +2269,11 @@ class PostDatedCheque(Document):
 			return
 		if not self.name:
 			return
-		prev_raw = self._get_previous_workflow_state_for_accounting()
+		prev_raw = getattr(self, "_pdc_previous_workflow_for_accounting", None)
+		if prev_raw is None:
+			prev_raw = self._get_previous_workflow_state_for_accounting()
+		if prev_raw is None:
+			prev_raw = self._get_previous_workflow_state_raw()
 		prev_norm = normalize_workflow_state_value(prev_raw)
 		curr_norm = normalize_workflow_state_value(self.workflow_state)
 		if prev_norm != curr_norm:
@@ -2510,6 +2520,8 @@ class PostDatedCheque(Document):
 		:meth:`_validate_issued_workflow_state`, and :meth:`_validate_sent_to_bank_workflow_state`.
 		Accounting documents are created in :meth:`_pdc_post_save_accounting_sequence` (``on_update``), not here.
 		"""
+		if getattr(frappe.flags, "in_pdc_workflow_rollback", None):
+			return
 		prev_raw = self._get_previous_workflow_state_raw()
 		cheque_type = (
 			self.cheque_direction

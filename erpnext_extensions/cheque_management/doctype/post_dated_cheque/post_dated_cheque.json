@@ -86,6 +86,8 @@
   "handover_date",
   "section_break_journal",
   "journal_references",
+  "section_break_workflow_rollback",
+  "workflow_rollback_logs",
   "section_break_holder_history",
   "holder_history"
  ],
@@ -606,6 +608,20 @@
    "label": "Journal References",
    "options": "PDC Journal Reference",
    "allow_on_submit": 1
+  },
+  {
+   "fieldname": "section_break_workflow_rollback",
+   "fieldtype": "Section Break",
+   "label": "Workflow Rollback History",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "workflow_rollback_logs",
+   "fieldtype": "Table",
+   "label": "Workflow Rollback Log",
+   "options": "PDC Workflow Rollback Log",
+   "allow_on_submit": 1,
+   "read_only": 1
   },
   {
    "fieldname": "section_break_holder_history",

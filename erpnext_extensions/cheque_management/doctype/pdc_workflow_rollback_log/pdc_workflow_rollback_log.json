@@ -1,0 +1,93 @@
+{
+ "actions": [],
+ "allow_copy": 0,
+ "allow_guest_to_view": 0,
+ "allow_import": 0,
+ "allow_rename": 0,
+ "autoname": "hash",
+ "beta": 0,
+ "creation": "2026-06-30 00:00:00.000000",
+ "custom": 0,
+ "docstatus": 0,
+ "doctype": "DocType",
+ "document_type": "Document",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "rolled_back_on",
+  "rolled_back_by",
+  "from_state",
+  "to_state",
+  "reason",
+  "deleted_documents"
+ ],
+ "fields": [
+  {
+   "fieldname": "rolled_back_on",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Timestamp",
+   "allow_on_submit": 1,
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "rolled_back_by",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "User",
+   "options": "User",
+   "allow_on_submit": 1,
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "from_state",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "From State",
+   "allow_on_submit": 1,
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "to_state",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "To State",
+   "allow_on_submit": 1,
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Small Text",
+   "label": "Rollback Reason",
+   "allow_on_submit": 1,
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "deleted_documents",
+   "fieldtype": "Long Text",
+   "label": "Deleted Documents",
+   "allow_on_submit": 1,
+   "read_only": 1,
+   "description": "JSON list of vouchers cancelled/removed during rollback."
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-06-30 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Cheque Management",
+ "name": "PDC Workflow Rollback Log",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
