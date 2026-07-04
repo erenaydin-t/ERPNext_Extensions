@@ -78,7 +78,7 @@ ROUND_OFF_DEPARTMENT = "Adjustments"
 ROUND_OFF_COST_CENTER = "CC-ADMIN"
 
 
-def make_config(precision: int = 0) -> AccrualConfig:
+def make_config(precision: int = 0, per_employee=()) -> AccrualConfig:
 	return AccrualConfig(
 		component_accounts=dict(COMPONENT_ACCOUNTS),
 		account_root_type=dict(ACCOUNT_ROOT_TYPE),
@@ -86,6 +86,7 @@ def make_config(precision: int = 0) -> AccrualConfig:
 		round_off_account=ROUND_OFF,
 		round_off_cost_center=ROUND_OFF_COST_CENTER,
 		round_off_department=ROUND_OFF_DEPARTMENT,
+		per_employee_components=frozenset(per_employee),
 		precision=precision,
 	)
 
@@ -322,6 +323,76 @@ def test_aggregates_same_account_cost_center_department():
 	rows = result.rows_for(SALARY_EXP)
 	assert len(rows) == 1  # merged: same (account, cc, dept)
 	assert rows[0].debit == Decimal(5_000_000)
+
+
+# ---------------------------------------------------------------------------
+# "Process Based on Employee" — loans / advances bypass the group-by
+# ---------------------------------------------------------------------------
+
+
+def _loan_slips():
+	# two employees in the SAME department + cost centre, each with a Loan
+	return [
+		slip(
+			"SS-L1", "Finance", [("CC-ADMIN", 100)],
+			earnings=[("Basic Salary", 5_000_000)],
+			deductions=[("Loan", 1_000_000), ("Income Tax", 400_000)],
+			employee="EMP-1",
+		),
+		slip(
+			"SS-L2", "Finance", [("CC-ADMIN", 100)],
+			earnings=[("Basic Salary", 6_000_000)],
+			deductions=[("Loan", 1_500_000), ("Income Tax", 500_000)],
+			employee="EMP-2",
+		),
+	]
+
+
+def test_per_employee_component_produces_a_row_per_employee_with_party():
+	config = make_config(per_employee=["Loan"])
+	result = build_accrual_journal_accounts(_loan_slips(), config)
+
+	loan_rows = result.rows_for(LOAN)
+	# one row per employee — NOT aggregated into a single CC/dept row
+	assert len(loan_rows) == 2
+	by_emp = {r.party: r.credit for r in loan_rows}
+	assert by_emp == {"EMP-1": Decimal(1_000_000), "EMP-2": Decimal(1_500_000)}
+	assert all(r.party_type == "Employee" for r in loan_rows)
+
+	# a NON-flagged deduction in the same slips is still aggregated
+	tax_rows = result.rows_for(TAX_PAYABLE)
+	assert len(tax_rows) == 1
+	assert tax_rows[0].credit == Decimal(900_000)
+	assert tax_rows[0].party is None
+
+	assert result.is_balanced()
+
+
+def test_per_employee_flag_off_aggregates_as_before():
+	config = make_config()  # Loan NOT flagged
+	result = build_accrual_journal_accounts(_loan_slips(), config)
+
+	loan_rows = result.rows_for(LOAN)
+	assert len(loan_rows) == 1  # merged: same account + cost centre
+	assert loan_rows[0].credit == Decimal(2_500_000)
+	assert loan_rows[0].party is None
+	assert result.is_balanced()
+
+
+def test_per_employee_pl_component_keeps_department_and_party():
+	# flag a P&L component: row is per-employee AND still carries the department
+	config = make_config(per_employee=["Absence"])
+	slips = [
+		slip("SS-P", "Maintenance", [("CC-PROD", 100)],
+			earnings=[("Basic Salary", 4_000_000)],
+			deductions=[("Absence", 250_000)], employee="EMP-9"),
+	]
+	result = build_accrual_journal_accounts(slips, config)
+	row = result.rows_for(PENALTY_EXP)[0]
+	assert row.party == "EMP-9" and row.party_type == "Employee"
+	assert row.department == "Maintenance"  # P&L dimension still stamped
+	assert result.pl_rows_missing_department(config) == []
+	assert result.is_balanced()
 
 
 # ---------------------------------------------------------------------------

@@ -47,6 +47,16 @@ that should carry the accrual rounding residue (the round-off account is P&L, so
 the line needs a Department). If it is not set, accrual generation raises a clear
 error rather than producing an entry that fails the mandatory-dimension check.
 
+### Per-employee components (loans / advances)
+
+Tick **Process Based on Employee** (`custom_process_based_on_employee`) on a
+Salary Component to keep employee-level granularity for that component: instead
+of being aggregated by cost centre / department, it is booked as **a separate
+row per employee with the Employee as Party**. Use it for employee-tied
+components such as loans (`وام`) and advances (`مساعده`) so repayments reconcile
+per person. All other components keep the group-by behaviour. (P&L flagged
+components still carry their Department; balance-sheet ones don't.)
+
 ## Layout
 
 | File | Runs without bench? | Purpose |

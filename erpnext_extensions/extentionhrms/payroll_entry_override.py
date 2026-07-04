@@ -34,6 +34,7 @@ import frappe
 from frappe.utils import cint, flt
 from hrms.payroll.doctype.payroll_entry.payroll_entry import PayrollEntry
 
+from erpnext_extensions.extentionhrms.custom_fields import PROCESS_BASED_ON_EMPLOYEE_FIELD
 from erpnext_extensions.extentionhrms.payroll_accrual_grouping import (
 	AccrualConfig,
 	ComponentAmount,
@@ -180,8 +181,25 @@ class PayrollEntryWithAccountingDimensions(PayrollEntry):
 			round_off_account=round_off_account,
 			round_off_cost_center=round_off_cost_center or self.cost_center,
 			round_off_department=self._round_off_department(),
+			per_employee_components=self._per_employee_components(),
 			precision=self._currency_precision(),
 		)
+
+	def _per_employee_components(self) -> frozenset[str]:
+		"""Salary Components flagged ``Process Based on Employee`` — booked as a
+		separate row per employee (with the Employee as Party) instead of being
+		aggregated by cost centre / department. Empty if the custom field is
+		absent (e.g. before migrate)."""
+		if not frappe.get_meta("Salary Component").has_field(
+			PROCESS_BASED_ON_EMPLOYEE_FIELD
+		):
+			return frozenset()
+		rows = frappe.get_all(
+			"Salary Component",
+			filters={PROCESS_BASED_ON_EMPLOYEE_FIELD: 1},
+			pluck="name",
+		)
+		return frozenset(rows)
 
 	def _component_account_map(self) -> dict[str, str]:
 		rows = frappe.get_all(
