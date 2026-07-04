@@ -26,7 +26,6 @@ from erpnext_extensions.extentionhrms.payroll_accrual_grouping import (
 	ComponentAmount,
 	CostCenterSplit,
 	SalarySlip,
-	UnmappedSalaryComponentError,
 	build_accrual_journal_accounts,
 	split_amount_by_cost_centers,
 )
@@ -330,11 +329,28 @@ def test_aggregates_same_account_cost_center_department():
 # ---------------------------------------------------------------------------
 
 
-def test_unmapped_component_raises():
+def test_unmapped_component_is_skipped_not_booked():
+	"""Statistical / calculation-base components with no GL account (e.g. a
+	'minimum daily wage' figure) are skipped — not booked and not counted toward
+	the payable — so the entry still balances."""
 	config = make_config()
-	slips = [slip("SS-E", "Finance", [("CC-ADMIN", 100)], [("Unknown Bonus", 100)])]
-	with pytest.raises(UnmappedSalaryComponentError):
-		build_accrual_journal_accounts(slips, config)
+	slips = [
+		slip(
+			"SS-E",
+			"Finance",
+			[("CC-ADMIN", 100)],
+			earnings=[("Basic Salary", 5_000_000), ("Min Daily Wage Base", 9_999_999)],
+		)
+	]
+	result = build_accrual_journal_accounts(slips, config)
+
+	assert "Min Daily Wage Base" in result.skipped_components
+	# only the accounted earning is booked
+	assert sum(r.debit for r in result.rows_for(SALARY_EXP)) == Decimal(5_000_000)
+	# payable = booked earnings only (the unbooked base does NOT inflate it)
+	assert sum(r.credit for r in result.rows_for(PAYROLL_PAYABLE)) == Decimal(5_000_000)
+	assert result.round_off_amount == Decimal(0)
+	assert result.is_balanced()
 
 
 # ---------------------------------------------------------------------------

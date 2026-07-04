@@ -160,6 +160,8 @@ class AccountRow:
 class AccrualResult:
 	rows: list[AccountRow] = field(default_factory=list)
 	round_off_amount: Decimal = Decimal(0)
+	# Components encountered with no GL account mapping (skipped, not booked).
+	skipped_components: list[str] = field(default_factory=list)
 
 	@property
 	def total_debit(self) -> Decimal:
@@ -259,20 +261,27 @@ def build_accrual_journal_accounts(
 	# payable is a Balance-Sheet account -> keyed by (account, cost_center, None)
 	payable_bucket: dict[tuple, Decimal] = {}
 
-	unmapped_components: set[str] = set()
+	skipped_components: set[str] = set()
 
 	for slip in slips:
 		splits = _normalise_splits(slip.cost_center_splits)
 		slip_department = slip.department
 
+		# Components without a GL account (statistical / calculation-base rows such
+		# as a "minimum daily wage" figure, or ``do_not_include_in_total`` bases)
+		# are not booked — exactly as stock HRMS does. Crucially they are also
+		# excluded from the net-payable total below, so the payable equals
+		# booked earnings minus booked deductions (= net pay) and the entry stays
+		# balanced instead of dumping the unbooked base into the round-off line.
+
 		# --- earnings -> debit ------------------------------------------------
 		earnings_total = Decimal(0)
 		for item in slip.earnings:
-			earnings_total += _dec(item.amount)
 			account = config.account_for(item.component)
 			if not account:
-				unmapped_components.add(item.component)
+				skipped_components.add(item.component)
 				continue
+			earnings_total += _dec(item.amount)
 			department = slip_department if config.is_pl_account(account) else None
 			for cost_center, part in split_amount_by_cost_centers(
 				item.amount, splits, precision
@@ -282,11 +291,11 @@ def build_accrual_journal_accounts(
 		# --- deductions -> credit --------------------------------------------
 		deductions_total = Decimal(0)
 		for item in slip.deductions:
-			deductions_total += _dec(item.amount)
 			account = config.account_for(item.component)
 			if not account:
-				unmapped_components.add(item.component)
+				skipped_components.add(item.component)
 				continue
+			deductions_total += _dec(item.amount)
 			department = slip_department if config.is_pl_account(account) else None
 			for cost_center, part in split_amount_by_cost_centers(
 				item.amount, splits, precision
@@ -302,10 +311,8 @@ def build_accrual_journal_accounts(
 				payable_bucket, (config.payable_account, cost_center, None), part
 			)
 
-	if unmapped_components:
-		raise UnmappedSalaryComponentError(sorted(unmapped_components))
-
 	result = AccrualResult()
+	result.skipped_components = sorted(skipped_components)
 	_emit_rows(result, debit_bucket, is_debit=True)
 	_emit_rows(result, credit_bucket, is_debit=False)
 	_emit_rows(result, payable_bucket, is_debit=False)
