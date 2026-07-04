@@ -123,6 +123,12 @@ class AccrualConfig:
 	                           they bypass the Cost Center / Department group-by
 	                           and are booked as a separate row per employee, with
 	                           the Employee as Party (e.g. loans, advances).
+	``account_parties``      : ``{gl_account: (party_type, party)}`` — a fixed
+	                           Party stamped on the generated rows for that account
+	                           (e.g. the Supplier for the SSO / tax payable). Set
+	                           by the shim from the Salary Component Account child
+	                           table, replacing the old party-assignment Server
+	                           Script.
 	``precision``            : currency precision (``0`` for a zero-decimal
 	                           currency).
 	"""
@@ -134,10 +140,15 @@ class AccrualConfig:
 	round_off_cost_center: str
 	round_off_department: str | None
 	per_employee_components: frozenset[str] = frozenset()
+	account_parties: dict[str, tuple[str, str]] = field(default_factory=dict)
 	precision: int = 0
 
 	def account_for(self, component: str) -> str | None:
 		return self.component_accounts.get(component)
+
+	def party_for(self, account: str | None) -> tuple[str, str] | None:
+		"""``(party_type, party)`` fixed for this account, or ``None``."""
+		return self.account_parties.get(account) if account else None
 
 	def is_pl_account(self, account: str | None) -> bool:
 		if not account:
@@ -334,8 +345,23 @@ def build_accrual_journal_accounts(
 	_emit_rows(result, credit_bucket, is_debit=False)
 	_emit_rows(result, payable_bucket, is_debit=False)
 
+	_apply_account_parties(result, config)
 	_append_round_off(result, config)
 	return result
+
+
+def _apply_account_parties(result: AccrualResult, config: AccrualConfig) -> None:
+	"""Stamp the fixed Party (e.g. SSO / tax Supplier) on rows for the configured
+	accounts — but never override a Party already set (e.g. an employee-keyed
+	loan row). Replaces the old party-assignment Server Script."""
+	if not config.account_parties:
+		return
+	for row in result.rows:
+		if row.party:
+			continue
+		party = config.party_for(row.account)
+		if party:
+			row.party_type, row.party = party
 
 
 def _emit_rows(result: AccrualResult, bucket: dict[tuple, Decimal], *, is_debit: bool) -> None:

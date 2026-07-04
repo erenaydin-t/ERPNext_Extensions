@@ -78,7 +78,7 @@ ROUND_OFF_DEPARTMENT = "Adjustments"
 ROUND_OFF_COST_CENTER = "CC-ADMIN"
 
 
-def make_config(precision: int = 0, per_employee=()) -> AccrualConfig:
+def make_config(precision: int = 0, per_employee=(), account_parties=None) -> AccrualConfig:
 	return AccrualConfig(
 		component_accounts=dict(COMPONENT_ACCOUNTS),
 		account_root_type=dict(ACCOUNT_ROOT_TYPE),
@@ -87,6 +87,7 @@ def make_config(precision: int = 0, per_employee=()) -> AccrualConfig:
 		round_off_cost_center=ROUND_OFF_COST_CENTER,
 		round_off_department=ROUND_OFF_DEPARTMENT,
 		per_employee_components=frozenset(per_employee),
+		account_parties=dict(account_parties or {}),
 		precision=precision,
 	)
 
@@ -392,6 +393,52 @@ def test_per_employee_pl_component_keeps_department_and_party():
 	assert row.party == "EMP-9" and row.party_type == "Employee"
 	assert row.department == "Maintenance"  # P&L dimension still stamped
 	assert result.pl_rows_missing_department(config) == []
+	assert result.is_balanced()
+
+
+# ---------------------------------------------------------------------------
+# Account-level Party mapping (replaces the SSO/tax party Server Script)
+# ---------------------------------------------------------------------------
+
+
+def test_account_party_is_stamped_on_matching_rows():
+	config = make_config(account_parties={TAX_PAYABLE: ("Supplier", "SUP-TAX")})
+	slips = [
+		slip("SS-T1", "Finance", [("CC-ADMIN", 100)],
+			earnings=[("Basic Salary", 5_000_000)],
+			deductions=[("Income Tax", 400_000)], employee="E1"),
+		slip("SS-T2", "Micro Lab", [("CC-PROD", 100)],
+			earnings=[("Basic Salary", 6_000_000)],
+			deductions=[("Income Tax", 500_000)], employee="E2"),
+	]
+	result = build_accrual_journal_accounts(slips, config)
+
+	tax_rows = result.rows_for(TAX_PAYABLE)
+	assert tax_rows, "expected tax payable rows"
+	for r in tax_rows:
+		assert r.party_type == "Supplier"
+		assert r.party == "SUP-TAX"
+	# an account with no configured party stays party-less
+	assert all(not r.party for r in result.rows_for(SALARY_EXP))
+	assert result.is_balanced()
+
+
+def test_account_party_does_not_override_employee_party():
+	# Loan is per-employee (Employee party). Even if someone misconfigured a
+	# fixed party on the loan account, the employee party must win.
+	config = make_config(
+		per_employee=["Loan"],
+		account_parties={LOAN: ("Supplier", "SHOULD-NOT-WIN")},
+	)
+	slips = [
+		slip("SS-L", "Finance", [("CC-ADMIN", 100)],
+			earnings=[("Basic Salary", 5_000_000)],
+			deductions=[("Loan", 1_000_000)], employee="EMP-7"),
+	]
+	result = build_accrual_journal_accounts(slips, config)
+	loan = result.rows_for(LOAN)[0]
+	assert loan.party_type == "Employee"
+	assert loan.party == "EMP-7"
 	assert result.is_balanced()
 
 
