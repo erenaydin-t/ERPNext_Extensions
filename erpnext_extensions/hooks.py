@@ -136,6 +136,7 @@ after_migrate = [
 	"erpnext_extensions.cheque_management.pdc_accounting_dimensions.after_migrate",
 	"erpnext_extensions.facility_management.facility_accounting_dimensions.after_migrate",
 	"erpnext_extensions.iran_accounting.integration.bootstrap.apply",
+	"erpnext_extensions.extentionhrms.install.after_migrate",
 ]
 
 # ERPNext injects Accounting Dimension custom fields onto these DocTypes (see Accounting Dimension on_update).
@@ -192,6 +193,16 @@ has_permission = {
 # override_doctype_class = {
 # 	"ToDo": "custom_app.overrides.CustomToDo"
 # }
+
+# Group the HRMS payroll accrual entry by (Account, Cost Center, Department) so
+# it satisfies the mandatory-for-P&L Department accounting dimension. See
+# ``extentionhrms/payroll_entry_override.py``.
+override_doctype_class = {
+	"Payroll Entry": (
+		"erpnext_extensions.extentionhrms.payroll_entry_override."
+		"PayrollEntryWithAccountingDimensions"
+	),
+}
 
 # Document Events
 # ---------------
