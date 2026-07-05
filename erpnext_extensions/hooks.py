@@ -78,6 +78,7 @@ doctype_js = {
 		"facility_management/public/js/facility_je_preview_dialog.js",
 	],
 	"Facility Repayment": [
+		"facility_management/public/js/facility_settings_defaults.js",
 		"facility_management/public/js/facility_je_preview_dialog.js",
 	],
 	"Facility Settings": [
