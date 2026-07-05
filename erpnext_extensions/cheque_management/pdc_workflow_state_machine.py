@@ -53,6 +53,8 @@ from __future__ import annotations
 
 from typing import Final, Protocol
 
+import frappe
+
 # --- Cheque direction (DocType `cheque_direction`) ---
 
 CHEQUE_DIRECTION_RECEIVABLE: Final = "Receivable"
@@ -432,6 +434,8 @@ def get_pdc_workflow_transition_validation_error(
 	Returns:
 		``None`` if valid, else an English message suitable for ``frappe.throw(frappe._(msg))``.
 	"""
+	if getattr(frappe.flags, "in_pdc_workflow_rollback", None):
+		return None
 	curr = normalize_workflow_state_value(new_workflow_state_raw)
 	if curr not in ALL_WORKFLOW_STATES:
 		return (

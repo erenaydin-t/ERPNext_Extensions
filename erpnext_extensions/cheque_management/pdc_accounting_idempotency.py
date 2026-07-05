@@ -98,9 +98,34 @@ def stored_transition_key_matches(
 	return s == full or s == suffix
 
 
+def parse_pdc_transition_key_parts(
+	stored: str | None,
+	cheque_name: str,
+) -> tuple[str, str, str] | None:
+	"""Parse ``pdc_transition_key`` into ``(direction, from_state, to_state)``."""
+	if not stored:
+		return None
+	parts = [p.strip() for p in str(stored).split("|") if p.strip() != ""]
+	name = (cheque_name or "").strip()
+	if len(parts) == 4 and parts[0] == name:
+		return (
+			parts[1],
+			normalize_workflow_state_value(parts[2]),
+			normalize_workflow_state_value(parts[3]),
+		)
+	if len(parts) == 3:
+		return (
+			parts[0],
+			normalize_workflow_state_value(parts[1]),
+			normalize_workflow_state_value(parts[2]),
+		)
+	return None
+
+
 __all__ = [
 	"build_pdc_accounting_transition_key",
 	"build_pdc_transition_key_suffix",
 	"normalize_cheque_direction_for_accounting_key",
+	"parse_pdc_transition_key_parts",
 	"stored_transition_key_matches",
 ]

@@ -120,6 +120,7 @@ class TestCreateAndSubmitJournalEntryIdempotency(unittest.TestCase):
 		self.assertEqual(m_new_doc.call_count, 1)
 		je_doc.save.assert_called_once()
 		je_doc.submit.assert_called_once()
+		self.assertFalse(getattr(pdc.flags, "skip_pdc_accounting_orchestration", False))
 
 
 class TestPostSaveOrchestrationDuplicateProtection(unittest.TestCase):

@@ -264,6 +264,7 @@ def create_and_submit_journal_entry_from_payload(
                 frappe.flags.skip_pdc_allocation_capacity_validation_for_pdc = prev_flag
             except Exception:
                 pass
+            pdc.flags.skip_pdc_accounting_orchestration = False
 
         return je.name
 
