@@ -1281,162 +1281,113 @@ function set_default_party_accounts(frm) {
 	});
 }
 
-function pdc_user_may_rollback_workflow() {
-	return (
-		frappe.session.user === "Administrator" ||
-		(frappe.user_roles || []).includes("System Manager")
-	);
-}
-
-function pdc_add_workflow_rollback_button(frm) {
-	if (!frm.doc.name || frm.doc.docstatus !== 1 || !pdc_user_may_rollback_workflow()) {
-		return;
+function pdc_format_workflow_rollback_preview(prev) {
+	const esc = frappe.utils.escape_html;
+	const bi = prev.business_impact || {};
+	const wf = bi.workflow || prev.workflow_changes || {};
+	const leaf = bi.cheque_leaf || prev.leaf_changes || {};
+	let html = `<h6>${__("Workflow")}</h6>`;
+	html += `<p><strong>${esc(prev.current_state || wf.from_workflow_state || "")}</strong> → <strong>${esc(
+		prev.target_state || wf.to_workflow_state || ""
+	)}</strong></p>`;
+	if (wf.to_cheque_status) {
+		html += `<p>${__("Cheque status")}: ${esc(wf.from_cheque_status || "—")} → ${esc(
+			wf.to_cheque_status
+		)}</p>`;
 	}
-	frappe.call({
-		method:
-			"erpnext_extensions.cheque_management.pdc_workflow_rollback.get_pdc_rollback_target_states",
-		args: { pdc_name: frm.doc.name },
-		callback(r) {
-			const targets = r.message || [];
-			if (!targets.length) {
-				return;
-			}
-			frm.add_custom_button(__("Rollback Workflow State"), () => {
-				pdc_show_workflow_rollback_dialog(frm, targets);
-			});
-		},
-	});
-}
-
-function pdc_show_workflow_rollback_dialog(frm, targets) {
-	const d = new frappe.ui.Dialog({
-		title: __("Rollback Workflow State"),
-		fields: [
-			{
-				fieldname: "current_state",
-				fieldtype: "Data",
-				label: __("Current State"),
-				read_only: 1,
-				default: frm.doc.workflow_state,
-			},
-			{
-				fieldname: "target_state",
-				fieldtype: "Select",
-				label: __("Target State"),
-				options: targets.join("\n"),
-				reqd: 1,
-			},
-			{
-				fieldname: "rollback_reason",
-				fieldtype: "Small Text",
-				label: __("Rollback Reason"),
-				reqd: 1,
-			},
-			{
-				fieldname: "preview_html",
-				fieldtype: "HTML",
-				label: __("Documents to remove"),
-			},
-		],
-		primary_action_label: __("Confirm Rollback"),
-		primary_action(values) {
-			const reason = (values.rollback_reason || "").trim();
-			if (!reason) {
-				frappe.msgprint(__("Rollback reason is required."));
-				return;
-			}
-			frappe.call({
-				method:
-					"erpnext_extensions.cheque_management.pdc_workflow_rollback.rollback_workflow_state",
-				args: {
-					pdc_name: frm.doc.name,
-					target_state: values.target_state,
-					reason: reason,
-				},
-				freeze: true,
-				callback(res) {
-					if (res.message) {
-						d.hide();
-						frm.reload_doc();
-						frappe.show_alert({
-							message: __("Workflow rolled back to {0}", [values.target_state]),
-							indicator: "green",
-						});
-					}
-				},
-			});
-		},
-	});
-
-	function load_preview(target) {
-		if (!target) {
-			d.fields_dict.preview_html.$wrapper.html("");
+	if (wf.docstatus_after != null && wf.docstatus_before != null && wf.docstatus_after !== wf.docstatus_before) {
+		html += `<p>${__("Docstatus")}: ${wf.docstatus_before} → ${wf.docstatus_after}</p>`;
+	}
+	if (leaf.cheque_leaf) {
+		html += `<h6 class="mt-2">${__("Cheque Leaf")}</h6>`;
+		html += `<p>${esc(leaf.cheque_leaf)}: ${esc(leaf.current_status || "—")}`;
+		if (leaf.expected_status) {
+			html += ` → ${esc(leaf.expected_status)}`;
+		}
+		html += `</p>`;
+	}
+	html += `<h6 class="mt-2">${__("Accounting")}</h6>`;
+	const steps = prev.steps || [];
+	if (!steps.length) {
+		html += `<p>${__("No journal entries will be cancelled for this rollback.")}</p>`;
+		return html;
+	}
+	steps.forEach((step) => {
+		const impact = step.impact || {};
+		const je = step.journal_entry;
+		const transition =
+			step.from_state && step.to_state
+				? `${step.from_state} → ${step.to_state}`
+				: "";
+		if (!je && !step.has_accounting) {
+			html += `<div class="mb-2"><em>${esc(transition)}</em> — ${__(
+				"No Journal Entry on PDC journal references."
+			)}</div>`;
 			return;
 		}
-		frappe.call({
-			method:
-				"erpnext_extensions.cheque_management.pdc_workflow_rollback.get_pdc_workflow_rollback_preview",
-			args: { pdc_name: frm.doc.name, target_state: target },
-			callback(r) {
-				const prev = r.message || {};
-				const docs = prev.documents_to_remove || [];
-				let html = `<p><strong>${frappe.utils.escape_html(
-					prev.current_state || ""
-				)}</strong> → <strong>${frappe.utils.escape_html(prev.target_state || "")}</strong></p>`;
-				if (!docs.length) {
-					html += `<p>${__("No journal entries will be cancelled for this rollback.")}</p>`;
-				} else {
-					html += "<ul>";
-					docs.forEach((row) => {
-						if (row.doctype === "Journal Entry") {
-							html += `<li>${__("Journal Entry")}: ${frappe.utils.escape_html(row.name)} (${frappe.utils.escape_html(
-								row.transition || ""
-							)})</li>`;
-						} else if (row.names) {
-							html += `<li>${frappe.utils.escape_html(row.doctype)}: ${frappe.utils.escape_html(
-								row.names.join(", ")
-							)}</li>`;
-						}
-					});
-					html += "</ul>";
+		if (!je) {
+			return;
+		}
+		html += `<div class="mb-3"><strong>${__("Journal Entry")}</strong> ${esc(je)}`;
+		if (transition) {
+			html += ` <span class="text-muted">(${esc(transition)})</span>`;
+		}
+		html += `<ul class="pl-3 mb-0">`;
+		html += `<li>${__("GL Entries")}: ${
+			impact.gl_entry_count != null ? impact.gl_entry_count : "—"
+		}</li>`;
+		html += `<li>${__("Payment Ledger Entries")}: ${
+			impact.payment_ledger_entry_count != null ? impact.payment_ledger_entry_count : "—"
+		}</li>`;
+		(impact.outstanding_effects || []).forEach((eff) => {
+			if (!eff.voucher_no) {
+				if (eff.note) {
+					html += `<li>${esc(eff.note)}</li>`;
 				}
-				d.fields_dict.preview_html.$wrapper.html(html);
-			},
+				return;
+			}
+			const cur = eff.outstanding_current;
+			const after = eff.outstanding_after_rollback;
+			if (eff.outstanding_unchanged) {
+				html += `<li>${esc(eff.voucher_type)} ${esc(eff.voucher_no)} — ${__(
+					"Outstanding unchanged"
+				)} (${format_currency(cur)})</li>`;
+			} else {
+				html += `<li>${esc(eff.voucher_type)} ${esc(eff.voucher_no)} — ${__(
+					"Outstanding"
+				)} ${format_currency(cur)} → ${format_currency(after)}</li>`;
+			}
 		});
-	}
-
-	d.fields_dict.target_state.df.onchange = function () {
-		load_preview(d.get_value("target_state"));
-	};
-	d.show();
-	if (targets.length === 1) {
-		d.set_value("target_state", targets[0]);
-	}
-	load_preview(targets[0]);
-}
-
-function pdc_user_may_rollback_workflow() {
-	return (
-		frappe.session.user === "Administrator" ||
-		(frappe.user_roles || []).includes("System Manager")
-	);
+		html += `</ul></div>`;
+	});
+	return html;
 }
 
 function pdc_add_workflow_rollback_button(frm) {
-	if (!frm.doc.name || frm.doc.docstatus !== 1 || !pdc_user_may_rollback_workflow()) {
+	if (!frm.doc.name || frm.doc.docstatus !== 1) {
 		return;
 	}
 	frappe.call({
 		method:
-			"erpnext_extensions.cheque_management.pdc_workflow_rollback.get_pdc_rollback_target_states",
+			"erpnext_extensions.cheque_management.pdc_workflow_rollback.check_user_may_rollback_pdc_workflow",
 		args: { pdc_name: frm.doc.name },
-		callback(r) {
-			const targets = r.message || [];
-			if (!targets.length) {
+		callback(perm) {
+			if (!perm.message) {
 				return;
 			}
-			frm.add_custom_button(__("Rollback Workflow State"), () => {
-				pdc_show_workflow_rollback_dialog(frm, targets);
+			frappe.call({
+				method:
+					"erpnext_extensions.cheque_management.pdc_workflow_rollback.get_pdc_rollback_target_states",
+				args: { pdc_name: frm.doc.name },
+				callback(r) {
+					const targets = r.message || [];
+					if (!targets.length) {
+						return;
+					}
+					frm.add_custom_button(__("Rollback Workflow State"), () => {
+						pdc_show_workflow_rollback_dialog(frm, targets);
+					});
+				},
 			});
 		},
 	});
@@ -1513,28 +1464,7 @@ function pdc_show_workflow_rollback_dialog(frm, targets) {
 			args: { pdc_name: frm.doc.name, target_state: target },
 			callback(r) {
 				const prev = r.message || {};
-				const docs = prev.documents_to_remove || [];
-				let html = `<p><strong>${frappe.utils.escape_html(
-					prev.current_state || ""
-				)}</strong> → <strong>${frappe.utils.escape_html(prev.target_state || "")}</strong></p>`;
-				if (!docs.length) {
-					html += `<p>${__("No journal entries will be cancelled for this rollback.")}</p>`;
-				} else {
-					html += "<ul>";
-					docs.forEach((row) => {
-						if (row.doctype === "Journal Entry") {
-							html += `<li>${__("Journal Entry")}: ${frappe.utils.escape_html(row.name)} (${frappe.utils.escape_html(
-								row.transition || ""
-							)})</li>`;
-						} else if (row.names) {
-							html += `<li>${frappe.utils.escape_html(row.doctype)}: ${frappe.utils.escape_html(
-								row.names.join(", ")
-							)}</li>`;
-						}
-					});
-					html += "</ul>";
-				}
-				d.fields_dict.preview_html.$wrapper.html(html);
+				d.fields_dict.preview_html.$wrapper.html(pdc_format_workflow_rollback_preview(prev));
 			},
 		});
 	}

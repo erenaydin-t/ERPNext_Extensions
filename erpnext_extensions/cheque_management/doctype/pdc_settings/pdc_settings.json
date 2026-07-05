@@ -47,7 +47,9 @@
   "section_break_payment_request",
   "payment_request_pdc_mode_of_payment",
   "section_break_allocation",
-  "other_settlement_allowed_doctypes"
+  "other_settlement_allowed_doctypes",
+  "section_break_workflow_rollback",
+  "workflow_rollback_allowed_roles"
  ],
  "fields": [
   {
@@ -285,6 +287,19 @@
    "fieldtype": "Small Text",
    "label": "Other Settlement — Allowed Reference DocTypes",
    "description": "Comma or newline separated DocType names. If empty, Other Settlement allocation rows are not allowed. Configure here only; list UI is not required for validation."
+  },
+  {
+   "fieldname": "section_break_workflow_rollback",
+   "fieldtype": "Section Break",
+   "label": "Workflow Rollback",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "workflow_rollback_allowed_roles",
+   "fieldtype": "Small Text",
+   "label": "Roles Allowed to Rollback Workflow",
+   "default": "System Manager",
+   "description": "One role per line. Users with any listed role may rollback submitted PDC workflow (Administrator always allowed)."
   }
  ],
  "index_web_pages_for_search": 1,

@@ -1,0 +1,238 @@
+{
+  "ok": true,
+  "pdc_name": "PDC-2026-00164",
+  "steps": [
+    {
+      "label": "Cleared_to_Issued",
+      "target": "Issued",
+      "before": {
+        "pdc": {
+          "name": "PDC-2026-00164",
+          "workflow_state": "Cleared",
+          "cheque_status": "Cleared",
+          "docstatus": 1,
+          "cheque_direction": "Payable",
+          "cheque_leaf": "CHQLF-2026-00208",
+          "company": "ESPAD"
+        },
+        "journal_entries": [
+          {
+            "name": "ACC-JV-2026-00382",
+            "docstatus": 1
+          },
+          {
+            "name": "ACC-JV-2026-00383",
+            "docstatus": 1
+          }
+        ],
+        "journal_entry_account_count": 4,
+        "gl_entry_count": 4,
+        "payment_ledger_entry_count": 0,
+        "pdc_journal_references": [
+          {
+            "name": "n8h9i7bd67",
+            "journal_entry": "ACC-JV-2026-00382",
+            "pdc_transition_key": "PDC-2026-00164|Payable|Draft|Registered",
+            "purpose": "Payable Issue"
+          },
+          {
+            "name": "n8kjnsiujd",
+            "journal_entry": "ACC-JV-2026-00383",
+            "pdc_transition_key": "PDC-2026-00164|Payable|Issued|Cleared",
+            "purpose": "Payable Clear"
+          }
+        ],
+        "outstanding": [],
+        "cheque_leaf": {
+          "name": "CHQLF-2026-00208",
+          "status": "Used",
+          "linked_post_dated_cheque": "PDC-2026-00164",
+          "reserved_by_pdc": null
+        },
+        "rollback_log_count": 0,
+        "workflow_comment_count": 3
+      },
+      "after": {
+        "pdc": {
+          "name": "PDC-2026-00164",
+          "workflow_state": "Issued",
+          "cheque_status": "Issued",
+          "docstatus": 1,
+          "cheque_direction": "Payable",
+          "cheque_leaf": "CHQLF-2026-00208",
+          "company": "ESPAD"
+        },
+        "journal_entries": [
+          {
+            "name": "ACC-JV-2026-00382",
+            "docstatus": 1
+          }
+        ],
+        "journal_entry_account_count": 2,
+        "gl_entry_count": 2,
+        "payment_ledger_entry_count": 0,
+        "pdc_journal_references": [
+          {
+            "name": "n8h9i7bd67",
+            "journal_entry": "ACC-JV-2026-00382",
+            "pdc_transition_key": "PDC-2026-00164|Payable|Draft|Registered",
+            "purpose": "Payable Issue"
+          }
+        ],
+        "outstanding": [],
+        "cheque_leaf": {
+          "name": "CHQLF-2026-00208",
+          "status": "Used",
+          "linked_post_dated_cheque": "PDC-2026-00164",
+          "reserved_by_pdc": null
+        },
+        "rollback_log_count": 1,
+        "workflow_comment_count": 4
+      }
+    },
+    {
+      "label": "Issued_to_Registered",
+      "target": "Registered",
+      "before": {
+        "pdc": {
+          "name": "PDC-2026-00164",
+          "workflow_state": "Issued",
+          "cheque_status": "Issued",
+          "docstatus": 1,
+          "cheque_direction": "Payable",
+          "cheque_leaf": "CHQLF-2026-00208",
+          "company": "ESPAD"
+        },
+        "journal_entries": [
+          {
+            "name": "ACC-JV-2026-00382",
+            "docstatus": 1
+          }
+        ],
+        "journal_entry_account_count": 2,
+        "gl_entry_count": 2,
+        "payment_ledger_entry_count": 0,
+        "pdc_journal_references": [
+          {
+            "name": "n8h9i7bd67",
+            "journal_entry": "ACC-JV-2026-00382",
+            "pdc_transition_key": "PDC-2026-00164|Payable|Draft|Registered",
+            "purpose": "Payable Issue"
+          }
+        ],
+        "outstanding": [],
+        "cheque_leaf": {
+          "name": "CHQLF-2026-00208",
+          "status": "Used",
+          "linked_post_dated_cheque": "PDC-2026-00164",
+          "reserved_by_pdc": null
+        },
+        "rollback_log_count": 1,
+        "workflow_comment_count": 4
+      },
+      "after": {
+        "pdc": {
+          "name": "PDC-2026-00164",
+          "workflow_state": "Registered",
+          "cheque_status": "Registered",
+          "docstatus": 1,
+          "cheque_direction": "Payable",
+          "cheque_leaf": "CHQLF-2026-00208",
+          "company": "ESPAD"
+        },
+        "journal_entries": [
+          {
+            "name": "ACC-JV-2026-00382",
+            "docstatus": 1
+          }
+        ],
+        "journal_entry_account_count": 2,
+        "gl_entry_count": 2,
+        "payment_ledger_entry_count": 0,
+        "pdc_journal_references": [
+          {
+            "name": "n8h9i7bd67",
+            "journal_entry": "ACC-JV-2026-00382",
+            "pdc_transition_key": "PDC-2026-00164|Payable|Draft|Registered",
+            "purpose": "Payable Issue"
+          }
+        ],
+        "outstanding": [],
+        "cheque_leaf": {
+          "name": "CHQLF-2026-00208",
+          "status": "Used",
+          "linked_post_dated_cheque": "PDC-2026-00164",
+          "reserved_by_pdc": null
+        },
+        "rollback_log_count": 2,
+        "workflow_comment_count": 5
+      }
+    },
+    {
+      "label": "Registered_to_Draft",
+      "target": "Draft",
+      "before": {
+        "pdc": {
+          "name": "PDC-2026-00164",
+          "workflow_state": "Registered",
+          "cheque_status": "Registered",
+          "docstatus": 1,
+          "cheque_direction": "Payable",
+          "cheque_leaf": "CHQLF-2026-00208",
+          "company": "ESPAD"
+        },
+        "journal_entries": [
+          {
+            "name": "ACC-JV-2026-00382",
+            "docstatus": 1
+          }
+        ],
+        "journal_entry_account_count": 2,
+        "gl_entry_count": 2,
+        "payment_ledger_entry_count": 0,
+        "pdc_journal_references": [
+          {
+            "name": "n8h9i7bd67",
+            "journal_entry": "ACC-JV-2026-00382",
+            "pdc_transition_key": "PDC-2026-00164|Payable|Draft|Registered",
+            "purpose": "Payable Issue"
+          }
+        ],
+        "outstanding": [],
+        "cheque_leaf": {
+          "name": "CHQLF-2026-00208",
+          "status": "Used",
+          "linked_post_dated_cheque": "PDC-2026-00164",
+          "reserved_by_pdc": null
+        },
+        "rollback_log_count": 2,
+        "workflow_comment_count": 5
+      },
+      "after": {
+        "pdc": {
+          "name": "PDC-2026-00164",
+          "workflow_state": "Draft",
+          "cheque_status": "Draft",
+          "docstatus": 0,
+          "cheque_direction": "Payable",
+          "cheque_leaf": "CHQLF-2026-00208",
+          "company": "ESPAD"
+        },
+        "journal_entries": [],
+        "journal_entry_account_count": 0,
+        "gl_entry_count": 0,
+        "payment_ledger_entry_count": 0,
+        "pdc_journal_references": [],
+        "outstanding": [],
+        "cheque_leaf": {
+          "name": "CHQLF-2026-00208",
+          "status": "Reserved",
+          "linked_post_dated_cheque": null,
+          "reserved_by_pdc": "PDC-2026-00164"
+        },
+        "rollback_log_count": 3,
+        "workflow_comment_count": 6
+      }
+    }
+  ]
+}

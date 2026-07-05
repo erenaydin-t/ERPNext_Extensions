@@ -18,6 +18,8 @@
   "rolled_back_by",
   "from_state",
   "to_state",
+  "transition_key",
+  "journal_entry",
   "reason",
   "deleted_documents"
  ],
@@ -58,6 +60,22 @@
    "allow_on_submit": 1,
    "read_only": 1,
    "reqd": 1
+  },
+  {
+   "fieldname": "transition_key",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Transition Key",
+   "allow_on_submit": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "journal_entry",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Journal Entry",
+   "allow_on_submit": 1,
+   "read_only": 1
   },
   {
    "fieldname": "reason",

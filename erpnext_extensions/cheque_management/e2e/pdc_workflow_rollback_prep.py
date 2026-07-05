@@ -112,20 +112,32 @@ def _leaf_territory() -> str:
 
 
 def _get_non_privileged_user() -> str:
+	"""User without System Manager; password set to E2E default for Playwright login."""
+	from frappe.utils.password import update_password
+
+	password = (frappe.conf.get("e2e_test_password") or "admin").strip()
 	rows = frappe.db.sql(
 		"""
-		SELECT name FROM `tabUser`
-		 WHERE enabled = 1
-		   AND user_type = 'System User'
-		   AND name != 'Administrator'
-		 ORDER BY creation asc
+		SELECT u.name
+		  FROM `tabUser` u
+		 WHERE u.enabled = 1
+		   AND u.user_type = 'System User'
+		   AND u.name NOT IN ('Administrator', 'Guest')
+		   AND NOT EXISTS (
+		     SELECT 1 FROM `tabHas Role` hr
+		      WHERE hr.parent = u.name AND hr.role = 'System Manager'
+		   )
+		 ORDER BY u.creation ASC
 		 LIMIT 1
 		""",
 		as_list=True,
 	)
 	if not rows:
-		frappe.throw("No non-Administrator system user found for E2E permission test.")
-	return rows[0][0]
+		frappe.throw("No non–System Manager user found for E2E permission test.")
+	name = rows[0][0]
+	update_password(name, password)
+	frappe.db.commit()
+	return name
 
 
 def _apply_action(doc, action: str):
@@ -296,6 +308,7 @@ def prepare_pdc_workflow_rollback_e2e():
 		"company": company,
 		"bank_account": bank_account,
 		"accounts_user": accounts_user,
+		"accounts_user_password_hint": "admin (or site e2e_test_password)",
 		"payable_registered": pdc_registered.name,
 		"payable_issued": pdc_payable_b.name,
 		"payable_cleared": pdc_payable2.name,
@@ -309,13 +322,22 @@ def prepare_pdc_workflow_rollback_e2e():
 
 def e2e_sql_verify_pdc(pdc_name: str):
 	"""Bench execute helper for Playwright SQL checks."""
+	from erpnext_extensions.cheque_management.pdc_rollback_sql_evidence import (
+		accounting_snapshot_for_pdc,
+	)
 	from erpnext_extensions.cheque_management.pdc_workflow_rollback import (
 		sql_integrity_is_clean,
 		sql_verify_pdc_rollback_integrity,
 	)
 
 	report = sql_verify_pdc_rollback_integrity(pdc_name)
-	return {"pdc_name": pdc_name, "report": report, "clean": sql_integrity_is_clean(report)}
+	snapshot = accounting_snapshot_for_pdc(pdc_name)
+	return {
+		"pdc_name": pdc_name,
+		"report": report,
+		"snapshot": snapshot,
+		"clean": sql_integrity_is_clean(report),
+	}
 
 
 def e2e_apply_pdc_workflow(pdc_name: str, action: str) -> str:

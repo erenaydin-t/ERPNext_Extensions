@@ -1633,6 +1633,11 @@ class PostDatedCheque(Document):
 	def validate(self):
 		"""Validate PDC data and enforce immutability after submit."""
 		validate_post_dated_cheque_allocation_mode_immutability(self)
+		from erpnext_extensions.cheque_management.pdc_workflow_rollback import (
+			validate_workflow_rollback_logs_immutable,
+		)
+
+		validate_workflow_rollback_logs_immutable(self)
 		self._validate_cheque_direction_mutability()
 		self._validate_payable_bank_account_mutability()
 		self._validate_receivable_bank_account_mutability()

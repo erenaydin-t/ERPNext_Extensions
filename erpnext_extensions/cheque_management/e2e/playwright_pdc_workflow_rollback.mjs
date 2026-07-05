@@ -15,12 +15,13 @@ const BASE = process.env.FRAPPE_E2E_BASE_URL || "http://development.localhost:80
 const BENCH = process.env.FRAPPE_BENCH_ROOT || "/workspace/development/frappe-bench";
 
 function benchExecute(method, kwargs = null) {
-	let cmd = `cd ${BENCH} && bench --site development.localhost execute "${method}"`;
+	let cmd = `cd ${BENCH} && bench --site development.localhost execute ${method}`;
 	if (kwargs) {
 		cmd += ` --kwargs '${JSON.stringify(kwargs).replace(/'/g, "'\\''")}'`;
 	}
-	const out = execSync(cmd, { encoding: "utf8" });
-	return JSON.parse(out.trim().split("\n").filter(Boolean).pop());
+	const out = execSync(cmd, { encoding: "utf8", maxBuffer: 50 * 1024 * 1024 });
+	const lines = out.trim().split("\n").filter(Boolean);
+	return JSON.parse(lines[lines.length - 1]);
 }
 
 function sqlVerify(pdcName) {
@@ -38,11 +39,12 @@ async function shot(page, name) {
 }
 
 async function login(page, user, pass) {
-	await page.goto(`${BASE}/login`, { waitUntil: "domcontentloaded", timeout: 120000 });
+	await page.goto(`${BASE}/login`, { waitUntil: "load", timeout: 180000 });
+	await page.waitForSelector("#login_email", { state: "visible", timeout: 60000 });
 	await page.fill("#login_email", user);
 	await page.fill("#login_password", pass);
 	await page.click('button[type="submit"]');
-	await page.waitForURL(/\/(app|desk)/, { timeout: 120000 });
+	await page.waitForURL(/\/(app|desk)/, { timeout: 180000 });
 }
 
 async function openPdc(page, name) {
@@ -57,7 +59,22 @@ async function openPdc(page, name) {
 
 const FIND_ROLLBACK_BTN = `() => Array.from(document.querySelectorAll(".custom-actions .btn, .page-actions .btn")).find((b) => (b.textContent || "").trim() === "Rollback Workflow State")`;
 
+async function waitForRollbackButton(page, timeoutMs = 90000) {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		const has = await page.evaluate((findBtnSrc) => !!eval(findBtnSrc)(), FIND_ROLLBACK_BTN);
+		if (has) {
+			return true;
+		}
+		await page.waitForTimeout(500);
+	}
+	return false;
+}
+
 async function openRollbackDialog(page) {
+	if (!(await waitForRollbackButton(page))) {
+		return { ok: false, step: "no_button" };
+	}
 	return page.evaluate(async (findBtnSrc) => {
 		const findBtn = eval(findBtnSrc);
 		const btn = findBtn();
@@ -77,6 +94,9 @@ async function openRollbackDialog(page) {
 }
 
 async function rollbackViaUi(page, targetState, reason, { confirm = true } = {}) {
+	if (!(await waitForRollbackButton(page))) {
+		return { ok: false, step: "no_button" };
+	}
 	const out = await page.evaluate(
 		async ({ findBtnSrc, targetState, reason, confirm }) => {
 			const findBtn = eval(findBtnSrc);
@@ -140,14 +160,14 @@ async function run() {
 
 		// A: Registered → Draft
 		await openPdc(page, prep.payable_registered);
-		const a1 = await page.evaluate((findBtnSrc) => ({ has: !!eval(findBtnSrc)() }), FIND_ROLLBACK_BTN);
+		const a1 = await waitForRollbackButton(page);
 		evidence.screenshots.A0 = await shot(page, "A_registered_button_visible");
 		const a = await rollbackViaUi(page, "Draft", "E2E rollback A");
 		evidence.screenshots.A1 = await shot(page, "A_registered_to_draft");
 		evidence.sql.A = sqlVerify(prep.payable_registered);
 		results.push({
 			test: "A_registered_to_draft",
-			ok: a1.has && a.ok && a.workflow_state === "Draft" && evidence.sql.A.clean,
+			ok: a1 && a.ok && a.workflow_state === "Draft" && evidence.sql.A.clean,
 			a,
 		});
 
@@ -163,14 +183,57 @@ async function run() {
 			b,
 		});
 
+		await openPdc(page, prep.payable_returned);
+		const e = await rollbackViaUi(page, "Issued", "E2E rollback E");
+		evidence.screenshots.E = await shot(page, "E_returned_to_issued");
+		results.push({ test: "E_returned_to_issued", ok: e.ok && e.workflow_state === "Issued", e });
+
+		// F: Cancelled is workflow docstatus 2 — rollback is not offered (unlike Returned).
+		await openPdc(page, prep.payable_cancelled);
+		const fDoc = await page.evaluate(() => ({
+			workflow_state: window.cur_frm?.doc?.workflow_state,
+			docstatus: window.cur_frm?.doc?.docstatus,
+		}));
+		const fHasBtn = await waitForRollbackButton(page, 15000);
+		evidence.screenshots.F = await shot(page, "F_cancelled_terminal_no_rollback");
+		results.push({
+			test: "F_cancelled_terminal_no_rollback",
+			ok:
+				fDoc.workflow_state === "Cancelled" &&
+				fDoc.docstatus === 2 &&
+				!fHasBtn,
+			f: { ...fDoc, has_button: fHasBtn },
+		});
+
+		await openPdc(page, prep.payable_cleared_double);
+		const j1 = await rollbackViaUi(page, "Issued", "E2E rollback J1");
+		const j2 = await page.evaluate(async (pdcName) => {
+			try {
+				await frappe.call({
+					method:
+						"erpnext_extensions.cheque_management.pdc_workflow_rollback.rollback_workflow_state",
+					args: { pdc_name: pdcName, target_state: "Issued", reason: "duplicate" },
+				});
+				return { rejected: false };
+			} catch (err) {
+				return { rejected: true, msg: err.message || String(err) };
+			}
+		}, prep.payable_cleared_double);
+		evidence.screenshots.J = await shot(page, "J_double_rollback");
+		results.push({
+			test: "J_rollback_twice_second_rejected",
+			ok: j1.ok && j1.workflow_state === "Issued" && j2.rejected,
+			j1,
+			j2,
+		});
+
 		// H: Rollback preview (no confirm)
 		await openPdc(page, prep.payable_cleared_preview);
-		const hOpen = await openRollbackDialog(page);
 		const h = await rollbackViaUi(page, "Issued", "E2E preview H", { confirm: false });
 		evidence.screenshots.H = await shot(page, "H_preview_dialog");
 		results.push({
 			test: "H_rollback_preview",
-			ok: hOpen.ok && h.ok && (h.preview || "").length > 20,
+			ok: h.ok && (h.preview || "").includes("Workflow") && (h.preview || "").includes("Accounting"),
 			h,
 		});
 
@@ -186,6 +249,17 @@ async function run() {
 		const c3 = await rollbackViaUi(page, "Draft", "E2E rollback C3");
 		evidence.sql.C3 = sqlVerify(prep.payable_cleared);
 		evidence.screenshots.C3 = await shot(page, "C_registered_to_draft");
+		await page.evaluate(() => {
+			const sidebar = document.querySelector(".form-sidebar");
+			const link = sidebar
+				? Array.from(sidebar.querySelectorAll("a, button, .sidebar-item, .standard-sidebar-item")).find(
+						(el) => (el.textContent || "").trim().includes("Timeline")
+				  )
+				: null;
+			link?.click();
+		});
+		await page.waitForTimeout(1500);
+		evidence.screenshots.T_timeline = await shot(page, "T_timeline_workflow_comments");
 		results.push({
 			test: "C_D_cleared_to_draft_multistep",
 			ok:
@@ -213,42 +287,6 @@ async function run() {
 			kForward,
 		});
 
-		// J: rollback twice Cleared → Issued (second should fail)
-		await openPdc(page, prep.payable_cleared_double);
-		const j1 = await rollbackViaUi(page, "Issued", "E2E rollback J1");
-		const j2 = await page.evaluate(async (pdcName) => {
-			try {
-				await frappe.call({
-					method:
-						"erpnext_extensions.cheque_management.pdc_workflow_rollback.rollback_workflow_state",
-					args: { pdc_name: pdcName, target_state: "Issued", reason: "duplicate" },
-				});
-				return { rejected: false };
-			} catch (e) {
-				return { rejected: true, msg: e.message || String(e) };
-			}
-		}, prep.payable_cleared_double);
-		evidence.screenshots.J = await shot(page, "J_double_rollback");
-		results.push({
-			test: "J_rollback_twice_second_rejected",
-			ok: j1.workflow_state === "Issued" && j2.rejected,
-			j1,
-			j2,
-		});
-
-		// E: Returned → Issued
-		await openPdc(page, prep.payable_returned);
-		const e = await rollbackViaUi(page, "Issued", "E2E rollback E");
-		evidence.screenshots.E = await shot(page, "E_returned_to_issued");
-		results.push({ test: "E_returned_to_issued", ok: e.ok && e.workflow_state === "Issued", e });
-
-		// F: Cancelled → Issued
-		await openPdc(page, prep.payable_cancelled);
-		const f = await rollbackViaUi(page, "Issued", "E2E rollback F");
-		evidence.screenshots.F = await shot(page, "F_cancelled_to_issued");
-		results.push({ test: "F_cancelled_to_issued", ok: f.ok && f.workflow_state === "Issued", f });
-
-		// I: history grid visible with rows on a doc that has rollbacks
 		await openPdc(page, prep.payable_cleared);
 		const i = await page.evaluate(() => {
 			const section = document.querySelector('[data-fieldname="workflow_rollback_logs"]');
@@ -258,12 +296,25 @@ async function run() {
 		evidence.screenshots.I = await shot(page, "I_rollback_history");
 		results.push({ test: "I_rollback_history", ok: i.has && i.rows >= 3, i });
 
-		// G: Permission
-		await page.goto(`${BASE}/api/method/logout`, { waitUntil: "domcontentloaded" });
-		await login(page, prep.accounts_user, process.env.FRAPPE_E2E_PASSWORD || "admin");
-		await openPdc(page, prep.receivable_cleared);
-		const gUi = await page.evaluate((findBtnSrc) => ({ has: !!eval(findBtnSrc)() }), FIND_ROLLBACK_BTN);
-		const gServer = await page.evaluate(async (pdcName) => {
+		// G: Permission (fresh context — logout/login page is unreliable in one session)
+		await context.close();
+		const ctx2 = await browser.newContext({ locale: "en-US", viewport: { width: 1600, height: 950 } });
+		const pageG = await ctx2.newPage();
+		pageG.setDefaultTimeout(180000);
+		await login(pageG, prep.accounts_user, process.env.FRAPPE_E2E_PASSWORD || "admin");
+		if (pageG.url().includes("/login")) {
+			throw new Error(`E2E denied user login failed for ${prep.accounts_user}`);
+		}
+		await pageG.goto(`${BASE}/desk/post-dated-cheque/${encodeURIComponent(prep.receivable_cleared)}`, {
+			waitUntil: "load",
+			timeout: 180000,
+		});
+		await pageG.waitForTimeout(4000);
+		const gUi = await pageG.evaluate((findBtnSrc) => ({ has: !!eval(findBtnSrc)() }), FIND_ROLLBACK_BTN);
+		const gServer = await pageG.evaluate(async (pdcName) => {
+			if (typeof frappe === "undefined") {
+				return { rejected: true, msg: "no desk session" };
+			}
 			try {
 				await frappe.call({
 					method:
@@ -275,7 +326,8 @@ async function run() {
 				return { rejected: true, msg: e.message || String(e) };
 			}
 		}, prep.receivable_cleared);
-		evidence.screenshots.G = await shot(page, "G_non_privileged_no_button");
+		evidence.screenshots.G = await shot(pageG, "G_non_privileged_no_button");
+		await ctx2.close();
 		results.push({
 			test: "G_permission_no_button_and_server_reject",
 			ok: !gUi.has && gServer.rejected,

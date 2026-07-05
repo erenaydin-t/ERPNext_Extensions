@@ -104,21 +104,23 @@ class TestPDCTransitionKeyParse(unittest.TestCase):
 
 
 class TestPDCRollbackPermission(unittest.TestCase):
-	@patch("erpnext_extensions.cheque_management.pdc_workflow_rollback.frappe")
-	def test_guest_denied(self, mock_frappe):
-		mock_frappe.session.user = "guest@example.com"
-		mock_frappe.get_roles.return_value = []
+	@patch(
+		"erpnext_extensions.cheque_management.pdc_workflow_rollback_permission.user_has_workflow_rollback_role",
+		return_value=False,
+	)
+	def test_guest_denied(self, _mock_role):
 		self.assertFalse(user_may_rollback_pdc_workflow())
 
-	@patch("erpnext_extensions.cheque_management.pdc_workflow_rollback.frappe")
+	@patch("erpnext_extensions.cheque_management.pdc_workflow_rollback_permission.frappe")
 	def test_administrator_allowed(self, mock_frappe):
 		mock_frappe.session.user = "Administrator"
 		self.assertTrue(user_may_rollback_pdc_workflow())
 
-	@patch("erpnext_extensions.cheque_management.pdc_workflow_rollback.frappe")
-	def test_system_manager_allowed(self, mock_frappe):
-		mock_frappe.session.user = "sys@example.com"
-		mock_frappe.get_roles.return_value = ["System Manager"]
+	@patch(
+		"erpnext_extensions.cheque_management.pdc_workflow_rollback_permission.user_has_workflow_rollback_role",
+		return_value=True,
+	)
+	def test_policy_role_allowed(self, _mock_role):
 		self.assertTrue(user_may_rollback_pdc_workflow())
 
 

@@ -491,6 +491,47 @@ def run_payable_lifecycle_integration() -> dict:
 		return {"ok": False, "error": str(exc), "traceback": traceback.format_exc()}
 
 
+def run_integration_sql_evidence() -> dict:
+	"""Export before/after accounting snapshots for payable rollback steps."""
+	from erpnext_extensions.cheque_management.pdc_rollback_sql_evidence import (
+		accounting_snapshot_for_pdc,
+	)
+
+	frappe.set_user("Administrator")
+	case = TestPDCWorkflowRollbackLifecycleIntegration()
+	case.setUpClass()
+
+	company = _get_company()
+	bank_account = _get_bank_account(company)
+	assets = _get_group_account(company, "Asset")
+	liab = _get_group_account(company, "Liability")
+	ci_hand = _get_or_create_account(company, assets, _uniq("SQL-EV-CIH"))
+	ci_clear = _get_or_create_account(company, assets, _uniq("SQL-EV-CLR"))
+	protested = _get_or_create_account(company, assets, _uniq("SQL-EV-PROT"))
+	pool = _get_or_create_account(company, liab, _uniq("SQL-EV-POOL"))
+	ap = _get_or_create_account(company, liab, _uniq("SQL-EV-AP"))
+	_ensure_pdc_settings(company, ci_hand=ci_hand, ci_clear=ci_clear, pool=pool, protested=protested)
+	leaf = _provision_payable_leaf(company, bank_account)
+	pdc_name = case._make_payable_pdc(company, bank_account, leaf, pool, ap)
+	doc = _apply_action(frappe.get_doc("Post Dated Cheque", pdc_name), "Register Cheque")
+	doc = _issue_payable(doc)
+	doc = _clear_payable(doc)
+
+	steps: list[dict] = []
+
+	def record(label: str, target: str, reason: str):
+		before = accounting_snapshot_for_pdc(pdc_name)
+		rollback_workflow_state(pdc_name, target, reason)
+		after = accounting_snapshot_for_pdc(pdc_name)
+		steps.append({"label": label, "target": target, "before": before, "after": after})
+
+	record("Cleared_to_Issued", "Issued", "SQL evidence Cleared→Issued")
+	record("Issued_to_Registered", "Registered", "SQL evidence Issued→Registered")
+	record("Registered_to_Draft", "Draft", "SQL evidence Registered→Draft")
+	frappe.db.commit()
+	return {"ok": True, "pdc_name": pdc_name, "steps": steps}
+
+
 def run_receivable_lifecycle_integration() -> dict:
 	case = TestPDCWorkflowRollbackLifecycleIntegration()
 	case.setUpClass()
