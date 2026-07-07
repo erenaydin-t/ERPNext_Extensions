@@ -60,7 +60,9 @@ def _forward_edges_on_path(path: list[str]) -> list[tuple[str, str]]:
 	return out
 
 
-def _edges_to_undo(cheque_direction: str, current: str, target: str) -> list[tuple[str, str]]:
+def _edges_to_undo(
+	cheque_direction: str, current: str, target: str, pdc=None
+) -> list[tuple[str, str]]:
 	current = normalize_workflow_state_value(current)
 	target = normalize_workflow_state_value(target)
 	path = _bfs_forward_path(cheque_direction, target, current)
@@ -68,7 +70,29 @@ def _edges_to_undo(cheque_direction: str, current: str, target: str) -> list[tup
 		raise ValidationError(
 			_("Cannot rollback from {0} to {1}: no valid forward workflow path.").format(current, target)
 		)
-	return list(reversed(_forward_edges_on_path(path)))
+	edges = list(reversed(_forward_edges_on_path(path)))
+	if pdc and frappe.utils.cint(getattr(pdc, "is_opening_import", 0)):
+		from erpnext_extensions.cheque_management.pdc_opening_import_baseline import (
+			resolve_opening_import_baseline_state,
+		)
+
+		baseline = resolve_opening_import_baseline_state(pdc)
+		if baseline:
+			edges = _filter_edges_at_or_after_baseline(cheque_direction, edges, baseline)
+	return edges
+
+
+def _filter_edges_at_or_after_baseline(
+	cheque_direction: str, edges: list[tuple[str, str]], baseline: str
+) -> list[tuple[str, str]]:
+	from erpnext_extensions.cheque_management.pdc_opening_import_baseline import _workflow_rank
+
+	baseline = normalize_workflow_state_value(baseline)
+	out: list[tuple[str, str]] = []
+	for from_s, to_s in edges:
+		if _workflow_rank(cheque_direction, from_s) >= _workflow_rank(cheque_direction, baseline):
+			out.append((from_s, to_s))
+	return out
 
 
 def index_journal_references(pdc_name: str) -> dict[tuple[str, str], dict[str, Any]]:
@@ -221,7 +245,7 @@ def build_pdc_rollback_plan(pdc, target_state: str, *, reason: str = "") -> Roll
 	direction = (pdc.cheque_direction or "").strip()
 	current = normalize_workflow_state_value(pdc.workflow_state)
 	target = normalize_workflow_state_value(target_state)
-	edge_pairs = _edges_to_undo(direction, current, target)
+	edge_pairs = _edges_to_undo(direction, current, target, pdc=pdc)
 	steps = collect_rollback_steps_from_journal_references(pdc, edge_pairs)
 
 	plan = RollbackPlan(
@@ -232,6 +256,16 @@ def build_pdc_rollback_plan(pdc, target_state: str, *, reason: str = "") -> Roll
 		reason=(reason or "").strip(),
 		steps=steps,
 	)
+	if frappe.utils.cint(getattr(pdc, "is_opening_import", 0)):
+		from erpnext_extensions.cheque_management.pdc_opening_import_baseline import (
+			opening_import_baseline_notice,
+			resolve_opening_import_baseline_state,
+		)
+
+		baseline = resolve_opening_import_baseline_state(pdc)
+		plan.opening_import_baseline = baseline
+		if baseline:
+			plan.opening_import_notice = opening_import_baseline_notice(baseline)
 	plan.workflow_changes, plan.leaf_changes = workflow_and_leaf_preview(pdc, target)
 	validate_rollback_blockers(pdc, plan)
 	return plan

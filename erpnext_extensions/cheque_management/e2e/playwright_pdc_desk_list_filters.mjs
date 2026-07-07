@@ -4,8 +4,10 @@
  *   bench build --app erpnext_extensions && bench --site development.localhost clear-cache
  *   PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/ms-playwright FRAPPE_E2E_PASSWORD=admin \
  *     node apps/erpnext_extensions/erpnext_extensions/cheque_management/e2e/playwright_pdc_desk_list_filters.mjs
+ *
+ * UI-primary: desk list filter UX; optional SQL dump for debugging only.
  */
-import { chromium } from "/tmp/node_modules/playwright/index.mjs";
+import { chromium } from "/tmp/e2e-npm/node_modules/playwright/index.mjs";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";

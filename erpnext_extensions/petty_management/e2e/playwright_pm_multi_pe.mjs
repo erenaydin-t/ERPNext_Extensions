@@ -1,23 +1,20 @@
 /**
  * PM Request multi-PE + Close E2E (architecture v2.1).
+ * DB-first: submitted Payment Entry docstatus verified from DB.
  */
 import { chromium } from "/tmp/e2e-npm/node_modules/playwright/index.mjs";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { execSync } from "child_process";
+import { benchExecute, getDocumentState } from "../../e2e/e2e_playwright_db.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCREEN = path.join(__dirname, "screenshots", "pm_multi_pe");
 const TRACE_DIR = path.join(__dirname, "trace", "pm_multi_pe");
 const BASE = process.env.FRAPPE_E2E_BASE_URL || "http://development.localhost:8000";
-const BENCH = process.env.FRAPPE_BENCH_ROOT || "/workspace/development/frappe-bench";
 
 function bench(method) {
-	const out = execSync(`cd ${BENCH} && bench --site development.localhost execute "${method}"`, {
-		encoding: "utf8",
-	});
-	return JSON.parse(out.trim().split("\n").filter(Boolean).pop());
+	return benchExecute(method);
 }
 
 async function login(page) {
@@ -169,6 +166,14 @@ async function run() {
 			test: "multi_pe_view_payment_entries_flag",
 			pass: Boolean(flagsMulti.can_view_payment_entries),
 		});
+		for (const pe of multi.payment_entries || []) {
+			const peDb = getDocumentState("Payment Entry", pe, ["name", "docstatus"]);
+			results.push({
+				test: `db_pe_submitted_${pe}`,
+				pass: peDb.exists && peDb.docstatus === 1,
+				db: peDb,
+			});
+		}
 
 		const menuInfo = await page.evaluate(async () => {
 			await new Promise((r) => setTimeout(r, 2000));

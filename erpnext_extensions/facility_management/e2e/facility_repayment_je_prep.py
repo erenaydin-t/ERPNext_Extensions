@@ -41,6 +41,7 @@ def preview_repayment(doc: dict):
 
 def preview_standard_template():
 	prep = prepare_active_facility()
+	frappe.db.commit()
 	return preview_repayment(
 		{
 			"facility": prep["facility"],

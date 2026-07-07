@@ -1,23 +1,18 @@
 /**
  * Facility Type + facility_name JE template E2E.
  */
-import { chromium } from "/tmp/node_modules/playwright/index.mjs";
+import { chromium } from "/tmp/e2e-npm/node_modules/playwright/index.mjs";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { execSync } from "child_process";
+import { benchExecute } from "../../e2e/e2e_playwright_db.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCREEN = path.join(__dirname, "screenshots", "facility_type");
 const BASE = process.env.FRAPPE_E2E_BASE_URL || "http://development.localhost:8000";
-const BENCH = process.env.FRAPPE_BENCH_ROOT || "/workspace/development/frappe-bench";
 
 function bench(method, argsJson) {
-	const argsPart = argsJson ? ` --args '${argsJson}'` : "";
-	const out = execSync(`cd ${BENCH} && bench --site development.localhost execute "${method}"${argsPart}`, {
-		encoding: "utf8",
-	});
-	return JSON.parse(out.trim().split("\n").filter(Boolean).pop());
+	return argsJson ? benchExecute(method, null, JSON.parse(argsJson)) : benchExecute(method);
 }
 
 async function login(page) {
@@ -94,16 +89,22 @@ async function run() {
 		});
 
 		await page.evaluate(async (fac) => {
-			await frappe.call({
+			const d = await frappe.db.get_doc("Facility", fac);
+			if (d.receipt_journal_entry) {
+				return { skipped: true, je: d.receipt_journal_entry };
+			}
+			const r = await frappe.call({
 				method:
 					"erpnext_extensions.facility_management.doctype.facility.facility.create_receipt_journal_entry",
 				args: { name: fac },
 			});
+			return r.message || { ok: true };
 		}, prep.facility);
 
-		const repayDraft = bench(
+		const repayDraft = benchExecute(
 			"erpnext_extensions.facility_management.e2e.facility_type_templates_prep.create_draft_repayment_for_facility",
-			JSON.stringify([prep.facility])
+			null,
+			[prep.facility]
 		);
 		await page.goto(`${BASE}/desk/facility-repayment/${encodeURIComponent(repayDraft.repayment)}`, {
 			waitUntil: "domcontentloaded",

@@ -13,6 +13,7 @@ English technical reference for **Post Dated Cheque (PDC)** and related modules.
 | JE payload | `build_pdc_journal_entry_data` in `post_dated_cheque.py` |
 | Submit JE + `journal_references` | `pdc_journal_entry_service.py` |
 | ERPNext Workflow (Desk actions) | `erpnext_extensions/fixtures/workflow.json` — transition set = **union** of both machines; **no** transition `condition` (server validates `cheque_direction` and other rules) |
+| Direct cancel vs rollback | `pdc_direct_cancel_policy.py` — block `doc.cancel()`; desk `can_cancel_document` override; see section below |
 
 ---
 
@@ -154,6 +155,23 @@ If the endorsed holder is the **same** as `party`, a GL settlement account **mus
 - **Payable:** Draft→Registered, Draft→Cancelled, Registered→Cancelled, Returned→Cancelled  
 
 *(Full tables: `\_RECEIVABLE_ACCOUNTING_DECISIONS`, `\_PAYABLE_ACCOUNTING_DECISIONS` in `pdc_workflow_state_machine.py`.)*
+
+---
+
+## Direct cancel vs workflow rollback
+
+Users must **not** cancel a submitted PDC with the standard Frappe **Cancel** button or
+`doc.cancel()`. Reversals use **Rollback Workflow State** (`pdc_workflow_rollback.py`).
+
+| Layer | Role |
+| ----- | ---- |
+| `hooks.py` → `can_cancel_document` override | Desk: workflow toolbar asks Frappe whether to show standard Cancel. Global registration required; logic returns `False` only for PDC and delegates other doctypes to native Frappe. |
+| `PostDatedCheque.before_cancel` | **Security:** blocks all direct cancel paths unless an approved `frappe.flags` bypass is set (`pdc_direct_cancel_policy.py`). |
+| `hide_standard_cancel_for_pdc` (JS) | **UX:** hides Cancel if the toolbar paints it anyway; not authoritative. |
+
+Approved bypass flags (server-only, via `pdc_internal_direct_cancel`): `in_cheque_opening_import_delete` (Delete Imported PDC cleanup), `allow_pdc_direct_cancel` (controlled fixtures/E2E), `in_pdc_workflow_rollback` (reserved).
+
+Tests: `tests/test_pdc_direct_cancel.py`, `tests/test_pdc_can_cancel_cross_doctype_regression.py`.
 
 ---
 

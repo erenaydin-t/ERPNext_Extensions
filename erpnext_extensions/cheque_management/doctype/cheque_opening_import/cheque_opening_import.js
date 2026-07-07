@@ -29,6 +29,19 @@ frappe.ui.form.on("Cheque Opening Import", {
 			const render =
 				window?.erpnext_extensions?.cheque_opening_import?.render_inline_template_actions;
 			if (typeof render === "function") render(frm);
+			const ns = window?.erpnext_extensions?.cheque_opening_import;
+			if (typeof ns?.setup_delete_imported_pdc_actions === "function") {
+				ns.setup_delete_imported_pdc_actions(frm);
+			} else {
+				frappe.require(
+					"/assets/erpnext_extensions/js/cheque_opening_import_delete_pdc.js",
+					() => {
+						window.erpnext_extensions?.cheque_opening_import?.setup_delete_imported_pdc_actions?.(
+							frm
+						);
+					}
+				);
+			}
 		} catch (e) {
 			console.error("Cheque Opening Import: refresh failed", e);
 		}

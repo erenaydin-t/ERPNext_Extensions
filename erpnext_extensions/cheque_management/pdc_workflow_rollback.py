@@ -29,7 +29,6 @@ from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
 	ALL_WORKFLOW_STATES,
 	CHEQUE_DIRECTION_PAYABLE,
 	CHEQUE_DIRECTION_RECEIVABLE,
-	WORKFLOW_CANCELLED,
 	WORKFLOW_CLEARED,
 	WORKFLOW_DRAFT,
 	WORKFLOW_ISSUED,
@@ -66,6 +65,10 @@ def get_rollback_target_states(pdc_name: str) -> list[str]:
 	current = normalize_workflow_state_value(doc.workflow_state)
 	if current == WORKFLOW_DRAFT:
 		return []
+
+	if cint(doc.is_opening_import):
+		return _opening_import_rollback_targets(doc)
+
 	targets: list[str] = []
 	for state in ALL_WORKFLOW_STATES:
 		state = normalize_workflow_state_value(state)
@@ -73,13 +76,43 @@ def get_rollback_target_states(pdc_name: str) -> list[str]:
 			continue
 		if _bfs_forward_path(direction, state, current):
 			targets.append(state)
-	# Also allow rolling from terminal outcomes back one step when a JE proves the edge.
-	if current in (WORKFLOW_CANCELLED, WORKFLOW_RETURNED):
-		for cand in (WORKFLOW_ISSUED, WORKFLOW_REGISTERED):
-			if _bfs_forward_path(direction, cand, current):
-				targets.append(cand)
 	targets = sorted(set(targets), key=lambda s: (_workflow_rank(direction, s), s))
 	return targets
+
+
+def _opening_import_rollback_targets(doc) -> list[str]:
+	from erpnext_extensions.cheque_management.pdc_opening_import_baseline import (
+		_workflow_rank,
+		resolve_opening_import_baseline_state,
+	)
+
+	direction = (doc.cheque_direction or "").strip()
+	current = normalize_workflow_state_value(doc.workflow_state)
+	baseline = resolve_opening_import_baseline_state(doc)
+	if not baseline:
+		return []
+	if _workflow_rank(direction, current) <= _workflow_rank(direction, baseline):
+		return []
+
+	targets: list[str] = []
+	for state in ALL_WORKFLOW_STATES:
+		state = normalize_workflow_state_value(state)
+		if state == current:
+			continue
+		if _workflow_rank(direction, state) < _workflow_rank(direction, baseline):
+			continue
+		if _workflow_rank(direction, state) >= _workflow_rank(direction, current):
+			continue
+		try:
+			edges = _edges_to_undo(direction, current, state, pdc=doc)
+		except ValidationError:
+			continue
+		if state == baseline and not edges:
+			continue
+		if not edges and state != baseline:
+			continue
+		targets.append(state)
+	return sorted(set(targets), key=lambda s: (_workflow_rank(direction, s), s))
 
 
 def _workflow_rank(direction: str, state: str) -> int:
