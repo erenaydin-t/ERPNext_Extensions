@@ -1,22 +1,19 @@
 /**
  * PM Request UI smoke — intro dedupe, View PE, sections expanded, collapsible.
+ * UI-primary; prep document existence checked via shared benchExecute.
  */
 import { chromium } from "/tmp/e2e-npm/node_modules/playwright/index.mjs";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { execSync } from "child_process";
+import { benchExecute, getDocumentState } from "../../e2e/e2e_playwright_db.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCREEN = path.join(__dirname, "screenshots", "pm_request_form_smoke");
 const BASE = process.env.FRAPPE_E2E_BASE_URL || "http://development.localhost:8000";
-const BENCH = process.env.FRAPPE_BENCH_ROOT || "/workspace/development/frappe-bench";
 
 function bench(method) {
-	const out = execSync(`cd ${BENCH} && bench --site development.localhost execute "${method}"`, {
-		encoding: "utf8",
-	});
-	return JSON.parse(out.trim().split("\n").filter(Boolean).pop());
+	return benchExecute(method);
 }
 
 async function login(page, email, password) {
@@ -207,7 +204,12 @@ async function run() {
 			)
 	);
 
+	const fundedDb = getDocumentState("PM Request", funded.pm_request, ["name", "docstatus"]);
+	const draftDb = getDocumentState("PM Request", draft.pm_request, ["name", "docstatus"]);
+	results.db_prep_documents_exist = fundedDb.exists && draftDb.exists;
+
 	const pass =
+		results.db_prep_documents_exist &&
 		results.draft_intro_ok &&
 		results.funded_intro_reject_ok &&
 		results.view_pe_before_close &&

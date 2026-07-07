@@ -5,12 +5,11 @@ import { chromium } from "/tmp/e2e-npm/node_modules/playwright/index.mjs";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { execSync } from "child_process";
+import { benchExecute, waitDocstatus, getDocumentState } from "../../e2e/e2e_playwright_db.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCREEN = path.join(__dirname, "screenshots", "repayment_draft_overrides");
 const BASE = process.env.FRAPPE_E2E_BASE_URL || "http://development.localhost:8000";
-const BENCH = process.env.FRAPPE_BENCH_ROOT || "/workspace/development/frappe-bench";
 
 const ACCOUNT_FIELDS = [
 	"bank_account",
@@ -24,11 +23,7 @@ const ALL_FIELDS = [...ACCOUNT_FIELDS, ...DIMENSION_FIELDS];
 const SECTION_FIELDS = ["section_accounts", "section_dimensions"];
 
 function bench(method) {
-	const out = execSync(`cd ${BENCH} && bench --site development.localhost execute ${method}`, {
-		encoding: "utf8",
-		maxBuffer: 20 * 1024 * 1024,
-	});
-	return JSON.parse(out.trim().split("\n").filter(Boolean).pop());
+	return benchExecute(method);
 }
 
 async function login(page) {
@@ -353,7 +348,12 @@ async function run() {
 			});
 			return r.message || {};
 		});
-		await page.waitForTimeout(3000);
+		const dbJe = await waitDocstatus("Journal Entry", submitted.journal_entry, 1, {
+			timeoutMs: 120000,
+		});
+		const dbRepay = await waitDocstatus("Facility Repayment", prep.repayment, 1, {
+			timeoutMs: 120000,
+		});
 
 		const jeAccounts = await page.evaluate(async (je) => {
 			const doc = await frappe.db.get_doc("Journal Entry", je);
@@ -363,10 +363,16 @@ async function run() {
 			test: "submit_je_uses_overrides",
 			ok:
 				!!submitted.journal_entry &&
+				dbJe.ok &&
+				dbRepay.ok &&
 				jeAccounts.includes(overrides.bank_account) &&
 				jeAccounts.includes(overrides.interest_expense_account),
 			je: submitted.journal_entry,
 			jeAccounts,
+			db: {
+				je: getDocumentState("Journal Entry", submitted.journal_entry, ["name", "docstatus"]),
+				repayment: getDocumentState("Facility Repayment", prep.repayment, ["name", "docstatus"]),
+			},
 		});
 
 		await page.goto(`${BASE}/desk/journal-entry/${encodeURIComponent(submitted.journal_entry)}`, {

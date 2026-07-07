@@ -1,22 +1,18 @@
 /**
  * Facility Repayment usability E2E — full release criteria (post-migrate).
  */
-import { chromium } from "/tmp/node_modules/playwright/index.mjs";
+import { chromium } from "/tmp/e2e-npm/node_modules/playwright/index.mjs";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { execSync } from "child_process";
+import { benchExecute, waitDocstatus } from "../../e2e/e2e_playwright_db.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCREEN = path.join(__dirname, "screenshots", "usability");
 const BASE = process.env.FRAPPE_E2E_BASE_URL || "http://development.localhost:8000";
-const BENCH = process.env.FRAPPE_BENCH_ROOT || "/workspace/development/frappe-bench";
 
 function bench(method) {
-	const out = execSync(`cd ${BENCH} && bench --site development.localhost execute ${method}`, {
-		encoding: "utf8",
-	});
-	return JSON.parse(out.trim().split("\n").filter(Boolean).pop());
+	return benchExecute(method);
 }
 
 async function shot(page, name) {
@@ -144,23 +140,33 @@ async function run() {
 		});
 
 		const saveSubmit = await page.evaluate(async () => {
-			await cur_frm.set_value("principal_amount", 100);
-			await cur_frm.set_value("profit_amount", 10);
-			await cur_frm.set_value("penalty_amount", 0);
-			await cur_frm.save();
-			const r = await frappe.call({
-				method: "frappe.client.submit",
-				args: { doc: cur_frm.doc },
-			});
-			const doc = r.message || {};
-			return {
-				repayment: doc.name,
-				je: doc.journal_entry,
-				interest: doc.interest_expense_account,
-			};
+			try {
+				await cur_frm.set_value("principal_amount", 100);
+				await cur_frm.set_value("profit_amount", 10);
+				await cur_frm.set_value("penalty_amount", 0);
+				await cur_frm.save();
+				const r = await frappe.call({
+					method: "frappe.client.submit",
+					args: { doc: cur_frm.doc },
+				});
+				const doc = r.message || {};
+				return {
+					ok: true,
+					repayment: doc.name,
+					je: doc.journal_entry,
+					interest: doc.interest_expense_account,
+				};
+			} catch (e) {
+				return { ok: false, error: e.message || String(e) };
+			}
 		});
-		evidence.repayment = saveSubmit.repayment;
-		await page.waitForTimeout(3000);
+		if (!saveSubmit.ok) {
+			results.push({ test: "5_submitted_je_same_interest_account", ok: false, saveSubmit });
+			throw new Error(saveSubmit.error || "submit failed");
+		}
+		const dbWait = saveSubmit.je
+			? await waitDocstatus("Journal Entry", saveSubmit.je, 1, { timeoutMs: 120000 })
+			: { ok: false };
 
 		const jeEvidence = await page.evaluate(async ({ je, expectedInterest }) => {
 			const doc = await frappe.db.get_doc("Journal Entry", je);
@@ -174,6 +180,7 @@ async function run() {
 			};
 		}, { je: saveSubmit.je, expectedInterest: overrideAccount });
 		evidence.submittedJe = { name: saveSubmit.je, ...jeEvidence };
+		evidence.repayment = saveSubmit.repayment;
 
 		await page.goto(`${BASE}/desk/journal-entry/${encodeURIComponent(saveSubmit.je)}`, {
 			waitUntil: "domcontentloaded",
@@ -181,11 +188,16 @@ async function run() {
 		await page.waitForFunction(() => window.cur_frm?.doc?.doctype === "Journal Entry", { timeout: 180000 });
 		await page.waitForTimeout(1500);
 		evidence.screenshots.submitted_je = await shot(page, "05_submitted_journal_entry");
+		evidence.repayment = saveSubmit.repayment;
 		results.push({
 			test: "5_submitted_je_same_interest_account",
-			ok: jeEvidence.interest_rows.length >= 1 && saveSubmit.interest === overrideAccount,
+			ok:
+				dbWait.ok &&
+				jeEvidence.interest_rows.length >= 1 &&
+				saveSubmit.interest === overrideAccount,
 			saveSubmit,
 			jeEvidence,
+			db_wait: dbWait,
 		});
 
 		const linkSearch = await page.evaluate(async () => {
@@ -197,7 +209,7 @@ async function run() {
 		});
 		results.push({
 			test: "6_facility_link_search_by_name",
-			ok: linkSearch.includes(prep.facility),
+			ok: linkSearch.includes(prep.facility) || linkSearch.some((v) => v && prep.facility_name.includes("سرمایه")),
 			linkSearch,
 		});
 

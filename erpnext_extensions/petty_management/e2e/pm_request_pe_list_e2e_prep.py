@@ -9,9 +9,37 @@ from erpnext_extensions.petty_management.tests.pm_request_security_fixtures impo
 	petty_management_user_with_company_only,
 )
 from erpnext_extensions.petty_management.tests.test_pm_request_multi_pe import (
+	_create_funding_pe,
 	_ensure_pm_settings_bank,
 	_new_submitted_request,
+	_sync_funding_fields,
 )
+from erpnext_extensions.e2e.e2e_fixture import e2e_run_context
+
+
+@frappe.whitelist()
+def prepare_isolated_for_pe_list_ui() -> dict:
+	"""Fresh partial-funded PM Request (no draft PE) for PE list Playwright — unique employee per run."""
+	frappe.set_user("Administrator")
+	tpm._ensure_company_context()
+	tpm._ensure_petty_account()
+	_ensure_pm_settings_bank()
+	emp = tpm._make_employee()
+	tpm._make_holder(emp)
+	req = _new_submitted_request(emp, 100_000)
+	pe = _create_funding_pe(req, 40_000)
+	_sync_funding_fields(req)
+	doc = frappe.get_doc("PM Request", req)
+	frappe.db.commit()
+	ctx = e2e_run_context()
+	return {
+		**ctx,
+		"pm_request": req,
+		"payment_entry": pe,
+		"total_paid_amount": float(doc.total_paid_amount or 0),
+		"remaining_to_pay": float(getattr(doc, "remaining_to_pay", None) or 0),
+		"payment_status": doc.payment_status,
+	}
 
 
 @frappe.whitelist()

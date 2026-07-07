@@ -7,6 +7,10 @@ from frappe.utils import random_string, today
 
 from erpnext_extensions.facility_management.doctype.facility.facility import create_receipt_journal_entry
 from erpnext_extensions.facility_management.facility_accounting import get_facility_dimension_fieldname
+from erpnext_extensions.facility_management.facility_e2e_context import (
+	apply_facility_test_accounts,
+	ensure_bank_master,
+)
 from erpnext_extensions.facility_management.facility_settings_doc import get_facility_settings_doc
 
 
@@ -26,8 +30,8 @@ def _row_dims(row, dim_fn: str | None) -> dict:
 def prepare_receipt_je_with_dimensions():
 	frappe.set_user("Administrator")
 	company = frappe.db.get_value("Company", {}, "name", order_by="creation asc")
+	bank = ensure_bank_master()
 	settings = get_facility_settings_doc(company)
-	bank = frappe.db.get_value("Bank", {}, "name", order_by="creation asc")
 	bank_gl = (settings and settings.get("default_bank_account")) or frappe.db.get_value(
 		"Account", {"company": company, "account_type": "Bank", "is_group": 0}, "name", order_by="creation asc"
 	)
@@ -59,15 +63,7 @@ def prepare_receipt_je_with_dimensions():
 	fac.receive_date = today()
 	fac.principal_amount = 2000
 	fac.profit_amount = 200
-	fac.bank_account = bank_gl
-	fac.loan_payable_account = loan
-	fac.deferred_loan_interest_account = deferred
-	if dept:
-		fac.department = dept
-	if bank_dim:
-		fac.bank_dimension = bank_dim
-	if bank_acct_dim:
-		fac.bank_account_dimension = bank_acct_dim
+	apply_facility_test_accounts(fac, company=company)
 	fac.insert(ignore_permissions=True)
 	frappe.db.commit()
 
@@ -85,8 +81,12 @@ def prepare_receipt_je_with_dimensions():
 				"dims": _row_dims(row, dim_fn),
 			}
 		)
-	gl_fields = ["account", "debit", "credit", "department", "bank_dimension", "bank_account_dimension"]
-	if dim_fn:
+	gl_fields = ["account", "debit", "credit"]
+	gl_meta = frappe.get_meta("GL Entry")
+	for fn in ("department", "bank_dimension", "bank_account_dimension", "cost_center"):
+		if gl_meta.has_field(fn):
+			gl_fields.append(fn)
+	if dim_fn and gl_meta.has_field(dim_fn):
 		gl_fields.append(dim_fn)
 	gl_rows = frappe.get_all(
 		"GL Entry",

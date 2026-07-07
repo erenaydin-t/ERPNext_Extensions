@@ -3,41 +3,33 @@
 from __future__ import annotations
 
 import frappe
-from frappe.utils import random_string, today
+from frappe.utils import today
 
-from erpnext_extensions.facility_management.facility_settings_doc import get_facility_settings_doc
+from erpnext_extensions.e2e.e2e_unique import e2e_run_id
+from erpnext_extensions.facility_management.doctype.facility.facility import create_receipt_journal_entry
+from erpnext_extensions.facility_management.facility_e2e_context import apply_facility_test_accounts
 
 
 def prepare_search_facility():
 	frappe.set_user("Administrator")
 	company = frappe.db.get_value("Company", {}, "name", order_by="creation asc")
-	settings = get_facility_settings_doc(company)
 	bank = frappe.db.get_value("Bank", {}, "name", order_by="creation asc")
-	name_part = "وام سرمایه در گردش تست سرچ"
-	existing = frappe.db.get_value("Facility", {"facility_name": name_part}, "name")
-	if existing:
-		return {"facility": existing, "facility_name": name_part, "company": company}
+	name_part = f"وام سرمایه در گردش تست {e2e_run_id()}"
 
 	fac = frappe.new_doc("Facility")
 	fac.facility_name = name_part
 	fac.company = company
 	fac.bank = bank
 	fac.contract_date = today()
+	fac.receive_date = today()
 	fac.principal_amount = 50000
 	fac.profit_amount = 5000
 	fac.is_opening_facility = 1
 	fac.status = "Active"
-	for fn in (
-		"default_bank_account",
-		"default_loan_payable_account",
-		"default_deferred_loan_interest_account",
-		"default_interest_expense_account",
-		"default_penalty_expense_account",
-		"default_cost_center",
-	):
-		if settings and settings.get(fn):
-			fac.set(fn.replace("default_", ""), settings.get(fn))
+	apply_facility_test_accounts(fac, company=company)
 	fac.insert(ignore_permissions=True)
+	frappe.db.commit()
+	create_receipt_journal_entry(fac.name)
 	frappe.db.commit()
 	return {"facility": fac.name, "facility_name": name_part, "company": company}
 

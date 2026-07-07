@@ -5,6 +5,7 @@ from __future__ import annotations
 import frappe
 from frappe.utils import random_string, today
 
+from erpnext_extensions.facility_management.facility_e2e_context import apply_facility_test_accounts
 from erpnext_extensions.facility_management.facility_settings_doc import (
 	FACILITY_SETTINGS_TEMPLATE_DEFAULTS,
 	LEGACY_FACILITY_SETTINGS_TEMPLATE_DEFAULTS,
@@ -59,14 +60,12 @@ def prepare_facility_for_template_e2e():
 	fac.receive_date = today()
 	fac.principal_amount = 8000
 	fac.profit_amount = 1000
-	for fn in (
-		"default_bank_account",
-		"default_loan_payable_account",
-		"default_deferred_loan_interest_account",
-	):
-		if settings and settings.get(fn):
-			fac.set(fn.replace("default_", ""), settings.get(fn))
+	apply_facility_test_accounts(fac, company=company)
 	fac.insert(ignore_permissions=True)
+	frappe.db.commit()
+	from erpnext_extensions.facility_management.doctype.facility.facility import create_receipt_journal_entry
+
+	create_receipt_journal_entry(fac.name)
 	frappe.db.commit()
 	return {
 		"facility": fac.name,

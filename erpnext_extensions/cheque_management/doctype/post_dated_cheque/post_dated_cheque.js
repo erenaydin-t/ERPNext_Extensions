@@ -273,6 +273,7 @@ frappe.ui.form.on("Post Dated Cheque", {
 		pdc_apply_cheque_leaf_behaviour(frm);
 		pdc_schedule_cheque_leaf_ui_enforcement(frm);
 		pdc_sync_allocation_summary_client(frm);
+		hide_standard_cancel_for_pdc(frm);
 	},
 
 	validate(frm) {
@@ -292,6 +293,14 @@ frappe.ui.form.on("Post Dated Cheque", {
 		pdc_normalize_prefilled_allocations(frm);
 		pdc_sync_allocation_summary_client(frm);
 		frm._pdc_last_cheque_direction = frm.doc.cheque_direction;
+		hide_standard_cancel_for_pdc(frm);
+		pdc_add_workflow_rollback_button(frm);
+		pdc_add_delete_imported_pdc_button(frm);
+	},
+
+	after_workflow_action(frm) {
+		// Toolbar may re-show standard Cancel after workflow xcall; hide again and restore rollback button.
+		hide_standard_cancel_for_pdc(frm);
 		pdc_add_workflow_rollback_button(frm);
 	},
 
@@ -1286,7 +1295,11 @@ function pdc_format_workflow_rollback_preview(prev) {
 	const bi = prev.business_impact || {};
 	const wf = bi.workflow || prev.workflow_changes || {};
 	const leaf = bi.cheque_leaf || prev.leaf_changes || {};
-	let html = `<h6>${__("Workflow")}</h6>`;
+	let html = "";
+	if (prev.opening_import_notice) {
+		html += `<div class="alert alert-info">${esc(prev.opening_import_notice)}</div>`;
+	}
+	html += `<h6>${__("Workflow")}</h6>`;
 	html += `<p><strong>${esc(prev.current_state || wf.from_workflow_state || "")}</strong> → <strong>${esc(
 		prev.target_state || wf.to_workflow_state || ""
 	)}</strong></p>`;
@@ -1361,6 +1374,62 @@ function pdc_format_workflow_rollback_preview(prev) {
 		html += `</ul></div>`;
 	});
 	return html;
+}
+
+/**
+ * Hide the standard Frappe form **Cancel** button on Post Dated Cheque only.
+ *
+ * UX helper only — not a security boundary. Enforcement is ``before_cancel`` on the
+ * Document controller plus ``can_cancel_document`` returning false for PDC (see
+ * ``pdc_direct_cancel_policy.py``). Delayed runs cover async toolbar/workflow rebuilds.
+ *
+ * Reversal of workflow/accounting state must use **Rollback Workflow State**, not Cancel.
+ */
+function hide_standard_cancel_for_pdc(frm) {
+	if (!frm || frm.doc.doctype !== "Post Dated Cheque") {
+		return;
+	}
+	const hide = () => {
+		const isCancelLabel = (text) => {
+			const t = (text || "").trim();
+			return t === __("Cancel") || t === "Cancel";
+		};
+		if (frm.page?.btn_secondary?.length) {
+			const $sec = frm.page.btn_secondary;
+			if (isCancelLabel($sec.text())) {
+				$sec.addClass("hide");
+			}
+		}
+		frm.page?.wrapper
+			?.find(".page-actions .btn-secondary, .page-actions .btn.btn-secondary")
+			.each(function hideCancelBtn() {
+				if (isCancelLabel($(this).text())) {
+					$(this).addClass("hide");
+				}
+			});
+	};
+	hide();
+	setTimeout(hide, 0);
+	setTimeout(hide, 300);
+	setTimeout(hide, 1000);
+}
+
+function pdc_add_delete_imported_pdc_button(frm) {
+	if (!frm.doc.name) {
+		return;
+	}
+	const run = () => {
+		const fn =
+			window.erpnext_extensions?.cheque_opening_import?.setup_delete_imported_pdc_on_pdc_form;
+		if (typeof fn === "function") {
+			fn(frm);
+		}
+	};
+	if (typeof window.erpnext_extensions?.cheque_opening_import?.setup_delete_imported_pdc_on_pdc_form === "function") {
+		run();
+		return;
+	}
+	frappe.require("/assets/erpnext_extensions/js/cheque_opening_import_delete_pdc.js", run);
 }
 
 function pdc_add_workflow_rollback_button(frm) {

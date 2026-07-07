@@ -506,6 +506,15 @@ def import_row(row_no: int, row: dict[str, Any]) -> str:
 			pdc.workflow_state = to_st
 			pdc.save()
 
+		baseline_state = normalize_workflow_state_value(path[-1])
+		pdc.opening_import_workflow_state = baseline_state
+		frappe.db.set_value(
+			"Post Dated Cheque",
+			pdc.name,
+			"opening_import_workflow_state",
+			baseline_state,
+			update_modified=False,
+		)
 		final = normalize_workflow_state_value(pdc.workflow_state)
 		if final != normalize_workflow_state_value("Draft"):
 			pdc.submit()

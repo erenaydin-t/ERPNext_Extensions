@@ -1,22 +1,25 @@
 /**
- * Cheque Leaf void workflow E2E — Available-only + English labels.
+ * Cheque Leaf void workflow E2E — DB-first status checks via e2e_playwright_db.mjs.
  */
 import { chromium } from "/tmp/e2e-npm/node_modules/playwright/index.mjs";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { execSync } from "child_process";
+import {
+	benchExecute,
+	getDocumentState,
+	waitDocumentState,
+} from "../../e2e/e2e_playwright_db.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCREEN = path.join(__dirname, "screenshots", "cheque_leaf_void");
 const BASE = process.env.FRAPPE_E2E_BASE_URL || "http://development.localhost:8000";
 const BENCH = process.env.FRAPPE_BENCH_ROOT || "/workspace/development/frappe-bench";
+const LEAF = "Cheque Leaf";
 
 function bench(method) {
-	const out = execSync(`cd ${BENCH} && bench --site development.localhost execute "${method}"`, {
-		encoding: "utf8",
-	});
-	return JSON.parse(out.trim().split("\n").filter(Boolean).pop());
+	return benchExecute(method);
 }
 
 function benchVoidReject(leafName, reason) {
@@ -120,10 +123,25 @@ async function run() {
 				title,
 			};
 		}, FIND_VOID_BTN);
-		evidence.screenshots.A = await shot(page, "A_available_void");
-		results.push({ test: "A_void_available_leaf", ok: testA.ok, testA });
-
 		const voidedLeaf = prep.available_leaf;
+		evidence.screenshots.A = await shot(page, "A_available_void");
+		const dbAfterVoid = await waitDocumentState(
+			LEAF,
+			voidedLeaf,
+			{ status: "Void" },
+			{ fields: ["name", "status", "docstatus"] }
+		);
+		const testAOk =
+			testA.ok &&
+			dbAfterVoid.ok &&
+			dbAfterVoid.state?.status === "Void";
+		results.push({
+			test: "A_void_available_leaf",
+			ok: testAOk,
+			testA,
+			db_after: dbAfterVoid.state,
+			wait: dbAfterVoid,
+		});
 
 		// Test B — reload Void leaf: no button, server rejects
 		await openLeaf(page, voidedLeaf);
@@ -136,7 +154,8 @@ async function run() {
 			ok:
 				!testBUi.btn &&
 				testBServer.rejected &&
-				testBServer.text.toLowerCase().includes("already void"),
+				testBServer.text.toLowerCase().includes("already void") &&
+				getDocumentState(LEAF, voidedLeaf, ["name", "status"]).status === "Void",
 			btn: testBUi.btn,
 			serverOk: testBServer.rejected,
 			serverText: testBServer.text.slice(0, 500),

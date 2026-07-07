@@ -82,9 +82,9 @@ class TestPDCRollbackPathUnit(unittest.TestCase):
 		edges = _edges_to_undo(CHEQUE_DIRECTION_PAYABLE, WORKFLOW_RETURNED, WORKFLOW_ISSUED)
 		self.assertEqual(edges, [(WORKFLOW_ISSUED, WORKFLOW_RETURNED)])
 
-	def test_edges_to_undo_cancelled_to_issued(self):
-		edges = _edges_to_undo(CHEQUE_DIRECTION_PAYABLE, WORKFLOW_CANCELLED, WORKFLOW_ISSUED)
-		self.assertEqual(edges, [(WORKFLOW_ISSUED, WORKFLOW_CANCELLED)])
+	def test_edges_to_undo_cancelled_to_issued_no_longer_in_graph(self):
+		with self.assertRaises(ValidationError):
+			_edges_to_undo(CHEQUE_DIRECTION_PAYABLE, WORKFLOW_CANCELLED, WORKFLOW_ISSUED)
 
 	def test_edges_to_undo_invalid_raises(self):
 		with self.assertRaises(ValidationError):
@@ -141,6 +141,7 @@ class TestPDCRollbackTargets(unittest.TestCase):
 			docstatus=1,
 			cheque_direction=CHEQUE_DIRECTION_PAYABLE,
 			workflow_state=WORKFLOW_CLEARED,
+			is_opening_import=0,
 		)
 		with patch("erpnext_extensions.cheque_management.pdc_workflow_rollback.frappe.get_doc", return_value=doc):
 			targets = get_rollback_target_states("PDC-T2")
@@ -193,7 +194,6 @@ def _edge_cases_payable_matrix():
 		(WORKFLOW_ISSUED, WORKFLOW_DRAFT),
 		(WORKFLOW_REGISTERED, WORKFLOW_DRAFT),
 		(WORKFLOW_RETURNED, WORKFLOW_ISSUED),
-		(WORKFLOW_CANCELLED, WORKFLOW_ISSUED),
 	]
 
 
@@ -243,9 +243,9 @@ class TestPDCRollbackMisc(unittest.TestCase):
 			[],
 		)
 
-	def test_payable_cancelled_to_registered_path(self):
+	def test_payable_cancelled_not_reachable_from_registered(self):
 		path = _bfs_forward_path(CHEQUE_DIRECTION_PAYABLE, WORKFLOW_REGISTERED, WORKFLOW_CANCELLED)
-		self.assertEqual(path, [WORKFLOW_REGISTERED, WORKFLOW_CANCELLED])
+		self.assertIsNone(path)
 
 	def test_receivable_draft_has_no_rollback_targets_when_current(self):
 		doc = SimpleNamespace(

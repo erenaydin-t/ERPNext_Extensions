@@ -50,7 +50,13 @@ doctype_js = {
 	# NOTE: Cheque Opening Import already autoloads its doctype JS from
 	# `cheque_management/doctype/cheque_opening_import/cheque_opening_import.js`.
 	# Keep this hook for extra assets only (avoid double-loading the same file).
-	"Cheque Opening Import": "public/js/cheque_opening_import_inline_template.js",
+	"Cheque Opening Import": [
+		"public/js/cheque_opening_import_inline_template.js",
+		"public/js/cheque_opening_import_delete_pdc.js",
+	],
+	"Post Dated Cheque": [
+		"public/js/cheque_opening_import_delete_pdc.js",
+	],
 	"Payment Request": [
 		"public/js/pdc_create_from_source.js",
 		"public/js/pdc_settlement_summary.js",
@@ -337,6 +343,12 @@ doc_events = {
 #
 override_whitelisted_methods = {
 	"frappe.model.workflow.apply_workflow": "erpnext_extensions.petty_management.workflow_hooks.apply_workflow",
+	# PDC: workflow toolbar calls can_cancel_document(doctype) with no per-doctype hook in Frappe.
+	# Implementation returns False only for Post Dated Cheque and delegates others to native Frappe
+	# (see cheque_management/pdc_direct_cancel_policy.py). Server enforcement: PostDatedCheque.before_cancel.
+	"frappe.model.workflow.can_cancel_document": (
+		"erpnext_extensions.cheque_management.pdc_direct_cancel_policy.can_cancel_document"
+	),
 	"frappe.desk.search.get_link_title": "erpnext_extensions.petty_management.overrides.search.get_link_title",
 }
 #

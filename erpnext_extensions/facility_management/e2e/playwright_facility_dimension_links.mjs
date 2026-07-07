@@ -5,11 +5,12 @@
  *   PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/ms-playwright FRAPPE_E2E_PASSWORD=admin \
  *     node apps/erpnext_extensions/erpnext_extensions/facility_management/e2e/playwright_facility_dimension_links.mjs
  */
-import { chromium } from "/tmp/node_modules/playwright/index.mjs";
+import { chromium } from "/tmp/e2e-npm/node_modules/playwright/index.mjs";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { execSync } from "child_process";
+import { benchExecute } from "../../e2e/e2e_playwright_db.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCREEN_DIR = path.join(__dirname, "screenshots");
@@ -138,15 +139,8 @@ async function run() {
 	try {
 		await login(page);
 
-		const prep = JSON.parse(
-			execSync(
-				`cd ${BENCH} && bench --site development.localhost execute erpnext_extensions.facility_management.e2e.facility_dimension_link_prep.prepare`,
-				{ encoding: "utf8" }
-			)
-				.trim()
-				.split("\n")
-				.filter(Boolean)
-				.pop()
+		const prep = benchExecute(
+			"erpnext_extensions.facility_management.e2e.facility_dimension_link_prep.prepare"
 		);
 		log("prep_data", !!prep.company, prep);
 

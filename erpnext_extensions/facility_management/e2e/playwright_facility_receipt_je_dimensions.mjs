@@ -7,28 +7,18 @@
  *   PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/ms-playwright FRAPPE_E2E_PASSWORD=admin \\
  *     node apps/erpnext_extensions/erpnext_extensions/facility_management/e2e/playwright_facility_receipt_je_dimensions.mjs
  */
-import { chromium } from "/tmp/node_modules/playwright/index.mjs";
+import { chromium } from "/tmp/e2e-npm/node_modules/playwright/index.mjs";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { execSync } from "child_process";
+import { benchExecute as sharedBenchExecute } from "../../e2e/e2e_playwright_db.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCREEN_DIR = path.join(__dirname, "screenshots", "receipt_je_dims");
 const BASE = process.env.FRAPPE_E2E_BASE_URL || "http://development.localhost:8000";
-const BENCH = process.env.FRAPPE_BENCH_ROOT || "/workspace/development/frappe-bench";
 
 function benchExecute(method) {
-	const out = execSync(`cd ${BENCH} && bench --site development.localhost execute ${method}`, {
-		encoding: "utf8",
-	});
-	return JSON.parse(
-		out
-			.trim()
-			.split("\n")
-			.filter(Boolean)
-			.pop()
-	);
+	return sharedBenchExecute(method);
 }
 
 async function login(page) {

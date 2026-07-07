@@ -32,6 +32,8 @@ class RollbackPlan:
 	workflow_changes: dict[str, Any] = field(default_factory=dict)
 	leaf_changes: dict[str, Any] = field(default_factory=dict)
 	blockers: list[str] = field(default_factory=list)
+	opening_import_baseline: str | None = None
+	opening_import_notice: str | None = None
 
 	def to_api_dict(self) -> dict[str, Any]:
 		"""API payload for preview + execute response (backward compatible keys included)."""
@@ -75,4 +77,6 @@ class RollbackPlan:
 			"workflow_changes": self.workflow_changes,
 			"leaf_changes": self.leaf_changes,
 			"blockers": self.blockers,
+			"opening_import_baseline": self.opening_import_baseline,
+			"opening_import_notice": self.opening_import_notice,
 		}

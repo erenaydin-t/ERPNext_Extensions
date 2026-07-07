@@ -1818,6 +1818,14 @@ class PostDatedCheque(Document):
 	def on_submit(self):
 		self._apply_cheque_leaf_on_submit()
 
+	def before_cancel(self):
+		"""Block direct cancel; use Rollback Workflow State (see pdc_direct_cancel_policy)."""
+		from erpnext_extensions.cheque_management.pdc_direct_cancel_policy import (
+			validate_pdc_direct_cancel_allowed,
+		)
+
+		validate_pdc_direct_cancel_allowed()
+
 	def on_cancel(self):
 		self._apply_cheque_leaf_on_cancel()
 

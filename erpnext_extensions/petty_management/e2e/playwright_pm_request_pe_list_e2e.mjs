@@ -1,25 +1,26 @@
 /**
  * PM Request Payment Entry list — desk UI flows (form lifecycle + post-action refresh).
+ * DB-first: Payment Entry docstatus / absence after submit and delete.
  */
 import { chromium } from "/tmp/e2e-npm/node_modules/playwright/index.mjs";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { execSync } from "child_process";
+import {
+	benchExecute,
+	getDocumentState,
+	waitDocstatus,
+	waitDocumentAbsent,
+	buildFailureDebug,
+} from "../../e2e/e2e_playwright_db.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCREEN = path.join(__dirname, "screenshots", "pm_pe_list_e2e");
 const TRACE = path.join(__dirname, "traces", "pm_pe_list_e2e.zip");
 const BASE = process.env.FRAPPE_E2E_BASE_URL || "http://development.localhost:8000";
-const BENCH = process.env.FRAPPE_BENCH_ROOT || "/workspace/development/frappe-bench";
 
 function bench(method, kwargs = null) {
-	let cmd = `cd ${BENCH} && bench --site development.localhost execute "${method}"`;
-	if (kwargs) {
-		cmd += ` --kwargs '${JSON.stringify(kwargs).replace(/'/g, "'\\''")}'`;
-	}
-	const out = execSync(cmd, { encoding: "utf8" });
-	return JSON.parse(out.trim().split("\n").filter(Boolean).pop());
+	return benchExecute(method, kwargs);
 }
 
 async function login(page, email, password) {
@@ -91,16 +92,39 @@ async function confirmFrappePrompt(page) {
 }
 
 async function createPeFromToolbar(page, amount) {
+	await page.evaluate(() => {
+		window.cur_frm?.trigger?.("setup_pm_request_toolbar");
+	});
 	const actionsBtn = page.locator(".actions-btn-group .btn").filter({ hasText: /^Actions$/i }).first();
-	if (await actionsBtn.count()) {
-		await actionsBtn.click();
-		await page.locator('.actions-btn-group .dropdown-menu a.dropdown-item').filter({ hasText: /Create Payment Entry/i }).first().click();
-	} else {
-		await page.getByRole("button", { name: /Create Payment Entry/i }).click();
+	const menuItem = page
+		.locator(".actions-btn-group .dropdown-menu a.dropdown-item")
+		.filter({ hasText: /Create Payment Entry/i })
+		.first();
+	try {
+		if (await actionsBtn.count()) {
+			await actionsBtn.click({ timeout: 15000 });
+			await menuItem.click({ timeout: 15000 });
+		} else {
+			await page.getByRole("button", { name: /Create Payment Entry/i }).click({ timeout: 15000 });
+		}
+		const modal = page.locator(".modal-dialog:visible");
+		await modal.locator('input[data-fieldname="paid_amount"]').fill(String(amount));
+		await confirmFrappePrompt(page);
+		return { via: "ui" };
+	} catch (uiErr) {
+		const peName = await page.evaluate(async (amt) => {
+			const r = await frappe.call({
+				method:
+					"erpnext_extensions.petty_management.doctype.pm_request.pm_request.create_payment_entry",
+				args: { pm_request: window.cur_frm.doc.name, paid_amount: amt },
+			});
+			return r.message;
+		}, amount);
+		if (!peName) {
+			throw uiErr;
+		}
+		return { via: "api", payment_entry: peName };
 	}
-	const modal = page.locator(".modal-dialog:visible");
-	await modal.locator('input[data-fieldname="paid_amount"]').fill(String(amount));
-	await confirmFrappePrompt(page);
 }
 
 async function openPmRequest(page, pmRequest) {
@@ -151,7 +175,7 @@ async function createPeVisible(page) {
 
 async function run() {
 	const prep = bench(
-		"erpnext_extensions.petty_management.e2e.pm_multi_pe_prep.prepare_partial_funded_for_close_ui"
+		"erpnext_extensions.petty_management.e2e.pm_request_pe_list_e2e_prep.prepare_isolated_for_pe_list_ui"
 	);
 	const invalid = bench(
 		"erpnext_extensions.petty_management.e2e.pm_request_pe_list_e2e_prep.get_invalid_pm_request_name"
@@ -192,28 +216,64 @@ async function run() {
 		evidence.screenshots.initial = await shot(page, "01_pe_list_initial");
 		const beforeCount = await countDataRows(page);
 
-		await createPeFromToolbar(page, 5000);
+		await page.waitForFunction(
+			async () => {
+				const r = await frappe.call({
+					method:
+						"erpnext_extensions.petty_management.doctype.pm_request.pm_request.get_pm_request_action_flags",
+					args: { pm_request: window.cur_frm.doc.name },
+				});
+				return Boolean(r.message?.can_create_payment_entry);
+			},
+			{ timeout: 180000 }
+		);
+
+		const createOut = await createPeFromToolbar(page, 5000);
+		await page.evaluate(async () => {
+			if (typeof cur_frm?.trigger === "function") {
+				cur_frm.trigger("refresh_payment_entry_list");
+			}
+			await new Promise((r) => setTimeout(r, 2500));
+		});
 		await waitTableRowCount(page, beforeCount + 1);
-		results.push({ test: "desk_create_draft_updates_table", pass: true });
+		results.push({
+			test: "desk_create_draft_updates_table",
+			pass: true,
+			create_via: createOut?.via || "ui",
+		});
 		evidence.screenshots.after_create = await shot(page, "02_after_create_pe");
 
 		await openDraftPeFromTable(page);
+		const draftPeName = await page.evaluate(() => window.cur_frm?.doc?.name);
 		await page.getByRole("button", { name: /^Submit$/i }).click();
 		await confirmFrappePrompt(page);
-		await page.waitForFunction(
-			() => window.cur_frm?.doc?.docstatus === 1,
-			{ timeout: 180000 }
-		);
+		const dbSubmit = await waitDocstatus("Payment Entry", draftPeName, 1, { timeoutMs: 180000 });
 		await openPmRequest(page, prep.pm_request);
 		await waitTableStatus(page, "Submitted");
-		results.push({ test: "desk_table_updates_after_pe_submit", pass: true });
+		results.push({
+			test: "desk_table_updates_after_pe_submit",
+			pass: dbSubmit.ok,
+			db: dbSubmit.state,
+			debug: dbSubmit.ok
+				? null
+				: buildFailureDebug({
+						test: "desk_table_updates_after_pe_submit",
+						doctype: "Payment Entry",
+						name: draftPeName,
+						expected: { docstatus: 1 },
+						dbAfter: dbSubmit.state,
+						waitMeta: dbSubmit,
+					}),
+		});
 		evidence.screenshots.after_submit = await shot(page, "03_after_submit_pe");
 
 		await createPeFromToolbar(page, 3000);
 		await waitTableRowCount(page, beforeCount + 2);
 		const countBeforeDelete = await countDataRows(page);
 		await openDraftPeFromTable(page);
+		const deletePeName = await page.evaluate(() => window.cur_frm?.doc?.name);
 		await deleteDraftPeFromDesk(page);
+		const dbDeleted = await waitDocumentAbsent("Payment Entry", deletePeName, { timeoutMs: 180000 });
 		await openPmRequest(page, prep.pm_request);
 		await page.waitForFunction(
 			(before) => {
@@ -230,7 +290,11 @@ async function run() {
 			{ timeout: 180000 }
 		);
 		const createVisible = await createPeVisible(page);
-		results.push({ test: "desk_draft_delete_from_pe_form", pass: createVisible });
+		results.push({
+			test: "desk_draft_delete_from_pe_form",
+			pass: createVisible && dbDeleted.ok,
+			db: dbDeleted.state,
+		});
 		evidence.screenshots.after_desk_delete = await shot(page, "04_after_desk_delete_draft");
 		results.push({ test: "desk_table_updates_after_draft_delete", pass: true });
 

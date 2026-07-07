@@ -509,6 +509,14 @@
    "allow_on_submit": 1
   },
   {
+   "fieldname": "opening_import_workflow_state",
+   "fieldtype": "Data",
+   "label": "Opening Import Workflow State",
+   "read_only": 1,
+   "allow_on_submit": 1,
+   "description": "Workflow state when this cheque was created by Cheque Opening Import (rollback baseline)."
+  },
+  {
    "fieldname": "section_break_dates",
    "fieldtype": "Section Break",
    "label": "Important Dates",

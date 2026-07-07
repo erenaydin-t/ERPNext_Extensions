@@ -282,19 +282,6 @@
     "workflow_builder_id": "pdc-tr-07"
    },
    {
-    "action": "Cancel Cheque",
-    "allow_self_approval": 1,
-    "allowed": "All",
-    "condition": null,
-    "next_state": "Cancelled",
-    "parent": "PDC Workflow",
-    "parentfield": "transitions",
-    "parenttype": "Workflow",
-    "send_email_to_creator": 0,
-    "state": "Registered",
-    "workflow_builder_id": "pdc-tr-08"
-   },
-   {
     "action": "Issue Cheque",
     "allow_self_approval": 1,
     "allowed": "All",
@@ -373,19 +360,6 @@
     "workflow_builder_id": "pdc-tr-14"
    },
    {
-    "action": "Cancel Issued Payable",
-    "allow_self_approval": 1,
-    "allowed": "All",
-    "condition": "doc.get('cheque_direction') == 'Payable'",
-    "next_state": "Cancelled",
-    "parent": "PDC Workflow",
-    "parentfield": "transitions",
-    "parenttype": "Workflow",
-    "send_email_to_creator": 0,
-    "state": "Issued",
-    "workflow_builder_id": "pdc-tr-15"
-   },
-   {
     "action": "Return After Bounce",
     "allow_self_approval": 1,
     "allowed": "All",
@@ -436,19 +410,6 @@
     "send_email_to_creator": 0,
     "state": "Returned",
     "workflow_builder_id": "pdc-tr-19"
-   },
-   {
-    "action": "Cancel Cheque",
-    "allow_self_approval": 1,
-    "allowed": "All",
-    "condition": null,
-    "next_state": "Cancelled",
-    "parent": "PDC Workflow",
-    "parentfield": "transitions",
-    "parenttype": "Workflow",
-    "send_email_to_creator": 0,
-    "state": "Returned",
-    "workflow_builder_id": "pdc-tr-20"
    },
    {
     "action": "Clear Cheque",

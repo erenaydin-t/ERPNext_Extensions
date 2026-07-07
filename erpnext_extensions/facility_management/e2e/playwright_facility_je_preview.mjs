@@ -5,18 +5,14 @@ import { chromium } from "/tmp/e2e-npm/node_modules/playwright/index.mjs";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { execSync } from "child_process";
+import { benchExecute } from "../../e2e/e2e_playwright_db.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCREEN = path.join(__dirname, "screenshots", "receipt_split");
 const BASE = process.env.FRAPPE_E2E_BASE_URL || "http://development.localhost:8000";
-const BENCH = process.env.FRAPPE_BENCH_ROOT || "/workspace/development/frappe-bench";
 
 function bench(method) {
-	const out = execSync(`cd ${BENCH} && bench --site development.localhost execute "${method}"`, {
-		encoding: "utf8",
-	});
-	return JSON.parse(out.trim().split("\n").filter(Boolean).pop());
+	return benchExecute(method);
 }
 
 async function login(page) {

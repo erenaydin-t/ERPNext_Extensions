@@ -6,10 +6,13 @@ import time
 from datetime import date, timedelta
 
 import frappe
+from frappe.utils import getdate, today
+
+from erpnext_extensions.e2e.e2e_unique import e2e_unique_tag
 
 
 def _uniq(prefix: str) -> str:
-	return f"{prefix}-{int(time.time() * 1000)}"
+	return e2e_unique_tag(prefix)
 
 
 def _company() -> str:
@@ -146,17 +149,29 @@ def _apply_action(doc, action: str):
 	return apply_workflow(doc, action)
 
 
+def _sync_payable_outcome_dates(doc) -> None:
+	"""E2E prep: satisfy handover / cleared date sequence validations."""
+	rec = getdate(doc.get("received_date") or today())
+	hand = doc.get("handover_date")
+	if not hand or getdate(hand) < rec:
+		doc.handover_date = rec
+	hand = getdate(doc.handover_date or rec)
+	clr = doc.get("cleared_date")
+	if clr and getdate(clr) < hand:
+		doc.cleared_date = hand
+
+
 def _issue_payable(doc):
-	if not doc.get("handover_date"):
-		doc.handover_date = date.today()
-		doc.save(ignore_permissions=True)
+	_sync_payable_outcome_dates(doc)
+	doc.save(ignore_permissions=True)
 	return _apply_action(doc, "Issue Cheque")
 
 
 def _clear_payable(doc):
-	if not doc.get("cleared_date"):
-		doc.cleared_date = date.today()
-		doc.save(ignore_permissions=True)
+	_sync_payable_outcome_dates(doc)
+	hand = getdate(doc.handover_date or doc.received_date or today())
+	doc.cleared_date = max(getdate(today()), hand)
+	doc.save(ignore_permissions=True)
 	return _apply_action(doc, "Clear Cheque")
 
 
@@ -173,11 +188,57 @@ def _return_payable(doc):
 	return _apply_action(doc, "Return to Payee")
 
 
-def _cancel_issued_payable(doc):
-	if not doc.get("cancellation_reason"):
-		doc.cancellation_reason = "E2E cancel"
-		doc.save(ignore_permissions=True)
-	return _apply_action(doc, "Cancel Issued Payable")
+def _legacy_cancelled_issued_payable(doc):
+	"""Legacy Cancelled fixture (docstatus=2) without removed workflow Cancel actions."""
+	from erpnext_extensions.cheque_management.pdc_workflow_to_cheque_status import (
+		map_workflow_state_to_cheque_status,
+	)
+
+	if doc.docstatus != 1:
+		frappe.throw("Expected submitted Payable PDC before legacy cancel fixture")
+	status = map_workflow_state_to_cheque_status("Payable", "Cancelled")
+	frappe.db.set_value(
+		"Post Dated Cheque",
+		doc.name,
+		{"workflow_state": "Cancelled", "cheque_status": status},
+		update_modified=False,
+	)
+	doc = frappe.get_doc("Post Dated Cheque", doc.name)
+	doc.flags.ignore_validate = True
+	from erpnext_extensions.cheque_management.pdc_direct_cancel_policy import (
+		pdc_internal_direct_cancel,
+	)
+
+	with pdc_internal_direct_cancel(flag="allow_pdc_direct_cancel"):
+		doc.cancel()
+	return doc
+
+
+def _opening_import_payable_at_registered(company, bank_account, supplier, cheque_tag: str) -> str:
+	from erpnext_extensions.cheque_management.doctype.cheque_opening_import.cheque_opening_import import (
+		import_row,
+	)
+	from erpnext_extensions.cheque_management.doctype.cheque_opening_import.run_live_opening_import_accounting_e2e import (
+		_base_payable_row,
+	)
+	from erpnext_extensions.cheque_management.run_live_party_orchestration_e2e import (
+		_site_context,
+	)
+
+	ctx = _site_context()
+	ctx["company"] = company
+	ctx["bank_account"] = bank_account
+	ctx["supplier"] = supplier
+	chq = _uniq(cheque_tag)
+	row = _base_payable_row(ctx, chq, "Registered")
+	coi = frappe.new_doc("Cheque Opening Import")
+	coi.insert(ignore_permissions=True)
+	frappe.flags.cheque_opening_import_name = coi.name
+	try:
+		return import_row(1, row)
+	finally:
+		if hasattr(frappe.flags, "cheque_opening_import_name"):
+			delattr(frappe.flags, "cheque_opening_import_name")
 
 
 def _make_payable_pdc(company, bank_account, supplier, pool, ap) -> "PostDatedCheque":
@@ -231,6 +292,7 @@ def prepare_pdc_workflow_rollback_e2e():
 			"supplier_group": frappe.db.get_value("Supplier Group", {}, "name", order_by="lft asc") or "All Supplier Groups",
 		}
 	).insert(ignore_permissions=True)
+	frappe.db.commit()
 
 	pdc_payable = _make_payable_pdc(company, bank_account, supplier.name, pool, ap)
 
@@ -250,7 +312,7 @@ def prepare_pdc_workflow_rollback_e2e():
 	pdc_payable4 = _make_payable_pdc(company, bank_account, supplier.name, pool, ap)
 	pdc_payable4 = _apply_action(pdc_payable4, "Register Cheque")
 	pdc_payable4 = _issue_payable(pdc_payable4)
-	pdc_payable4 = _cancel_issued_payable(pdc_payable4)
+	pdc_payable4 = _legacy_cancelled_issued_payable(pdc_payable4)
 
 	pdc_payable_b = _make_payable_pdc(company, bank_account, supplier.name, pool, ap)
 	pdc_payable_b = _apply_action(pdc_payable_b, "Register Cheque")
@@ -265,6 +327,8 @@ def prepare_pdc_workflow_rollback_e2e():
 	pdc_payable_j = _apply_action(pdc_payable_j, "Register Cheque")
 	pdc_payable_j = _issue_payable(pdc_payable_j)
 	pdc_payable_j = _clear_payable(pdc_payable_j)
+
+	frappe.db.commit()
 
 	# Receivable PDC for receivable scenarios
 	customer = frappe.get_doc(
@@ -302,6 +366,18 @@ def prepare_pdc_workflow_rollback_e2e():
 		pdc_recv.save(ignore_permissions=True)
 	pdc_recv = _apply_action(pdc_recv, "Clear Cheque")
 
+	opening_import_registered = _opening_import_payable_at_registered(
+		company, bank_account, supplier.name, _uniq("E2E-OI-RB-REG")
+	)
+	frappe.db.commit()
+	opening_import_cleared = _opening_import_payable_at_registered(
+		company, bank_account, supplier.name, _uniq("E2E-OI-RB-CLR")
+	)
+	frappe.db.commit()
+	oi_doc = frappe.get_doc("Post Dated Cheque", opening_import_cleared)
+	oi_doc = _issue_payable(oi_doc)
+	oi_doc = _clear_payable(oi_doc)
+
 	frappe.db.commit()
 
 	return {
@@ -317,7 +393,20 @@ def prepare_pdc_workflow_rollback_e2e():
 		"payable_returned": pdc_payable3.name,
 		"payable_cancelled": pdc_payable4.name,
 		"receivable_cleared": pdc_recv.name,
+		"opening_import_payable_registered": opening_import_registered,
+		"opening_import_payable_cleared": oi_doc.name,
 	}
+
+
+def e2e_get_pdc_state(pdc_name: str) -> dict:
+	"""Bench execute helper: PDC row from DB (delegates to shared e2e_document_state)."""
+	from erpnext_extensions.e2e.e2e_document_state import e2e_get_document_state
+
+	return e2e_get_document_state(
+		"Post Dated Cheque",
+		pdc_name,
+		["name", "workflow_state", "cheque_status", "docstatus"],
+	)
 
 
 def e2e_sql_verify_pdc(pdc_name: str):
@@ -335,9 +424,52 @@ def e2e_sql_verify_pdc(pdc_name: str):
 	return {
 		"pdc_name": pdc_name,
 		"report": report,
-		"snapshot": snapshot,
 		"clean": sql_integrity_is_clean(report),
+		"snapshot": snapshot,
 	}
+
+
+def e2e_attempt_direct_cancel(pdc_name: str) -> dict:
+	"""Try doc.cancel(); verify block + unchanged docstatus/workflow_state."""
+	before = frappe.db.get_value(
+		"Post Dated Cheque",
+		pdc_name,
+		["docstatus", "workflow_state"],
+		as_dict=True,
+	)
+	frappe.db.savepoint("e2e_pdc_direct_cancel_attempt")
+	try:
+		frappe.get_doc("Post Dated Cheque", pdc_name).cancel()
+		frappe.db.rollback(save_point="e2e_pdc_direct_cancel_attempt")
+		after = frappe.db.get_value(
+			"Post Dated Cheque",
+			pdc_name,
+			["docstatus", "workflow_state"],
+			as_dict=True,
+		)
+		return {"blocked": False, "before": before, "after": after}
+	except Exception as e:
+		frappe.db.rollback(save_point="e2e_pdc_direct_cancel_attempt")
+		after = frappe.db.get_value(
+			"Post Dated Cheque",
+			pdc_name,
+			["docstatus", "workflow_state"],
+			as_dict=True,
+		)
+		return {
+			"blocked": True,
+			"message": str(e),
+			"before": before,
+			"after": after,
+		}
+
+
+def e2e_list_workflow_actions(pdc_name: str) -> list[str]:
+	"""Workflow actions currently exposed on the PDC (for E2E — no Cancel actions)."""
+	from frappe.model.workflow import get_transitions
+
+	doc = frappe.get_doc("Post Dated Cheque", pdc_name)
+	return sorted({t.get("action") or "" for t in get_transitions(doc) if t.get("action")})
 
 
 def e2e_apply_pdc_workflow(pdc_name: str, action: str) -> str:
