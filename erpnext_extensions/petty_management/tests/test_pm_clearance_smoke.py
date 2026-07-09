@@ -181,6 +181,7 @@ class TestPMClearanceSmokeFlows(unittest.TestCase):
 		)
 		cl.insert(ignore_permissions=True)
 		self._track("PM Clearance", cl.name)
+		cl.submit()
 		pm_ct._approve_pm_clearance_for_reservation(cl.name)
 		self.assertEqual(get_pm_request_available_amount(req_name), flt(req_before) - 3_000)
 		self.assertEqual(get_opening_advance_available_amount(oa.name), flt(open_before) - 3_000)

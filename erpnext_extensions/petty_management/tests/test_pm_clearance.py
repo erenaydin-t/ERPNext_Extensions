@@ -155,11 +155,11 @@ def _workflow_state_for(document_type: str, state_title: str) -> str | None:
 
 
 def _approve_pm_clearance_for_reservation(cl_name: str) -> None:
-	"""Submitted clearance must be workflow-approved for funding reservation (shared SQL predicate)."""
-	st = _workflow_state_for("PM Clearance", "Approved")
-	if st:
-		frappe.db.set_value("PM Clearance", cl_name, "workflow_state", st, update_modified=False)
-	frappe.db.set_value("PM Clearance", cl_name, "status", "Approved", update_modified=False)
+	from erpnext_extensions.petty_management.services.clearance_service import (
+		approve_pm_clearance_for_reservation,
+	)
+
+	approve_pm_clearance_for_reservation(cl_name)
 
 
 def _default_cost_center() -> str | None:
@@ -409,15 +409,45 @@ def _purchase_item_code() -> str:
 
 
 def _supplier_advance_test_account() -> str:
+	"""Return a proper Payable (party-capable) supplier-advance ledger account.
+
+	The settlement JE debits this account with a Supplier party and links it to the
+	Purchase Order as an advance; ERPNext only reconciles that correctly for a
+	``Payable`` account, so we must never return an arbitrary leaf account.
+	"""
 	acc = frappe.db.get_value("Company", COMPANY, "default_advance_paid_account")
-	if acc:
+	if acc and frappe.db.get_value("Account", acc, "account_type") == "Payable":
 		return acc
+
+	# Reuse a deterministic leaf we created earlier if present.
 	abbr = frappe.db.get_value("Company", COMPANY, "abbr")
-	for label in ("Creditors", "Accounts Payable"):
+	existing = f"PM Test Supplier Advance - {abbr}"
+	if frappe.db.exists("Account", existing):
+		return existing
+
+	# Create under a real parent group (Payable/Asset-advance parents preferred).
+	candidate_parents = [
+		"1600 - Loans and Advances (Assets)",
+		"Loans and Advances (Assets)",
+		"Creditors",
+		"Accounts Payable",
+		"Current Liabilities",
+	]
+	for label in candidate_parents:
 		parent = f"{label} - {abbr}"
-		if frappe.db.exists("Account", parent):
+		if frappe.db.exists("Account", parent) and cint(frappe.db.get_value("Account", parent, "is_group")):
 			return _insert_leaf_account("PM Test Supplier Advance", parent, "Payable")
-	raise unittest.SkipTest("No default_advance_paid_account and no Creditors parent for test advance account.")
+
+	# Fallback: reuse any existing Payable ledger account in the company.
+	payable = frappe.get_all(
+		"Account",
+		filters={"company": COMPANY, "account_type": "Payable", "is_group": 0},
+		pluck="name",
+		limit=1,
+	)
+	if payable:
+		return payable[0]
+	raise unittest.SkipTest("No Payable account available for supplier advance test account.")
 
 
 def _make_purchase_order_for_company(qty: float = 5, rate: float = 1000):

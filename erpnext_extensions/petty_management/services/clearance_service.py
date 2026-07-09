@@ -296,9 +296,33 @@ def validate_and_stamp_supplier_advance_rows(doc: Document) -> None:
 		if po.company != doc.company:
 			frappe.throw(_("Row {0}: Purchase Order belongs to another company.").format(row.idx))
 		row.supplier = po.supplier
-		acc_co = frappe.db.get_value("Account", row.supplier_advance_account, "company")
+		acc_co, acc_type, acc_is_group = frappe.db.get_value(
+			"Account",
+			row.supplier_advance_account,
+			["company", "account_type", "is_group"],
+		) or (None, None, None)
 		if acc_co and acc_co != doc.company:
 			frappe.throw(_("Row {0}: Supplier Advance Account must belong to the clearance company.").format(row.idx))
+		if cint(acc_is_group):
+			frappe.throw(
+				_("Row {0}: Supplier Advance Account {1} is a group account; select a ledger account.").format(
+					row.idx, row.supplier_advance_account
+				),
+				title=_("Invalid Supplier Advance Account"),
+			)
+		# The settlement JE records the supplier advance against the Purchase Order with a
+		# Supplier party. ERPNext only allows a party on a "Payable" account, and its
+		# advance-against-order handling (self-referencing the JE) only reconciles correctly
+		# for a Payable-type account. Any other type makes the JE unsubmittable and would
+		# otherwise fail late with a cryptic accounting error, so guard it here.
+		if (acc_type or "") != "Payable":
+			frappe.throw(
+				_(
+					"Row {0}: Supplier Advance Account {1} must be an account with type 'Payable' "
+					"(a supplier advance / advance-paid account). Its current type is '{2}'."
+				).format(row.idx, row.supplier_advance_account, acc_type or _("<not set>")),
+				title=_("Invalid Supplier Advance Account"),
+			)
 		if flt(row.allocated_amount) <= 0:
 			frappe.throw(_("Row {0}: Allocated Amount must be greater than zero.").format(row.idx))
 
@@ -336,6 +360,29 @@ def clearance_is_approved(doc: Document) -> bool:
 	if ws and (frappe.db.get_value("Workflow State", ws, "workflow_state_name") or ws) == "Approved":
 		return True
 	return False
+
+
+def workflow_state_link_for_title(document_type: str, state_title: str) -> str | None:
+	"""Resolve active workflow link field value for a human-readable state title."""
+	wf_name = frappe.db.get_value("Workflow", {"document_type": document_type, "is_active": 1}, "name")
+	if not wf_name:
+		return None
+	wf = frappe.get_doc("Workflow", wf_name)
+	for s in wf.states:
+		title = frappe.db.get_value("Workflow State", s.state, "workflow_state_name")
+		if title == state_title:
+			return s.state
+	from erpnext_extensions.petty_management.services.workflow_utils import resolve_workflow_state_link
+
+	return resolve_workflow_state_link(state_title)
+
+
+def approve_pm_clearance_for_reservation(cl_name: str) -> None:
+	"""Mark submitted clearance Approved for funding reservation SQL (tests, E2E, ops)."""
+	st = workflow_state_link_for_title("PM Clearance", "Approved")
+	if st:
+		frappe.db.set_value("PM Clearance", cl_name, "workflow_state", st, update_modified=False)
+	frappe.db.set_value("PM Clearance", cl_name, "status", "Approved", update_modified=False)
 
 
 def prepare_doc_for_je_preview(doc: Document) -> None:

@@ -40,6 +40,55 @@ frappe.ui.form.on("PM Clearance", {
 		frm.trigger("recalc_totals");
 	},
 	setup(frm) {
+		if (!frappe._pm_clearance_link_debug_bound) {
+			frappe._pm_clearance_link_debug_bound = true;
+			try {
+				const enabled =
+					(localStorage && localStorage.getItem("pm_clearance_link_debug") === "1") ||
+					(window && window.PM_CLEARANCE_LINK_DEBUG === 1);
+				if (enabled && typeof frappe.call === "function") {
+					const orig = frappe.call;
+					frappe.call = function (opts) {
+						try {
+							const method = opts && (opts.method || "");
+							const args = (opts && opts.args) || {};
+							if (
+								method === "frappe.desk.search.search_link" &&
+								(args.doctype === "Purchase Invoice" || args.doctype === "Purchase Order")
+							) {
+								console.debug("[PM Clearance][link] search_link req", {
+									doctype: args.doctype,
+									txt: args.txt,
+									query: args.query,
+									filters: args.filters,
+								});
+								const cb = opts.callback;
+								opts.callback = function (r) {
+									try {
+										console.debug("[PM Clearance][link] search_link resp", {
+											doctype: args.doctype,
+											count: Array.isArray(r) ? r.length : Array.isArray(r?.message) ? r.message.length : null,
+											sample: Array.isArray(r) ? r[0] : Array.isArray(r?.message) ? r.message[0] : null,
+											raw: r,
+										});
+									} catch (_e) {
+										/* ignore */
+									}
+									return cb ? cb.apply(this, arguments) : undefined;
+								};
+							}
+						} catch (_e) {
+							/* ignore */
+						}
+						return orig.apply(this, arguments);
+					};
+					console.debug("[PM Clearance][debug] link debug enabled");
+				}
+			} catch (_e) {
+				/* ignore */
+			}
+		}
+
 		frm.set_query("pm_opening_advance", "request_allocations", () => {
 			const ready =
 				frm.doc.employee &&
@@ -88,6 +137,16 @@ frappe.ui.form.on("PM Clearance", {
 			};
 		});
 		frm.set_query("purchase_invoice", "details", (doc, cdt, cdn) => {
+			try {
+				const enabled =
+					(localStorage && localStorage.getItem("pm_clearance_link_debug") === "1") ||
+					(window && window.PM_CLEARANCE_LINK_DEBUG === 1);
+				if (enabled) {
+					console.debug("[PM Clearance][set_query] purchase_invoice(details)", { cdt, cdn });
+				}
+			} catch (_e) {
+				/* ignore */
+			}
 			const row = locals[cdt]?.[cdn];
 			if (!row || (row.settlement_type || SETTLEMENT_PI) !== SETTLEMENT_PI) {
 				return { filters: { name: ["=", ""] } };
@@ -102,6 +161,34 @@ frappe.ui.form.on("PM Clearance", {
 			return {
 				query:
 					"erpnext_extensions.petty_management.doctype.pm_clearance.pm_clearance.purchase_invoice_query_for_pm_clearance",
+				filters,
+			};
+		});
+		frm.set_query("purchase_order", "details", (doc, cdt, cdn) => {
+			try {
+				const enabled =
+					(localStorage && localStorage.getItem("pm_clearance_link_debug") === "1") ||
+					(window && window.PM_CLEARANCE_LINK_DEBUG === 1);
+				if (enabled) {
+					console.debug("[PM Clearance][set_query] purchase_order(details)", { cdt, cdn });
+				}
+			} catch (_e) {
+				/* ignore */
+			}
+			const row = locals[cdt]?.[cdn];
+			if (!row || (row.settlement_type || SETTLEMENT_PI) !== SETTLEMENT_SA) {
+				return { filters: { name: ["=", ""] } };
+			}
+			if (!frm.doc.company) {
+				return { filters: { name: ["=", ""] } };
+			}
+			const filters = { company: frm.doc.company };
+			if (row.supplier) {
+				filters.supplier = row.supplier;
+			}
+			return {
+				query:
+					"erpnext_extensions.petty_management.doctype.pm_clearance.pm_clearance.purchase_order_query_for_pm_clearance",
 				filters,
 			};
 		});

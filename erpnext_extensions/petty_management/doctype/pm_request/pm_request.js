@@ -536,6 +536,15 @@ function hide_pm_request_reject_when_not_allowed(frm, flags) {
 	rejectLabels.forEach((label) => {
 		remove_pm_request_action_menu_item(frm, label);
 	});
+	const $menu = $(frm.wrapper || document).find(
+		".actions-btn-group .dropdown-item, .workflow-actions .dropdown-item"
+	);
+	$menu.each(function () {
+		const t = ($(this).text() || "").trim();
+		if (rejectLabels.some((r) => t.indexOf(r) >= 0 || t === r)) {
+			$(this).remove();
+		}
+	});
 }
 
 frappe.ui.form.on("PM Request Detail", {

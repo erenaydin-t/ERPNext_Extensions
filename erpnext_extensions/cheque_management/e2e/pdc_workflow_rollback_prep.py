@@ -241,6 +241,38 @@ def _opening_import_payable_at_registered(company, bank_account, supplier, chequ
 			delattr(frappe.flags, "cheque_opening_import_name")
 
 
+def _opening_import_payable_at(company, bank_account, supplier, cheque_tag: str, workflow_state: str) -> str:
+	from erpnext_extensions.cheque_management.doctype.cheque_opening_import.cheque_opening_import import (
+		import_row,
+	)
+	from erpnext_extensions.cheque_management.doctype.cheque_opening_import.run_live_opening_import_accounting_e2e import (
+		_base_payable_row,
+	)
+	from erpnext_extensions.cheque_management.run_live_party_orchestration_e2e import (
+		_site_context,
+	)
+
+	ctx = _site_context()
+	ctx["company"] = company
+	ctx["bank_account"] = bank_account
+	ctx["supplier"] = supplier
+	chq = _uniq(cheque_tag)
+	row = _base_payable_row(ctx, chq, workflow_state)
+	if workflow_state == "Issued":
+		row["handover_date"] = today()
+	if workflow_state == "Cleared":
+		row["handover_date"] = today()
+		row["cleared_date"] = today()
+	coi = frappe.new_doc("Cheque Opening Import")
+	coi.insert(ignore_permissions=True)
+	frappe.flags.cheque_opening_import_name = coi.name
+	try:
+		return import_row(1, row)
+	finally:
+		if hasattr(frappe.flags, "cheque_opening_import_name"):
+			delattr(frappe.flags, "cheque_opening_import_name")
+
+
 def _make_payable_pdc(company, bank_account, supplier, pool, ap) -> "PostDatedCheque":
 	leaf = _provision_payable_leaf(company, bank_account)
 	cheque_no = frappe.db.get_value("Cheque Leaf", leaf, "cheque_number")
@@ -369,6 +401,15 @@ def prepare_pdc_workflow_rollback_e2e():
 	opening_import_registered = _opening_import_payable_at_registered(
 		company, bank_account, supplier.name, _uniq("E2E-OI-RB-REG")
 	)
+	opening_import_issued_baseline = _opening_import_payable_at(
+		company, bank_account, supplier.name, _uniq("E2E-OI-PAY-ISSUED-B"), "Issued"
+	)
+	opening_import_issued = _opening_import_payable_at(
+		company, bank_account, supplier.name, _uniq("E2E-OI-PAY-ISSUED"), "Issued"
+	)
+	opening_import_cleared_baseline = _opening_import_payable_at(
+		company, bank_account, supplier.name, _uniq("E2E-OI-PAY-CLEARED"), "Cleared"
+	)
 	frappe.db.commit()
 	opening_import_cleared = _opening_import_payable_at_registered(
 		company, bank_account, supplier.name, _uniq("E2E-OI-RB-CLR")
@@ -377,6 +418,9 @@ def prepare_pdc_workflow_rollback_e2e():
 	oi_doc = frappe.get_doc("Post Dated Cheque", opening_import_cleared)
 	oi_doc = _issue_payable(oi_doc)
 	oi_doc = _clear_payable(oi_doc)
+
+	oi_issued_doc = frappe.get_doc("Post Dated Cheque", opening_import_issued)
+	oi_issued_doc = _clear_payable(oi_issued_doc)
 
 	frappe.db.commit()
 
@@ -394,8 +438,17 @@ def prepare_pdc_workflow_rollback_e2e():
 		"payable_cancelled": pdc_payable4.name,
 		"receivable_cleared": pdc_recv.name,
 		"opening_import_payable_registered": opening_import_registered,
+		"opening_import_payable_issued_baseline": opening_import_issued_baseline,
+		"opening_import_payable_issued": oi_issued_doc.name,
+		"opening_import_payable_cleared_baseline": opening_import_cleared_baseline,
 		"opening_import_payable_cleared": oi_doc.name,
 	}
+
+
+def e2e_get_rollback_targets(pdc_name: str) -> dict:
+	from erpnext_extensions.cheque_management.pdc_workflow_rollback import get_rollback_target_states
+
+	return {"targets": get_rollback_target_states(pdc_name)}
 
 
 def e2e_get_pdc_state(pdc_name: str) -> dict:

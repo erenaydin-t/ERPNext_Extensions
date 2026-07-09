@@ -89,10 +89,10 @@ class TestPMHolderUX(unittest.TestCase):
 		from erpnext_extensions.petty_management.overrides.search import get_link_title
 
 		title = get_link_title("PM Holder", holder_name)
-		employee_name = frappe.db.get_value("Employee", emp, "employee_name")
+		holder_emp_name = frappe.db.get_value("PM Holder", holder_name, "employee_name")
 		self.assertIn(emp, title)
-		if employee_name:
-			self.assertIn(employee_name, title)
+		if holder_emp_name:
+			self.assertIn(holder_emp_name, title)
 
 
 class TestPMOpeningAdvanceLinkUX(unittest.TestCase):

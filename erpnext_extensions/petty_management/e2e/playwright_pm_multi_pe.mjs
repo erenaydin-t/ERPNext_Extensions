@@ -176,14 +176,14 @@ async function run() {
 		}
 
 		const menuInfo = await page.evaluate(async () => {
-			await new Promise((r) => setTimeout(r, 2000));
+			await new Promise((r) => setTimeout(r, 2500));
 			const group = document.querySelector(".actions-btn-group");
 			if (!group) {
 				return { ok: false, items: [], reason: "no_actions_group" };
 			}
 			const btn = group.querySelector("button") || group.querySelector(".btn");
 			btn?.click();
-			await new Promise((r) => setTimeout(r, 400));
+			await new Promise((r) => setTimeout(r, 600));
 			const items = Array.from(group.querySelectorAll(".dropdown-item")).map((el) =>
 				(el.textContent || "").trim()
 			);
@@ -200,12 +200,18 @@ async function run() {
 			pass: menuInfo.ok && /View Payment Entries/i.test(menuText),
 		});
 		if (menuInfo.ok) {
-			const routed = await page.evaluate((args) => {
+			await page.evaluate((args) => {
 				frappe.route_options = args.filters || { reference_no: args.pm_request };
 				frappe.set_route("List", "Payment Entry");
-				return frappe.get_route();
 			}, { filters: flagsMulti.payment_entry_list_filters, pm_request: multi.pm_request });
-			await page.waitForTimeout(2500);
+			await page.waitForFunction(
+				() => {
+					const r = frappe.get_route();
+					return r && r[0] === "List" && String(r[1] || "").toLowerCase().includes("payment");
+				},
+				{ timeout: 60000 }
+			);
+			const routed = await page.evaluate(() => frappe.get_route());
 			evidence.screenshots.pe_list_view = await shot(page, "06_payment_entry_list");
 			const listBody = await page.locator("body").innerText();
 			results.push({

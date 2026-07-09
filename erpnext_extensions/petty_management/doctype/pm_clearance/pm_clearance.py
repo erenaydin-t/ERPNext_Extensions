@@ -189,6 +189,16 @@ def purchase_invoice_query_for_pm_clearance(doctype, txt, searchfield, start, pa
 
 
 @frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
+def purchase_order_query_for_pm_clearance(doctype, txt, searchfield, start, page_len, filters):
+	from erpnext_extensions.petty_management.services.settlement_query import (
+		purchase_order_query_for_pm_clearance as _fn,
+	)
+
+	return _fn(doctype, txt, searchfield, start, page_len, filters)
+
+
+@frappe.whitelist()
 def get_opening_advance_allocation_context(
 	pm_opening_advance: str,
 	pm_clearance: str | None = None,
@@ -259,6 +269,17 @@ def get_pm_clearance_holder_context(employee: str | None = None, company: str | 
 @frappe.whitelist()
 def preview_pm_clearance_settlement(doc=None, pm_clearance: str | None = None) -> dict:
 	return preview_pm_clearance_settlement_service(doc=doc, pm_clearance=pm_clearance)
+
+
+@frappe.whitelist()
+def approve_pm_clearance_for_settlement(pm_clearance: str) -> dict:
+	"""Workflow approve + status sync for settlement (Desk/E2E)."""
+	from erpnext_extensions.petty_management.services.clearance_service import (
+		approve_pm_clearance_for_reservation,
+	)
+
+	approve_pm_clearance_for_reservation(pm_clearance)
+	return get_pm_clearance_action_flags(pm_clearance)
 
 
 @frappe.whitelist()

@@ -55,17 +55,23 @@ def _infer_opening_import_baseline_state(pdc) -> str:
 	direction = (pdc.cheque_direction or "").strip()
 	current = normalize_workflow_state_value(pdc.workflow_state)
 	refs = index_journal_references(pdc.name)
-	if not refs:
-		return current
-	# Earliest transition edge by workflow rank (lowest from_state on the path).
-	candidates: list[tuple[int, str]] = []
-	for (from_s, _to_s) in refs.keys():
-		candidates.append((_workflow_rank(direction, from_s), from_s))
-	if not candidates:
-		return current
-	candidates.sort(key=lambda x: (x[0], x[1]))
-	_, from_s = candidates[0]
-	return normalize_workflow_state_value(from_s)
+	if refs:
+		# Earliest transition edge by workflow rank (lowest from_state on the path).
+		candidates: list[tuple[int, str]] = []
+		for (from_s, _to_s) in refs.keys():
+			candidates.append((_workflow_rank(direction, from_s), from_s))
+		candidates.sort(key=lambda x: (x[0], x[1]))
+		_, from_s = candidates[0]
+		return normalize_workflow_state_value(from_s)
+
+	# Opening import walk skips accounting — no journal references until post-import transitions.
+	if current == WORKFLOW_CLEARED:
+		# Do not treat post-import Cleared as the import baseline when only clear JE exists.
+		if direction == "Payable" and getattr(pdc, "handover_date", None):
+			return WORKFLOW_ISSUED
+		if direction == "Receivable" and getattr(pdc, "sent_to_bank_date", None):
+			return WORKFLOW_SENT_TO_BANK
+	return current
 
 
 def opening_import_baseline_notice(baseline: str) -> str:

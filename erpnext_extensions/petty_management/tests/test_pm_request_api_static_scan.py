@@ -10,6 +10,9 @@ from pathlib import Path
 import frappe
 
 GET_DOC_PM_REQUEST = re.compile(r"""frappe\.get_doc\s*\(\s*['"]PM Request['"]""")
+TESTS_PACKAGE_IMPORT = re.compile(
+	r"(?:from|import)\s+erpnext_extensions\.petty_management\.tests(?:\.|\s|$)"
+)
 
 # Paths that may load PM Request without going through guard loaders (tests, e2e, smoke).
 RAW_GET_DOC_ALLOWLIST_PREFIXES = (
@@ -76,6 +79,24 @@ class TestPmRequestApiStaticScan(unittest.TestCase):
 		self.assertIn("get_pm_request_doc_for_write", chunk)
 		self.assertIn("get_pm_request_doc_for_write_lock", chunk)
 		self.assertNotRegex(chunk, GET_DOC_PM_REQUEST)
+
+	def test_production_code_does_not_import_tests_package(self):
+		app_path = Path(frappe.get_app_path("erpnext_extensions")) / "petty_management"
+		violations: list[str] = []
+		for path in sorted(app_path.rglob("*.py")):
+			rel = str(path.relative_to(app_path.parent)).replace("\\", "/")
+			if _is_allowlisted(rel):
+				continue
+			if "/doctype/" in rel and path.name.startswith("test_"):
+				continue
+			text = path.read_text(encoding="utf-8")
+			if TESTS_PACKAGE_IMPORT.search(text):
+				violations.append(rel)
+		self.assertEqual(
+			violations,
+			[],
+			msg="Production petty_management must not import tests: " + ", ".join(violations),
+		)
 
 
 if __name__ == "__main__":

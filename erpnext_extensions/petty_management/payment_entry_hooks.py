@@ -77,9 +77,21 @@ def unlink_pm_request_payment_entry_pointer(pe_name: str) -> list[str]:
 	return updated
 
 
+def _effective_submitted_docstatus(doc) -> int:
+	"""During cancel save Frappe sets docstatus=2 before ``before_cancel`` runs."""
+	ds = cint(doc.docstatus)
+	if ds == 1:
+		return 1
+	if ds == 2 and getattr(doc, "_action", None) == "cancel":
+		prev = getattr(doc, "_doc_before_save", None)
+		if prev is not None:
+			return cint(prev.docstatus)
+	return ds
+
+
 def on_payment_entry_before_cancel(doc, method=None):
 	"""Block cancel when clearance reservations exceed funded amount after cancel."""
-	if doc.payment_type != "Pay" or cint(doc.docstatus) != 1:
+	if doc.payment_type != "Pay" or _effective_submitted_docstatus(doc) != 1:
 		return
 	pm_requests = find_pm_requests_for_payment_entry(doc.name)
 	for pm_request in pm_requests:

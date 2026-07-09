@@ -14,8 +14,11 @@ from erpnext_extensions.cheque_management.doctype.cheque_opening_import.run_live
 	_base_receivable_row,
 )
 from erpnext_extensions.cheque_management.pdc_workflow_rollback import (
+	get_pdc_workflow_rollback_preview,
 	get_rollback_target_states,
 	rollback_workflow_state,
+	sql_integrity_is_clean,
+	sql_verify_pdc_rollback_integrity,
 )
 from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
 	WORKFLOW_CLEARED,
@@ -39,6 +42,13 @@ class TestOpeningImportRollbackIntegration(IntegrationTestCase):
 		ctx = _site_context()
 		chq = _unique_cheque_no(f"OI-P-{workflow_state[:3]}")
 		row = _base_payable_row(ctx, chq, workflow_state)
+		from frappe.utils import today
+
+		if workflow_state == "Issued":
+			row["handover_date"] = today()
+		if workflow_state == "Cleared":
+			row["handover_date"] = today()
+			row["cleared_date"] = today()
 		coi = frappe.new_doc("Cheque Opening Import")
 		coi.insert(ignore_permissions=True)
 		frappe.flags.cheque_opening_import_name = coi.name
@@ -47,6 +57,74 @@ class TestOpeningImportRollbackIntegration(IntegrationTestCase):
 		finally:
 			if hasattr(frappe.flags, "cheque_opening_import_name"):
 				delattr(frappe.flags, "cheque_opening_import_name")
+
+	def test_payable_issued_baseline_import_clear_rollback(self):
+		from frappe.utils import today
+
+		pdc_name = self._import_payable_at("Issued")
+		row = frappe.db.get_value(
+			"Post Dated Cheque",
+			pdc_name,
+			["opening_import_workflow_state", "workflow_state"],
+			as_dict=True,
+		)
+		self.assertEqual(row.opening_import_workflow_state, WORKFLOW_ISSUED)
+		self.assertEqual(row.workflow_state, WORKFLOW_ISSUED)
+		self.assertEqual(get_rollback_target_states(pdc_name), [])
+
+		doc = frappe.get_doc("Post Dated Cheque", pdc_name)
+		doc.workflow_state = WORKFLOW_CLEARED
+		doc.cleared_date = today()
+		if not doc.handover_date:
+			doc.handover_date = doc.received_date or today()
+		doc.save()
+
+		refs = frappe.get_all(
+			"PDC Journal Reference",
+			filters={"parent": pdc_name},
+			fields=["pdc_transition_key", "journal_entry"],
+		)
+		self.assertTrue(
+			any("|Issued|Cleared" in (r.pdc_transition_key or "") for r in refs),
+			msg=f"Expected Issued→Cleared journal reference, got {refs}",
+		)
+
+		targets = get_rollback_target_states(pdc_name)
+		self.assertEqual(targets, [WORKFLOW_ISSUED])
+		self.assertNotIn(WORKFLOW_REGISTERED, targets)
+		self.assertNotIn(WORKFLOW_DRAFT, targets)
+
+		prev = get_pdc_workflow_rollback_preview(pdc_name, WORKFLOW_ISSUED)
+		self.assertEqual(prev.get("opening_import_baseline"), WORKFLOW_ISSUED)
+		self.assertEqual(len(prev.get("steps") or []), 1)
+		cancelled_je = (prev["steps"][0].get("journal_entry") or "").strip()
+
+		rollback_workflow_state(pdc_name, WORKFLOW_ISSUED, "integration issued baseline rollback")
+		self.assertEqual(
+			frappe.db.get_value("Post Dated Cheque", pdc_name, "workflow_state"), WORKFLOW_ISSUED
+		)
+		self.assertFalse(frappe.db.get_value("Post Dated Cheque", pdc_name, "cleared_date"))
+		self.assertEqual(get_rollback_target_states(pdc_name), [])
+
+		if cancelled_je:
+			report = sql_verify_pdc_rollback_integrity(
+				pdc_name, cancelled_journal_entries=[cancelled_je]
+			)
+			self.assertTrue(sql_integrity_is_clean(report, [cancelled_je]))
+
+	def test_payable_cleared_baseline_no_rollback(self):
+		pdc_name = self._import_payable_at("Cleared")
+		from frappe.utils import today
+
+		doc = frappe.get_doc("Post Dated Cheque", pdc_name)
+		if not doc.cleared_date:
+			doc.cleared_date = today()
+			doc.save()
+		self.assertEqual(
+			frappe.db.get_value("Post Dated Cheque", pdc_name, "opening_import_workflow_state"),
+			WORKFLOW_CLEARED,
+		)
+		self.assertEqual(get_rollback_target_states(pdc_name), [])
 
 	def test_payable_registered_baseline_then_issue_clear_rollback(self):
 		pdc_name = self._import_payable_at("Registered")

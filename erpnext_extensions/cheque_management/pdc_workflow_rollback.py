@@ -103,15 +103,22 @@ def _opening_import_rollback_targets(doc) -> list[str]:
 			continue
 		if _workflow_rank(direction, state) >= _workflow_rank(direction, current):
 			continue
+		if not _bfs_forward_path(direction, state, current):
+			continue
 		try:
 			edges = _edges_to_undo(direction, current, state, pdc=doc)
 		except ValidationError:
 			continue
-		if state == baseline and not edges:
+		if edges:
+			targets.append(state)
 			continue
-		if not edges and state != baseline:
-			continue
-		targets.append(state)
+		# Baseline is a valid target after post-import progress even when undo edges are
+		# operational-only (e.g. Registered→Issued without a Journal Reference).
+		if (
+			state == baseline
+			and _workflow_rank(direction, current) > _workflow_rank(direction, baseline)
+		):
+			targets.append(state)
 	return sorted(set(targets), key=lambda s: (_workflow_rank(direction, s), s))
 
 
@@ -329,6 +336,51 @@ def check_user_may_rollback_pdc_workflow(pdc_name: str) -> bool:
 	return user_may_rollback_pdc_workflow(pdc_name)
 
 
+def opening_import_rollback_diagnostics(pdc_name: str) -> dict[str, Any]:
+	"""Support / test helper: snapshot rollback inputs for opening-import PDCs."""
+	from erpnext_extensions.cheque_management.accounting_rollback.pdc.plan import (
+		build_pdc_rollback_plan,
+		index_journal_references,
+	)
+	from erpnext_extensions.cheque_management.pdc_opening_import_baseline import (
+		resolve_opening_import_baseline_state,
+	)
+
+	doc = frappe.get_doc("Post Dated Cheque", pdc_name)
+	direction = (doc.cheque_direction or "").strip()
+	current = normalize_workflow_state_value(doc.workflow_state)
+	baseline = resolve_opening_import_baseline_state(doc) if cint(doc.is_opening_import) else None
+	refs = index_journal_references(pdc_name)
+	targets = get_rollback_target_states(pdc_name)
+	out: dict[str, Any] = {
+		"pdc_name": pdc_name,
+		"cheque_direction": direction,
+		"is_opening_import": cint(doc.is_opening_import),
+		"opening_import": doc.get("opening_import"),
+		"workflow_state": current,
+		"opening_import_workflow_state": doc.get("opening_import_workflow_state"),
+		"resolved_baseline": baseline,
+		"journal_references": list(refs.values()),
+		"transition_keys": [r.get("pdc_transition_key") for r in refs.values()],
+		"rollback_targets": targets,
+	}
+	if targets:
+		target = targets[-1]
+		try:
+			plan = build_pdc_rollback_plan(doc, target, reason="diagnostics")
+			out["rollback_plan_steps"] = [
+				{"from": s.from_state, "to": s.to_state, "je": s.journal_entry}
+				for s in plan.steps
+			]
+			out["undo_edges"] = [(s.from_state, s.to_state) for s in plan.steps]
+			out["preview"] = plan.to_api_dict()
+		except Exception as e:
+			out["plan_error"] = str(e)
+	else:
+		out["undo_edges"] = []
+	return out
+
+
 __all__ = [
 	"_bfs_forward_path",
 	"_edges_to_undo",
@@ -336,6 +388,7 @@ __all__ = [
 	"check_user_may_rollback_pdc_workflow",
 	"get_pdc_workflow_rollback_preview",
 	"get_rollback_target_states",
+	"opening_import_rollback_diagnostics",
 	"rollback_workflow_state",
 	"sql_integrity_is_clean",
 	"sql_verify_no_orphan_gl_for_pdc",
