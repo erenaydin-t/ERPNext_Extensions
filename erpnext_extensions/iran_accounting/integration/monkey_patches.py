@@ -328,6 +328,19 @@ def _patch_general_ledger():
 
 	gl.absorb_gl_map_rounding_residual = zvt.absorb_gl_map_rounding_residual
 
+	gl._iran_original_distribute_cc = gl.distribute_gl_based_on_cost_center_allocation
+
+	def distribute_gl_based_on_cost_center_allocation(gl_map, precision=None, from_repost=False):
+		from erpnext_extensions.iran_accounting.domain.gl_cost_center_allocation import (
+			distribute_gl_based_on_cost_center_allocation_irr,
+		)
+
+		return distribute_gl_based_on_cost_center_allocation_irr(
+			gl_map, precision=precision, from_repost=from_repost
+		)
+
+	gl.distribute_gl_based_on_cost_center_allocation = distribute_gl_based_on_cost_center_allocation
+
 	def _is_non_zero_gl_entry(x, precision):
 		if (
 			x.voucher_type == "Journal Entry"

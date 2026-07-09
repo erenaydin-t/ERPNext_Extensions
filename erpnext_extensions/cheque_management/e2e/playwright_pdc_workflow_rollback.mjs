@@ -454,6 +454,77 @@ async function run() {
 			oiRollback,
 		});
 
+		// OI-PAY-ISSUED: import at Issued baseline → clear → rollback to Issued only
+		const oiIssuedBaselineDb = pdcStateFromDb(prep.opening_import_payable_issued_baseline);
+		const oiIssuedBaselineTargets = benchExecute(
+			"erpnext_extensions.cheque_management.e2e.pdc_workflow_rollback_prep.e2e_get_rollback_targets",
+			{ pdc_name: prep.opening_import_payable_issued_baseline }
+		).targets;
+		await openPdc(page, prep.opening_import_payable_issued_baseline);
+		const oiIssuedBaselineBtn = await waitForRollbackButton(page, 8000);
+		evidence.screenshots.OI_PAY_ISSUED_baseline = await shot(
+			page,
+			"OI_PAY_ISSUED_at_baseline"
+		);
+
+		const oiIssuedClearedDbBefore = pdcStateFromDb(prep.opening_import_payable_issued);
+		const oiIssuedTargets = benchExecute(
+			"erpnext_extensions.cheque_management.e2e.pdc_workflow_rollback_prep.e2e_get_rollback_targets",
+			{ pdc_name: prep.opening_import_payable_issued }
+		).targets;
+		await openPdc(page, prep.opening_import_payable_issued);
+		const oiIssuedRollback = await rollbackViaUi(
+			page,
+			prep.opening_import_payable_issued,
+			"Issued",
+			"E2E OI-PAY-ISSUED rollback"
+		);
+		const oiIssuedDbAfter = await waitPdcWorkflowState(prep.opening_import_payable_issued, "Issued");
+		const oiIssuedTargetsAfter = benchExecute(
+			"erpnext_extensions.cheque_management.e2e.pdc_workflow_rollback_prep.e2e_get_rollback_targets",
+			{ pdc_name: prep.opening_import_payable_issued }
+		).targets;
+		evidence.sql.OI_PAY_ISSUED = sqlVerify(prep.opening_import_payable_issued);
+		evidence.screenshots.OI_PAY_ISSUED_post = await shot(page, "OI_PAY_ISSUED_post_rollback");
+		results.push({
+			test: "OI_PAY_ISSUED_baseline_clear_rollback",
+			ok:
+				oiIssuedBaselineDb.workflow_state === "Issued" &&
+				(oiIssuedBaselineTargets || []).length === 0 &&
+				!oiIssuedBaselineBtn &&
+				oiIssuedClearedDbBefore.workflow_state === "Cleared" &&
+				JSON.stringify(oiIssuedTargets || []) === JSON.stringify(["Issued"]) &&
+				oiIssuedRollback.ok &&
+				oiIssuedDbAfter.state?.workflow_state === "Issued" &&
+				(oiIssuedTargetsAfter || []).length === 0 &&
+				evidence.sql.OI_PAY_ISSUED.clean,
+			oiIssuedBaselineDb,
+			oiIssuedBaselineTargets,
+			oiIssuedTargets,
+			oiIssuedRollback,
+			oiIssuedDbAfter,
+			oiIssuedTargetsAfter,
+		});
+
+		// OI-PAY-CLEARED: import directly at Cleared — no rollback targets
+		const oiClearedBaselineTargets = benchExecute(
+			"erpnext_extensions.cheque_management.e2e.pdc_workflow_rollback_prep.e2e_get_rollback_targets",
+			{ pdc_name: prep.opening_import_payable_cleared_baseline }
+		).targets;
+		await openPdc(page, prep.opening_import_payable_cleared_baseline);
+		const oiClearedBaselineBtn = await waitForRollbackButton(page, 8000);
+		evidence.screenshots.OI_PAY_CLEARED = await shot(page, "OI_PAY_CLEARED_baseline");
+		results.push({
+			test: "OI_PAY_CLEARED_no_rollback",
+			ok:
+				(oiClearedBaselineTargets || []).length === 0 &&
+				!oiClearedBaselineBtn &&
+				pdcStateFromDb(prep.opening_import_payable_cleared_baseline).workflow_state ===
+					"Cleared",
+			oiClearedBaselineTargets,
+			oiClearedBaselineBtn,
+		});
+
 		await openPdc(page, prep.payable_returned);
 		const e = await rollbackViaUi(page, prep.payable_returned, "Issued", "E2E rollback E");
 		evidence.screenshots.E = await shot(page, "E_returned_to_issued");

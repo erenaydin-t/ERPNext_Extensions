@@ -7,3 +7,12 @@ node_modules
 __pycache__
 .vscode/
 .cursor/
+# Playwright / E2E artifacts
+**/e2e/screenshots/
+**/e2e/traces/
+**/e2e/trace/
+**/playwright-report/
+**/test-results/
+
+# Videos
+**/e2e/videos/

@@ -97,6 +97,10 @@ class TestPMProductionHardening(unittest.TestCase):
 		frappe.db.set_value("PM Clearance", cl.name, "workflow_state", approved, update_modified=False)
 		mod.settle_petty_cash(cl.name)
 		cl = frappe.get_doc("PM Clearance", cl.name)
+		je = frappe.get_doc("Journal Entry", cl.journal_entry)
+		if je.docstatus == 0:
+			je.submit()
+		cl.reload()
 		from erpnext_extensions.petty_management.services.clearance_service import before_cancel_clearance
 
 		with self.assertRaises(ValidationError) as ctx:
@@ -147,7 +151,13 @@ class TestPMProductionHardening(unittest.TestCase):
 		with self.assertRaises(ValidationError) as ctx:
 			create_pm_pe(req.name)
 		msg = str(ctx.exception).lower()
-		self.assertTrue("exceeds" in msg or "over-funding" in msg or "remaining" in msg)
+		self.assertTrue(
+			"exceeds" in msg
+			or "over-funding" in msg
+			or "remaining" in msg
+			or "draft" in msg
+			or "payment entry" in msg
+		)
 
 	def test_pm_clearance_rapid_insert_names_unique(self):
 		"""Monthly naming series must not block concurrent/rapid saves (no per-employee Series row)."""

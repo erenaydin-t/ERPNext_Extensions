@@ -157,8 +157,10 @@ async function openDraftPeFromTable(page) {
 }
 
 async function deleteDraftPeFromDesk(page) {
-	await page.locator(".menu-btn-group .btn").filter({ hasText: /^Menu$/i }).first().click();
-	await page.locator(".dropdown-menu a").filter({ hasText: /^Delete$/i }).first().click();
+	await page.getByRole("button", { name: /^(Menu|Actions|More)$/i }).first().click();
+	const dropdown = page.locator(".dropdown-menu:visible").first();
+	await dropdown.waitFor({ timeout: 60000 });
+	await dropdown.getByText(/^Delete$/i).first().click();
 	await confirmFrappePrompt(page);
 	await page.waitForURL(/\/app\/pm-request\//, { timeout: 180000 }).catch(() => {});
 }
@@ -216,17 +218,23 @@ async function run() {
 		evidence.screenshots.initial = await shot(page, "01_pe_list_initial");
 		const beforeCount = await countDataRows(page);
 
-		await page.waitForFunction(
-			async () => {
-				const r = await frappe.call({
-					method:
-						"erpnext_extensions.petty_management.doctype.pm_request.pm_request.get_pm_request_action_flags",
-					args: { pm_request: window.cur_frm.doc.name },
-				});
-				return Boolean(r.message?.can_create_payment_entry);
-			},
-			{ timeout: 180000 }
-		);
+		const flags = await page.evaluate(async () => {
+			const r = await frappe.call({
+				method:
+					"erpnext_extensions.petty_management.doctype.pm_request.pm_request.get_pm_request_action_flags",
+				args: { pm_request: window.cur_frm.doc.name },
+			});
+			return r.message || {};
+		});
+		if (!flags.can_create_payment_entry) {
+			throw new Error(`cannot create PE: ${JSON.stringify(flags)}`);
+		}
+		await page.evaluate(() => {
+			if (typeof window.cur_frm?.trigger === "function") {
+				window.cur_frm.trigger("refresh_payment_entry_list");
+			}
+		});
+		await page.waitForSelector("#pm-request-pe-list table tbody", { timeout: 120000 });
 
 		const createOut = await createPeFromToolbar(page, 5000);
 		await page.evaluate(async () => {
@@ -268,6 +276,13 @@ async function run() {
 		evidence.screenshots.after_submit = await shot(page, "03_after_submit_pe");
 
 		await createPeFromToolbar(page, 3000);
+		await openPmRequest(page, prep.pm_request);
+		await page.evaluate(() => {
+			if (typeof window.cur_frm?.trigger === "function") {
+				window.cur_frm.trigger("refresh_payment_entry_list");
+			}
+		});
+		await page.waitForTimeout(2500);
 		await waitTableRowCount(page, beforeCount + 2);
 		const countBeforeDelete = await countDataRows(page);
 		await openDraftPeFromTable(page);
