@@ -1,0 +1,117 @@
+.account-explorer-page .ae-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	align-items: flex-end;
+	margin-bottom: 12px;
+}
+
+.account-explorer-page .ae-toolbar .form-group {
+	margin-bottom: 0;
+	min-width: 160px;
+}
+
+.account-explorer-page .ae-context-bar {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	align-items: center;
+	margin: 12px 0;
+}
+
+.account-explorer-page .ae-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 10px;
+	border-radius: 16px;
+	background: var(--control-bg);
+	border: 1px solid var(--border-color);
+}
+
+.account-explorer-page .ae-chip.is-virtual {
+	border-style: dashed;
+}
+
+.account-explorer-page .ae-grid-wrap {
+	overflow: auto;
+	border: 1px solid var(--border-color);
+	border-radius: var(--border-radius);
+}
+
+.account-explorer-page table.ae-grid {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: var(--text-sm);
+}
+
+.account-explorer-page table.ae-grid th,
+.account-explorer-page table.ae-grid td {
+	padding: 8px 10px;
+	border-bottom: 1px solid var(--border-color);
+	vertical-align: middle;
+}
+
+.account-explorer-page table.ae-grid th {
+	position: sticky;
+	top: 0;
+	background: var(--subtle-fg);
+	z-index: 1;
+}
+
+.account-explorer-page table.ae-grid td.amount,
+.account-explorer-page table.ae-grid th.amount {
+	text-align: end;
+	font-variant-numeric: tabular-nums;
+	direction: ltr;
+	unicode-bidi: embed;
+}
+
+.account-explorer-page table.ae-grid tr.selected {
+	background: var(--highlight-color);
+}
+
+.account-explorer-page table.ae-grid tr:hover {
+	background: var(--fg-hover-color);
+	cursor: pointer;
+}
+
+.account-explorer-page .ae-totals {
+	margin-top: 10px;
+	padding: 10px;
+	background: var(--control-bg);
+	border-radius: var(--border-radius);
+	display: flex;
+	flex-wrap: wrap;
+	gap: 16px;
+}
+
+.account-explorer-page .ae-totals .amount {
+	direction: ltr;
+	unicode-bidi: embed;
+	font-variant-numeric: tabular-nums;
+}
+
+.account-explorer-page .ae-empty,
+.account-explorer-page .ae-disabled {
+	padding: 24px;
+	text-align: center;
+	color: var(--text-muted);
+}
+
+.account-explorer-page .ae-pagination {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	margin-top: 10px;
+}
+
+html[dir="rtl"] .account-explorer-page .ae-toolbar,
+html[dir="rtl"] .account-explorer-page .ae-context-bar,
+html[dir="rtl"] .account-explorer-page .ae-pagination {
+	flex-direction: row-reverse;
+}
+
+html[dir="rtl"] .account-explorer-page .ae-toolbar .form-group {
+	text-align: right;
+}

@@ -1,0 +1,172 @@
+{
+ "actions": [],
+ "allow_copy": 0,
+ "allow_rename": 0,
+ "creation": "2026-07-12 00:00:00.000000",
+ "custom": 0,
+ "docstatus": 0,
+ "doctype": "DocType",
+ "document_type": "Setup",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "section_account_explorer",
+  "account_explorer_enabled",
+  "metadata_cache_version",
+  "column_break_ae",
+  "account_explorer_levels",
+  "section_default_behavior",
+  "default_include_cancelled",
+  "default_hide_zero_rows",
+  "default_page_size",
+  "column_break_defaults",
+  "default_include_opening_entries",
+  "default_include_period_closing_vouchers",
+  "max_drill_down_rows",
+  "section_performance",
+  "server_page_size",
+  "query_timeout_seconds",
+  "metadata_cache_duration_seconds",
+  "column_break_perf",
+  "allow_gl_entry_navigation"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_account_explorer",
+   "fieldtype": "Section Break",
+   "label": "Account Explorer Settings"
+  },
+  {
+   "default": "0",
+   "description": "Enable the Account Explorer desk page and APIs.",
+   "fieldname": "account_explorer_enabled",
+   "fieldtype": "Check",
+   "label": "Account Explorer Enabled"
+  },
+  {
+   "default": "1",
+   "fieldname": "metadata_cache_version",
+   "fieldtype": "Int",
+   "hidden": 1,
+   "label": "Metadata Cache Version",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_ae",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "account_explorer_levels",
+   "fieldtype": "Table",
+   "label": "Account Levels",
+   "options": "Account Explorer Level"
+  },
+  {
+   "fieldname": "section_default_behavior",
+   "fieldtype": "Section Break",
+   "label": "Default Report Behavior"
+  },
+  {
+   "default": "0",
+   "fieldname": "default_include_cancelled",
+   "fieldtype": "Check",
+   "label": "Default Include Cancelled Entries"
+  },
+  {
+   "default": "1",
+   "fieldname": "default_hide_zero_rows",
+   "fieldtype": "Check",
+   "label": "Default Hide Zero Rows"
+  },
+  {
+   "default": "50",
+   "fieldname": "default_page_size",
+   "fieldtype": "Int",
+   "label": "Default Page Size"
+  },
+  {
+   "fieldname": "column_break_defaults",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "default_include_opening_entries",
+   "fieldtype": "Check",
+   "label": "Default Include Opening Entries"
+  },
+  {
+   "default": "0",
+   "fieldname": "default_include_period_closing_vouchers",
+   "fieldtype": "Check",
+   "label": "Default Include Period Closing Vouchers"
+  },
+  {
+   "default": "10000",
+   "fieldname": "max_drill_down_rows",
+   "fieldtype": "Int",
+   "label": "Maximum Drill Down Result Size"
+  },
+  {
+   "fieldname": "section_performance",
+   "fieldtype": "Section Break",
+   "label": "Performance"
+  },
+  {
+   "default": "50",
+   "fieldname": "server_page_size",
+   "fieldtype": "Int",
+   "label": "Server Page Size"
+  },
+  {
+   "default": "30",
+   "fieldname": "query_timeout_seconds",
+   "fieldtype": "Int",
+   "label": "Query Timeout (Seconds)"
+  },
+  {
+   "default": "300",
+   "fieldname": "metadata_cache_duration_seconds",
+   "fieldtype": "Int",
+   "label": "Metadata Cache Duration (Seconds)"
+  },
+  {
+   "fieldname": "column_break_perf",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "allow_gl_entry_navigation",
+   "fieldtype": "Check",
+   "label": "Allow GL Entry Navigation"
+  }
+ ],
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-07-12 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "erpnext_extensions",
+ "name": "Iran Accounting Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Accounts User",
+   "share": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

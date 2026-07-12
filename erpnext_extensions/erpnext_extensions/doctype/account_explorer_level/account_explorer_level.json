@@ -1,0 +1,111 @@
+{
+ "actions": [],
+ "allow_copy": 1,
+ "creation": "2026-07-12 00:00:00.000000",
+ "custom": 0,
+ "docstatus": 0,
+ "doctype": "DocType",
+ "document_type": "Setup",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "sequence",
+  "enabled",
+  "code_length",
+  "title",
+  "title_fa",
+  "short_title",
+  "display_order",
+  "color",
+  "icon",
+  "drill_down_enabled",
+  "default_visible",
+  "default_sort_order"
+ ],
+ "fields": [
+  {
+   "default": "1",
+   "fieldname": "sequence",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Sequence",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Enabled"
+  },
+  {
+   "fieldname": "code_length",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Code Length",
+   "reqd": 1
+  },
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Title",
+   "reqd": 1
+  },
+  {
+   "fieldname": "title_fa",
+   "fieldtype": "Data",
+   "label": "Persian Title"
+  },
+  {
+   "fieldname": "short_title",
+   "fieldtype": "Data",
+   "label": "Short Title"
+  },
+  {
+   "fieldname": "display_order",
+   "fieldtype": "Int",
+   "label": "Display Order"
+  },
+  {
+   "fieldname": "color",
+   "fieldtype": "Color",
+   "label": "Color"
+  },
+  {
+   "fieldname": "icon",
+   "fieldtype": "Data",
+   "label": "Icon"
+  },
+  {
+   "default": "1",
+   "fieldname": "drill_down_enabled",
+   "fieldtype": "Check",
+   "label": "Drill Down Enabled"
+  },
+  {
+   "default": "1",
+   "fieldname": "default_visible",
+   "fieldtype": "Check",
+   "label": "Default Visible"
+  },
+  {
+   "default": "code",
+   "fieldname": "default_sort_order",
+   "fieldtype": "Select",
+   "label": "Default Sort Order",
+   "options": "code\ntitle\ndebit\ncredit\nbalance"
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-07-12 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "erpnext_extensions",
+ "name": "Account Explorer Level",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "sequence",
+ "sort_order": "ASC",
+ "states": []
+}
