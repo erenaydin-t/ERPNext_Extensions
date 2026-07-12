@@ -6,29 +6,43 @@
 	gap: 4px;
 }
 
-/* ── Toolbar (compact ERP report style) ── */
+/* ── Toolbar (two-row hierarchy) ── */
 .account-explorer-page .ae-toolbar {
 	display: flex;
-	flex-wrap: wrap;
-	gap: 6px 10px;
-	align-items: flex-end;
-	padding: 6px 8px;
+	flex-direction: column;
+	gap: 0;
+	padding: 4px 6px;
 	border: 1px solid var(--border-color);
 	border-radius: var(--border-radius-lg, var(--border-radius));
 	background: var(--card-bg, var(--control-bg));
 	box-shadow: var(--shadow-xs, none);
 }
 
+.account-explorer-page .ae-toolbar-row {
+	width: 100%;
+}
+
+.account-explorer-page .ae-toolbar-row--scope {
+	padding-bottom: 4px;
+}
+
+.account-explorer-page .ae-toolbar-row--actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+	padding-top: 4px;
+	border-top: 1px solid var(--border-color);
+}
+
 .account-explorer-page .ae-toolbar-scope {
 	display: flex;
 	flex-direction: column;
 	gap: 2px;
-	flex: 1 1 360px;
-	min-width: 240px;
+	width: 100%;
 }
 
-.account-explorer-page .ae-toolbar-section-label,
-.account-explorer-page .ae-toolbar-group-label {
+.account-explorer-page .ae-toolbar-section-label {
 	font-size: 10px;
 	font-weight: 600;
 	text-transform: uppercase;
@@ -39,16 +53,20 @@
 
 .account-explorer-page .ae-toolbar-scope-fields {
 	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-	gap: 2px 8px;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	gap: 2px 6px;
 }
 
-.account-explorer-page .ae-toolbar-actions {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 6px;
-	align-items: flex-end;
-	margin-inline-start: auto;
+@media (max-width: 900px) {
+	.account-explorer-page .ae-toolbar-scope-fields {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+}
+
+@media (max-width: 520px) {
+	.account-explorer-page .ae-toolbar-scope-fields {
+		grid-template-columns: 1fr;
+	}
 }
 
 .account-explorer-page .ae-toolbar-group {
@@ -56,48 +74,23 @@
 	flex-wrap: wrap;
 	gap: 4px;
 	align-items: center;
-	padding: 3px 6px;
+}
+
+.account-explorer-page .ae-toolbar-group--secondary {
+	padding: 2px 4px;
 	border: 1px solid var(--border-color);
 	border-radius: var(--border-radius);
 	background: var(--bg-color);
-}
-
-.account-explorer-page .ae-toolbar-group--primary {
-	border-color: transparent;
-	background: transparent;
-	padding: 0;
-}
-
-.account-explorer-page .ae-toolbar-group--tools {
-	gap: 0;
-	padding: 2px 4px;
-}
-
-.account-explorer-page .ae-toolbar-group--tools > * {
-	margin: 2px;
-}
-
-.account-explorer-page .ae-toolbar-group--tools .ae-saved-views-group,
-.account-explorer-page .ae-toolbar-group--tools .ae-export-wrap,
-.account-explorer-page .ae-toolbar-group--tools .ae-advanced-filters-btn {
-	position: relative;
-}
-
-.account-explorer-page .ae-toolbar-group--tools .ae-saved-views-group::before,
-.account-explorer-page .ae-toolbar-group--tools .ae-export-wrap::before {
-	content: "";
-	position: absolute;
-	inset-inline-start: -3px;
-	top: 15%;
-	height: 70%;
-	width: 1px;
-	background: var(--border-color);
+	margin-inline-start: 0;
 }
 
 .account-explorer-page .ae-toolbar-group--utility {
-	gap: 3px;
-	padding: 2px 4px;
-	opacity: 0.95;
+	gap: 4px;
+	margin-inline-start: auto;
+}
+
+.account-explorer-page .ae-toolbar-row--actions .ae-btn-apply {
+	flex-shrink: 0;
 }
 
 .account-explorer-page .ae-toolbar .form-group {
@@ -108,35 +101,22 @@
 .account-explorer-page .ae-toolbar .form-group label {
 	margin-bottom: 1px;
 	font-size: 10px;
+	font-weight: 500;
+	line-height: 1.2;
 }
 
-.account-explorer-page .ae-saved-views-group,
-.account-explorer-page .ae-export-wrap {
-	display: inline-flex;
-	flex-wrap: wrap;
-	gap: 3px 5px;
-	align-items: center;
-}
-
-.account-explorer-page .ae-saved-views-actions .btn + .btn {
-	margin-inline-start: 0;
-}
-
-.account-explorer-page .ae-saved-view-select {
-	min-width: 128px;
-	max-width: 180px;
+.account-explorer-page .ae-toolbar .form-control,
+.account-explorer-page .ae-toolbar input.form-control {
 	height: 28px;
-	padding-top: 2px;
-	padding-bottom: 2px;
+	min-height: 28px;
+	padding: 2px 6px;
+	font-size: var(--text-xs);
 }
 
-.account-explorer-page .ae-export-group {
-	display: inline-flex;
-	align-items: center;
-}
-
-.account-explorer-page .ae-export-menu {
-	min-width: 120px;
+.account-explorer-page .ae-toolbar .btn-sm {
+	padding: 3px 8px;
+	font-size: var(--text-xs);
+	line-height: 1.35;
 }
 
 .account-explorer-page .ae-advanced-filters-btn.active {
@@ -144,18 +124,70 @@
 	background: color-mix(in srgb, var(--primary, #2490ef) 10%, var(--bg-color));
 }
 
-/* ── Filter panel ── */
+.account-explorer-page .ae-views-menu,
+.account-explorer-page .ae-reset-menu,
+.account-explorer-page .ae-export-menu {
+	min-width: 200px;
+}
+
+.account-explorer-page .ae-views-select-item {
+	padding: 6px 12px;
+}
+
+.account-explorer-page .ae-views-select-item .ae-saved-view-select {
+	width: 100%;
+	height: 28px;
+	min-height: 28px;
+	padding: 2px 6px;
+	font-size: var(--text-xs);
+}
+
+.account-explorer-page .ae-views-menu a.disabled,
+.account-explorer-page .ae-views-delete.disabled {
+	pointer-events: none;
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+
+/* ── Filter panel (animated collapse) ── */
 .account-explorer-page .ae-filter-panel {
-	border: 1px solid var(--border-color);
+	overflow: hidden;
+	max-height: 0;
+	opacity: 0;
+	margin: 0;
+	padding: 0;
+	border: 1px solid transparent;
 	border-radius: var(--border-radius-lg, var(--border-radius));
 	background: var(--card-bg, var(--control-bg));
+	box-shadow: none;
+	transition:
+		max-height 0.28s ease,
+		opacity 0.2s ease,
+		padding 0.2s ease,
+		margin 0.2s ease,
+		border-color 0.2s ease;
+}
+
+.account-explorer-page .ae-filter-panel--expanded {
+	max-height: 2400px;
+	opacity: 1;
 	margin-bottom: 0;
-	padding: 8px;
+	padding: 6px;
+	border-color: var(--border-color);
 	box-shadow: var(--shadow-xs, none);
 }
 
 .account-explorer-page .ae-filter-panel--collapsed {
-	display: none;
+	max-height: 0;
+	opacity: 0;
+	padding: 0;
+	margin: 0;
+	border-color: transparent;
+	pointer-events: none;
+}
+
+.account-explorer-page .ae-filter-panel-inner {
+	min-height: 0;
 }
 
 .account-explorer-page .ae-filter-panel-heading {
@@ -915,14 +947,18 @@
 
 /* ── Responsive ── */
 @media (max-width: 768px) {
-	.account-explorer-page .ae-toolbar-actions {
+	.account-explorer-page .ae-toolbar-row--actions {
+		gap: 4px;
+	}
+
+	.account-explorer-page .ae-toolbar-group--utility {
 		width: 100%;
+		justify-content: flex-end;
 		margin-inline-start: 0;
 	}
 
-	.account-explorer-page .ae-toolbar-group--tools {
-		width: 100%;
-		justify-content: flex-start;
+	.account-explorer-page .ae-toolbar-group--secondary {
+		flex: 1;
 	}
 
 	.account-explorer-page .ae-totals-lead {
@@ -940,15 +976,13 @@
 }
 
 /* ── RTL ── */
-html[dir="rtl"] .account-explorer-page .ae-toolbar-actions {
-	margin-inline-start: 0;
-	margin-inline-end: auto;
+html[dir="rtl"] .account-explorer-page .ae-toolbar-row--actions {
+	flex-direction: row-reverse;
 }
 
-html[dir="rtl"] .account-explorer-page .ae-toolbar-actions,
-html[dir="rtl"] .account-explorer-page .ae-filter-panel-actions,
-html[dir="rtl"] .account-explorer-page .ae-pagination {
-	flex-direction: row-reverse;
+html[dir="rtl"] .account-explorer-page .ae-toolbar-group--utility {
+	margin-inline-start: 0;
+	margin-inline-end: auto;
 }
 
 html[dir="rtl"] .account-explorer-page .ae-filter-panel-heading {
@@ -957,6 +991,11 @@ html[dir="rtl"] .account-explorer-page .ae-filter-panel-heading {
 
 html[dir="rtl"] .account-explorer-page .ae-filter-card-body .form-group {
 	text-align: right;
+}
+
+html[dir="rtl"] .account-explorer-page .ae-filter-panel-actions,
+html[dir="rtl"] .account-explorer-page .ae-pagination {
+	flex-direction: row-reverse;
 }
 
 html[dir="rtl"] .account-explorer-page .ae-toolbar,
@@ -969,12 +1008,9 @@ html[dir="rtl"] .account-explorer-page .ae-toolbar .form-group {
 	text-align: right;
 }
 
-html[dir="rtl"] .account-explorer-page .ae-saved-views-group,
-html[dir="rtl"] .account-explorer-page .ae-export-wrap {
-	flex-direction: row-reverse;
-}
-
-html[dir="rtl"] .account-explorer-page .ae-export-group .dropdown-menu {
+html[dir="rtl"] .account-explorer-page .ae-export-group .dropdown-menu,
+html[dir="rtl"] .account-explorer-page .ae-views-group .dropdown-menu,
+html[dir="rtl"] .account-explorer-page .ae-reset-group .dropdown-menu {
 	left: 0;
 	right: auto;
 }

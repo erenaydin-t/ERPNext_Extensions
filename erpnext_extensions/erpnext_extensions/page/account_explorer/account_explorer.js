@@ -339,7 +339,8 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		const defaults = this.metadata.defaults || {};
 		const scopeDefaults = defaults.document_scope || defaults;
 
-		const $scope = $('<div class="ae-toolbar-scope"></div>').appendTo(this.$toolbar);
+		const $row_scope = $('<div class="ae-toolbar-row ae-toolbar-row--scope"></div>').appendTo(this.$toolbar);
+		const $scope = $('<div class="ae-toolbar-scope"></div>').appendTo($row_scope);
 		$('<div class="ae-toolbar-section-label">').text(__("Scope")).appendTo($scope);
 		const $scope_fields = $('<div class="ae-toolbar-scope-fields"></div>').appendTo($scope);
 
@@ -432,18 +433,16 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			this.document_scope.currency = { ...this.document_scope.currency, ...scopeDefaults.currency };
 		}
 
-		const $toolbar_actions = $('<div class="ae-toolbar-actions"></div>').appendTo(this.$toolbar);
-		const $primary_group = $('<div class="ae-toolbar-group ae-toolbar-group--primary"></div>').appendTo(
-			$toolbar_actions
-		);
-		const $secondary_group = $('<div class="ae-toolbar-group ae-toolbar-group--secondary ae-toolbar-group--tools"></div>').appendTo(
-			$toolbar_actions
-		);
+		const $row_actions = $('<div class="ae-toolbar-row ae-toolbar-row--actions"></div>').appendTo(this.$toolbar);
 
 		$('<button type="button" class="btn btn-primary btn-sm ae-btn-apply">')
 			.text(__("Apply"))
 			.on("click", () => this.apply_scope())
-			.appendTo($primary_group);
+			.appendTo($row_actions);
+
+		const $secondary_group = $('<div class="ae-toolbar-group ae-toolbar-group--secondary"></div>').appendTo(
+			$row_actions
+		);
 
 		this.$advanced_filters_btn = $('<button type="button" class="btn btn-default btn-sm ae-advanced-filters-btn">')
 			.text(__("Filters"))
@@ -458,26 +457,48 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 
 		this.setup_export_ui($secondary_group);
 
-		const $utility_group = $('<div class="ae-toolbar-group ae-toolbar-group--utility"></div>').appendTo(
-			$toolbar_actions
-		);
+		const $utility_group = $('<div class="ae-toolbar-group ae-toolbar-group--utility"></div>').appendTo($row_actions);
 		this.$back_btn = $('<button type="button" class="btn btn-default btn-sm ae-btn-back">')
 			.text(__("Back"))
 			.hide()
 			.on("click", () => this.go_back())
 			.appendTo($utility_group);
-		$('<button type="button" class="btn btn-default btn-sm" title="' + __("Reset drill-down path") + '">')
-			.text(__("Reset Analysis"))
-			.on("click", () => this.reset_analysis())
-			.appendTo($utility_group);
-		$('<button type="button" class="btn btn-default btn-sm" title="' + __("Reset all filters to defaults") + '">')
-			.text(__("Reset Scope"))
-			.on("click", () => this.reset_document_scope())
-			.appendTo($utility_group);
+		this.setup_reset_dropdown($utility_group);
 
 		this.setup_filter_panel(scopeDefaults);
-		this.update_advanced_filters_button();
+		this.update_filter_panel_ui();
 		this.update_context_actions();
+	}
+
+	setup_reset_dropdown($parent) {
+		const $group = $('<div class="ae-reset-group btn-group"></div>').appendTo($parent);
+		$('<button type="button" class="btn btn-default btn-sm dropdown-toggle ae-reset-btn">')
+			.text(__("Reset"))
+			.attr("data-toggle", "dropdown")
+			.attr("aria-haspopup", "true")
+			.attr("aria-expanded", "false")
+			.appendTo($group);
+		const $menu = $('<ul class="dropdown-menu dropdown-menu-right ae-reset-menu"></ul>').appendTo($group);
+		$("<li>")
+			.append(
+				$("<a href='#'>")
+					.text(__("Reset Analysis"))
+					.on("click", (event) => {
+						event.preventDefault();
+						this.reset_analysis();
+					})
+			)
+			.appendTo($menu);
+		$("<li>")
+			.append(
+				$("<a href='#'>")
+					.text(__("Reset Document Scope"))
+					.on("click", (event) => {
+						event.preventDefault();
+						this.reset_document_scope();
+					})
+			)
+			.appendTo($menu);
 	}
 
 	get_currency_type_label() {
@@ -519,27 +540,59 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 	}
 
 	setup_saved_views_ui($parent) {
-		const $group = $('<div class="ae-saved-views-group"></div>').appendTo($parent);
-		$('<span class="ae-toolbar-group-label">').text(__("Views")).appendTo($group);
-		this.$saved_view_select = $('<select class="form-control input-sm ae-saved-view-select">')
-			.append($("<option>").val("").text(__("Select view…")))
-			.on("change", () => {
-				const name = this.$saved_view_select.val();
-				if (name) {
-					this.load_saved_view(name);
-				}
-			})
+		const $group = $('<div class="ae-views-group btn-group"></div>').appendTo($parent);
+		$('<button type="button" class="btn btn-default btn-sm dropdown-toggle ae-views-btn">')
+			.text(__("Views"))
+			.attr("data-toggle", "dropdown")
+			.attr("aria-haspopup", "true")
+			.attr("aria-expanded", "false")
 			.appendTo($group);
-		const $view_actions = $('<div class="ae-saved-views-actions btn-group"></div>').appendTo($group);
-		$('<button type="button" class="btn btn-default btn-sm" title="' + __("Save current view") + '">')
-			.text(__("Save"))
-			.on("click", () => this.prompt_save_view())
-			.appendTo($view_actions);
-		this.$delete_saved_view_btn = $('<button type="button" class="btn btn-default btn-sm" title="' + __("Delete view") + '">')
-			.text(__("Delete"))
-			.prop("disabled", true)
-			.on("click", () => this.delete_active_saved_view())
-			.appendTo($view_actions);
+		const $menu = $('<ul class="dropdown-menu dropdown-menu-right ae-views-menu"></ul>').appendTo($group);
+		$('<li class="dropdown-header">').text(__("Saved Views")).appendTo($menu);
+		$("<li>")
+			.addClass("ae-views-select-item")
+			.append(
+				this.$saved_view_select = $('<select class="form-control input-sm ae-saved-view-select">')
+					.append($("<option>").val("").text(__("Select view…")))
+					.on("change", () => {
+						const name = this.$saved_view_select.val();
+						if (name) {
+							this.load_saved_view(name);
+						}
+					})
+			)
+			.appendTo($menu);
+		$('<li class="divider">').appendTo($menu);
+		$("<li>")
+			.append(
+				$("<a href='#'>")
+					.text(__("Save Current View"))
+					.on("click", (event) => {
+						event.preventDefault();
+						this.prompt_save_view();
+					})
+			)
+			.appendTo($menu);
+		$("<li>")
+			.append(
+				(this.$delete_saved_view_item = $("<a href='#'>")
+					.addClass("ae-views-delete")
+					.text(__("Delete View"))
+					.on("click", (event) => {
+						event.preventDefault();
+						if (!this.$delete_saved_view_item.hasClass("disabled")) {
+							this.delete_active_saved_view();
+						}
+					}))
+			)
+			.appendTo($menu);
+		this.update_saved_views_menu_state();
+	}
+
+	update_saved_views_menu_state() {
+		if (this.$delete_saved_view_item) {
+			this.$delete_saved_view_item.toggleClass("disabled", !this.active_saved_view?.name);
+		}
 	}
 
 	refresh_saved_views_list() {
@@ -611,7 +664,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 					freeze: true,
 					callback: (r) => {
 						this.active_saved_view = r.message || null;
-						this.$delete_saved_view_btn.prop("disabled", !this.active_saved_view);
+						this.update_saved_views_menu_state();
 						this.refresh_saved_views_list();
 						frappe.show_alert(__("View saved."));
 					},
@@ -634,7 +687,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 				}
 				this.apply_saved_view_configuration(view);
 				this.active_saved_view = view;
-				this.$delete_saved_view_btn.prop("disabled", false);
+				this.update_saved_views_menu_state();
 				if (this.$saved_view_select) {
 					this.$saved_view_select.val(view.name);
 				}
@@ -707,7 +760,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 				args: { name: this.active_saved_view.name },
 				callback: () => {
 					this.active_saved_view = null;
-					this.$delete_saved_view_btn.prop("disabled", true);
+					this.update_saved_views_menu_state();
 					if (this.$saved_view_select) {
 						this.$saved_view_select.val("");
 					}
@@ -720,10 +773,8 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 
 	setup_export_ui($parent) {
 		const export_enabled = cint(this.metadata?.export_enabled);
-		const $wrap = $('<div class="ae-export-wrap"></div>').appendTo($parent);
-		$('<span class="ae-toolbar-group-label">').text(__("Export")).appendTo($wrap);
-		const $group = $('<div class="ae-export-group btn-group"></div>').appendTo($wrap);
-		this.$export_btn = $('<button type="button" class="btn btn-default btn-sm dropdown-toggle">')
+		const $group = $('<div class="ae-export-group btn-group"></div>').appendTo($parent);
+		this.$export_btn = $('<button type="button" class="btn btn-default btn-sm dropdown-toggle ae-export-btn">')
 			.text(__("Export"))
 			.prop("disabled", !export_enabled)
 			.attr("data-toggle", "dropdown")
@@ -807,7 +858,10 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 
 	update_filter_panel_ui() {
 		if (this.$filter_panel) {
-			this.$filter_panel.toggleClass("ae-filter-panel--collapsed", !this.filter_panel_open);
+			this.$filter_panel
+				.toggleClass("ae-filter-panel--collapsed", !this.filter_panel_open)
+				.toggleClass("ae-filter-panel--expanded", this.filter_panel_open)
+				.attr("aria-hidden", this.filter_panel_open ? "false" : "true");
 		}
 		if (!this.$advanced_filters_btn) {
 			return;
@@ -865,7 +919,8 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 	setup_filter_panel(scopeDefaults = {}) {
 		this.$filter_panel.empty();
 		this.filter_controls = {};
-		const $heading = $('<div class="ae-filter-panel-heading"></div>').appendTo(this.$filter_panel);
+		const $inner = $('<div class="ae-filter-panel-inner"></div>').appendTo(this.$filter_panel);
+		const $heading = $('<div class="ae-filter-panel-heading"></div>').appendTo($inner);
 		$heading.append($('<span class="ae-filter-panel-title">').text(__("Document Scope Filters")));
 		$heading.append(
 			$('<button type="button" class="btn btn-xs btn-default ae-filter-panel-collapse">')
@@ -873,7 +928,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 				.attr("aria-label", __("Collapse filters"))
 				.on("click", () => this.toggle_filter_panel(false))
 		);
-		const $grid = $('<div class="ae-filter-grid"></div>').appendTo(this.$filter_panel);
+		const $grid = $('<div class="ae-filter-grid"></div>').appendTo($inner);
 
 		const general_body = this.make_filter_section(__("General"), $grid, "general");
 		this.filter_controls.finance_book = this.make_filter_control(
@@ -1024,7 +1079,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			default: 0,
 		});
 
-		const $actions = $('<div class="ae-filter-panel-actions"></div>').appendTo(this.$filter_panel);
+		const $actions = $('<div class="ae-filter-panel-actions"></div>').appendTo($inner);
 		$('<button type="button" class="btn btn-primary btn-sm">')
 			.text(__("Apply"))
 			.on("click", () => this.apply_scope())
