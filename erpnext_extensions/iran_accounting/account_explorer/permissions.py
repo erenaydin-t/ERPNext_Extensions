@@ -121,3 +121,24 @@ def assert_export_allowed() -> None:
 	if not frappe.has_permission("GL Entry", "read"):
 		frappe.throw(_("Not permitted to read GL Entry."), frappe.PermissionError)
 	assert_export_enabled()
+
+
+def assert_diagnostics_enabled() -> None:
+	assert_feature_enabled()
+	if not frappe.get_single_value("Iran Accounting Settings", "diagnostics_enabled"):
+		frappe.throw(
+			_("Account Explorer diagnostics are not enabled. Configure Iran Accounting Settings."),
+			frappe.ValidationError,
+		)
+
+
+def assert_diagnostics_allowed() -> None:
+	if frappe.session.user == "Administrator":
+		assert_diagnostics_enabled()
+		return
+	roles = set(frappe.get_roles(frappe.session.user))
+	if "Accounts Manager" not in roles:
+		frappe.throw(_("Not permitted to access Account Explorer diagnostics."), frappe.PermissionError)
+	assert_diagnostics_enabled()
+	if not frappe.has_permission("GL Entry", "read"):
+		frappe.throw(_("Not permitted to read GL Entry."), frappe.PermissionError)

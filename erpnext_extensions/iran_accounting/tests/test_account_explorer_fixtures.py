@@ -123,6 +123,23 @@ def disable_export() -> None:
 	frappe.db.commit()
 
 
+def enable_diagnostics() -> None:
+	enable_account_explorer()
+	settings = frappe.get_single("Iran Accounting Settings")
+	settings.diagnostics_enabled = 1
+	settings.flags.ignore_permissions = True
+	settings.save()
+	frappe.db.commit()
+
+
+def disable_diagnostics() -> None:
+	settings = frappe.get_single("Iran Accounting Settings")
+	settings.diagnostics_enabled = 0
+	settings.flags.ignore_permissions = True
+	settings.save()
+	frappe.db.commit()
+
+
 def create_test_unified_accounting_party(
 	members: list[tuple[str, str]],
 	*,

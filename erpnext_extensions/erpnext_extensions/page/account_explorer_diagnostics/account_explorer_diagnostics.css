@@ -1,0 +1,101 @@
+.account-explorer-diagnostics-page .aed-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	align-items: flex-end;
+	margin-bottom: 12px;
+}
+
+.account-explorer-diagnostics-page .aed-toolbar-actions {
+	display: inline-flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	align-items: center;
+	margin-inline-start: auto;
+}
+
+.account-explorer-diagnostics-page .aed-summary {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-bottom: 12px;
+}
+
+.account-explorer-diagnostics-page .aed-summary-chip {
+	border: 1px solid var(--border-color);
+	border-radius: var(--border-radius);
+	padding: 6px 10px;
+	font-size: var(--text-sm);
+}
+
+.account-explorer-diagnostics-page .aed-summary-chip.is-error {
+	border-color: var(--red-400);
+	color: var(--red-600);
+}
+
+.account-explorer-diagnostics-page .aed-summary-chip.is-warning {
+	border-color: var(--orange-400);
+	color: var(--orange-600);
+}
+
+.account-explorer-diagnostics-page .aed-panel {
+	border: 1px solid var(--border-color);
+	border-radius: var(--border-radius);
+	background: var(--card-bg, var(--control-bg));
+	margin-bottom: 12px;
+	padding: 12px;
+}
+
+.account-explorer-diagnostics-page .aed-panel-title {
+	font-weight: 600;
+	margin-bottom: 8px;
+}
+
+.account-explorer-diagnostics-page table.aed-grid {
+	width: 100%;
+	border-collapse: collapse;
+}
+
+.account-explorer-diagnostics-page table.aed-grid th,
+.account-explorer-diagnostics-page table.aed-grid td {
+	border-bottom: 1px solid var(--border-color);
+	padding: 8px;
+	text-align: start;
+	vertical-align: top;
+}
+
+.account-explorer-diagnostics-page table.aed-grid th {
+	font-weight: 600;
+	background: var(--subtle-fg);
+}
+
+.account-explorer-diagnostics-page .aed-severity-error {
+	color: var(--red-600);
+	font-weight: 600;
+}
+
+.account-explorer-diagnostics-page .aed-severity-warning {
+	color: var(--orange-600);
+	font-weight: 600;
+}
+
+.account-explorer-diagnostics-page .aed-severity-info {
+	color: var(--text-muted);
+}
+
+.account-explorer-diagnostics-page .aed-empty,
+.account-explorer-diagnostics-page .aed-disabled {
+	padding: 24px;
+	text-align: center;
+	color: var(--text-muted);
+}
+
+html[dir="rtl"] .account-explorer-diagnostics-page .aed-toolbar-actions {
+	margin-inline-start: 0;
+	margin-inline-end: auto;
+}
+
+html[dir="rtl"] .account-explorer-diagnostics-page table.aed-grid th,
+html[dir="rtl"] .account-explorer-diagnostics-page table.aed-grid td {
+	text-align: right;
+}

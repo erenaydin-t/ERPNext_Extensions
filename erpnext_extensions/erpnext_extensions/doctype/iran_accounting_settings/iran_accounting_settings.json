@@ -23,6 +23,7 @@
   "currency_analysis_enabled",
   "saved_views_enabled",
   "export_enabled",
+  "diagnostics_enabled",
   "column_break_wave2a",
   "account_explorer_party_sources",
   "section_default_behavior",
@@ -125,6 +126,13 @@
    "fieldname": "export_enabled",
    "fieldtype": "Check",
    "label": "Export Enabled"
+  },
+  {
+   "default": "0",
+   "description": "Enable the read-only Account Explorer diagnostics page for Accounts Manager.",
+   "fieldname": "diagnostics_enabled",
+   "fieldtype": "Check",
+   "label": "Diagnostics Enabled"
   },
   {
    "fieldname": "column_break_wave2a",
