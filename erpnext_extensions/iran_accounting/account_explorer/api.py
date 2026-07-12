@@ -171,6 +171,7 @@ def get_metadata() -> dict:
 	voucher_enabled = int(settings.voucher_analysis_enabled or 0)
 	unified_party_enabled = int(settings.unified_party_enabled or 0)
 	currency_enabled = int(settings.currency_analysis_enabled or 0)
+	saved_views_enabled = int(settings.saved_views_enabled or 0)
 	axes = [
 		{
 			"id": "account_level",
@@ -201,6 +202,7 @@ def get_metadata() -> dict:
 		"voucher_analysis_enabled": voucher_enabled,
 		"unified_party_enabled": unified_party_enabled,
 		"currency_analysis_enabled": currency_enabled,
+		"saved_views_enabled": saved_views_enabled,
 		"allow_gl_entry_navigation": int(settings.allow_gl_entry_navigation or 0),
 		"axes": axes,
 		"levels": levels,

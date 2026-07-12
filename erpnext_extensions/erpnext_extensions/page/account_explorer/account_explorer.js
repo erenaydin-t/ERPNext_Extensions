@@ -105,6 +105,41 @@ function ae_serialize_document_scope(scope) {
 	});
 }
 
+function ae_normalize_multi_value(value) {
+	if (value === null || value === undefined || value === "") {
+		return null;
+	}
+	if (Array.isArray(value)) {
+		const items = value.filter((item) => item !== null && item !== undefined && item !== "");
+		if (!items.length) {
+			return null;
+		}
+		return items.length === 1 ? items[0] : items;
+	}
+	return value;
+}
+
+function ae_scope_value_to_control(value) {
+	if (Array.isArray(value)) {
+		return value;
+	}
+	if (value) {
+		return [value];
+	}
+	return [];
+}
+
+function ae_clone_analysis_context(context) {
+	return {
+		...context,
+		account_scope: { ...(context.account_scope || {}) },
+		party_scope: { ...(context.party_scope || {}) },
+		unified_party_scope: { ...(context.unified_party_scope || {}) },
+		dimension_scope: { ...(context.dimension_scope || {}) },
+		voucher_scope: { ...(context.voucher_scope || {}) },
+	};
+}
+
 function ae_default_document_scope(overrides = {}) {
 	return {
 		company: null,
@@ -165,6 +200,8 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		this.show_optional_full_voucher_columns = false;
 		this.filter_panel_open = false;
 		this.filter_controls = {};
+		this.saved_views = [];
+		this.active_saved_view = null;
 
 		this.document_scope = ae_default_document_scope();
 
@@ -258,6 +295,9 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 				this.setup_toolbar();
 				this.render_navigator();
 				this.render_breadcrumbs();
+				if (this.metadata.saved_views_enabled) {
+					this.refresh_saved_views_list();
+				}
 			},
 		});
 	}
@@ -372,6 +412,10 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			.on("click", () => this.apply_scope())
 			.appendTo($toolbar_actions);
 
+		if (this.metadata.saved_views_enabled) {
+			this.setup_saved_views_ui($toolbar_actions);
+		}
+
 		this.setup_filter_panel(scopeDefaults);
 		this.update_advanced_filters_button();
 	}
@@ -379,6 +423,204 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 	get_scope_status_defaults() {
 		const scopeDefaults = (this.metadata?.defaults || {}).document_scope || this.metadata?.defaults || {};
 		return scopeDefaults.status || {};
+	}
+
+	setup_saved_views_ui($parent) {
+		const $group = $('<div class="ae-saved-views-group"></div>').appendTo($parent);
+		this.$saved_view_select = $('<select class="form-control input-sm ae-saved-view-select">')
+			.append($("<option>").val("").text(__("Load View")))
+			.on("change", () => {
+				const name = this.$saved_view_select.val();
+				if (name) {
+					this.load_saved_view(name);
+				}
+			})
+			.appendTo($group);
+		$('<button type="button" class="btn btn-default btn-sm">')
+			.text(__("Save View"))
+			.on("click", () => this.prompt_save_view())
+			.appendTo($group);
+		this.$delete_saved_view_btn = $('<button type="button" class="btn btn-default btn-sm">')
+			.text(__("Delete View"))
+			.prop("disabled", true)
+			.on("click", () => this.delete_active_saved_view())
+			.appendTo($group);
+	}
+
+	refresh_saved_views_list() {
+		if (!this.metadata?.saved_views_enabled || !this.$saved_view_select) {
+			return;
+		}
+		const company = this.document_scope.company || this.company_field?.get_value();
+		frappe.call({
+			method: `${this.api_base}.list_account_explorer_saved_views`,
+			args: { company },
+			callback: (r) => {
+				this.saved_views = r.message || [];
+				const current = this.active_saved_view?.name || "";
+				this.$saved_view_select.empty().append($("<option>").val("").text(__("Load View")));
+				this.saved_views.forEach((row) => {
+					this.$saved_view_select.append(
+						$("<option>").val(row.name).text(row.view_name).prop("selected", row.name === current)
+					);
+				});
+			},
+		});
+	}
+
+	build_presentation_state() {
+		return {
+			schema_version: 1,
+			visible_columns: this.get_default_visible_columns(),
+			sort_field: this.analysis_context.sort_field,
+			sort_order: this.analysis_context.sort_order,
+			page_size: this.analysis_context.page_size,
+			show_optional_full_voucher_columns: this.show_optional_full_voucher_columns ? 1 : 0,
+		};
+	}
+
+	build_saved_view_payload(view_name) {
+		this.sync_document_scope_from_controls();
+		return {
+			view_name,
+			company: this.document_scope.company,
+			document_scope: ae_clone_document_scope(this.document_scope),
+			analysis_context: ae_clone_analysis_context(this.analysis_context),
+			presentation: this.build_presentation_state(),
+		};
+	}
+
+	prompt_save_view() {
+		if (!this.metadata?.saved_views_enabled) {
+			return;
+		}
+		if (!this.document_scope.company) {
+			frappe.msgprint(__("Company is required before saving a view."));
+			return;
+		}
+		const default_name = this.active_saved_view?.view_name || "";
+		frappe.prompt(
+			[
+				{
+					fieldname: "view_name",
+					fieldtype: "Data",
+					label: __("View Name"),
+					reqd: 1,
+					default: default_name,
+				},
+			],
+			(values) => {
+				frappe.call({
+					method: `${this.api_base}.save_account_explorer_saved_view`,
+					args: { payload: this.build_saved_view_payload(values.view_name) },
+					freeze: true,
+					callback: (r) => {
+						this.active_saved_view = r.message || null;
+						this.$delete_saved_view_btn.prop("disabled", !this.active_saved_view);
+						this.refresh_saved_views_list();
+						frappe.show_alert(__("View saved."));
+					},
+				});
+			},
+			__("Save Current View"),
+			__("Save")
+		);
+	}
+
+	load_saved_view(name) {
+		frappe.call({
+			method: `${this.api_base}.get_account_explorer_saved_view`,
+			args: { name },
+			freeze: true,
+			callback: (r) => {
+				const view = r.message;
+				if (!view) {
+					return;
+				}
+				this.apply_saved_view_configuration(view);
+				this.active_saved_view = view;
+				this.$delete_saved_view_btn.prop("disabled", false);
+				if (this.$saved_view_select) {
+					this.$saved_view_select.val(view.name);
+				}
+			},
+		});
+	}
+
+	apply_saved_view_configuration(view) {
+		const scope = ae_default_document_scope(view.document_scope || {});
+		this.document_scope = scope;
+		if (this.company_field) {
+			this.company_field.set_value(scope.company || "");
+		}
+		if (this.fy_field) {
+			this.fy_field.set_value(scope.fiscal_year || "");
+		}
+		if (this.from_date_field) {
+			this.from_date_field.set_value(scope.from_date || "");
+		}
+		if (this.to_date_field) {
+			this.to_date_field.set_value(scope.to_date || "");
+		}
+		this.sync_filter_controls_from_document_scope(scope);
+
+		const analysis = view.analysis_context || {};
+		this.analysis_context = {
+			...this.analysis_context,
+			...analysis,
+			account_scope: { ...this.analysis_context.account_scope, ...(analysis.account_scope || {}) },
+			party_scope: { ...this.analysis_context.party_scope, ...(analysis.party_scope || {}) },
+			unified_party_scope: {
+				...this.analysis_context.unified_party_scope,
+				...(analysis.unified_party_scope || {}),
+			},
+			dimension_scope: {
+				...this.analysis_context.dimension_scope,
+				...(analysis.dimension_scope || {}),
+			},
+			voucher_scope: { ...this.analysis_context.voucher_scope, ...(analysis.voucher_scope || {}) },
+		};
+
+		const presentation = view.presentation || {};
+		if (presentation.sort_field) {
+			this.analysis_context.sort_field = presentation.sort_field;
+		}
+		if (presentation.sort_order) {
+			this.analysis_context.sort_order = presentation.sort_order;
+		}
+		if (presentation.page_size) {
+			this.analysis_context.page_size = presentation.page_size;
+		}
+		this.show_optional_full_voucher_columns = !!presentation.show_optional_full_voucher_columns;
+
+		this.breadcrumbs = [];
+		this.render_navigator();
+		this.render_breadcrumbs();
+		this.render_detail_header();
+		this.update_advanced_filters_button();
+		this.render_filter_summary();
+		this.apply_scope();
+	}
+
+	delete_active_saved_view() {
+		if (!this.active_saved_view?.name) {
+			return;
+		}
+		frappe.confirm(__("Delete saved view {0}?", [this.active_saved_view.view_name]), () => {
+			frappe.call({
+				method: `${this.api_base}.delete_account_explorer_saved_view`,
+				args: { name: this.active_saved_view.name },
+				callback: () => {
+					this.active_saved_view = null;
+					this.$delete_saved_view_btn.prop("disabled", true);
+					if (this.$saved_view_select) {
+						this.$saved_view_select.val("");
+					}
+					this.refresh_saved_views_list();
+					frappe.show_alert(__("View deleted."));
+				},
+			});
+		});
 	}
 
 	toggle_filter_panel(force_open = null) {
@@ -457,16 +699,15 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 
 		const accounting_body = this.make_filter_section(__("Accounting"));
 		this.filter_controls.account = this.make_filter_control(accounting_body, {
-			fieldtype: "Link",
+			fieldtype: "MultiSelectList",
 			label: __("Account"),
 			fieldname: "account",
 			options: "Account",
-			get_query: () => ({
-				filters: {
+			get_data: (txt) =>
+				frappe.db.get_link_options("Account", txt, {
 					company: this.document_scope.company || this.company_field?.get_value(),
 					is_group: 0,
-				},
-			}),
+				}),
 		});
 		const party_types = (this.metadata?.party_sources || [])
 			.filter((row) => row.enabled)
@@ -484,10 +725,17 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			}
 		);
 		this.filter_controls.party = this.make_filter_control(accounting_body, {
-			fieldtype: "Dynamic Link",
+			fieldtype: "MultiSelectList",
 			label: __("Party"),
 			fieldname: "party",
 			options: "party_type",
+			get_data: (txt) => {
+				const party_type = this.filter_controls.party_type?.get_value();
+				if (!party_type) {
+					return Promise.resolve([]);
+				}
+				return frappe.db.get_link_options(party_type, txt);
+			},
 		});
 
 		const dimensions_body = this.make_filter_section(__("Dimensions"));
@@ -496,16 +744,17 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			this.filter_controls.dimensions[dimension.fieldname] = this.make_filter_control(
 				dimensions_body,
 				{
-					fieldtype: "Link",
+					fieldtype: "MultiSelectList",
 					label: dimension.label || dimension.fieldname,
 					fieldname: dimension.fieldname,
 					options: dimension.document_type || dimension.fieldname,
-					get_query: () => {
+					get_data: (txt) => {
 						const filters = {};
-						if (this.document_scope.company && frappe.meta.has_field(dimension.document_type, "company")) {
-							filters.company = this.document_scope.company;
+						const company = this.document_scope.company || this.company_field?.get_value();
+						if (company && frappe.meta.has_field(dimension.document_type, "company")) {
+							filters.company = company;
 						}
-						return { filters };
+						return frappe.db.get_link_options(dimension.document_type, txt, filters);
 					},
 				},
 				() => {}
@@ -579,11 +828,11 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		this.filter_controls.against_voucher_type?.set_value(scope.voucher?.against_voucher_type || "");
 		this.filter_controls.against_voucher_no?.set_value(scope.voucher?.against_voucher_no || "");
 		this.filter_controls.reference_no?.set_value(scope.voucher?.reference_no || "");
-		this.filter_controls.account?.set_value(scope.accounting?.account || "");
+		this.filter_controls.account?.set_value(ae_scope_value_to_control(scope.accounting?.account));
 		this.filter_controls.party_type?.set_value(scope.accounting?.party_type || "");
-		this.filter_controls.party?.set_value(scope.accounting?.party || "");
+		this.filter_controls.party?.set_value(ae_scope_value_to_control(scope.accounting?.party));
 		Object.entries(this.filter_controls.dimensions || {}).forEach(([fieldname, control]) => {
-			control.set_value(scope.accounting_dimensions?.[fieldname] || "");
+			control.set_value(ae_scope_value_to_control(scope.accounting_dimensions?.[fieldname]));
 		});
 		this.filter_controls.currency_type?.set_value(scope.currency?.currency_type || "account_currency");
 		this.filter_controls.currency?.set_value(scope.currency?.currency || "");
@@ -611,13 +860,13 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			reference_no: this.filter_controls.reference_no?.get_value() || null,
 		};
 		this.document_scope.accounting = {
-			account: this.filter_controls.account?.get_value() || null,
+			account: ae_normalize_multi_value(this.filter_controls.account?.get_value()),
 			party_type: this.filter_controls.party_type?.get_value() || null,
-			party: this.filter_controls.party?.get_value() || null,
+			party: ae_normalize_multi_value(this.filter_controls.party?.get_value()),
 		};
 		const accounting_dimensions = {};
 		Object.entries(this.filter_controls.dimensions || {}).forEach(([fieldname, control]) => {
-			const value = control.get_value();
+			const value = ae_normalize_multi_value(control.get_value());
 			if (value) {
 				accounting_dimensions[fieldname] = value;
 			}
@@ -1689,4 +1938,7 @@ $.extend(erpnext_extensions.account_explorer, {
 	ae_clear_advanced_document_scope,
 	ae_count_active_document_scope_filters,
 	ae_serialize_document_scope,
+	ae_normalize_multi_value,
+	ae_scope_value_to_control,
+	ae_clone_analysis_context,
 });

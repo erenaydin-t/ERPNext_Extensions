@@ -98,3 +98,31 @@ def get_account_scope_preview(payload=None):
 	from erpnext_extensions.iran_accounting.account_explorer.api import get_account_scope_preview as _preview
 
 	return _preview(payload)
+
+
+@frappe.whitelist()
+def list_account_explorer_saved_views(company=None):
+	from erpnext_extensions.iran_accounting.account_explorer.saved_views import list_saved_views
+
+	return list_saved_views(company=company)
+
+
+@frappe.whitelist()
+def get_account_explorer_saved_view(name=None):
+	from erpnext_extensions.iran_accounting.account_explorer.saved_views import get_saved_view
+
+	return get_saved_view(name)
+
+
+@frappe.whitelist()
+def save_account_explorer_saved_view(payload=None):
+	from erpnext_extensions.iran_accounting.account_explorer.saved_views import save_saved_view
+
+	return save_saved_view(payload)
+
+
+@frappe.whitelist()
+def delete_account_explorer_saved_view(name=None):
+	from erpnext_extensions.iran_accounting.account_explorer.saved_views import delete_saved_view
+
+	return delete_saved_view(name)

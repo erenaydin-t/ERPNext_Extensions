@@ -57,6 +57,22 @@
 	margin-bottom: 8px;
 }
 
+.account-explorer-page .ae-saved-views-group {
+	display: inline-flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	align-items: center;
+}
+
+.account-explorer-page .ae-saved-view-select {
+	min-width: 180px;
+	max-width: 240px;
+}
+
+html[dir="rtl"] .account-explorer-page .ae-saved-views-group {
+	flex-direction: row-reverse;
+}
+
 .account-explorer-page .ae-filter-section-body .form-group {
 	margin-bottom: 0;
 }

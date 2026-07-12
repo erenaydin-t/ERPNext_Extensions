@@ -96,3 +96,12 @@ def assert_currency_analysis_enabled() -> None:
 			_("Currency analysis is not enabled. Configure Iran Accounting Settings."),
 			frappe.ValidationError,
 		)
+
+
+def assert_saved_views_enabled() -> None:
+	assert_feature_enabled()
+	if not frappe.get_single_value("Iran Accounting Settings", "saved_views_enabled"):
+		frappe.throw(
+			_("Saved views are not enabled. Configure Iran Accounting Settings."),
+			frappe.ValidationError,
+		)

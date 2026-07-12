@@ -97,6 +97,14 @@ def enable_wave2c_unified_party(*, include_wave2b: bool = True) -> None:
 	frappe.db.commit()
 
 
+def enable_saved_views() -> None:
+	settings = frappe.get_single("Iran Accounting Settings")
+	settings.saved_views_enabled = 1
+	settings.flags.ignore_permissions = True
+	settings.save()
+	frappe.db.commit()
+
+
 def create_test_unified_accounting_party(
 	members: list[tuple[str, str]],
 	*,

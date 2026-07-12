@@ -1,0 +1,114 @@
+{
+ "actions": [],
+ "allow_copy": 0,
+ "allow_rename": 1,
+ "autoname": "AESV-.#####",
+ "creation": "2026-07-12 00:00:00.000000",
+ "custom": 0,
+ "docstatus": 0,
+ "doctype": "DocType",
+ "document_type": "Setup",
+ "engine": "InnoDB",
+ "field_order": [
+  "view_name",
+  "company",
+  "section_configuration",
+  "document_scope",
+  "analysis_context",
+  "presentation"
+ ],
+ "fields": [
+  {
+   "fieldname": "view_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "View Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_configuration",
+   "fieldtype": "Section Break",
+   "label": "Configuration"
+  },
+  {
+   "description": "DocumentScope filter configuration only. Never store GL rows or totals.",
+   "fieldname": "document_scope",
+   "fieldtype": "JSON",
+   "label": "Document Scope",
+   "reqd": 1
+  },
+  {
+   "description": "AnalysisContext navigation configuration only.",
+   "fieldname": "analysis_context",
+   "fieldtype": "JSON",
+   "label": "Analysis Context",
+   "reqd": 1
+  },
+  {
+   "description": "Column, sort, and page presentation preferences.",
+   "fieldname": "presentation",
+   "fieldtype": "JSON",
+   "label": "Presentation",
+   "reqd": 1
+  }
+ ],
+ "links": [],
+ "modified": "2026-07-12 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "erpnext_extensions",
+ "name": "Account Explorer Saved View",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "if_owner": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User",
+   "share": 0,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "if_owner": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 0,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "if_owner": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Auditor",
+   "share": 0
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
