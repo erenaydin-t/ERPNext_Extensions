@@ -105,6 +105,24 @@ def enable_saved_views() -> None:
 	frappe.db.commit()
 
 
+def enable_export(*, threshold: int | None = None) -> None:
+	settings = frappe.get_single("Iran Accounting Settings")
+	settings.export_enabled = 1
+	if threshold is not None:
+		settings.export_background_threshold = threshold
+	settings.flags.ignore_permissions = True
+	settings.save()
+	frappe.db.commit()
+
+
+def disable_export() -> None:
+	settings = frappe.get_single("Iran Accounting Settings")
+	settings.export_enabled = 0
+	settings.flags.ignore_permissions = True
+	settings.save()
+	frappe.db.commit()
+
+
 def create_test_unified_accounting_party(
 	members: list[tuple[str, str]],
 	*,

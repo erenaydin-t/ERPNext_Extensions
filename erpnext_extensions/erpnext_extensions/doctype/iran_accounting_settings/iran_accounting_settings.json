@@ -22,6 +22,7 @@
   "unified_party_enabled",
   "currency_analysis_enabled",
   "saved_views_enabled",
+  "export_enabled",
   "column_break_wave2a",
   "account_explorer_party_sources",
   "section_default_behavior",
@@ -34,6 +35,7 @@
   "max_drill_down_rows",
   "section_performance",
   "server_page_size",
+  "export_background_threshold",
   "query_timeout_seconds",
   "metadata_cache_duration_seconds",
   "column_break_perf",
@@ -118,6 +120,13 @@
    "label": "Saved Views Enabled"
   },
   {
+   "default": "0",
+   "description": "Enable CSV and XLSX export on the Account Explorer page.",
+   "fieldname": "export_enabled",
+   "fieldtype": "Check",
+   "label": "Export Enabled"
+  },
+  {
    "fieldname": "column_break_wave2a",
    "fieldtype": "Column Break"
   },
@@ -182,6 +191,13 @@
    "fieldname": "server_page_size",
    "fieldtype": "Int",
    "label": "Server Page Size"
+  },
+  {
+   "default": "5000",
+   "description": "Exports larger than this row count are queued as background jobs.",
+   "fieldname": "export_background_threshold",
+   "fieldtype": "Int",
+   "label": "Export Background Threshold"
   },
   {
    "default": "30",

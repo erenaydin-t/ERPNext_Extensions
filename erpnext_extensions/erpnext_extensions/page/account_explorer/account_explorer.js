@@ -416,6 +416,8 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			this.setup_saved_views_ui($toolbar_actions);
 		}
 
+		this.setup_export_ui($toolbar_actions);
+
 		this.setup_filter_panel(scopeDefaults);
 		this.update_advanced_filters_button();
 	}
@@ -621,6 +623,83 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 				},
 			});
 		});
+	}
+
+	setup_export_ui($parent) {
+		const export_enabled = cint(this.metadata?.export_enabled);
+		const $group = $('<div class="ae-export-group btn-group"></div>').appendTo($parent);
+		this.$export_btn = $('<button type="button" class="btn btn-default btn-sm dropdown-toggle">')
+			.text(__("Export"))
+			.prop("disabled", !export_enabled)
+			.attr("data-toggle", "dropdown")
+			.attr("aria-haspopup", "true")
+			.attr("aria-expanded", "false")
+			.appendTo($group);
+
+		if (!export_enabled) {
+			this.$export_btn.attr("title", __("Export is disabled in Iran Accounting Settings."));
+		}
+
+		const $menu = $('<ul class="dropdown-menu dropdown-menu-right ae-export-menu"></ul>').appendTo($group);
+		["csv", "xlsx"].forEach((format) => {
+			$("<li>")
+				.append(
+					$("<a>")
+						.attr("href", "#")
+						.text(format.toUpperCase())
+						.on("click", (event) => {
+							event.preventDefault();
+							if (export_enabled) {
+								this.run_export(format);
+							}
+						})
+				)
+				.appendTo($menu);
+		});
+	}
+
+	run_export(file_format) {
+		if (!this.metadata?.export_enabled) {
+			frappe.msgprint(__("Export is disabled in Iran Accounting Settings."));
+			return;
+		}
+		if (this.analysis_context.detail_mode !== "summary") {
+			frappe.msgprint(__("Export is only supported for summary view."));
+			return;
+		}
+		this.sync_document_scope_from_controls();
+		if (!this.document_scope.company) {
+			frappe.msgprint(__("Company is required."));
+			return;
+		}
+		if (!this.document_scope.from_date || !this.document_scope.to_date) {
+			frappe.msgprint(__("From Date and To Date are required before exporting."));
+			return;
+		}
+
+		const payload = JSON.stringify(this.build_payload());
+		const args = {
+			payload,
+			file_format,
+		};
+		const threshold = cint(this.metadata.export_background_threshold || 5000);
+		const total_rows = cint(this.pagination?.total_rows || 0);
+
+		if (total_rows > threshold) {
+			frappe.call({
+				method: `${this.api_base}.export_account_explorer`,
+				args,
+				freeze: true,
+				freeze_message: __("Queuing export..."),
+				callback: (r) => {
+					const message = r.message?.message || __("Export queued in background.");
+					frappe.msgprint(message);
+				},
+			});
+			return;
+		}
+
+		open_url_post(`/api/method/${this.api_base}.export_account_explorer`, args);
 	}
 
 	toggle_filter_panel(force_open = null) {

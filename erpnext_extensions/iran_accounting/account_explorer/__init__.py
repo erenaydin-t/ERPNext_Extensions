@@ -126,3 +126,10 @@ def delete_account_explorer_saved_view(name=None):
 	from erpnext_extensions.iran_accounting.account_explorer.saved_views import delete_saved_view
 
 	return delete_saved_view(name)
+
+
+@frappe.whitelist()
+def export_account_explorer(payload=None, file_format="csv"):
+	from erpnext_extensions.iran_accounting.account_explorer.export import export_account_explorer as _export
+
+	return _export(payload, file_format)

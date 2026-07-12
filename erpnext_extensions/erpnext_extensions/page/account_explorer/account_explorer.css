@@ -69,6 +69,20 @@
 	max-width: 240px;
 }
 
+.account-explorer-page .ae-export-group {
+	display: inline-flex;
+	align-items: center;
+}
+
+.account-explorer-page .ae-export-menu {
+	min-width: 120px;
+}
+
+html[dir="rtl"] .account-explorer-page .ae-export-group .dropdown-menu {
+	left: 0;
+	right: auto;
+}
+
 html[dir="rtl"] .account-explorer-page .ae-saved-views-group {
 	flex-direction: row-reverse;
 }

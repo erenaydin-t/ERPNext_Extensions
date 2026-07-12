@@ -105,3 +105,19 @@ def assert_saved_views_enabled() -> None:
 			_("Saved views are not enabled. Configure Iran Accounting Settings."),
 			frappe.ValidationError,
 		)
+
+
+def assert_export_enabled() -> None:
+	assert_feature_enabled()
+	if not frappe.get_single_value("Iran Accounting Settings", "export_enabled"):
+		frappe.throw(
+			_("Export is not enabled. Configure Iran Accounting Settings."),
+			frappe.ValidationError,
+		)
+
+
+def assert_export_allowed() -> None:
+	assert_accounts_role()
+	if not frappe.has_permission("GL Entry", "read"):
+		frappe.throw(_("Not permitted to read GL Entry."), frappe.PermissionError)
+	assert_export_enabled()

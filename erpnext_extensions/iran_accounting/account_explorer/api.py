@@ -172,6 +172,10 @@ def get_metadata() -> dict:
 	unified_party_enabled = int(settings.unified_party_enabled or 0)
 	currency_enabled = int(settings.currency_analysis_enabled or 0)
 	saved_views_enabled = int(settings.saved_views_enabled or 0)
+	export_enabled = int(settings.export_enabled or 0)
+	export_background_threshold = int(
+		settings.export_background_threshold if settings.export_background_threshold is not None else 5000
+	)
 	axes = [
 		{
 			"id": "account_level",
@@ -203,6 +207,8 @@ def get_metadata() -> dict:
 		"unified_party_enabled": unified_party_enabled,
 		"currency_analysis_enabled": currency_enabled,
 		"saved_views_enabled": saved_views_enabled,
+		"export_enabled": export_enabled,
+		"export_background_threshold": export_background_threshold,
 		"allow_gl_entry_navigation": int(settings.allow_gl_entry_navigation or 0),
 		"axes": axes,
 		"levels": levels,
