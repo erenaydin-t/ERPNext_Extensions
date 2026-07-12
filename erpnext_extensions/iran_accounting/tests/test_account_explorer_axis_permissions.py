@@ -1,0 +1,73 @@
+# Copyright (c) 2026, Farbod Siyahpoosh and contributors
+
+from __future__ import annotations
+
+import unittest
+
+import frappe
+
+from erpnext_extensions.iran_accounting.account_explorer import api
+from erpnext_extensions.iran_accounting.tests.test_account_explorer_fixtures import (
+	build_payload,
+	current_fiscal_year,
+	enable_account_explorer,
+	enable_wave2a_analysis,
+	require_site,
+)
+
+
+class TestAccountExplorerAxisPermissions(unittest.TestCase):
+	def setUp(self):
+		self.company = require_site(self)
+		frappe.set_user("Administrator")
+		fy = current_fiscal_year(self.company)
+		if not fy:
+			self.skipTest("No fiscal year")
+		self.fiscal_year, self.from_date, self.to_date = fy
+
+	def test_party_axis_blocked_when_disabled(self):
+		enable_account_explorer()
+		settings = frappe.get_single("Iran Accounting Settings")
+		settings.party_analysis_enabled = 0
+		settings.flags.ignore_permissions = True
+		settings.save()
+		frappe.db.commit()
+
+		payload = build_payload(
+			self.company,
+			self.fiscal_year,
+			self.from_date,
+			self.to_date,
+			analysis={"view_axis": "party"},
+		)
+		with self.assertRaises(frappe.ValidationError):
+			api.get_party_summary(payload)
+
+	def test_dimension_axis_blocked_when_disabled(self):
+		enable_account_explorer()
+		settings = frappe.get_single("Iran Accounting Settings")
+		settings.dimension_analysis_enabled = 0
+		settings.flags.ignore_permissions = True
+		settings.save()
+		frappe.db.commit()
+
+		payload = build_payload(
+			self.company,
+			self.fiscal_year,
+			self.from_date,
+			self.to_date,
+			analysis={
+				"view_axis": "dimension",
+				"dimension_scope": {"dimension_field": "cost_center"},
+			},
+		)
+		with self.assertRaises(frappe.ValidationError):
+			api.get_dimension_summary(payload)
+
+	def test_metadata_includes_wave2a_axes(self):
+		enable_wave2a_analysis()
+		meta = api.get_metadata()
+		axis_ids = {axis["id"] for axis in meta.get("axes", [])}
+		self.assertIn("party", axis_ids)
+		self.assertIn("dimension", axis_ids)
+		self.assertTrue(meta.get("party_sources"))

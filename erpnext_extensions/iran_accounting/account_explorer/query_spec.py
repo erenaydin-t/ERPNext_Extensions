@@ -10,16 +10,26 @@ from frappe import _
 from frappe.utils import cint, getdate
 
 from erpnext_extensions.iran_accounting.account_explorer.account_scope import resolve_account_scope
-from erpnext_extensions.iran_accounting.account_explorer.constants import SORTABLE_FIELDS
+from erpnext_extensions.iran_accounting.account_explorer.constants import (
+	DIMENSION_SORTABLE_FIELDS,
+	PARTY_SORTABLE_FIELDS,
+	SORTABLE_FIELDS,
+	VIEW_AXES,
+)
+from erpnext_extensions.iran_accounting.account_explorer.dimension_discovery import validate_dimension_field
 from erpnext_extensions.iran_accounting.account_explorer.permissions import (
 	assert_accounts_role,
 	assert_company_allowed,
+	assert_dimension_analysis_enabled,
 	assert_feature_enabled,
+	assert_party_analysis_enabled,
 )
 from erpnext_extensions.iran_accounting.account_explorer.schemas import (
 	AccountExplorerQuerySpec,
 	AccountScope,
+	DimensionScope,
 	PaginationState,
+	PartyScope,
 )
 
 
@@ -98,6 +108,30 @@ def build_account_scope(raw: dict) -> AccountScope:
 	)
 
 
+def build_party_scope(raw: dict) -> PartyScope:
+	scope_raw = raw.get("party_scope") or {}
+	return PartyScope(
+		party_type=scope_raw.get("party_type") or None,
+		selected_party=scope_raw.get("selected_party") or None,
+	)
+
+
+def build_dimension_scope(raw: dict) -> DimensionScope:
+	scope_raw = raw.get("dimension_scope") or {}
+	return DimensionScope(
+		dimension_field=scope_raw.get("dimension_field") or None,
+		selected_value=scope_raw.get("selected_value"),
+	)
+
+
+def _sortable_fields_for_axis(view_axis: str):
+	if view_axis == "party":
+		return PARTY_SORTABLE_FIELDS
+	if view_axis == "dimension":
+		return DIMENSION_SORTABLE_FIELDS
+	return SORTABLE_FIELDS
+
+
 def AccountExplorerQuerySpec_from_client(
 	payload: Any, *, require_dates: bool = True
 ) -> AccountExplorerQuerySpec:
@@ -129,6 +163,19 @@ def AccountExplorerQuerySpec_from_client(
 		raise AccountExplorerValidationError(_("From Date cannot be greater than To Date"))
 
 	account_scope = build_account_scope(analysis)
+	party_scope = build_party_scope(analysis)
+	dimension_scope = build_dimension_scope(analysis)
+	view_axis = analysis.get("view_axis") or "account_level"
+	if view_axis not in VIEW_AXES:
+		raise AccountExplorerValidationError(_("Invalid analysis axis."))
+	if view_axis == "party":
+		assert_party_analysis_enabled()
+	if view_axis == "dimension":
+		assert_dimension_analysis_enabled()
+		if not dimension_scope.dimension_field:
+			raise AccountExplorerValidationError(_("Dimension field is required for dimension analysis."))
+		validate_dimension_field(dimension_scope.dimension_field)
+
 	level_sequence = analysis.get("level_sequence")
 	if level_sequence is not None:
 		level_sequence = cint(level_sequence) or None
@@ -162,7 +209,9 @@ def AccountExplorerQuerySpec_from_client(
 		),
 		hide_zero_rows=cint(document_scope.get("hide_zero_rows", defaults["hide_zero_rows"])),
 		account_scope=account_scope,
-		view_axis=analysis.get("view_axis") or "account_level",
+		party_scope=party_scope,
+		dimension_scope=dimension_scope,
+		view_axis=view_axis,
 		level_sequence=level_sequence,
 		pagination=PaginationState(
 			page=page,
@@ -173,7 +222,7 @@ def AccountExplorerQuerySpec_from_client(
 		presentation_currency=document_scope.get("presentation_currency") or "company",
 	)
 
-	if spec.pagination.sort_field not in SORTABLE_FIELDS:
+	if spec.pagination.sort_field not in _sortable_fields_for_axis(view_axis):
 		raise AccountExplorerValidationError(_("Invalid sort field."))
 
 	spec.included_account_names = resolve_account_scope(spec)

@@ -33,3 +33,21 @@ def assert_feature_enabled() -> None:
 			_("Account Explorer is not enabled. Configure Iran Accounting Settings."),
 			frappe.ValidationError,
 		)
+
+
+def assert_party_analysis_enabled() -> None:
+	assert_feature_enabled()
+	if not frappe.get_single_value("Iran Accounting Settings", "party_analysis_enabled"):
+		frappe.throw(
+			_("Party analysis is not enabled. Configure Iran Accounting Settings."),
+			frappe.ValidationError,
+		)
+
+
+def assert_dimension_analysis_enabled() -> None:
+	assert_feature_enabled()
+	if not frappe.get_single_value("Iran Accounting Settings", "dimension_analysis_enabled"):
+		frappe.throw(
+			_("Dimension analysis is not enabled. Configure Iran Accounting Settings."),
+			frappe.ValidationError,
+		)

@@ -29,6 +29,20 @@ def get_account_summary(payload=None):
 
 
 @frappe.whitelist()
+def get_party_summary(payload=None):
+	from erpnext_extensions.iran_accounting.account_explorer.api import get_party_summary as _summary
+
+	return _summary(payload)
+
+
+@frappe.whitelist()
+def get_dimension_summary(payload=None):
+	from erpnext_extensions.iran_accounting.account_explorer.api import get_dimension_summary as _summary
+
+	return _summary(payload)
+
+
+@frappe.whitelist()
 def get_account_scope_preview(payload=None):
 	from erpnext_extensions.iran_accounting.account_explorer.api import get_account_scope_preview as _preview
 

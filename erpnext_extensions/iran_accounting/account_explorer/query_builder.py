@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import frappe
 from frappe import _
-from frappe.utils import flt
 
 from erpnext_extensions.iran_accounting.account_explorer.account_hierarchy import (
 	account_matches_configured_level,
@@ -21,19 +20,20 @@ from erpnext_extensions.iran_accounting.account_explorer.account_scope import (
 )
 from erpnext_extensions.iran_accounting.account_explorer.constants import (
 	REAL_ACCOUNT_KEY_PREFIX,
+	SORTABLE_FIELDS,
 	VIRTUAL_UNCLASSIFIED_KEY,
 )
 from erpnext_extensions.iran_accounting.account_explorer.measures import (
 	add_measures,
 	finalize_measures,
 	row_has_activity,
-	sum_measure_rows,
 	zero_measures,
 )
 from erpnext_extensions.iran_accounting.account_explorer.opening_balance import (
 	get_account_wise_measures,
 	get_accounts_with_direct_gl_postings,
 )
+from erpnext_extensions.iran_accounting.account_explorer.pagination import paginate_summary_rows, sort_rows
 from erpnext_extensions.iran_accounting.account_explorer.schemas import AccountExplorerQuerySpec
 
 
@@ -113,27 +113,12 @@ def build_account_level_summary(spec: AccountExplorerQuerySpec) -> dict:
 	if spec.hide_zero_rows:
 		rows = [row for row in rows if row_has_activity(row)]
 
-	rows = _sort_rows(rows, spec)
-	total_rows = len(rows)
-	page = spec.pagination.page
-	page_size = spec.pagination.page_size
-	offset = (page - 1) * page_size
-	page_rows = rows[offset : offset + page_size]
-	totals = sum_measure_rows(rows)
-
-	return {
-		"rows": page_rows,
-		"totals": totals,
-		"pagination": {
-			"page": page,
-			"page_size": page_size,
-			"total_rows": total_rows,
-			"has_next": offset + page_size < total_rows,
-		},
-		"warnings": sorted(set(warnings)),
-		"level_sequence": int(level.sequence),
-		"level_title": level.title,
-	}
+	rows = sort_rows(rows, spec, SORTABLE_FIELDS)
+	result = paginate_summary_rows(rows, spec)
+	result["warnings"] = sorted(set(warnings))
+	result["level_sequence"] = int(level.sequence)
+	result["level_title"] = level.title
+	return result
 
 
 def _finalize_group_rows(groups: dict, level, accounts: list[dict], configured_lengths: set[int]) -> None:
@@ -173,23 +158,6 @@ def _finalize_group_rows(groups: dict, level, accounts: list[dict], configured_l
 					"selected_account": None,
 				}
 			)
-
-
-def _sort_rows(rows: list[dict], spec: AccountExplorerQuerySpec) -> list:
-	field = spec.pagination.sort_field
-	reverse = spec.pagination.sort_order == "desc"
-
-	def sort_key(row):
-		value = row.get(field)
-		if isinstance(value, int | float):
-			return (0, flt(value))
-		return (1, cstr_lower(value))
-
-	return sorted(rows, key=sort_key, reverse=reverse)
-
-
-def cstr_lower(value):
-	return (value or "").casefold()
 
 
 def _row_by_name(accounts: list[dict], name: str) -> dict:

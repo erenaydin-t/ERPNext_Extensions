@@ -6,6 +6,38 @@
 	margin-bottom: 12px;
 }
 
+.account-explorer-page .ae-nav {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	align-items: center;
+	margin-bottom: 8px;
+}
+
+.account-explorer-page .ae-nav-group {
+	display: inline-flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	align-items: center;
+}
+
+.account-explorer-page .ae-nav-tab.active {
+	border-color: var(--primary);
+	color: var(--primary);
+}
+
+.account-explorer-page .ae-nav-levels {
+	display: inline-flex;
+	flex-wrap: wrap;
+	gap: 2px;
+	margin-inline-start: 4px;
+}
+
+.account-explorer-page .ae-dimension-picker {
+	margin-bottom: 8px;
+	max-width: 280px;
+}
+
 .account-explorer-page .ae-toolbar .form-group {
 	margin-bottom: 0;
 	min-width: 160px;

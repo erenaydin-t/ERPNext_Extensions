@@ -15,6 +15,11 @@
   "metadata_cache_version",
   "column_break_ae",
   "account_explorer_levels",
+  "section_wave2a",
+  "party_analysis_enabled",
+  "dimension_analysis_enabled",
+  "column_break_wave2a",
+  "account_explorer_party_sources",
   "section_default_behavior",
   "default_include_cancelled",
   "default_hide_zero_rows",
@@ -60,6 +65,35 @@
    "fieldtype": "Table",
    "label": "Account Levels",
    "options": "Account Explorer Level"
+  },
+  {
+   "fieldname": "section_wave2a",
+   "fieldtype": "Section Break",
+   "label": "Multi-Axis Analysis (Wave 2A)"
+  },
+  {
+   "default": "0",
+   "description": "Enable native party analysis on the Account Explorer page.",
+   "fieldname": "party_analysis_enabled",
+   "fieldtype": "Check",
+   "label": "Party Analysis Enabled"
+  },
+  {
+   "default": "0",
+   "description": "Enable accounting dimension analysis on the Account Explorer page.",
+   "fieldname": "dimension_analysis_enabled",
+   "fieldtype": "Check",
+   "label": "Dimension Analysis Enabled"
+  },
+  {
+   "fieldname": "column_break_wave2a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "account_explorer_party_sources",
+   "fieldtype": "Table",
+   "label": "Party Sources",
+   "options": "Account Explorer Party Source"
   },
   {
    "fieldname": "section_default_behavior",

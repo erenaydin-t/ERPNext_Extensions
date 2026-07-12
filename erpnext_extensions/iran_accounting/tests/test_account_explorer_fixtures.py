@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
+
 import frappe
 
-from erpnext_extensions.iran_accounting.account_explorer.constants import DEFAULT_LEVELS
+from erpnext_extensions.iran_accounting.account_explorer.constants import DEFAULT_LEVELS, DEFAULT_PARTY_SOURCES
 
 
 def require_site(test_case) -> str | None:
@@ -37,6 +39,47 @@ def enable_account_explorer() -> None:
 	settings.flags.ignore_permissions = True
 	settings.save()
 	frappe.db.commit()
+
+
+def enable_wave2a_analysis(*, party: bool = True, dimension: bool = True) -> None:
+	enable_account_explorer()
+	settings = frappe.get_single("Iran Accounting Settings")
+	if party:
+		settings.party_analysis_enabled = 1
+	if dimension:
+		settings.dimension_analysis_enabled = 1
+	if not settings.account_explorer_party_sources:
+		for row in DEFAULT_PARTY_SOURCES:
+			settings.append(
+				"account_explorer_party_sources",
+				{
+					"sequence": row["sequence"],
+					"enabled": row["enabled"],
+					"party_type": row["party_type"],
+					"label": row["label"],
+					"label_fa": row.get("label_fa"),
+					"show_in_unified_party": 0,
+				},
+			)
+	settings.flags.ignore_permissions = True
+	settings.save()
+	frappe.db.commit()
+
+
+def build_payload(company, fiscal_year, from_date, to_date, analysis=None, document=None):
+	document_scope = {
+		"company": company,
+		"fiscal_year": fiscal_year,
+		"from_date": from_date,
+		"to_date": to_date,
+		"hide_zero_rows": 0,
+	}
+	if document:
+		document_scope.update(document)
+	analysis_context = {"view_axis": "account_level"}
+	if analysis:
+		analysis_context.update(analysis)
+	return json.dumps({"document_scope": document_scope, "analysis_context": analysis_context})
 
 
 def disable_account_explorer() -> None:

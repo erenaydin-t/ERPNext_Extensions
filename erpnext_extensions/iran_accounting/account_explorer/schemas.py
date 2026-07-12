@@ -17,6 +17,18 @@ class AccountScope:
 
 
 @dataclass
+class PartyScope:
+	party_type: str | None = None
+	selected_party: str | None = None
+
+
+@dataclass
+class DimensionScope:
+	dimension_field: str | None = None
+	selected_value: str | None = None
+
+
+@dataclass
 class PaginationState:
 	page: int = 1
 	page_size: int = 50
@@ -37,6 +49,8 @@ class AccountExplorerQuerySpec:
 	include_period_closing_vouchers: bool = False
 	hide_zero_rows: bool = True
 	account_scope: AccountScope = field(default_factory=AccountScope)
+	party_scope: PartyScope = field(default_factory=PartyScope)
+	dimension_scope: DimensionScope = field(default_factory=DimensionScope)
 	view_axis: str = "account_level"
 	level_sequence: int | None = None
 	pagination: PaginationState = field(default_factory=PaginationState)
