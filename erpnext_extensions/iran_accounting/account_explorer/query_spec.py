@@ -11,9 +11,12 @@ from frappe.utils import cint, getdate
 
 from erpnext_extensions.iran_accounting.account_explorer.account_scope import resolve_account_scope
 from erpnext_extensions.iran_accounting.account_explorer.constants import (
+	DETAIL_MODES,
 	DIMENSION_SORTABLE_FIELDS,
+	GL_GROUP_SORTABLE_FIELDS,
 	PARTY_SORTABLE_FIELDS,
 	SORTABLE_FIELDS,
+	VOUCHER_SORTABLE_FIELDS,
 	VIEW_AXES,
 )
 from erpnext_extensions.iran_accounting.account_explorer.dimension_discovery import validate_dimension_field
@@ -23,6 +26,7 @@ from erpnext_extensions.iran_accounting.account_explorer.permissions import (
 	assert_dimension_analysis_enabled,
 	assert_feature_enabled,
 	assert_party_analysis_enabled,
+	assert_voucher_analysis_enabled,
 )
 from erpnext_extensions.iran_accounting.account_explorer.schemas import (
 	AccountExplorerQuerySpec,
@@ -30,6 +34,7 @@ from erpnext_extensions.iran_accounting.account_explorer.schemas import (
 	DimensionScope,
 	PaginationState,
 	PartyScope,
+	VoucherScope,
 )
 
 
@@ -124,11 +129,33 @@ def build_dimension_scope(raw: dict) -> DimensionScope:
 	)
 
 
-def _sortable_fields_for_axis(view_axis: str):
+def build_voucher_scope(raw: dict) -> VoucherScope:
+	scope_raw = raw.get("voucher_scope") or {}
+	return VoucherScope(
+		voucher_type=scope_raw.get("voucher_type") or None,
+		voucher_no=scope_raw.get("voucher_no") or None,
+	)
+
+
+def _default_sort_field(view_axis: str, detail_mode: str = "summary") -> str:
+	if detail_mode == "grouped_gl":
+		return "account"
+	if view_axis == "voucher":
+		return "posting_date"
+	if view_axis == "party":
+		return "party_type"
+	return "display_code"
+
+
+def _sortable_fields_for_axis(view_axis: str, detail_mode: str = "summary"):
+	if detail_mode == "grouped_gl":
+		return GL_GROUP_SORTABLE_FIELDS
 	if view_axis == "party":
 		return PARTY_SORTABLE_FIELDS
 	if view_axis == "dimension":
 		return DIMENSION_SORTABLE_FIELDS
+	if view_axis == "voucher":
+		return VOUCHER_SORTABLE_FIELDS
 	return SORTABLE_FIELDS
 
 
@@ -165,9 +192,13 @@ def AccountExplorerQuerySpec_from_client(
 	account_scope = build_account_scope(analysis)
 	party_scope = build_party_scope(analysis)
 	dimension_scope = build_dimension_scope(analysis)
+	voucher_scope = build_voucher_scope(analysis)
 	view_axis = analysis.get("view_axis") or "account_level"
+	detail_mode = (analysis.get("detail_mode") or "summary").lower()
 	if view_axis not in VIEW_AXES:
 		raise AccountExplorerValidationError(_("Invalid analysis axis."))
+	if detail_mode not in DETAIL_MODES:
+		raise AccountExplorerValidationError(_("Invalid detail mode."))
 	if view_axis == "party":
 		assert_party_analysis_enabled()
 	if view_axis == "dimension":
@@ -175,6 +206,13 @@ def AccountExplorerQuerySpec_from_client(
 		if not dimension_scope.dimension_field:
 			raise AccountExplorerValidationError(_("Dimension field is required for dimension analysis."))
 		validate_dimension_field(dimension_scope.dimension_field)
+	if view_axis == "voucher" or detail_mode == "grouped_gl":
+		assert_voucher_analysis_enabled()
+	if detail_mode == "grouped_gl":
+		if not voucher_scope.voucher_type or not voucher_scope.voucher_no:
+			raise AccountExplorerValidationError(
+				_("Voucher type and voucher number are required for grouped GL detail.")
+			)
 
 	level_sequence = analysis.get("level_sequence")
 	if level_sequence is not None:
@@ -211,18 +249,20 @@ def AccountExplorerQuerySpec_from_client(
 		account_scope=account_scope,
 		party_scope=party_scope,
 		dimension_scope=dimension_scope,
+		voucher_scope=voucher_scope,
 		view_axis=view_axis,
+		detail_mode=detail_mode,
 		level_sequence=level_sequence,
 		pagination=PaginationState(
 			page=page,
 			page_size=page_size,
-			sort_field=(analysis.get("sort_field") or "display_code"),
+			sort_field=(analysis.get("sort_field") or _default_sort_field(view_axis, detail_mode)),
 			sort_order=(analysis.get("sort_order") or "asc").lower(),
 		),
 		presentation_currency=document_scope.get("presentation_currency") or "company",
 	)
 
-	if spec.pagination.sort_field not in _sortable_fields_for_axis(view_axis):
+	if spec.pagination.sort_field not in _sortable_fields_for_axis(view_axis, detail_mode):
 		raise AccountExplorerValidationError(_("Invalid sort field."))
 
 	spec.included_account_names = resolve_account_scope(spec)

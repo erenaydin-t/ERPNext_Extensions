@@ -147,3 +147,53 @@ html[dir="rtl"] .account-explorer-page .ae-pagination {
 html[dir="rtl"] .account-explorer-page .ae-toolbar .form-group {
 	text-align: right;
 }
+
+.account-explorer-page .ae-detail-header {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	align-items: center;
+	margin: 8px 0;
+	padding: 8px 10px;
+	background: var(--control-bg);
+	border-radius: var(--border-radius);
+}
+
+.account-explorer-page .ae-row-actions {
+	white-space: nowrap;
+}
+
+.account-explorer-page .ae-actions-col {
+	min-width: 140px;
+}
+
+.account-explorer-page .ae-warning-banner {
+	padding: 8px 10px;
+	border-radius: var(--border-radius);
+	background: var(--yellow-highlight-color, #fff7d3);
+	border: 1px solid var(--border-color);
+}
+
+.account-explorer-page .ae-warning-item {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.account-explorer-page .ae-warning-indicator {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 18px;
+	height: 18px;
+	border-radius: 50%;
+	background: var(--orange-500, #f0ad4e);
+	color: #fff;
+	font-weight: 700;
+	font-size: 12px;
+}
+
+html[dir="rtl"] .account-explorer-page .ae-detail-header,
+html[dir="rtl"] .account-explorer-page .ae-nav {
+	flex-direction: row-reverse;
+}

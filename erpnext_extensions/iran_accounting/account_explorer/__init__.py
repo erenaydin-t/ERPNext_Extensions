@@ -43,6 +43,27 @@ def get_dimension_summary(payload=None):
 
 
 @frappe.whitelist()
+def get_voucher_summary(payload=None):
+	from erpnext_extensions.iran_accounting.account_explorer.api import get_voucher_summary as _summary
+
+	return _summary(payload)
+
+
+@frappe.whitelist()
+def get_grouped_gl_entries(payload=None):
+	from erpnext_extensions.iran_accounting.account_explorer.api import get_grouped_gl_entries as _entries
+
+	return _entries(payload)
+
+
+@frappe.whitelist()
+def get_voucher_navigation_target(payload=None):
+	from erpnext_extensions.iran_accounting.account_explorer.api import get_voucher_navigation_target as _target
+
+	return _target(payload)
+
+
+@frappe.whitelist()
 def get_account_scope_preview(payload=None):
 	from erpnext_extensions.iran_accounting.account_explorer.api import get_account_scope_preview as _preview
 

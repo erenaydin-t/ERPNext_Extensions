@@ -51,3 +51,21 @@ def assert_dimension_analysis_enabled() -> None:
 			_("Dimension analysis is not enabled. Configure Iran Accounting Settings."),
 			frappe.ValidationError,
 		)
+
+
+def assert_voucher_analysis_enabled() -> None:
+	assert_feature_enabled()
+	if not frappe.get_single_value("Iran Accounting Settings", "voucher_analysis_enabled"):
+		frappe.throw(
+			_("Voucher analysis is not enabled. Configure Iran Accounting Settings."),
+			frappe.ValidationError,
+		)
+
+
+def assert_gl_navigation_allowed() -> None:
+	assert_feature_enabled()
+	if not frappe.get_single_value("Iran Accounting Settings", "allow_gl_entry_navigation"):
+		frappe.throw(
+			_("GL Entry navigation is disabled. Configure Iran Accounting Settings."),
+			frappe.ValidationError,
+		)

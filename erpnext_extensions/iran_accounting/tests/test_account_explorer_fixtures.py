@@ -66,6 +66,19 @@ def enable_wave2a_analysis(*, party: bool = True, dimension: bool = True) -> Non
 	frappe.db.commit()
 
 
+def enable_wave2b_voucher(*, include_wave2a: bool = True) -> None:
+	if include_wave2a:
+		enable_wave2a_analysis()
+	else:
+		enable_account_explorer()
+	settings = frappe.get_single("Iran Accounting Settings")
+	settings.voucher_analysis_enabled = 1
+	settings.allow_gl_entry_navigation = 1
+	settings.flags.ignore_permissions = True
+	settings.save()
+	frappe.db.commit()
+
+
 def build_payload(company, fiscal_year, from_date, to_date, analysis=None, document=None):
 	document_scope = {
 		"company": company,

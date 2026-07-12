@@ -18,6 +18,7 @@
   "section_wave2a",
   "party_analysis_enabled",
   "dimension_analysis_enabled",
+  "voucher_analysis_enabled",
   "column_break_wave2a",
   "account_explorer_party_sources",
   "section_default_behavior",
@@ -84,6 +85,13 @@
    "fieldname": "dimension_analysis_enabled",
    "fieldtype": "Check",
    "label": "Dimension Analysis Enabled"
+  },
+  {
+   "default": "0",
+   "description": "Enable voucher analysis and grouped GL detail on the Account Explorer page.",
+   "fieldname": "voucher_analysis_enabled",
+   "fieldtype": "Check",
+   "label": "Voucher Analysis Enabled"
   },
   {
    "fieldname": "column_break_wave2a",

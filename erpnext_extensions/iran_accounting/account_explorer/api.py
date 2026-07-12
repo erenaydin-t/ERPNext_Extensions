@@ -53,6 +53,32 @@ DIMENSION_COLUMNS = [
 	{"id": "credit_balance", "label": "Credit Balance", "fieldtype": "Currency", "width": 140},
 ]
 
+VOUCHER_COLUMNS = [
+	{"id": "posting_date", "label": "Posting Date", "fieldtype": "Date", "width": 110},
+	{"id": "voucher_type", "label": "Voucher Type", "fieldtype": "Data", "width": 130},
+	{"id": "voucher_no", "label": "Voucher No", "fieldtype": "Data", "width": 140},
+	{"id": "party_type", "label": "Party Type", "fieldtype": "Data", "width": 110},
+	{"id": "party_name", "label": "Party", "fieldtype": "Data", "width": 180},
+	{"id": "voucher_title", "label": "Title", "fieldtype": "Data", "width": 180},
+	{"id": "reference", "label": "Reference", "fieldtype": "Data", "width": 140},
+	{"id": "scoped_debit", "label": "Scoped Debit", "fieldtype": "Currency", "width": 130},
+	{"id": "scoped_credit", "label": "Scoped Credit", "fieldtype": "Currency", "width": 130},
+	{"id": "scoped_net", "label": "Scoped Net", "fieldtype": "Currency", "width": 130},
+	{"id": "full_voucher_debit", "label": "Full Voucher Debit", "fieldtype": "Currency", "width": 130},
+	{"id": "full_voucher_credit", "label": "Full Voucher Credit", "fieldtype": "Currency", "width": 130},
+]
+
+GL_GROUP_COLUMNS = [
+	{"id": "account", "label": "Account", "fieldtype": "Link", "width": 180},
+	{"id": "account_name", "label": "Account Name", "fieldtype": "Data", "width": 180},
+	{"id": "party_type", "label": "Party Type", "fieldtype": "Data", "width": 110},
+	{"id": "party_name", "label": "Party", "fieldtype": "Data", "width": 160},
+	{"id": "dimension_value", "label": "Dimension", "fieldtype": "Data", "width": 140},
+	{"id": "debit", "label": "Debit", "fieldtype": "Currency", "width": 120},
+	{"id": "credit", "label": "Credit", "fieldtype": "Currency", "width": 120},
+	{"id": "against", "label": "Against", "fieldtype": "Data", "width": 220},
+]
+
 
 def get_metadata() -> dict:
 	settings = frappe.get_single("Iran Accounting Settings")
@@ -103,6 +129,7 @@ def get_metadata() -> dict:
 
 	party_enabled = int(settings.party_analysis_enabled)
 	dimension_enabled = int(settings.dimension_analysis_enabled)
+	voucher_enabled = int(settings.voucher_analysis_enabled or 0)
 	axes = [
 		{
 			"id": "account_level",
@@ -112,12 +139,15 @@ def get_metadata() -> dict:
 		},
 		{"id": "party", "label": "Parties", "enabled": party_enabled},
 		{"id": "dimension", "label": "Dimensions", "enabled": dimension_enabled},
+		{"id": "voucher", "label": "Vouchers", "enabled": voucher_enabled},
 	]
 
 	return {
 		"enabled": int(settings.account_explorer_enabled),
 		"party_analysis_enabled": party_enabled,
 		"dimension_analysis_enabled": dimension_enabled,
+		"voucher_analysis_enabled": voucher_enabled,
+		"allow_gl_entry_navigation": int(settings.allow_gl_entry_navigation or 0),
 		"axes": axes,
 		"levels": levels,
 		"party_sources": party_sources,
@@ -138,6 +168,8 @@ def get_metadata() -> dict:
 		"columns": SUMMARY_COLUMNS,
 		"party_columns": PARTY_COLUMNS,
 		"dimension_columns": DIMENSION_COLUMNS,
+		"voucher_columns": VOUCHER_COLUMNS,
+		"gl_group_columns": GL_GROUP_COLUMNS,
 		"metadata_cache_version": int(settings.metadata_cache_version or 1),
 		"default_level_sequence": get_default_level_sequence(),
 	}
@@ -185,6 +217,32 @@ def get_dimension_summary(payload) -> dict:
 	return _summary_response(spec, DIMENSION_COLUMNS, result)
 
 
+def get_voucher_summary(payload) -> dict:
+	spec = AccountExplorerQuerySpec_from_client(payload, require_dates=True)
+	if spec.view_axis != "voucher" or spec.detail_mode != "summary":
+		frappe.throw(frappe._("Invalid axis for voucher summary."))
+	from erpnext_extensions.iran_accounting.account_explorer.voucher_summary import build_voucher_summary
+
+	result = build_voucher_summary(spec)
+	return _voucher_response(spec, VOUCHER_COLUMNS, result)
+
+
+def get_grouped_gl_entries(payload) -> dict:
+	spec = AccountExplorerQuerySpec_from_client(payload, require_dates=True)
+	if spec.detail_mode != "grouped_gl":
+		frappe.throw(frappe._("Invalid detail mode for grouped GL entries."))
+	from erpnext_extensions.iran_accounting.account_explorer.voucher_gl import build_grouped_gl_entries
+
+	result = build_grouped_gl_entries(spec)
+	return _grouped_gl_response(spec, GL_GROUP_COLUMNS, result)
+
+
+def get_voucher_navigation_target(payload) -> dict:
+	from erpnext_extensions.iran_accounting.account_explorer.voucher_navigation import resolve_voucher_navigation
+
+	return resolve_voucher_navigation(payload)
+
+
 def get_account_scope_preview(payload) -> dict:
 	spec = AccountExplorerQuerySpec_from_client(payload, require_dates=False)
 	if spec.requires_bounded_dates():
@@ -229,4 +287,29 @@ def _analysis_context_response(spec: AccountExplorerQuerySpec) -> dict:
 			"dimension_field": spec.dimension_scope.dimension_field,
 			"selected_value": spec.dimension_scope.selected_value,
 		},
+		"voucher_scope": {
+			"voucher_type": spec.voucher_scope.voucher_type,
+			"voucher_no": spec.voucher_scope.voucher_no,
+		},
+		"detail_mode": spec.detail_mode,
+	}
+
+
+def _voucher_response(spec: AccountExplorerQuerySpec, columns, result: dict) -> dict:
+	currency = frappe.get_cached_value("Company", spec.company, "default_currency")
+	return {
+		"columns": columns,
+		"currency": {"code": currency, "precision": frappe.defaults.get_global_default("currency_precision")},
+		"context": _analysis_context_response(spec),
+		**result,
+	}
+
+
+def _grouped_gl_response(spec: AccountExplorerQuerySpec, columns, result: dict) -> dict:
+	currency = frappe.get_cached_value("Company", spec.company, "default_currency")
+	return {
+		"columns": columns,
+		"currency": {"code": currency, "precision": frappe.defaults.get_global_default("currency_precision")},
+		"context": _analysis_context_response(spec),
+		**result,
 	}

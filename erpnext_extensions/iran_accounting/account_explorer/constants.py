@@ -30,7 +30,37 @@ PARTY_SORTABLE_FIELDS = SORTABLE_FIELDS | frozenset({"party_type", "party", "par
 
 DIMENSION_SORTABLE_FIELDS = SORTABLE_FIELDS | frozenset({"dimension_field", "dimension_value"})
 
-VIEW_AXES = frozenset({"account_level", "party", "dimension"})
+VOUCHER_SORTABLE_FIELDS = frozenset(
+	{
+		"posting_date",
+		"voucher_type",
+		"voucher_no",
+		"party_type",
+		"party",
+		"party_name",
+		"voucher_title",
+		"scoped_debit",
+		"scoped_credit",
+		"scoped_net",
+		"full_voucher_debit",
+		"full_voucher_credit",
+	}
+)
+
+GL_GROUP_SORTABLE_FIELDS = frozenset(
+	{
+		"account",
+		"account_name",
+		"party_type",
+		"party",
+		"debit",
+		"credit",
+	}
+)
+
+VIEW_AXES = frozenset({"account_level", "party", "dimension", "voucher"})
+
+DETAIL_MODES = frozenset({"summary", "grouped_gl"})
 
 VIRTUAL_UNCLASSIFIED_KEY = "virtual:unclassified"
 VIRTUAL_PREFIX_KEY_PREFIX = "virtual:prefix"

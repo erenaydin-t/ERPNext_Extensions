@@ -71,3 +71,30 @@ class TestAccountExplorerAxisPermissions(unittest.TestCase):
 		self.assertIn("party", axis_ids)
 		self.assertIn("dimension", axis_ids)
 		self.assertTrue(meta.get("party_sources"))
+
+	def test_voucher_axis_blocked_when_disabled(self):
+		enable_account_explorer()
+		settings = frappe.get_single("Iran Accounting Settings")
+		settings.voucher_analysis_enabled = 0
+		settings.flags.ignore_permissions = True
+		settings.save()
+		frappe.db.commit()
+
+		payload = build_payload(
+			self.company,
+			self.fiscal_year,
+			self.from_date,
+			self.to_date,
+			analysis={"view_axis": "voucher"},
+		)
+		with self.assertRaises(frappe.ValidationError):
+			api.get_voucher_summary(payload)
+
+	def test_metadata_includes_voucher_axis_when_enabled(self):
+		from erpnext_extensions.iran_accounting.tests.test_account_explorer_fixtures import enable_wave2b_voucher
+
+		enable_wave2b_voucher()
+		meta = api.get_metadata()
+		axis_ids = {axis["id"] for axis in meta.get("axes", [])}
+		self.assertIn("voucher", axis_ids)
+		self.assertTrue(meta.get("voucher_analysis_enabled"))

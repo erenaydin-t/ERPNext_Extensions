@@ -29,6 +29,12 @@ class DimensionScope:
 
 
 @dataclass
+class VoucherScope:
+	voucher_type: str | None = None
+	voucher_no: str | None = None
+
+
+@dataclass
 class PaginationState:
 	page: int = 1
 	page_size: int = 50
@@ -51,7 +57,9 @@ class AccountExplorerQuerySpec:
 	account_scope: AccountScope = field(default_factory=AccountScope)
 	party_scope: PartyScope = field(default_factory=PartyScope)
 	dimension_scope: DimensionScope = field(default_factory=DimensionScope)
+	voucher_scope: VoucherScope = field(default_factory=VoucherScope)
 	view_axis: str = "account_level"
+	detail_mode: str = "summary"
 	level_sequence: int | None = None
 	pagination: PaginationState = field(default_factory=PaginationState)
 	presentation_currency: str = "company"
