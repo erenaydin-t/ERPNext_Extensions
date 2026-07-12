@@ -73,9 +73,8 @@ def preview_delete_imported_pdc(pdc_name: str) -> dict[str, Any]:
 		"allowed": bool(audit.get("safe_to_unlink_and_delete")) and bool(coi_items),
 		"pdc_name": pdc_name,
 		"pdc": pdc,
-		"cheque_opening_import": (coi_items[0].parent if coi_items else None) or (pdc or {}).get(
-			"opening_import"
-		),
+		"cheque_opening_import": (coi_items[0].parent if coi_items else None)
+		or (pdc or {}).get("opening_import"),
 		"row_number": coi_items[0].row_number if coi_items else None,
 		"coi_items": rows_for_ui,
 		"audit_summary": {
@@ -102,20 +101,14 @@ def delete_imported_pdc_from_ui(pdc_name: str, reason: str) -> dict[str, Any]:
 	preview = preview_delete_imported_pdc(pdc_name)
 	if not preview.get("allowed"):
 		raise PDCImportCleanupError(
-			_("Cannot delete imported PDC. Blockers:\n{0}").format(
-				"\n".join(preview.get("blockers") or [])
-			)
+			_("Cannot delete imported PDC. Blockers:\n{0}").format("\n".join(preview.get("blockers") or []))
 		)
 
 	try:
-		result = unlink_opening_import_and_delete_pdc(
-			pdc_name, reason, permission_check=False
-		)
+		result = unlink_opening_import_and_delete_pdc(pdc_name, reason, permission_check=False)
 	except PDCImportCleanupError:
 		raise
-	_add_cheque_opening_import_timeline_comments(
-		result.get("unlinked_import_items") or [], pdc_name, reason
-	)
+	_add_cheque_opening_import_timeline_comments(result.get("unlinked_import_items") or [], pdc_name, reason)
 	return {
 		"ok": True,
 		"message": _("Imported PDC deleted successfully."),
@@ -127,9 +120,7 @@ def _add_cheque_opening_import_timeline_comments(
 	unlinked_items: list[dict[str, Any]], pdc_name: str, reason: str
 ) -> None:
 	user = frappe.session.user
-	text = _("Imported PDC {0} was deleted by {1}. Reason: {2}").format(
-		pdc_name, user, reason
-	)
+	text = _("Imported PDC {0} was deleted by {1}. Reason: {2}").format(pdc_name, user, reason)
 	parents = sorted({row.get("parent") for row in unlinked_items if row.get("parent")})
 	for parent in parents:
 		if not frappe.db.exists("Cheque Opening Import", parent):

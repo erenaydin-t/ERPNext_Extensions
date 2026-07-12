@@ -14,7 +14,11 @@ from erpnext_extensions.iran_accounting.domain.qty_rate_amount import (
 )
 from erpnext_extensions.iran_accounting.e2e_bootstrap import ensure_test_item, get_irr_company, get_warehouse
 from erpnext_extensions.iran_accounting.qty_rate_consistency import check_qty_rate_amount_consistency
-from erpnext_extensions.iran_accounting.rounding import amount_is_fractional, get_company_currency, round_row_amount
+from erpnext_extensions.iran_accounting.rounding import (
+	amount_is_fractional,
+	get_company_currency,
+	round_row_amount,
+)
 from erpnext_extensions.iran_accounting.stock_reconciliation_debug import _create_opening_sr
 
 

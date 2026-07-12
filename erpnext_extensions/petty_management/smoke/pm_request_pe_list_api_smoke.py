@@ -40,7 +40,9 @@ def execute() -> dict[str, Any]:
 		)
 		out["pm_request"] = req
 		out["row_count"] = len((rows or {}).get("payment_entries") or []) if isinstance(rows, dict) else -1
-		out["response_version_id"] = (rows or {}).get("response_version_id") if isinstance(rows, dict) else None
+		out["response_version_id"] = (
+			(rows or {}).get("response_version_id") if isinstance(rows, dict) else None
+		)
 		out["http_equivalent"] = 200
 		out["pass"] = isinstance(rows, dict) and out["row_count"] >= 1 and bool(out["response_version_id"])
 		frappe.db.commit()

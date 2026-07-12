@@ -6,6 +6,11 @@ from frappe.model.document import Document
 from frappe.utils import cint, flt, getdate, today
 
 from erpnext_extensions.petty_management.services.allocation_service import validate_request_allocations
+from erpnext_extensions.petty_management.services.clearance_action_policy import (
+	sync_clearance_lifecycle,
+	sync_clearance_lifecycle_if_stale,
+	validate_pm_clearance_workflow_change,
+)
 from erpnext_extensions.petty_management.services.constants import (
 	EPSILON,
 	FUNDING_SOURCE_OPENING_ADVANCE,
@@ -13,7 +18,6 @@ from erpnext_extensions.petty_management.services.constants import (
 	SETTLEMENT_PI,
 	SETTLEMENT_SA,
 )
-from erpnext_extensions.petty_management.services.opening_advance_service import allocation_row_funding_source_type
 from erpnext_extensions.petty_management.services.holder_service import (
 	clearance_exclude_name_for_validation,
 	clearance_petty_cash_account,
@@ -22,10 +26,8 @@ from erpnext_extensions.petty_management.services.holder_service import (
 	get_holder_petty_cash_account,
 	sync_clearance_holder_fields,
 )
-from erpnext_extensions.petty_management.services.clearance_action_policy import (
-	sync_clearance_lifecycle,
-	sync_clearance_lifecycle_if_stale,
-	validate_pm_clearance_workflow_change,
+from erpnext_extensions.petty_management.services.opening_advance_service import (
+	allocation_row_funding_source_type,
 )
 from erpnext_extensions.petty_management.utils import get_pm_settings
 
@@ -165,7 +167,9 @@ def before_cancel_clearance(doc: Document) -> None:
 	je_ds = cint(frappe.db.get_value("Journal Entry", doc.journal_entry, "docstatus"))
 	if je_ds == 1:
 		frappe.throw(
-			_("Cancel the settlement Journal Entry ({0}) before cancelling this clearance.").format(doc.journal_entry),
+			_("Cancel the settlement Journal Entry ({0}) before cancelling this clearance.").format(
+				doc.journal_entry
+			),
 			title=_("Journal Entry submitted"),
 		)
 
@@ -236,13 +240,21 @@ def validate_duplicate_settlement_targets(doc: Document) -> None:
 			if not row.purchase_invoice:
 				continue
 			if row.purchase_invoice in seen_pi:
-				frappe.throw(_("Purchase Invoice {0} cannot appear on more than one line.").format(row.purchase_invoice), title=_("Duplicate Purchase Invoice"))
+				frappe.throw(
+					_("Purchase Invoice {0} cannot appear on more than one line.").format(
+						row.purchase_invoice
+					),
+					title=_("Duplicate Purchase Invoice"),
+				)
 			seen_pi.add(row.purchase_invoice)
 		elif st == SETTLEMENT_SA:
 			if not row.purchase_order:
 				continue
 			if row.purchase_order in seen_po:
-				frappe.throw(_("Purchase Order {0} cannot appear on more than one line.").format(row.purchase_order), title=_("Duplicate Purchase Order"))
+				frappe.throw(
+					_("Purchase Order {0} cannot appear on more than one line.").format(row.purchase_order),
+					title=_("Duplicate Purchase Order"),
+				)
 			seen_po.add(row.purchase_order)
 
 
@@ -251,14 +263,20 @@ def validate_and_stamp_pi_rows(doc: Document) -> None:
 		if (row.settlement_type or SETTLEMENT_PI).strip() != SETTLEMENT_PI:
 			continue
 		if not row.purchase_invoice:
-			frappe.throw(_("Row {0}: Purchase Invoice is required for Purchase Invoice settlement.").format(row.idx))
+			frappe.throw(
+				_("Row {0}: Purchase Invoice is required for Purchase Invoice settlement.").format(row.idx)
+			)
 		if row.reference_doctype and row.reference_doctype != "Purchase Invoice":
-			frappe.throw(_("Line {0}: only Purchase Invoice is supported for this settlement type.").format(row.idx))
+			frappe.throw(
+				_("Line {0}: only Purchase Invoice is supported for this settlement type.").format(row.idx)
+			)
 		row.reference_doctype = "Purchase Invoice"
 		pi = frappe.get_doc("Purchase Invoice", row.purchase_invoice)
 		if cint(pi.docstatus) == 2:
 			frappe.throw(
-				_("Row {0}: Purchase Invoice {1} is cancelled and cannot be settled.").format(row.idx, row.purchase_invoice),
+				_("Row {0}: Purchase Invoice {1} is cancelled and cannot be settled.").format(
+					row.idx, row.purchase_invoice
+				),
 				title=_("Invalid Purchase Invoice"),
 			)
 		if cint(pi.docstatus) != 1:
@@ -279,7 +297,11 @@ def validate_and_stamp_pi_rows(doc: Document) -> None:
 		if flt(row.allocated_amount) <= 0:
 			frappe.throw(_("Row {0}: Allocated Amount must be greater than zero.").format(row.idx))
 		if flt(row.allocated_amount) > flt(pi.outstanding_amount) + EPSILON:
-			frappe.throw(_("Row {0}: allocated amount cannot exceed Purchase Invoice outstanding ({1}).").format(row.idx, pi.outstanding_amount))
+			frappe.throw(
+				_("Row {0}: allocated amount cannot exceed Purchase Invoice outstanding ({1}).").format(
+					row.idx, pi.outstanding_amount
+				)
+			)
 
 
 def validate_and_stamp_supplier_advance_rows(doc: Document) -> None:
@@ -302,12 +324,14 @@ def validate_and_stamp_supplier_advance_rows(doc: Document) -> None:
 			["company", "account_type", "is_group"],
 		) or (None, None, None)
 		if acc_co and acc_co != doc.company:
-			frappe.throw(_("Row {0}: Supplier Advance Account must belong to the clearance company.").format(row.idx))
+			frappe.throw(
+				_("Row {0}: Supplier Advance Account must belong to the clearance company.").format(row.idx)
+			)
 		if cint(acc_is_group):
 			frappe.throw(
-				_("Row {0}: Supplier Advance Account {1} is a group account; select a ledger account.").format(
-					row.idx, row.supplier_advance_account
-				),
+				_(
+					"Row {0}: Supplier Advance Account {1} is a group account; select a ledger account."
+				).format(row.idx, row.supplier_advance_account),
 				title=_("Invalid Supplier Advance Account"),
 			)
 		# The settlement JE records the supplier advance against the Purchase Order with a
@@ -395,4 +419,3 @@ def prepare_doc_for_je_preview(doc: Document) -> None:
 	calc_line_totals(doc)
 	calc_parent_totals(doc)
 	validate_request_allocations(doc)
-

@@ -19,6 +19,7 @@ def run():
 		frappe.throw("Missing Company / Bank Account / Supplier for E2E")
 
 	import openpyxl
+
 	from erpnext_extensions.cheque_management.doctype.cheque_opening_import.cheque_opening_import import (
 		TEMPLATE_HEADERS,
 	)
@@ -32,25 +33,25 @@ def run():
 	ws.title = "Data"
 	ws.append(TEMPLATE_HEADERS)
 	data_row = [
-			"Payable",
-			company,
-			bank,
-			"",
-			f"OB-LARGE-{suffix}",
-			date.today(),
-			TARGET_AMOUNT_STR,
-			"Supplier",
-			supplier,
-			"Draft",
-			None,
-			None,
-			None,
-			None,
-			None,
-			None,
-			None,
-			f"SAYAD-LARGE-{suffix}",
-			None,
+		"Payable",
+		company,
+		bank,
+		"",
+		f"OB-LARGE-{suffix}",
+		date.today(),
+		TARGET_AMOUNT_STR,
+		"Supplier",
+		supplier,
+		"Draft",
+		None,
+		None,
+		None,
+		None,
+		None,
+		None,
+		None,
+		f"SAYAD-LARGE-{suffix}",
+		None,
 	]
 	ws.append(data_row)
 	amt_col = TEMPLATE_HEADERS.index("cheque_amount") + 1

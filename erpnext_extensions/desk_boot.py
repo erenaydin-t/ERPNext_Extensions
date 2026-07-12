@@ -27,6 +27,4 @@ def extend_bootinfo(bootinfo) -> None:
 	)
 	states = get_payment_request_settlement_eligible_workflow_states()
 	# ``None`` = no Workflow on PR → client falls back to ``docstatus == 1`` (classic ERPNext).
-	bootinfo.pdc_pr_settlement_eligible_workflow_states = (
-		list(states) if states is not None else None
-	)
+	bootinfo.pdc_pr_settlement_eligible_workflow_states = list(states) if states is not None else None

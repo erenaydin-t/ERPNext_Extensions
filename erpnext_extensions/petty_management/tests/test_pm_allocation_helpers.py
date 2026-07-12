@@ -96,6 +96,8 @@ def run_allocation_validation(cl) -> None:
 
 
 def normalize_funding_rows(cl) -> None:
-	from erpnext_extensions.petty_management.services.clearance_service import normalize_funding_allocation_rows
+	from erpnext_extensions.petty_management.services.clearance_service import (
+		normalize_funding_allocation_rows,
+	)
 
 	normalize_funding_allocation_rows(cl)

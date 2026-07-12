@@ -33,7 +33,10 @@ def prepare_receipt_je_with_dimensions():
 	bank = ensure_bank_master()
 	settings = get_facility_settings_doc(company)
 	bank_gl = (settings and settings.get("default_bank_account")) or frappe.db.get_value(
-		"Account", {"company": company, "account_type": "Bank", "is_group": 0}, "name", order_by="creation asc"
+		"Account",
+		{"company": company, "account_type": "Bank", "is_group": 0},
+		"name",
+		order_by="creation asc",
 	)
 	loan = (settings and settings.get("default_loan_payable_account")) or None
 	if not loan:
@@ -47,9 +50,14 @@ def prepare_receipt_je_with_dimensions():
 				loan = row.name
 				break
 	deferred = (settings and settings.get("default_deferred_loan_interest_account")) or frappe.db.get_value(
-		"Account", {"company": company, "root_type": "Liability", "is_group": 0}, "name", order_by="creation asc"
+		"Account",
+		{"company": company, "root_type": "Liability", "is_group": 0},
+		"name",
+		order_by="creation asc",
 	)
-	dept = frappe.db.get_value("Department", {"company": company, "is_group": 0}, "name", order_by="creation asc")
+	dept = frappe.db.get_value(
+		"Department", {"company": company, "is_group": 0}, "name", order_by="creation asc"
+	)
 	bank_dim = (settings and settings.get("default_bank_dimension")) or bank
 	bank_acct_dim = (settings and settings.get("default_bank_account_dimension")) or frappe.db.get_value(
 		"Bank Account", {"company": company}, "name", order_by="creation asc"

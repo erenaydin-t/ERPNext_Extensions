@@ -68,7 +68,9 @@ def execute() -> None:
 			TARGET_SCALE,
 		)
 
-		if (cur_p is not None and cur_p >= TARGET_PRECISION) and (cur_s is not None and cur_s >= TARGET_SCALE):
+		if (cur_p is not None and cur_p >= TARGET_PRECISION) and (
+			cur_s is not None and cur_s >= TARGET_SCALE
+		):
 			return
 
 		db.sql(

@@ -448,7 +448,10 @@ function pdc_list_wrap_filter_list_apply(listview) {
 		const had_invalid = pdc_list_remove_invalid_empty_filters_sync(listview);
 		if (had_invalid) {
 			frappe.show_alert(
-				{ message: __("Filter value is required for this condition."), indicator: "orange" },
+				{
+					message: __("Filter value is required for this condition."),
+					indicator: "orange",
+				},
 				4
 			);
 		}
@@ -496,7 +499,9 @@ function pdc_list_bind_invalid_filter_cleanup(listview) {
 				return;
 			}
 			state.invalid_filter_cleanup_done = true;
-			const changed = await pdc_list_remove_invalid_empty_filters(listview, { refresh: false });
+			const changed = await pdc_list_remove_invalid_empty_filters(listview, {
+				refresh: false,
+			});
 			if (changed) {
 				await listview.refresh();
 			}
@@ -570,7 +575,8 @@ erpnext_extensions.cheque_management.pdc_list_view.sanitize_filter_tuples =
 	pdc_list_sanitize_filter_tuples;
 erpnext_extensions.cheque_management.pdc_list_view.filter_tuple_has_invalid_empty_value =
 	pdc_list_filter_tuple_has_invalid_empty_value;
-erpnext_extensions.cheque_management.pdc_list_view.reset_reconcile_state = pdc_list_reset_reconcile_state;
+erpnext_extensions.cheque_management.pdc_list_view.reset_reconcile_state =
+	pdc_list_reset_reconcile_state;
 
 erpnext_extensions.cheque_management.pdc_list_view.run_filter_e2e = async function (listview) {
 	const results = [];
@@ -596,7 +602,9 @@ erpnext_extensions.cheque_management.pdc_list_view.run_filter_e2e = async functi
 	push(
 		"A_empty_id_equals_removed",
 		(listview.data?.length ?? 0) > 0 &&
-			!args_a.some((f) => f[1] === "name" && f[2] === "=" && pdc_list_is_filter_value_empty(f[3])) &&
+			!args_a.some(
+				(f) => f[1] === "name" && f[2] === "=" && pdc_list_is_filter_value_empty(f[3])
+			) &&
 			(debug_a.filter_list_meta || []).every(
 				(m) => !(m.fieldname === "name" && pdc_list_is_filter_value_empty(m.value))
 			),
@@ -613,7 +621,8 @@ erpnext_extensions.cheque_management.pdc_list_view.run_filter_e2e = async functi
 		const args_b = listview.get_filters_for_args();
 		push(
 			"B_valid_id_filter_kept",
-			args_b.some((f) => f[1] === "name" && f[3] === sample_name) && (listview.data?.length ?? 0) >= 1,
+			args_b.some((f) => f[1] === "name" && f[3] === sample_name) &&
+				(listview.data?.length ?? 0) >= 1,
 			{ args: args_b, rows: listview.data?.length }
 		);
 		await listview.filter_area.clear(true);
@@ -631,7 +640,8 @@ erpnext_extensions.cheque_management.pdc_list_view.run_filter_e2e = async functi
 	const args_c = listview.get_filters_for_args();
 	push(
 		"C_is_set_filter_kept",
-		args_c.some((f) => f[1] === "name" && f[2] === "is" && f[3] === "set") && (listview.data?.length ?? 0) > 0,
+		args_c.some((f) => f[1] === "name" && f[2] === "is" && f[3] === "set") &&
+			(listview.data?.length ?? 0) > 0,
 		{ args: args_c }
 	);
 	await listview.filter_area.clear(true);
@@ -660,11 +670,9 @@ erpnext_extensions.cheque_management.pdc_list_view.run_filter_e2e = async functi
 		[PDC_DOCTYPE, "name", "=", ""],
 		[PDC_DOCTYPE, "workflow_state", "=", "Registered"],
 	]);
-	push(
-		"E_sanitize_drops_only_invalid",
-		san_e.length === 1 && san_e[0][1] === "workflow_state",
-		{ san_e }
-	);
+	push("E_sanitize_drops_only_invalid", san_e.length === 1 && san_e[0][1] === "workflow_state", {
+		san_e,
+	});
 
 	// F — invalid empty equals row removed from FilterGroup after cleanup
 	pdc_list_reset_reconcile_state(listview);
@@ -695,9 +703,12 @@ frappe.listview_settings[PDC_DOCTYPE] = {
 		const cs = (doc.cheque_status || "").trim();
 		const state = ws || cs;
 
-		const red = ["Bounced", "Returned", "Returned to Customer", "Returned from Payee"].includes(
-			state
-		);
+		const red = [
+			"Bounced",
+			"Returned",
+			"Returned to Customer",
+			"Returned from Payee",
+		].includes(state);
 		const green = ["Cleared"].includes(state);
 		const orange = ["Sent to Bank", "In Clearing"].includes(state) || cs === "In Clearing";
 		const blue = ["Registered", "Issued"].includes(state);
@@ -773,13 +784,19 @@ frappe.listview_settings[PDC_DOCTYPE] = {
 		});
 
 		listview.page.add_menu_item(__("In Clearing"), () => {
-			pdc_list_apply_filters(listview, [[PDC_DOCTYPE, "cheque_status", "=", "In Clearing"]], {
-				clear: true,
-			});
+			pdc_list_apply_filters(
+				listview,
+				[[PDC_DOCTYPE, "cheque_status", "=", "In Clearing"]],
+				{
+					clear: true,
+				}
+			);
 		});
 
 		listview.page.add_menu_item(__("At Bank"), () => {
-			pdc_list_apply_filters(listview, [[PDC_DOCTYPE, "is_at_bank", "=", 1]], { clear: true });
+			pdc_list_apply_filters(listview, [[PDC_DOCTYPE, "is_at_bank", "=", 1]], {
+				clear: true,
+			});
 		});
 
 		const refresh_counts = async () => {
@@ -796,7 +813,10 @@ frappe.listview_settings[PDC_DOCTYPE] = {
 					}),
 				]);
 				listview.page.set_indicator(
-					__("Receivable At Bank: {0} · Overdue Receivable: {1}", [at_bank || 0, overdue_recv || 0]),
+					__("Receivable At Bank: {0} · Overdue Receivable: {1}", [
+						at_bank || 0,
+						overdue_recv || 0,
+					]),
 					(overdue_recv || 0) > 0 ? "orange" : "blue"
 				);
 			} catch (e) {

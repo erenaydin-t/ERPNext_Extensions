@@ -9,6 +9,13 @@ from unittest.mock import patch
 import frappe
 
 import erpnext_extensions.cheque_management.pdc_open_advance as pdc_adv
+from erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque import (
+	build_pdc_journal_entry_data,
+)
+from erpnext_extensions.cheque_management.pdc_allocation import ALLOCATION_MODE_ADVANCE
+from erpnext_extensions.cheque_management.pdc_journal_entry_service import (
+	create_and_submit_journal_entry_from_payload,
+)
 from erpnext_extensions.cheque_management.pdc_open_advance import get_pdc_open_advance_instrument
 from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
 	CHEQUE_DIRECTION_PAYABLE,
@@ -17,10 +24,6 @@ from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
 	WORKFLOW_ISSUED,
 	WORKFLOW_REGISTERED,
 )
-from erpnext_extensions.cheque_management.pdc_journal_entry_service import create_and_submit_journal_entry_from_payload
-from erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque import build_pdc_journal_entry_data
-from erpnext_extensions.cheque_management.pdc_allocation import ALLOCATION_MODE_ADVANCE
-
 
 POSTING = date(2026, 4, 2)
 
@@ -60,7 +63,12 @@ class TestPDCAdvanceRecognitionService(unittest.TestCase):
 		with (
 			patch(
 				"erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque._get_pdc_settings_for_company",
-				return_value=SimpleNamespace(get=lambda k: {"default_cheques_in_hand_account": "ACC-CIH", "default_payable_cheque_account": "ACC-POOL"}.get(k)),
+				return_value=SimpleNamespace(
+					get=lambda k: {
+						"default_cheques_in_hand_account": "ACC-CIH",
+						"default_payable_cheque_account": "ACC-POOL",
+					}.get(k)
+				),
 			),
 			patch(
 				"erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque._company_default_advance_received_account",
@@ -92,15 +100,44 @@ class TestPDCAdvanceRecognitionService(unittest.TestCase):
 			return fake_je
 
 		with ExitStack() as stack:
-			stack.enter_context(patch("erpnext_extensions.cheque_management.pdc_journal_entry_service.filelock", _no_filelock))
-			stack.enter_context(patch("erpnext_extensions.cheque_management.pdc_journal_entry_service.frappe.new_doc", side_effect=_new_doc))
-			stack.enter_context(patch("erpnext_extensions.cheque_management.pdc_journal_entry_service.frappe.utils.today", return_value="2026-04-02"))
-			stack.enter_context(patch("erpnext_extensions.cheque_management.pdc_journal_entry_service.frappe.throw", side_effect=AssertionError))
-			stack.enter_context(patch("erpnext_extensions.cheque_management.pdc_journal_entry_service.frappe.flags", SimpleNamespace()))
-			stack.enter_context(patch("erpnext_extensions.cheque_management.pdc_journal_entry_service.get_existing_journal_entry_for_transition", return_value=None))
+			stack.enter_context(
+				patch("erpnext_extensions.cheque_management.pdc_journal_entry_service.filelock", _no_filelock)
+			)
+			stack.enter_context(
+				patch(
+					"erpnext_extensions.cheque_management.pdc_journal_entry_service.frappe.new_doc",
+					side_effect=_new_doc,
+				)
+			)
+			stack.enter_context(
+				patch(
+					"erpnext_extensions.cheque_management.pdc_journal_entry_service.frappe.utils.today",
+					return_value="2026-04-02",
+				)
+			)
+			stack.enter_context(
+				patch(
+					"erpnext_extensions.cheque_management.pdc_journal_entry_service.frappe.throw",
+					side_effect=AssertionError,
+				)
+			)
+			stack.enter_context(
+				patch(
+					"erpnext_extensions.cheque_management.pdc_journal_entry_service.frappe.flags",
+					SimpleNamespace(),
+				)
+			)
+			stack.enter_context(
+				patch(
+					"erpnext_extensions.cheque_management.pdc_journal_entry_service.get_existing_journal_entry_for_transition",
+					return_value=None,
+				)
+			)
 			# The service calls pdc.reload internally.
 			stack.enter_context(patch.object(pdc_doc, "reload", lambda: None))
-			create_and_submit_journal_entry_from_payload(pdc_doc, je_payload, WORKFLOW_DRAFT, WORKFLOW_REGISTERED)
+			create_and_submit_journal_entry_from_payload(
+				pdc_doc, je_payload, WORKFLOW_DRAFT, WORKFLOW_REGISTERED
+			)
 		self.assertEqual(int(pdc_doc.recognition_je_posted), 1)
 
 		# Task 3 open advance should now show gross/open = cheque_amount (no applications).
@@ -116,7 +153,9 @@ class TestPDCAdvanceRecognitionService(unittest.TestCase):
 			sql=lambda *a, **k: [],
 			table_exists=lambda *a, **k: False,
 		)
-		fake_frappe = SimpleNamespace(db=fake_db, throw=lambda msg, *a, **k: (_ for _ in ()).throw(AssertionError(msg)))
+		fake_frappe = SimpleNamespace(
+			db=fake_db, throw=lambda msg, *a, **k: (_ for _ in ()).throw(AssertionError(msg))
+		)
 		with (
 			patch.object(pdc_adv, "frappe", fake_frappe),
 			patch.object(pdc_adv, "_", lambda s: s),
@@ -137,11 +176,18 @@ class TestPDCAdvanceRecognitionService(unittest.TestCase):
 			journal_references=[],
 			reload=lambda: None,
 		)
-		payload = {"accounts": [{"account": "A", "debit_in_account_currency": 1.0}], "set_recognition_je_posted": 1}
+		payload = {
+			"accounts": [{"account": "A", "debit_in_account_currency": 1.0}],
+			"set_recognition_je_posted": 1,
+		}
 		with (
 			patch("erpnext_extensions.cheque_management.pdc_journal_entry_service.filelock", _no_filelock),
-			patch("erpnext_extensions.cheque_management.pdc_journal_entry_service.get_existing_journal_entry_for_transition", return_value="JV-EXIST"),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_journal_entry_service.get_existing_journal_entry_for_transition",
+				return_value="JV-EXIST",
+			),
 		):
-			je = create_and_submit_journal_entry_from_payload(pdc_doc, payload, WORKFLOW_REGISTERED, WORKFLOW_ISSUED)
+			je = create_and_submit_journal_entry_from_payload(
+				pdc_doc, payload, WORKFLOW_REGISTERED, WORKFLOW_ISSUED
+			)
 		self.assertEqual(je, "JV-EXIST")
-

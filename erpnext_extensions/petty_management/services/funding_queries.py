@@ -5,7 +5,6 @@ from __future__ import annotations
 import frappe
 from frappe.utils import cint, flt
 
-
 _EPS = 1e-6
 
 

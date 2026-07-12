@@ -26,11 +26,26 @@ class TestPdcSettlementSummaryPaymentRequest(unittest.TestCase):
 		}
 		meta = MagicMock()
 		meta.has_field = lambda f: f in ("grand_total", "outstanding_amount")
-		fake_db = type("DB", (), {"exists": staticmethod(lambda dt, nm: True), "get_value": staticmethod(lambda *a, **k: row)})()
-		fake_frappe = type("F", (), {"db": fake_db, "has_permission": staticmethod(lambda *a, **k: True), "get_meta": staticmethod(lambda dt: meta)})()
-		with patch.object(pss, "frappe", fake_frappe), patch(
-			"erpnext_extensions.cheque_management.pdc_settlement_summary.is_payment_request_settlement_eligible",
-			return_value=False,
+		fake_db = type(
+			"DB",
+			(),
+			{"exists": staticmethod(lambda dt, nm: True), "get_value": staticmethod(lambda *a, **k: row)},
+		)()
+		fake_frappe = type(
+			"F",
+			(),
+			{
+				"db": fake_db,
+				"has_permission": staticmethod(lambda *a, **k: True),
+				"get_meta": staticmethod(lambda dt: meta),
+			},
+		)()
+		with (
+			patch.object(pss, "frappe", fake_frappe),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_settlement_summary.is_payment_request_settlement_eligible",
+				return_value=False,
+			),
 		):
 			s = pss.get_settlement_summary_for_reference("Payment Request", "ACC-PRQ-2026-00025")
 		self.assertIsNotNone(s)
@@ -51,17 +66,34 @@ class TestPdcSettlementSummaryPaymentRequest(unittest.TestCase):
 		}
 		meta = MagicMock()
 		meta.has_field = lambda f: f in ("grand_total", "outstanding_amount")
-		fake_db = type("DB", (), {"exists": staticmethod(lambda dt, nm: True), "get_value": staticmethod(lambda *a, **k: row)})()
-		fake_frappe = type("F", (), {"db": fake_db, "has_permission": staticmethod(lambda *a, **k: True), "get_meta": staticmethod(lambda dt: meta)})()
-		with patch.object(pss, "frappe", fake_frappe), patch(
-			"erpnext_extensions.cheque_management.pdc_settlement_summary.is_payment_request_settlement_eligible",
-			return_value=True,
-		), patch(
-			"erpnext_extensions.cheque_management.pdc_settlement_summary.sum_payment_entry_allocations_to_payment_request",
-			return_value=30.0,
-		), patch(
-			"erpnext_extensions.cheque_management.pdc_settlement_summary.sum_effective_pdc_allocations_to_reference",
-			return_value=20.0,
+		fake_db = type(
+			"DB",
+			(),
+			{"exists": staticmethod(lambda dt, nm: True), "get_value": staticmethod(lambda *a, **k: row)},
+		)()
+		fake_frappe = type(
+			"F",
+			(),
+			{
+				"db": fake_db,
+				"has_permission": staticmethod(lambda *a, **k: True),
+				"get_meta": staticmethod(lambda dt: meta),
+			},
+		)()
+		with (
+			patch.object(pss, "frappe", fake_frappe),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_settlement_summary.is_payment_request_settlement_eligible",
+				return_value=True,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_settlement_summary.sum_payment_entry_allocations_to_payment_request",
+				return_value=30.0,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_settlement_summary.sum_effective_pdc_allocations_to_reference",
+				return_value=20.0,
+			),
 		):
 			s = pss.get_settlement_summary_for_reference("Payment Request", "PR-1")
 		self.assertIsNotNone(s)
@@ -83,24 +115,47 @@ class TestPdcSettlementSummaryWorkflowStateOptional(unittest.TestCase):
 		meta = MagicMock()
 		meta.has_field = lambda f: f in ("grand_total", "outstanding_amount")  # workflow_state absent
 		m_get_value = MagicMock(return_value=row)
-		fake_db = type("DB", (), {"exists": staticmethod(lambda dt, nm: True), "get_value": staticmethod(lambda *a, **k: m_get_value(*a, **k))})()
-		fake_frappe = type("F", (), {"db": fake_db, "has_permission": staticmethod(lambda *a, **k: True), "get_meta": staticmethod(lambda dt: meta)})()
-		with patch.object(pss, "frappe", fake_frappe), patch(
-			"erpnext_extensions.cheque_management.pdc_settlement_summary.sum_payment_entry_allocations_to_reference",
-			return_value=0.0,
-		), patch(
-			"erpnext_extensions.cheque_management.pdc_settlement_summary.sum_effective_pdc_allocations_to_reference",
-			return_value=0.0,
-		), patch(
-			"erpnext_extensions.cheque_management.pdc_settlement_summary.sum_effective_pdc_allocations_via_payment_request_to_invoice",
-			return_value=0.0,
-		), patch(
-			"erpnext_extensions.cheque_management.pdc_settlement_summary.get_invoice_ledger_outstanding",
-			return_value=20.0,
-		), patch(
-			"erpnext_extensions.cheque_management.pdc_settlement_summary.get_remaining_settlement_capacity",
-			return_value=20.0,
-		), patch.object(pss, "_sum_net_pdc_advance_applied_on_invoice", return_value=20000.0):
+		fake_db = type(
+			"DB",
+			(),
+			{
+				"exists": staticmethod(lambda dt, nm: True),
+				"get_value": staticmethod(lambda *a, **k: m_get_value(*a, **k)),
+			},
+		)()
+		fake_frappe = type(
+			"F",
+			(),
+			{
+				"db": fake_db,
+				"has_permission": staticmethod(lambda *a, **k: True),
+				"get_meta": staticmethod(lambda dt: meta),
+			},
+		)()
+		with (
+			patch.object(pss, "frappe", fake_frappe),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_settlement_summary.sum_payment_entry_allocations_to_reference",
+				return_value=0.0,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_settlement_summary.sum_effective_pdc_allocations_to_reference",
+				return_value=0.0,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_settlement_summary.sum_effective_pdc_allocations_via_payment_request_to_invoice",
+				return_value=0.0,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_settlement_summary.get_invoice_ledger_outstanding",
+				return_value=20.0,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_settlement_summary.get_remaining_settlement_capacity",
+				return_value=20.0,
+			),
+			patch.object(pss, "_sum_net_pdc_advance_applied_on_invoice", return_value=20000.0),
+		):
 			s = pss.get_settlement_summary_for_reference("Sales Invoice", "SINV-1")
 
 		self.assertIsNotNone(s)
@@ -150,25 +205,33 @@ class TestPdcSettlementSummaryAdvanceAppliedLine(unittest.TestCase):
 				"get_meta": staticmethod(lambda dt: meta),
 			},
 		)()
-		with patch.object(pss, "frappe", fake_frappe), patch(
-			"erpnext_extensions.cheque_management.pdc_settlement_summary.sum_payment_entry_allocations_to_reference",
-			return_value=0.0,
-		), patch(
-			"erpnext_extensions.cheque_management.pdc_settlement_summary.sum_effective_pdc_allocations_to_reference",
-			return_value=0.0,
-		), patch(
-			"erpnext_extensions.cheque_management.pdc_settlement_summary.sum_effective_pdc_allocations_via_payment_request_to_invoice",
-			return_value=0.0,
-		), patch(
-			"erpnext_extensions.cheque_management.pdc_settlement_summary.get_invoice_ledger_outstanding",
-			return_value=30000.0,
-		), patch(
-			"erpnext_extensions.cheque_management.pdc_settlement_summary.get_remaining_settlement_capacity",
-			return_value=30000.0,
-		), patch(
-			"erpnext_extensions.cheque_management.pdc_settlement_summary.frappe.db.get_value",
-			side_effect=lambda doctype, name, field: (
-				"ADV-PAID" if (doctype == "Company" and field == "default_advance_paid_account") else None
+		with (
+			patch.object(pss, "frappe", fake_frappe),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_settlement_summary.sum_payment_entry_allocations_to_reference",
+				return_value=0.0,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_settlement_summary.sum_effective_pdc_allocations_to_reference",
+				return_value=0.0,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_settlement_summary.sum_effective_pdc_allocations_via_payment_request_to_invoice",
+				return_value=0.0,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_settlement_summary.get_invoice_ledger_outstanding",
+				return_value=30000.0,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_settlement_summary.get_remaining_settlement_capacity",
+				return_value=30000.0,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_settlement_summary.frappe.db.get_value",
+				side_effect=lambda doctype, name, field: (
+					"ADV-PAID" if (doctype == "Company" and field == "default_advance_paid_account") else None
+				),
 			),
 		):
 			s = get_settlement_summary_for_reference("Purchase Invoice", "PINV-1")
@@ -213,25 +276,35 @@ class TestPdcSettlementSummaryAdvanceAppliedLine(unittest.TestCase):
 				"get_meta": staticmethod(lambda dt: meta),
 			},
 		)()
-		with patch.object(pss, "frappe", fake_frappe), patch(
-			"erpnext_extensions.cheque_management.pdc_settlement_summary.sum_payment_entry_allocations_to_reference",
-			return_value=0.0,
-		), patch(
-			"erpnext_extensions.cheque_management.pdc_settlement_summary.sum_effective_pdc_allocations_to_reference",
-			return_value=0.0,
-		), patch(
-			"erpnext_extensions.cheque_management.pdc_settlement_summary.sum_effective_pdc_allocations_via_payment_request_to_invoice",
-			return_value=0.0,
-		), patch(
-			"erpnext_extensions.cheque_management.pdc_settlement_summary.get_invoice_ledger_outstanding",
-			return_value=30000.0,
-		), patch(
-			"erpnext_extensions.cheque_management.pdc_settlement_summary.get_remaining_settlement_capacity",
-			return_value=30000.0,
-		), patch(
-			"erpnext_extensions.cheque_management.pdc_settlement_summary.frappe.db.get_value",
-			side_effect=lambda doctype, name, field: (
-				"ADV-REC" if (doctype == "Company" and field == "default_advance_received_account") else None
+		with (
+			patch.object(pss, "frappe", fake_frappe),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_settlement_summary.sum_payment_entry_allocations_to_reference",
+				return_value=0.0,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_settlement_summary.sum_effective_pdc_allocations_to_reference",
+				return_value=0.0,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_settlement_summary.sum_effective_pdc_allocations_via_payment_request_to_invoice",
+				return_value=0.0,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_settlement_summary.get_invoice_ledger_outstanding",
+				return_value=30000.0,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_settlement_summary.get_remaining_settlement_capacity",
+				return_value=30000.0,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_settlement_summary.frappe.db.get_value",
+				side_effect=lambda doctype, name, field: (
+					"ADV-REC"
+					if (doctype == "Company" and field == "default_advance_received_account")
+					else None
+				),
 			),
 		):
 			s = get_settlement_summary_for_reference("Sales Invoice", "SINV-2")

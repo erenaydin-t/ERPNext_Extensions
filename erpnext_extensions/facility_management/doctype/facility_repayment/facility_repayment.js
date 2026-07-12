@@ -28,7 +28,11 @@ frappe.ui.form.on("Facility Repayment", {
 			erpnext_extensions.facility_management.defaults.init_form(frm);
 		}
 		if (can_preview_repayment(frm)) {
-			frm.add_custom_button(__("Preview Journal Entry"), () => preview_repayment_je(frm), __("Actions"));
+			frm.add_custom_button(
+				__("Preview Journal Entry"),
+				() => preview_repayment_je(frm),
+				__("Actions")
+			);
 		}
 	},
 	facility(frm) {
@@ -72,8 +76,7 @@ function recalculate_total_payment(frm) {
 
 function preview_repayment_je(frm) {
 	frappe.call({
-		method:
-			"erpnext_extensions.facility_management.doctype.facility_repayment.facility_repayment.preview_repayment_journal_entry",
+		method: "erpnext_extensions.facility_management.doctype.facility_repayment.facility_repayment.preview_repayment_journal_entry",
 		args: { doc: frm.doc },
 		freeze: true,
 		callback(r) {

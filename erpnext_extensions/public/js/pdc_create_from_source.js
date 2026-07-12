@@ -69,8 +69,9 @@ erpnext_extensions.cheque_management.ensure_si_pi_pdc_create_button = function (
 	}
 	if (
 		frm._pdc_settlement_ready &&
-		(parseFloat(frm._pdc_settlement_summary && frm._pdc_settlement_summary.remaining_balance) || 0) <=
-			PDC_SI_PI_CAPACITY_EPS
+		(parseFloat(
+			frm._pdc_settlement_summary && frm._pdc_settlement_summary.remaining_balance
+		) || 0) <= PDC_SI_PI_CAPACITY_EPS
 	) {
 		return;
 	}
@@ -85,7 +86,10 @@ PDC_CREATE_SOURCE_DOCTYPES.forEach((dt) => {
 	frappe.ui.form.on(dt, {
 		refresh(frm) {
 			// Defer: never interfere with ERPNext's own Create menu build.
-			setTimeout(() => erpnext_extensions.cheque_management.ensure_si_pi_pdc_create_button(frm), 0);
+			setTimeout(
+				() => erpnext_extensions.cheque_management.ensure_si_pi_pdc_create_button(frm),
+				0
+			);
 		},
 	});
 });

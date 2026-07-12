@@ -46,17 +46,9 @@ class TestPDCAccountingLedgerPrecisionColumns(unittest.TestCase):
 
 	def test_patch_idempotent(self):
 		expand_pdc_accounting_ledger_execute()
-		before = {
-			(t, c): (p, s)
-			for t, c, p, s in audit_required_columns()
-			if p is not None
-		}
+		before = {(t, c): (p, s) for t, c, p, s in audit_required_columns() if p is not None}
 		expand_pdc_accounting_ledger_execute()
-		after = {
-			(t, c): (p, s)
-			for t, c, p, s in audit_required_columns()
-			if p is not None
-		}
+		after = {(t, c): (p, s) for t, c, p, s in audit_required_columns() if p is not None}
 		self.assertEqual(before, after)
 
 	def test_payment_ledger_at_target_after_patch(self):

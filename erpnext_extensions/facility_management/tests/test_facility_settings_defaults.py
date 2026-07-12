@@ -111,11 +111,19 @@ class TestFacilityDefaultsIntegration(unittest.TestCase):
 		fs_name = frappe.db.get_value("Facility Settings", {"company": company}, "name")
 		fs = frappe.get_doc("Facility Settings", fs_name)
 		bank = frappe.db.get_value("Bank", {}, "name", order_by="creation asc")
-		override_bank = frappe.db.get_value(
-			"Account",
-			{"company": company, "account_type": "Bank", "is_group": 0, "name": ("!=", fs.default_bank_account)},
-			"name",
-		) or fs.default_bank_account
+		override_bank = (
+			frappe.db.get_value(
+				"Account",
+				{
+					"company": company,
+					"account_type": "Bank",
+					"is_group": 0,
+					"name": ("!=", fs.default_bank_account),
+				},
+				"name",
+			)
+			or fs.default_bank_account
+		)
 
 		doc = frappe.new_doc("Facility")
 		doc.facility_name = f"Override Test {random_string(5)}"

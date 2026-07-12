@@ -10,11 +10,29 @@ def execute(filters=None):
 	filters = frappe._dict(filters or {})
 
 	columns = [
-		{"label": "PDC", "fieldname": "pdc", "fieldtype": "Link", "options": "Post Dated Cheque", "width": 140},
+		{
+			"label": "PDC",
+			"fieldname": "pdc",
+			"fieldtype": "Link",
+			"options": "Post Dated Cheque",
+			"width": 140,
+		},
 		{"label": "Cheque Direction", "fieldname": "cheque_direction", "fieldtype": "Data", "width": 110},
-		{"label": "Party", "fieldname": "party", "fieldtype": "Dynamic Link", "options": "party_type", "width": 180},
+		{
+			"label": "Party",
+			"fieldname": "party",
+			"fieldtype": "Dynamic Link",
+			"options": "party_type",
+			"width": 180,
+		},
 		{"label": "Company", "fieldname": "company", "fieldtype": "Link", "options": "Company", "width": 140},
-		{"label": "Bank Account", "fieldname": "bank_account", "fieldtype": "Link", "options": "Bank Account", "width": 140},
+		{
+			"label": "Bank Account",
+			"fieldname": "bank_account",
+			"fieldtype": "Link",
+			"options": "Bank Account",
+			"width": 140,
+		},
 		{"label": "Cheque No", "fieldname": "cheque_no", "fieldtype": "Data", "width": 120},
 		{"label": "Due Date", "fieldname": "cheque_due_date", "fieldtype": "Date", "width": 110},
 		{"label": "Amount", "fieldname": "cheque_amount", "fieldtype": "Currency", "width": 120},
@@ -124,4 +142,3 @@ def execute(filters=None):
 		)
 
 	return columns, data
-

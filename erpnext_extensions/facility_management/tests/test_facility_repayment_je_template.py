@@ -43,32 +43,40 @@ class TestRepaymentJeTemplateUnit(unittest.TestCase):
 			def get(self, k, default=None):
 				return getattr(self, k, default)
 
-		with mock.patch(
-			"erpnext_extensions.facility_management.facility_accounting.validate_repayment_je_prerequisites"
-		), mock.patch(
-			"erpnext_extensions.facility_management.facility_accounting.resolve_account",
-			side_effect=lambda fn, **kw: {
-				"bank_account": "BANK",
-				"loan_payable_account": "LOAN",
-				"deferred_loan_interest_account": "DEF",
-				"interest_expense_account": "INT",
-				"penalty_expense_account": "PEN",
-			}.get(kw.get("fieldname") if "fieldname" in kw else fn, "ACC"),
-		), mock.patch(
-			"erpnext_extensions.facility_management.facility_accounting.get_facility_settings_doc",
-			return_value=None,
-		), mock.patch(
-			"erpnext_extensions.facility_management.facility_accounting.repayment_je_row_dimensions",
-			return_value={},
-		), mock.patch(
-			"erpnext_extensions.facility_management.facility_accounting.render_facility_template",
-			side_effect=lambda t, c: t,
-		), mock.patch(
-			"erpnext_extensions.facility_management.facility_accounting.build_template_context",
-			return_value={},
-		), mock.patch(
-			"erpnext_extensions.facility_management.facility_accounting._repayment_amounts",
-			return_value=(Decimal("800"), Decimal("140"), Decimal("60")),
+		with (
+			mock.patch(
+				"erpnext_extensions.facility_management.facility_accounting.validate_repayment_je_prerequisites"
+			),
+			mock.patch(
+				"erpnext_extensions.facility_management.facility_accounting.resolve_account",
+				side_effect=lambda fn, **kw: {
+					"bank_account": "BANK",
+					"loan_payable_account": "LOAN",
+					"deferred_loan_interest_account": "DEF",
+					"interest_expense_account": "INT",
+					"penalty_expense_account": "PEN",
+				}.get(kw.get("fieldname") if "fieldname" in kw else fn, "ACC"),
+			),
+			mock.patch(
+				"erpnext_extensions.facility_management.facility_accounting.get_facility_settings_doc",
+				return_value=None,
+			),
+			mock.patch(
+				"erpnext_extensions.facility_management.facility_accounting.repayment_je_row_dimensions",
+				return_value={},
+			),
+			mock.patch(
+				"erpnext_extensions.facility_management.facility_accounting.render_facility_template",
+				side_effect=lambda t, c: t,
+			),
+			mock.patch(
+				"erpnext_extensions.facility_management.facility_accounting.build_template_context",
+				return_value={},
+			),
+			mock.patch(
+				"erpnext_extensions.facility_management.facility_accounting._repayment_amounts",
+				return_value=(Decimal("800"), Decimal("140"), Decimal("60")),
+			),
 		):
 			plan = build_repayment_je_plan(Rep(), facility=Fac())
 		self.assertEqual(len(plan), 6)

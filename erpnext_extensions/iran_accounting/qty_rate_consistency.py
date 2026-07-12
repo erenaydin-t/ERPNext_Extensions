@@ -194,7 +194,9 @@ def check_qty_rate_amount_consistency(
 		if abs(flt(totals.get("difference_vs_gl_residual"))) > 0:
 			consistency_fail.append("difference_amount vs GL magnitude")
 		if abs(flt(totals.get("difference_vs_sle_residual"))) > 0:
-			consistency_fail.append(f"difference_amount vs SLE sum residual={totals.get('difference_vs_sle_residual')}")
+			consistency_fail.append(
+				f"difference_amount vs SLE sum residual={totals.get('difference_vs_sle_residual')}"
+			)
 
 	status = "PASS" if not row_fail and not consistency_fail else "FAIL"
 	out = {

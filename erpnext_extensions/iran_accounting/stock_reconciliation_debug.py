@@ -8,8 +8,15 @@ from typing import Any
 import frappe
 from frappe.utils import flt, nowtime, random_string, today
 
-from erpnext_extensions.iran_accounting.reports import run_stock_ledger_report, stock_ledger_report_monetary_fields
-from erpnext_extensions.iran_accounting.rounding import amount_is_fractional, get_company_currency, is_irr_company
+from erpnext_extensions.iran_accounting.reports import (
+	run_stock_ledger_report,
+	stock_ledger_report_monetary_fields,
+)
+from erpnext_extensions.iran_accounting.rounding import (
+	amount_is_fractional,
+	get_company_currency,
+	is_irr_company,
+)
 from erpnext_extensions.iran_accounting.stock_ledger_report import (
 	default_stock_ledger_filters,
 	monetary_fieldnames_from_columns,
@@ -67,13 +74,12 @@ def _create_opening_sr(
 	sr.posting_date = today()
 	sr.posting_time = nowtime()
 	sr.set_posting_time = 1
-	sr.expense_account = (
-		frappe.get_cached_value("Company", company, "temporary_opening_account")
-		or frappe.db.get_value(
-			"Account",
-			{"company": company, "account_type": "Temporary", "is_group": 0},
-			"name",
-		)
+	sr.expense_account = frappe.get_cached_value(
+		"Company", company, "temporary_opening_account"
+	) or frappe.db.get_value(
+		"Account",
+		{"company": company, "account_type": "Temporary", "is_group": 0},
+		"name",
 	)
 	sr.cost_center = frappe.get_cached_value("Company", company, "cost_center")
 	sr.difference_account = sr.expense_account
@@ -184,7 +190,10 @@ def _evaluate_opening_row(
 			(flt(report.get("qty_after_transaction")) > 0, "Report balance qty"),
 			(flt(report.get("incoming_rate")) > 0, "Report incoming_rate"),
 			(flt(report.get("valuation_rate")) > 0, "Report valuation_rate"),
-			(flt(report.get("in_out_rate")) == 0, "Report outgoing rate (in_out_rate) must be 0 on positive opening"),
+			(
+				flt(report.get("in_out_rate")) == 0,
+				"Report outgoing rate (in_out_rate) must be 0 on positive opening",
+			),
 			(flt(report.get("stock_value")) > 0, "Report balance value"),
 		]
 		for ok, label in checks:
@@ -286,9 +295,7 @@ def run_opening_stock_matrix(company: str) -> list[dict]:
 		item = _ensure_item(company, f"S{scenario_no}", batch=use_batch)
 		batch_no = _ensure_batch(item) if use_batch else None
 		if rate is not None and amount is None:
-			sr = _create_opening_sr(
-				company, warehouse, item, qty, valuation_rate=rate, batch_no=batch_no
-			)
+			sr = _create_opening_sr(company, warehouse, item, qty, valuation_rate=rate, batch_no=batch_no)
 			input_rate = rate
 		else:
 			sr = _create_opening_sr(company, warehouse, item, qty, amount=amount, batch_no=batch_no)

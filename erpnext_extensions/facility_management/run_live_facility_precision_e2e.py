@@ -14,13 +14,12 @@ from decimal import Decimal
 
 import frappe
 
+from erpnext_extensions.facility_management.facility_monetary import parse_facility_amount
 from erpnext_extensions.facility_management.facility_precision import (
 	TABLES_AND_COLUMNS,
 	TARGET_PRECISION,
 	TARGET_SCALE,
 )
-from erpnext_extensions.facility_management.facility_monetary import parse_facility_amount
-
 
 P1_PRINCIPAL = Decimal("123456789012345.123456789")
 P1_PROFIT = Decimal("98765432109876.123456789")

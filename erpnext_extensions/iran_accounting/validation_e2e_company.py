@@ -9,8 +9,11 @@ import frappe
 from frappe.utils import flt
 
 from erpnext_extensions.iran_accounting.qty_rate_consistency import check_qty_rate_amount_consistency
-from erpnext_extensions.iran_accounting.rounding import amount_is_fractional, get_company_currency, is_irr_company
-
+from erpnext_extensions.iran_accounting.rounding import (
+	amount_is_fractional,
+	get_company_currency,
+	is_irr_company,
+)
 
 VOUCHER_TYPES = (
 	"Stock Reconciliation",

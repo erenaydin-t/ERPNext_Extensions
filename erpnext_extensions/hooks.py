@@ -206,8 +206,7 @@ has_permission = {
 # ``extentionhrms/payroll_entry_override.py``.
 override_doctype_class = {
 	"Payroll Entry": (
-		"erpnext_extensions.extentionhrms.payroll_entry_override."
-		"PayrollEntryWithAccountingDimensions"
+		"erpnext_extensions.extentionhrms.payroll_entry_override." "PayrollEntryWithAccountingDimensions"
 	),
 }
 
@@ -427,7 +426,7 @@ before_job = [
 # Fixtures are used to export/import customizations (Custom Fields, Scripts, Workflows, etc.)
 # between different sites. When you run `bench --site [site] export-fixtures`, these doctypes
 # will be exported to the fixtures directory and can be imported to other sites.
-# 
+#
 # Usage:
 # 1. Export fixtures: bench --site [site] export-fixtures
 # 2. Import fixtures: bench --site [new-site] migrate (fixtures are imported automatically)
@@ -451,4 +450,3 @@ standard_queries = {
 	"Facility": "erpnext_extensions.facility_management.facility_queries.facility_link_query",
 	"Facility Type": "erpnext_extensions.facility_management.facility_queries.facility_type_link_query",
 }
-

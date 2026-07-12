@@ -103,9 +103,7 @@ def assert_stock_entry_row_sle_mirror(voucher_no: str, company: str) -> list[str
 		mag = stock_entry_row_amount(row, company)
 		expected = signed_movement_from_row_amount(mag, flt(sle.actual_qty))
 		if flt(sle.stock_value_difference) != expected:
-			failures.append(
-				f"SLE {sle.name}: movement {sle.stock_value_difference} != row mirror {expected}"
-			)
+			failures.append(f"SLE {sle.name}: movement {sle.stock_value_difference} != row mirror {expected}")
 	return failures
 
 

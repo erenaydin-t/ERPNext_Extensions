@@ -13,9 +13,8 @@ Draft cheques (``docstatus = 0``) never appear in those sums.
 from __future__ import annotations
 
 import frappe
-from frappe.utils import flt
-
 from erpnext.accounts.utils import QueryPaymentLedger
+from frappe.utils import flt
 
 from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
 	CHEQUE_DIRECTION_PAYABLE,
@@ -83,7 +82,9 @@ def get_invoice_ledger_outstanding(invoice_doctype: str, invoice_name: str) -> f
 	return float(_voucher_outstanding_from_payment_ledger(dt, nm) or 0.0)
 
 
-def pdc_workflow_reserves_settlement_against_reference(cheque_direction: str | None, workflow_state: str | None) -> bool:
+def pdc_workflow_reserves_settlement_against_reference(
+	cheque_direction: str | None, workflow_state: str | None
+) -> bool:
 	"""Whether a submitted PDC's allocation rows should count against settlement capacity on SI/PI/PR.
 
 	Excludes planning-only states and terminal / non-competing states. Aligns with Step 2 business rule:
@@ -363,7 +364,9 @@ def get_pr_remaining_capacity(
 	exclude_payment_entry: str | None = None,
 ) -> float:
 	"""Remaining settlement capacity for new allocations against a Payment Request."""
-	from erpnext_extensions.cheque_management.pdc_payment_request_eligibility import is_payment_request_settlement_eligible
+	from erpnext_extensions.cheque_management.pdc_payment_request_eligibility import (
+		is_payment_request_settlement_eligible,
+	)
 
 	pr = (payment_request or "").strip()
 	if not pr or not frappe.db.exists("Payment Request", pr):
@@ -374,7 +377,9 @@ def get_pr_remaining_capacity(
 	if not row or not is_payment_request_settlement_eligible(row):
 		return 0.0
 	gt = flt(row.grand_total)
-	pe_sum = flt(sum_payment_entry_allocations_to_payment_request(pr, exclude_payment_entry=exclude_payment_entry))
+	pe_sum = flt(
+		sum_payment_entry_allocations_to_payment_request(pr, exclude_payment_entry=exclude_payment_entry)
+	)
 	pdc_sum = flt(sum_effective_pdc_allocations_to_reference("Payment Request", pr, exclude_pdc=exclude_pdc))
 	return flt(gt - pe_sum - pdc_sum)
 
@@ -434,7 +439,9 @@ def get_invoice_total_basis(invoice_doctype: str, invoice_name: str) -> float:
 	if dt == "Sales Invoice":
 		from erpnext.accounts.doctype.sales_invoice.sales_invoice import get_total_in_party_account_currency
 	else:
-		from erpnext.accounts.doctype.purchase_invoice.purchase_invoice import get_total_in_party_account_currency
+		from erpnext.accounts.doctype.purchase_invoice.purchase_invoice import (
+			get_total_in_party_account_currency,
+		)
 	return float(flt(get_total_in_party_account_currency(doc)))
 
 
@@ -452,7 +459,9 @@ def validate_invoice_pr_issuance_ceiling(doc, method=None) -> None:
 	# Hard policy: do not allow PR issuance against return invoices.
 	if int(frappe.db.get_value(rdt, rnm, "is_return") or 0) == 1:
 		frappe.throw(
-			frappe._("Payment Request cannot be submitted against a return invoice ({0} {1}).").format(rdt, rnm),
+			frappe._("Payment Request cannot be submitted against a return invoice ({0} {1}).").format(
+				rdt, rnm
+			),
 			title=frappe._("Payment Request"),
 		)
 	inv_total = flt(get_invoice_total_basis(rdt, rnm))

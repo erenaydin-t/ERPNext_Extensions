@@ -55,7 +55,10 @@ def _ctx():
 	customer = frappe.db.get_value("Customer", {"disabled": 0}, "name", order_by="modified desc")
 	supplier = frappe.db.get_value("Supplier", {"disabled": 0}, "name", order_by="modified desc")
 	bank_account = frappe.db.get_value(
-		"Bank Account", {"company": company, "disabled": 0, "is_company_account": 1}, "name", order_by="modified desc"
+		"Bank Account",
+		{"company": company, "disabled": 0, "is_company_account": 1},
+		"name",
+		order_by="modified desc",
 	)
 	if not bank_account:
 		bank_account = frappe.db.get_value("Bank Account", {"company": company, "disabled": 0}, "name")

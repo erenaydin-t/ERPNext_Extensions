@@ -119,7 +119,9 @@ def run():
 	row_no += 1
 	chq1 = _unique_cheque_no("OI-R-REG")
 	pdc1 = import_row(row_no, _base_receivable_row(ctx, chq1, "Registered"))
-	results.append({"test": 1, "label": "import_receivable_registered", "counts": _assert_zero("test1", pdc1, errors)})
+	results.append(
+		{"test": 1, "label": "import_receivable_registered", "counts": _assert_zero("test1", pdc1, errors)}
+	)
 
 	# Test 2 — Receivable Sent To Bank
 	row_no += 1
@@ -133,7 +135,9 @@ def run():
 			sent_to_bank_date=t0,
 		),
 	)
-	results.append({"test": 2, "label": "import_receivable_sent_to_bank", "counts": _assert_zero("test2", pdc2, errors)})
+	results.append(
+		{"test": 2, "label": "import_receivable_sent_to_bank", "counts": _assert_zero("test2", pdc2, errors)}
+	)
 
 	# Test 3 — Receivable Cleared
 	row_no += 1
@@ -147,13 +151,17 @@ def run():
 			cleared_date=t0,
 		),
 	)
-	results.append({"test": 3, "label": "import_receivable_cleared", "counts": _assert_zero("test3", pdc3, errors)})
+	results.append(
+		{"test": 3, "label": "import_receivable_cleared", "counts": _assert_zero("test3", pdc3, errors)}
+	)
 
 	# Test 4 — Payable Registered
 	row_no += 1
 	chq4 = _unique_cheque_no("OI-P-REG")
 	pdc4 = import_row(row_no, _base_payable_row(ctx, chq4, "Registered"))
-	results.append({"test": 4, "label": "import_payable_registered", "counts": _assert_zero("test4", pdc4, errors)})
+	results.append(
+		{"test": 4, "label": "import_payable_registered", "counts": _assert_zero("test4", pdc4, errors)}
+	)
 
 	# Test 5 — Payable Cleared
 	row_no += 1
@@ -168,7 +176,9 @@ def run():
 			cleared_date=t0,
 		),
 	)
-	results.append({"test": 5, "label": "import_payable_cleared", "counts": _assert_zero("test5", pdc5, errors)})
+	results.append(
+		{"test": 5, "label": "import_payable_cleared", "counts": _assert_zero("test5", pdc5, errors)}
+	)
 
 	# Test 6 — Import Registered then live Registered → Sent To Bank
 	row_no += 1
@@ -187,9 +197,7 @@ def run():
 
 	after_stb = _counts(pdc6)
 	if after_stb["journal_entry_count"] != 1 or after_stb["journal_reference_count"] != 1:
-		errors.append(
-			f"test6: after STB expected 1 JE + 1 ref, got {after_stb}"
-		)
+		errors.append(f"test6: after STB expected 1 JE + 1 ref, got {after_stb}")
 	results.append(
 		{
 			"test": 6,

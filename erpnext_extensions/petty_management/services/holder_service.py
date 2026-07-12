@@ -3,11 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import frappe
+from erpnext.accounts.utils import get_balance_on
 from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, getdate, today
-
-from erpnext.accounts.utils import get_balance_on
 
 from erpnext_extensions.petty_management.utils import get_pm_holder_name
 
@@ -33,7 +32,9 @@ def get_holder(employee: str | None, company: str | None, *, required: bool = Tr
 	holder_name = get_pm_holder_name(employee, company)
 	if not holder_name:
 		if required:
-			frappe.throw(_("No PM Holder found for this employee and company. Please create PM Holder first."))
+			frappe.throw(
+				_("No PM Holder found for this employee and company. Please create PM Holder first.")
+			)
 		return None
 	return frappe.get_doc("PM Holder", holder_name)
 
@@ -154,9 +155,7 @@ def get_holder_balances(
 		return HolderBalances(0, 0, 0, 0, 0, 0, 0, 0, None, 0, 0, 0, 0)
 
 	as_on = getdate(posting_date or today())
-	account_gl_balance = flt(
-		get_balance_on(account=row.petty_cash_account, date=as_on, company=row.company)
-	)
+	account_gl_balance = flt(get_balance_on(account=row.petty_cash_account, date=as_on, company=row.company))
 	total_paid = get_holder_paid_amount(holder)
 	total_allocated = get_holder_allocated_amount(holder, exclude_clearance_name=exclude_clearance_name)
 	funded_reserved = get_holder_funded_reserved_amount(holder, exclude_clearance_name=exclude_clearance_name)
@@ -338,9 +337,7 @@ def get_holder_opening_balance_stats(
 	for row in rows:
 		gross += flt(row.opening_advance_amount)
 		prev_settled += flt(row.previously_settled_before_migration)
-		rem = remaining_at_cutover_amount(
-			row.opening_advance_amount, row.previously_settled_before_migration
-		)
+		rem = remaining_at_cutover_amount(row.opening_advance_amount, row.previously_settled_before_migration)
 		remaining_cutover += rem
 		alloc = sum_prior_opening_allocations(row.name, exclude_clearance_name)
 		allocated += alloc
@@ -395,4 +392,3 @@ def get_holder_settled_amount(holder: str) -> float:
 			holder,
 		)[0][0]
 	)
-

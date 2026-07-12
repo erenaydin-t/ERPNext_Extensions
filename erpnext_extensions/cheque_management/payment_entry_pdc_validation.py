@@ -12,8 +12,8 @@ from frappe.utils import flt
 
 from erpnext_extensions.cheque_management.pdc_settlement_capacity import (
 	SETTLEMENT_REFERENCE_DOCTYPES,
-	get_remaining_settlement_capacity,
 	get_pr_remaining_capacity,
+	get_remaining_settlement_capacity,
 	sum_effective_pdc_allocations_to_reference,
 )
 

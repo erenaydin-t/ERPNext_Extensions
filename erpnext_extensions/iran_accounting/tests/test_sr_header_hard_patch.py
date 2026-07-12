@@ -42,7 +42,9 @@ class TestSrHeaderHardPatch(unittest.TestCase):
 		doc = frappe.new_doc("Stock Reconciliation")
 		doc.company = self.company
 		doc.purpose = "Opening Stock"
-		doc.append("items", {"qty": 2, "valuation_rate": 100, "current_qty": 1, "current_valuation_rate": 100})
+		doc.append(
+			"items", {"qty": 2, "valuation_rate": 100, "current_qty": 1, "current_valuation_rate": 100}
+		)
 		override_difference_amount(doc)
 		self.assertEqual(flt(doc.difference_amount), sum_stock_reconciliation_amount_difference(doc))
 
@@ -58,7 +60,12 @@ class TestSrHeaderHardPatch(unittest.TestCase):
 		self.assertNotEqual(flt(doc.difference_amount), 999999999)
 
 	def test_ir_reconciliation_production_vouchers_consistency(self):
-		for name in ("MAT-RECO-2026-00248", "MAT-RECO-2026-00245", "MAT-RECO-2026-00187", "MAT-RECO-2026-00197"):
+		for name in (
+			"MAT-RECO-2026-00248",
+			"MAT-RECO-2026-00245",
+			"MAT-RECO-2026-00187",
+			"MAT-RECO-2026-00197",
+		):
 			if not frappe.db.exists("Stock Reconciliation", name):
 				continue
 			if frappe.db.get_value("Stock Reconciliation", name, "docstatus") != 1:

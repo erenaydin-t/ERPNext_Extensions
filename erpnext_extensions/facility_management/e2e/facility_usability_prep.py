@@ -76,7 +76,7 @@ def run_e2e_reports():
 		"ledger": run_ledger_report(prep["company"], "سرمایه در گردش"),
 	}
 
+
 def prepare_usability_unit_facility():
 	"""Active opening facility with accounts for unit tests (no skip)."""
 	return prepare_search_facility()
-

@@ -101,10 +101,7 @@ def _je_row_dim(je_name: str, dim_field: str) -> list[dict]:
 	if not je_name or not dim_field:
 		return []
 	je = frappe.get_doc("Journal Entry", je_name)
-	return [
-		{"account": row.account, "dim": getattr(row, dim_field, None)}
-		for row in je.accounts
-	]
+	return [{"account": row.account, "dim": getattr(row, dim_field, None)} for row in je.accounts]
 
 
 def _ensure_site_pdc_settings(company: str) -> None:
@@ -321,7 +318,7 @@ def run():
 		p3,
 		cheques_in_clearing_account=alt_clearing,
 		cost_center=cc,
-		**( {dim_field: bank_alt} if dim_field else {} ),
+		**({dim_field: bank_alt} if dim_field else {}),
 	)
 	snap_after = _je_accounts_snapshot(reg_key)
 	if snap_before != snap_after:

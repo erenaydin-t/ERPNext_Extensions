@@ -50,7 +50,11 @@ function pdc_ensure_payment_request_workflow_in_locals(frm, done) {
 			}
 			frappe.model.with_doc("Workflow", rows[0].name, function () {
 				try {
-					if (frm && frm.toolbar && typeof frm.toolbar.set_primary_action === "function") {
+					if (
+						frm &&
+						frm.toolbar &&
+						typeof frm.toolbar.set_primary_action === "function"
+					) {
 						frm.toolbar.set_primary_action();
 					}
 				} catch (e2) {
@@ -60,9 +64,16 @@ function pdc_ensure_payment_request_workflow_in_locals(frm, done) {
 					if (
 						typeof erpnext_extensions !== "undefined" &&
 						erpnext_extensions.cheque_management &&
-						typeof erpnext_extensions.cheque_management.pdc_pr_after_toolbar_refresh === "function"
+						typeof erpnext_extensions.cheque_management
+							.pdc_pr_after_toolbar_refresh === "function"
 					) {
-						setTimeout(() => erpnext_extensions.cheque_management.pdc_pr_after_toolbar_refresh(frm), 0);
+						setTimeout(
+							() =>
+								erpnext_extensions.cheque_management.pdc_pr_after_toolbar_refresh(
+									frm
+								),
+							0
+						);
 					}
 				} catch (e3) {
 					// ignore
@@ -98,7 +109,8 @@ function pdc_pr_schedule_settlement_toolbar_refresh(frm) {
 			if (
 				typeof erpnext_extensions !== "undefined" &&
 				erpnext_extensions.cheque_management &&
-				typeof erpnext_extensions.cheque_management.pdc_pr_after_toolbar_refresh === "function"
+				typeof erpnext_extensions.cheque_management.pdc_pr_after_toolbar_refresh ===
+					"function"
 			) {
 				erpnext_extensions.cheque_management.pdc_pr_after_toolbar_refresh(frm);
 			}
@@ -175,7 +187,12 @@ function pdc_sync_single_payment_reference_to_total(frm) {
 	try {
 		// Use model setter when row has a name; fallback to direct mutation otherwise.
 		if (row.name) {
-			frappe.model.set_value(row.doctype || "Payment Request Payment Reference", row.name, "amount", gt);
+			frappe.model.set_value(
+				row.doctype || "Payment Request Payment Reference",
+				row.name,
+				"amount",
+				gt
+			);
 		} else {
 			row.amount = gt;
 			frm.refresh_field("payment_reference");

@@ -22,18 +22,46 @@ def execute(filters=None):
 
 def get_columns():
 	return [
-		{"label": _("Facility"), "fieldname": "facility", "fieldtype": "Link", "options": "Facility", "width": 130},
+		{
+			"label": _("Facility"),
+			"fieldname": "facility",
+			"fieldtype": "Link",
+			"options": "Facility",
+			"width": 130,
+		},
 		{"label": _("Facility Name"), "fieldname": "facility_name", "fieldtype": "Data", "width": 160},
-		{"label": _("Facility Type"), "fieldname": "facility_type", "fieldtype": "Link", "options": "Facility Type", "width": 130},
+		{
+			"label": _("Facility Type"),
+			"fieldname": "facility_type",
+			"fieldtype": "Link",
+			"options": "Facility Type",
+			"width": 130,
+		},
 		{"label": _("Date"), "fieldname": "posting_date", "fieldtype": "Date", "width": 100},
 		{"label": _("Entry Type"), "fieldname": "entry_type", "fieldtype": "Data", "width": 140},
-		{"label": _("Reference"), "fieldname": "reference", "fieldtype": "Dynamic Link", "options": "reference_doctype", "width": 140},
+		{
+			"label": _("Reference"),
+			"fieldname": "reference",
+			"fieldtype": "Dynamic Link",
+			"options": "reference_doctype",
+			"width": 140,
+		},
 		{"label": _("Reference DocType"), "fieldname": "reference_doctype", "fieldtype": "Data", "hidden": 1},
 		{"label": _("Principal Paid"), "fieldname": "principal_paid", "fieldtype": "Currency", "width": 120},
 		{"label": _("Profit Paid"), "fieldname": "profit_paid", "fieldtype": "Currency", "width": 110},
 		{"label": _("Penalty Paid"), "fieldname": "penalty_paid", "fieldtype": "Currency", "width": 110},
-		{"label": _("Remaining Principal"), "fieldname": "remaining_principal", "fieldtype": "Currency", "width": 130},
-		{"label": _("Remaining Profit"), "fieldname": "remaining_profit", "fieldtype": "Currency", "width": 120},
+		{
+			"label": _("Remaining Principal"),
+			"fieldname": "remaining_principal",
+			"fieldtype": "Currency",
+			"width": 130,
+		},
+		{
+			"label": _("Remaining Profit"),
+			"fieldname": "remaining_profit",
+			"fieldtype": "Currency",
+			"width": 120,
+		},
 		{"label": _("Remarks"), "fieldname": "remarks", "fieldtype": "Data", "width": 200},
 	]
 
@@ -52,9 +80,12 @@ def get_ledger_rows(filters):
 	running_p = flt(fac.principal_amount)
 	running_pr = flt(fac.profit_amount)
 
-	show_opening = frappe.utils.cint(fac.is_opening_facility) or flt(fac.opening_paid_principal_amount) or flt(
-		fac.opening_paid_profit_amount
-	) or flt(fac.opening_paid_penalty_amount)
+	show_opening = (
+		frappe.utils.cint(fac.is_opening_facility)
+		or flt(fac.opening_paid_principal_amount)
+		or flt(fac.opening_paid_profit_amount)
+		or flt(fac.opening_paid_penalty_amount)
+	)
 	opening_date = getdate(fac.contract_date or fac.receive_date or from_date)
 	if show_opening and opening_date <= to_date and opening_date >= from_date:
 		op = flt(fac.opening_paid_principal_amount)

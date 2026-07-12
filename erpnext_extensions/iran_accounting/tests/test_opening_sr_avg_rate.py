@@ -41,7 +41,14 @@ class TestOpeningSrAvgRateBalanceStock(unittest.TestCase):
 		sles = frappe.get_all(
 			"Stock Ledger Entry",
 			filters=filters,
-			fields=["name", "item_code", "stock_value", "qty_after_transaction", "valuation_rate", "incoming_rate"],
+			fields=[
+				"name",
+				"item_code",
+				"stock_value",
+				"qty_after_transaction",
+				"valuation_rate",
+				"incoming_rate",
+			],
 		)
 		self.assertTrue(sles, f"no SLE for {voucher_no}")
 		for sle in sles:
@@ -109,13 +116,12 @@ class TestOpeningSrAvgRateBalanceStock(unittest.TestCase):
 		sr.company = self.company
 		sr.posting_date = frappe.utils.today()
 		sr.set_posting_time = 1
-		sr.expense_account = (
-			frappe.get_cached_value("Company", self.company, "temporary_opening_account")
-			or frappe.db.get_value(
-				"Account",
-				{"company": self.company, "account_type": "Temporary", "is_group": 0},
-				"name",
-			)
+		sr.expense_account = frappe.get_cached_value(
+			"Company", self.company, "temporary_opening_account"
+		) or frappe.db.get_value(
+			"Account",
+			{"company": self.company, "account_type": "Temporary", "is_group": 0},
+			"name",
 		)
 		sr.cost_center = frappe.get_cached_value("Company", self.company, "cost_center")
 		sr.difference_account = sr.expense_account

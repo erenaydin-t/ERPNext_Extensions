@@ -15,10 +15,10 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import erpnext_extensions.cheque_management.pdc_journal_entry_service as je_svc
 from erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque import (
 	PostDatedCheque,
 )
-import erpnext_extensions.cheque_management.pdc_journal_entry_service as je_svc
 from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
 	CHEQUE_DIRECTION_RECEIVABLE,
 	WORKFLOW_DRAFT,

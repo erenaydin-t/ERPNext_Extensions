@@ -28,4 +28,3 @@ def execute():
 		"Property Setter",
 		{"doc_type": doctype, "field_name": ("in", fieldnames)},
 	)
-

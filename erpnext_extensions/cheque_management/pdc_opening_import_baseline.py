@@ -58,7 +58,7 @@ def _infer_opening_import_baseline_state(pdc) -> str:
 	if refs:
 		# Earliest transition edge by workflow rank (lowest from_state on the path).
 		candidates: list[tuple[int, str]] = []
-		for (from_s, _to_s) in refs.keys():
+		for from_s, _to_s in refs.keys():
 			candidates.append((_workflow_rank(direction, from_s), from_s))
 		candidates.sort(key=lambda x: (x[0], x[1]))
 		_, from_s = candidates[0]

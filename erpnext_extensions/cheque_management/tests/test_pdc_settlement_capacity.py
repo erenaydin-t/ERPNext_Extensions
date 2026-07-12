@@ -27,7 +27,9 @@ class TestSumEffectivePdcAllocationsToReference(unittest.TestCase):
 		fake = MagicMock()
 		fake.db.sql = MagicMock(return_value=[[0.0]])
 		with patch.object(cap, "frappe", fake):
-			cap.sum_effective_pdc_allocations_to_reference("Purchase Invoice", "PINV-1", exclude_pdc="PDC-001")
+			cap.sum_effective_pdc_allocations_to_reference(
+				"Purchase Invoice", "PINV-1", exclude_pdc="PDC-001"
+			)
 		params = fake.db.sql.call_args[0][1]
 		self.assertEqual(params[-2], "PDC-001")
 		self.assertEqual(params[-1], "PDC-001")
@@ -46,29 +48,39 @@ class TestSumEffectivePdcAllocationsToReference(unittest.TestCase):
 
 class TestGetInvoiceRemainingCapacity(unittest.TestCase):
 	def test_sales_and_purchase_invoice_parity_full_ledger_no_pending(self):
-		with patch.object(cap, "get_invoice_ledger_outstanding", return_value=20_000.0), patch.object(
-			cap, "sum_effective_pdc_direct_to_invoice", return_value=0.0
-		), patch.object(cap, "sum_effective_pdc_via_pr_to_invoice", return_value=0.0):
+		with (
+			patch.object(cap, "get_invoice_ledger_outstanding", return_value=20_000.0),
+			patch.object(cap, "sum_effective_pdc_direct_to_invoice", return_value=0.0),
+			patch.object(cap, "sum_effective_pdc_via_pr_to_invoice", return_value=0.0),
+		):
 			self.assertEqual(cap.get_invoice_remaining_capacity("Sales Invoice", "S-1"), 20_000.0)
 			self.assertEqual(cap.get_invoice_remaining_capacity("Purchase Invoice", "P-1"), 20_000.0)
 
 	def test_after_register_je_capacity_tracks_payment_ledger_only(self):
 		"""Pending PDC sum is zero once Register JE exists; remaining capacity follows PL outstanding."""
-		with patch.object(cap, "get_invoice_ledger_outstanding", return_value=0.0), patch.object(
-			cap, "sum_effective_pdc_direct_to_invoice", return_value=0.0
-		), patch.object(cap, "sum_effective_pdc_via_pr_to_invoice", return_value=0.0):
+		with (
+			patch.object(cap, "get_invoice_ledger_outstanding", return_value=0.0),
+			patch.object(cap, "sum_effective_pdc_direct_to_invoice", return_value=0.0),
+			patch.object(cap, "sum_effective_pdc_via_pr_to_invoice", return_value=0.0),
+		):
 			self.assertEqual(cap.get_invoice_remaining_capacity("Sales Invoice", "S-1"), 0.0)
 
 	def test_second_pdc_respects_first_pending_reservation(self):
-		with patch.object(cap, "get_invoice_ledger_outstanding", return_value=20_000.0), patch.object(
-			cap, "sum_effective_pdc_direct_to_invoice", return_value=20_000.0
-		), patch.object(cap, "sum_effective_pdc_via_pr_to_invoice", return_value=0.0):
-			self.assertEqual(cap.get_invoice_remaining_capacity("Sales Invoice", "S-1", exclude_pdc="PDC-2"), 0.0)
+		with (
+			patch.object(cap, "get_invoice_ledger_outstanding", return_value=20_000.0),
+			patch.object(cap, "sum_effective_pdc_direct_to_invoice", return_value=20_000.0),
+			patch.object(cap, "sum_effective_pdc_via_pr_to_invoice", return_value=0.0),
+		):
+			self.assertEqual(
+				cap.get_invoice_remaining_capacity("Sales Invoice", "S-1", exclude_pdc="PDC-2"), 0.0
+			)
 
 	def test_validating_same_pdc_excludes_self_from_pending_sum(self):
-		with patch.object(cap, "get_invoice_ledger_outstanding", return_value=20_000.0), patch.object(
-			cap, "sum_effective_pdc_direct_to_invoice", return_value=0.0
-		), patch.object(cap, "sum_effective_pdc_via_pr_to_invoice", return_value=0.0):
+		with (
+			patch.object(cap, "get_invoice_ledger_outstanding", return_value=20_000.0),
+			patch.object(cap, "sum_effective_pdc_direct_to_invoice", return_value=0.0),
+			patch.object(cap, "sum_effective_pdc_via_pr_to_invoice", return_value=0.0),
+		):
 			self.assertEqual(
 				cap.get_invoice_remaining_capacity("Sales Invoice", "S-1", exclude_pdc="PDC-SELF"),
 				20_000.0,
@@ -82,10 +94,13 @@ class TestGetPrRemainingCapacity(unittest.TestCase):
 		fake.db.get_value = MagicMock(
 			return_value=SimpleNamespace(grand_total=100.0, docstatus=1, workflow_state="Approved")
 		)
-		with patch.object(cap, "frappe", fake), patch(
-			"erpnext_extensions.cheque_management.pdc_payment_request_eligibility.is_payment_request_settlement_eligible",
-			return_value=True,
-		), patch.object(cap, "sum_payment_entry_allocations_to_payment_request", return_value=0.0), patch.object(
-			cap, "sum_effective_pdc_allocations_to_reference", return_value=30.0
+		with (
+			patch.object(cap, "frappe", fake),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_payment_request_eligibility.is_payment_request_settlement_eligible",
+				return_value=True,
+			),
+			patch.object(cap, "sum_payment_entry_allocations_to_payment_request", return_value=0.0),
+			patch.object(cap, "sum_effective_pdc_allocations_to_reference", return_value=30.0),
 		):
 			self.assertEqual(cap.get_pr_remaining_capacity("PR-1", exclude_pdc=None), 70.0)

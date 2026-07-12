@@ -66,7 +66,9 @@ def gl_foreign_currency_violations(gl_rows: list[dict], company: str) -> list[di
 		for field in ("debit", "credit"):
 			val = row.get(field)
 			if val not in (None, "") and amount_is_fractional(val, company_currency):
-				violations.append({"rule": "irr_company_gl", "field": field, "value": val, "gle": row.get("name")})
+				violations.append(
+					{"rule": "irr_company_gl", "field": field, "value": val, "gle": row.get("name")}
+				)
 		for field in ("debit_in_account_currency", "credit_in_account_currency"):
 			val = row.get(field)
 			if val in (None, ""):
@@ -89,7 +91,9 @@ def foreign_decimal_gl_samples(gl_rows: list[dict], txn_currency: str) -> list[d
 		for field in ("debit_in_account_currency", "credit_in_account_currency"):
 			val = flt(row.get(field))
 			if val and abs(val - round(val)) > 1e-9:
-				out.append({"field": field, "value": val, "account": row.get("account"), "gle": row.get("name")})
+				out.append(
+					{"field": field, "value": val, "account": row.get("account"), "gle": row.get("name")}
+				)
 	return out
 
 
@@ -123,8 +127,15 @@ def document_totals_violations(doctype: str, voucher_no: str, company: str, txn_
 
 
 def report_export_ok_for_voucher(company: str, voucher_no: str, posting_date: str) -> dict:
-	filters = default_stock_ledger_filters(company, voucher_no=voucher_no, from_date=posting_date, to_date=posting_date)
-	gl_filters = {"company": company, "from_date": posting_date, "to_date": posting_date, "voucher_no": voucher_no}
+	filters = default_stock_ledger_filters(
+		company, voucher_no=voucher_no, from_date=posting_date, to_date=posting_date
+	)
+	gl_filters = {
+		"company": company,
+		"from_date": posting_date,
+		"to_date": posting_date,
+		"voucher_no": voucher_no,
+	}
 	try:
 		_, gl_data = run_general_ledger_report(gl_filters)
 		assert_report_rows_no_irr_decimals(gl_data, company, ("debit", "credit", "balance"))

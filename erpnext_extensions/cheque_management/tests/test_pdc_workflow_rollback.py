@@ -47,10 +47,14 @@ class TestPDCRollbackPathUnit(unittest.TestCase):
 		self.assertEqual(path, [WORKFLOW_DRAFT, WORKFLOW_REGISTERED, WORKFLOW_ISSUED])
 
 	def test_receivable_registered_to_cleared_via_sent(self):
-		path = _bfs_forward_path(
-			CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_REGISTERED, WORKFLOW_CLEARED
+		path = _bfs_forward_path(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_REGISTERED, WORKFLOW_CLEARED)
+		self.assertIn(
+			path,
+			(
+				[WORKFLOW_REGISTERED, WORKFLOW_CLEARED],
+				[WORKFLOW_REGISTERED, WORKFLOW_SENT_TO_BANK, WORKFLOW_CLEARED],
+			),
 		)
-		self.assertIn(path, ([WORKFLOW_REGISTERED, WORKFLOW_CLEARED], [WORKFLOW_REGISTERED, WORKFLOW_SENT_TO_BANK, WORKFLOW_CLEARED]))
 
 	def test_forward_edges_on_path(self):
 		edges = _forward_edges_on_path([WORKFLOW_DRAFT, WORKFLOW_REGISTERED, WORKFLOW_ISSUED])
@@ -93,9 +97,7 @@ class TestPDCRollbackPathUnit(unittest.TestCase):
 
 class TestPDCTransitionKeyParse(unittest.TestCase):
 	def test_canonical_key(self):
-		parts = parse_pdc_transition_key_parts(
-			"PDC-1|Payable|Registered|Issued", "PDC-1"
-		)
+		parts = parse_pdc_transition_key_parts("PDC-1|Payable|Registered|Issued", "PDC-1")
 		self.assertEqual(parts, ("Payable", "Registered", "Issued"))
 
 	def test_legacy_suffix_key(self):
@@ -132,7 +134,9 @@ class TestPDCRollbackTargets(unittest.TestCase):
 			cheque_direction=CHEQUE_DIRECTION_PAYABLE,
 			workflow_state=WORKFLOW_DRAFT,
 		)
-		with patch("erpnext_extensions.cheque_management.pdc_workflow_rollback.frappe.get_doc", return_value=doc):
+		with patch(
+			"erpnext_extensions.cheque_management.pdc_workflow_rollback.frappe.get_doc", return_value=doc
+		):
 			self.assertEqual(get_rollback_target_states("PDC-T1"), [])
 
 	def test_cleared_payable_has_ancestors(self):
@@ -143,7 +147,9 @@ class TestPDCRollbackTargets(unittest.TestCase):
 			workflow_state=WORKFLOW_CLEARED,
 			is_opening_import=0,
 		)
-		with patch("erpnext_extensions.cheque_management.pdc_workflow_rollback.frappe.get_doc", return_value=doc):
+		with patch(
+			"erpnext_extensions.cheque_management.pdc_workflow_rollback.frappe.get_doc", return_value=doc
+		):
 			targets = get_rollback_target_states("PDC-T2")
 		for state in (WORKFLOW_ISSUED, WORKFLOW_REGISTERED, WORKFLOW_DRAFT):
 			self.assertIn(state, targets)
@@ -155,7 +161,9 @@ class TestPDCRollbackTargets(unittest.TestCase):
 			cheque_direction=CHEQUE_DIRECTION_PAYABLE,
 			workflow_state=WORKFLOW_REGISTERED,
 		)
-		with patch("erpnext_extensions.cheque_management.pdc_workflow_rollback.frappe.get_doc", return_value=doc):
+		with patch(
+			"erpnext_extensions.cheque_management.pdc_workflow_rollback.frappe.get_doc", return_value=doc
+		):
 			self.assertEqual(get_rollback_target_states("PDC-T3"), [])
 
 
@@ -172,9 +180,7 @@ class TestPDCRollbackPreviewAPI(unittest.TestCase):
 		with self.assertRaises(ValidationError):
 			get_pdc_workflow_rollback_preview("PDC-X", WORKFLOW_ISSUED)
 
-	@patch(
-		"erpnext_extensions.cheque_management.pdc_workflow_rollback._require_rollback_permission"
-	)
+	@patch("erpnext_extensions.cheque_management.pdc_workflow_rollback._require_rollback_permission")
 	def test_rollback_requires_reason(self, _req):
 		from erpnext_extensions.cheque_management.pdc_workflow_rollback import (
 			rollback_workflow_state,
@@ -209,9 +215,7 @@ class TestPayableRollbackMatrix(unittest.TestCase):
 
 class TestReceivableRollbackPaths(unittest.TestCase):
 	def test_sent_to_bank_to_registered(self):
-		edges = _edges_to_undo(
-			CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_SENT_TO_BANK, WORKFLOW_REGISTERED
-		)
+		edges = _edges_to_undo(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_SENT_TO_BANK, WORKFLOW_REGISTERED)
 		self.assertEqual(edges, [(WORKFLOW_REGISTERED, WORKFLOW_SENT_TO_BANK)])
 
 	def test_cleared_to_registered_shortcut(self):
@@ -254,7 +258,9 @@ class TestPDCRollbackMisc(unittest.TestCase):
 			cheque_direction=CHEQUE_DIRECTION_RECEIVABLE,
 			workflow_state=WORKFLOW_DRAFT,
 		)
-		with patch("erpnext_extensions.cheque_management.pdc_workflow_rollback.frappe.get_doc", return_value=doc):
+		with patch(
+			"erpnext_extensions.cheque_management.pdc_workflow_rollback.frappe.get_doc", return_value=doc
+		):
 			self.assertEqual(get_rollback_target_states("PDC-R0"), [])
 
 	def test_parse_empty_key(self):

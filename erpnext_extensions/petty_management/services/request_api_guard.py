@@ -153,7 +153,9 @@ def pm_request_names_for_report(filters: dict | None = None) -> list[str]:
 
 
 def build_pm_request_payment_entries_payload(pm_request: str | None) -> dict:
-	from erpnext_extensions.petty_management.services.funding_queries import list_payment_entries_for_pm_request
+	from erpnext_extensions.petty_management.services.funding_queries import (
+		list_payment_entries_for_pm_request,
+	)
 
 	doc = get_pm_request_doc_for_read(pm_request)
 	return {

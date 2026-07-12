@@ -13,15 +13,15 @@ from erpnext_extensions.facility_management.facility_accounting import (
 	refresh_facility_paid_fields,
 )
 from erpnext_extensions.facility_management.facility_balances import get_facility_balance_row
-from erpnext_extensions.facility_management.facility_settings_doc import (
-	apply_facility_settings_defaults,
-	get_facility_settings_doc,
-	get_facility_settings_defaults_payload,
-	resolve_account,
-)
 from erpnext_extensions.facility_management.facility_monetary import (
 	FACILITY_INPUT_CURRENCY_FIELDS,
 	persist_exact_currency_fields,
+)
+from erpnext_extensions.facility_management.facility_settings_doc import (
+	apply_facility_settings_defaults,
+	get_facility_settings_defaults_payload,
+	get_facility_settings_doc,
+	resolve_account,
 )
 
 
@@ -69,8 +69,10 @@ class Facility(Document):
 
 	def _validate_opening_amounts(self):
 		if not cint(self.is_opening_facility):
-			if flt(self.opening_paid_principal_amount) or flt(self.opening_paid_profit_amount) or flt(
-				self.opening_paid_penalty_amount
+			if (
+				flt(self.opening_paid_principal_amount)
+				or flt(self.opening_paid_profit_amount)
+				or flt(self.opening_paid_penalty_amount)
 			):
 				frappe.throw(_("Opening paid amounts are only allowed for Opening / Migrated facilities."))
 			return
@@ -84,7 +86,9 @@ class Facility(Document):
 	def _validate_status_rules(self):
 		if self.status == "Active" and not cint(self.is_opening_facility) and not self.receipt_journal_entry:
 			frappe.throw(
-				_("Active status requires a Receipt Journal Entry unless this is an Opening / Migrated facility.")
+				_(
+					"Active status requires a Receipt Journal Entry unless this is an Opening / Migrated facility."
+				)
 			)
 		if self.status == "Closed":
 			bal = get_facility_balance_row(self)

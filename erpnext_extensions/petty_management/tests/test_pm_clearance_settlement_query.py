@@ -62,17 +62,13 @@ class TestPMClearanceSettlementQueries(unittest.TestCase):
 		filters = {"company": tpm.COMPANY}
 		if supplier:
 			filters["supplier"] = supplier
-		return purchase_invoice_query_for_pm_clearance(
-			"Purchase Invoice", txt, "name", 0, 50, filters
-		)
+		return purchase_invoice_query_for_pm_clearance("Purchase Invoice", txt, "name", 0, 50, filters)
 
 	def _query_po(self, txt: str = "", supplier: str | None = None):
 		filters = {"company": tpm.COMPANY}
 		if supplier:
 			filters["supplier"] = supplier
-		return purchase_order_query_for_pm_clearance(
-			"Purchase Order", txt, "name", 0, 50, filters
-		)
+		return purchase_order_query_for_pm_clearance("Purchase Order", txt, "name", 0, 50, filters)
 
 	def test_pi_query_finds_by_invoice_name(self):
 		pi = self._submitted_pi(50_000)
@@ -149,7 +145,9 @@ class TestPMClearanceSettlementQueries(unittest.TestCase):
 		self.assertNotIn(po.name, {r[0] for r in rows})
 
 	def test_integration_clearance_save_after_pi_from_query(self):
-		from erpnext_extensions.petty_management.tests.test_pm_clearance import _append_pm_clearance_detail_row
+		from erpnext_extensions.petty_management.tests.test_pm_clearance import (
+			_append_pm_clearance_detail_row,
+		)
 
 		emp = tpm._make_employee()
 		self._track("Employee", emp)

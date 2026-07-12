@@ -157,10 +157,12 @@ def _assert_new_refs(
 ):
 	after = _refs_snapshot(pdc_name)
 	new_names = set(after) - set(before)
-	test.assertEqual(len(new_names), expected_new, msg=f"expected {expected_new} new PDC Journal Reference rows")
+	test.assertEqual(
+		len(new_names), expected_new, msg=f"expected {expected_new} new PDC Journal Reference rows"
+	)
 	if expected_new and transition_key_contains:
 		for name in new_names:
-			key = (after[name].pdc_transition_key or "")
+			key = after[name].pdc_transition_key or ""
 			test.assertIn(transition_key_contains, key, msg=f"unexpected transition key {key!r}")
 	return [after[n] for n in new_names]
 
@@ -173,9 +175,7 @@ def _assert_no_orphan_rows_for_je(test: FrappeTestCase, je: str):
 	docstatus = frappe.db.get_value("Journal Entry", je, "docstatus")
 	if docstatus == 2:
 		test.assertEqual(frappe.db.count("GL Entry", {"voucher_no": je, "is_cancelled": 0}), 0)
-		test.assertEqual(
-			frappe.db.count("Payment Ledger Entry", {"voucher_no": je, "delinked": 0}), 0
-		)
+		test.assertEqual(frappe.db.count("Payment Ledger Entry", {"voucher_no": je, "delinked": 0}), 0)
 
 
 def _assert_after_rollback(
@@ -192,9 +192,7 @@ def _assert_after_rollback(
 	expected_status = map_workflow_state_to_cheque_status(doc.cheque_direction, expected_workflow)
 	test.assertEqual(doc.cheque_status, expected_status)
 
-	report = sql_verify_pdc_rollback_integrity(
-		pdc_name, cancelled_journal_entries=cancelled_jes or []
-	)
+	report = sql_verify_pdc_rollback_integrity(pdc_name, cancelled_journal_entries=cancelled_jes or [])
 	test.assertTrue(sql_integrity_is_clean(report, cancelled_jes or []))
 	if report.get("version", 0) == 0:
 		test.assertGreaterEqual(report.get("comment", 0), 0)
@@ -248,7 +246,9 @@ class TestPDCWorkflowRollbackLifecycleIntegration(FrappeTestCase):
 		elif doctype == "Supplier":
 			doc.supplier_name = party_name
 			doc.supplier_type = "Individual"
-			doc.supplier_group = frappe.db.get_value("Supplier Group", {}, "name", order_by="lft asc") or "All Supplier Groups"
+			doc.supplier_group = (
+				frappe.db.get_value("Supplier Group", {}, "name", order_by="lft asc") or "All Supplier Groups"
+			)
 		doc.insert(ignore_permissions=True)
 		return doc.name
 
@@ -331,7 +331,9 @@ class TestPDCWorkflowRollbackLifecycleIntegration(FrappeTestCase):
 		)
 		register_je = reg_rows[0].journal_entry
 		self.assertTrue(frappe.db.get_value("Journal Entry", register_je, "docstatus") == 1)
-		leaf_row = frappe.db.get_value("Cheque Leaf", leaf, ["status", "linked_post_dated_cheque", "reserved_by_pdc"], as_dict=True)
+		leaf_row = frappe.db.get_value(
+			"Cheque Leaf", leaf, ["status", "linked_post_dated_cheque", "reserved_by_pdc"], as_dict=True
+		)
 		self.assertEqual(leaf_row.status, "Used")
 		self.assertEqual((leaf_row.linked_post_dated_cheque or "").strip(), pdc_name)
 
@@ -390,7 +392,9 @@ class TestPDCWorkflowRollbackLifecycleIntegration(FrappeTestCase):
 		)
 
 		self._assert_common_after_step(pdc_name)
-		self.assertGreaterEqual(len(frappe.get_doc("Post Dated Cheque", pdc_name).workflow_rollback_logs or []), 3)
+		self.assertGreaterEqual(
+			len(frappe.get_doc("Post Dated Cheque", pdc_name).workflow_rollback_logs or []), 3
+		)
 
 	def test_receivable_full_lifecycle_and_rollback(self):
 		company = _get_company()

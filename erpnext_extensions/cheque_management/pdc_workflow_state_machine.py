@@ -125,9 +125,7 @@ RECEIVABLE_WORKFLOW_TRANSITIONS: Final[dict[str, frozenset[str]]] = {
 		}
 	),
 	WORKFLOW_SENT_TO_BANK: frozenset({WORKFLOW_CLEARED, WORKFLOW_BOUNCED}),
-	WORKFLOW_BOUNCED: frozenset(
-		{WORKFLOW_RETURNED, WORKFLOW_REPLACED, WORKFLOW_UNDER_LEGAL_ACTION}
-	),
+	WORKFLOW_BOUNCED: frozenset({WORKFLOW_RETURNED, WORKFLOW_REPLACED, WORKFLOW_UNDER_LEGAL_ACTION}),
 	WORKFLOW_RETURNED: frozenset({WORKFLOW_REPLACED}),
 	WORKFLOW_UNDER_LEGAL_ACTION: frozenset({WORKFLOW_CLEARED, WORKFLOW_RETURNED}),
 	WORKFLOW_ENDORSED: frozenset(),
@@ -136,9 +134,7 @@ RECEIVABLE_WORKFLOW_TRANSITIONS: Final[dict[str, frozenset[str]]] = {
 PAYABLE_WORKFLOW_TRANSITIONS: Final[dict[str, frozenset[str]]] = {
 	WORKFLOW_DRAFT: frozenset({WORKFLOW_REGISTERED}),
 	WORKFLOW_REGISTERED: frozenset({WORKFLOW_ISSUED}),
-	WORKFLOW_ISSUED: frozenset(
-		{WORKFLOW_CLEARED, WORKFLOW_RETURNED, WORKFLOW_REPLACED}
-	),
+	WORKFLOW_ISSUED: frozenset({WORKFLOW_CLEARED, WORKFLOW_RETURNED, WORKFLOW_REPLACED}),
 	WORKFLOW_RETURNED: frozenset({WORKFLOW_REPLACED}),
 }
 
@@ -214,9 +210,7 @@ PDC_VALIDATION_ENDORSED_NO_BANK_CLEAR: Final = (
 
 PDC_VALIDATION_ISSUED_PAYABLE_ONLY: Final = "Issued is only valid for Payable cheques."
 
-PDC_VALIDATION_SENT_TO_BANK_RECEIVABLE_ONLY: Final = (
-	"Sent to Bank is only valid for Receivable cheques."
-)
+PDC_VALIDATION_SENT_TO_BANK_RECEIVABLE_ONLY: Final = "Sent to Bank is only valid for Receivable cheques."
 
 PDC_VALIDATION_CLEARED_IS_TERMINAL: Final = (
 	"Cleared is a terminal Workflow State. Further changes to Workflow State are not allowed."
@@ -437,15 +431,10 @@ def get_pdc_workflow_transition_validation_error(
 		return None
 	curr = normalize_workflow_state_value(new_workflow_state_raw)
 	if curr not in ALL_WORKFLOW_STATES:
-		return (
-			f"Invalid Workflow State {curr!r}. Must be one of: "
-			f"{', '.join(ALL_WORKFLOW_STATES)}."
-		)
+		return f"Invalid Workflow State {curr!r}. Must be one of: " f"{', '.join(ALL_WORKFLOW_STATES)}."
 
 	had_previous = not is_workflow_previous_empty(previous_workflow_state_raw)
-	prev = (
-		normalize_workflow_state_value(previous_workflow_state_raw) if had_previous else None
-	)
+	prev = normalize_workflow_state_value(previous_workflow_state_raw) if had_previous else None
 	if had_previous and prev is not None:
 		term_err = PDC_TERMINAL_WORKFLOW_STATE_ERRORS.get(prev)
 		if term_err is not None and curr != prev:
@@ -496,9 +485,7 @@ def get_pdc_workflow_transition_validation_error(
 		return None
 	allowed = get_allowed_workflow_targets(cheque_type, prev)
 	allowed_msg = ", ".join(sorted(allowed)) if allowed else "(none)"
-	direction_label = (
-		"Receivable" if cheque_type == CHEQUE_DIRECTION_RECEIVABLE else "Payable"
-	)
+	direction_label = "Receivable" if cheque_type == CHEQUE_DIRECTION_RECEIVABLE else "Payable"
 	return (
 		f"Invalid Workflow State transition for {direction_label} cheque: "
 		f"from {prev} to {curr}. Allowed next states: {allowed_msg}"

@@ -52,10 +52,14 @@ class GuaranteeDocument(Document):
 		pt = (self.party_type or "").strip()
 		if pt == "Other":
 			if not (self.other_party_name or "").strip():
-				frappe.throw(_("Other Party Name is required when Party Type is Other."), title=_("Guarantee Document"))
+				frappe.throw(
+					_("Other Party Name is required when Party Type is Other."), title=_("Guarantee Document")
+				)
 		else:
 			if not self.party:
-				frappe.throw(_("Party is required when Party Type is not Other."), title=_("Guarantee Document"))
+				frappe.throw(
+					_("Party is required when Party Type is not Other."), title=_("Guarantee Document")
+				)
 
 	def _validate_amount(self) -> None:
 		if self.amount is None or self.amount == "":
@@ -179,8 +183,8 @@ class GuaranteeDocument(Document):
 		existing = [n for n in existing if n != self.name]
 		if existing:
 			frappe.throw(
-				_("Another Active guarantee already exists for this Company, direction, type, document number, and party ({0}).").format(
-					existing[0]
-				),
+				_(
+					"Another Active guarantee already exists for this Company, direction, type, document number, and party ({0})."
+				).format(existing[0]),
 				title=_("Duplicate Active Guarantee"),
 			)

@@ -14,6 +14,10 @@ from erpnext_extensions.cheque_management.accounting_rollback.pdc.plan import (
 	_filter_edges_at_or_after_baseline,
 	build_pdc_rollback_plan,
 )
+from erpnext_extensions.cheque_management.pdc_opening_import_baseline import (
+	infer_opening_import_baseline_state,
+	resolve_opening_import_baseline_state,
+)
 from erpnext_extensions.cheque_management.pdc_workflow_rollback import get_rollback_target_states
 from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
 	CHEQUE_DIRECTION_PAYABLE,
@@ -24,10 +28,6 @@ from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
 	WORKFLOW_REGISTERED,
 	WORKFLOW_SENT_TO_BANK,
 	get_allowed_next_workflow_states,
-)
-from erpnext_extensions.cheque_management.pdc_opening_import_baseline import (
-	infer_opening_import_baseline_state,
-	resolve_opening_import_baseline_state,
 )
 
 
@@ -48,9 +48,7 @@ class TestOpeningImportRollbackEdges(unittest.TestCase):
 			(WORKFLOW_REGISTERED, WORKFLOW_ISSUED),
 			(WORKFLOW_ISSUED, WORKFLOW_CLEARED),
 		]
-		out = _filter_edges_at_or_after_baseline(
-			CHEQUE_DIRECTION_PAYABLE, edges, WORKFLOW_REGISTERED
-		)
+		out = _filter_edges_at_or_after_baseline(CHEQUE_DIRECTION_PAYABLE, edges, WORKFLOW_REGISTERED)
 		self.assertEqual(
 			out,
 			[(WORKFLOW_REGISTERED, WORKFLOW_ISSUED), (WORKFLOW_ISSUED, WORKFLOW_CLEARED)],
@@ -68,9 +66,7 @@ class TestOpeningImportRollbackEdges(unittest.TestCase):
 			"erpnext_extensions.cheque_management.accounting_rollback.pdc.plan.index_journal_references",
 			return_value={},
 		):
-			edges = _edges_to_undo(
-				CHEQUE_DIRECTION_PAYABLE, WORKFLOW_CLEARED, WORKFLOW_REGISTERED, pdc=pdc
-			)
+			edges = _edges_to_undo(CHEQUE_DIRECTION_PAYABLE, WORKFLOW_CLEARED, WORKFLOW_REGISTERED, pdc=pdc)
 		self.assertEqual(
 			edges,
 			[(WORKFLOW_ISSUED, WORKFLOW_CLEARED), (WORKFLOW_REGISTERED, WORKFLOW_ISSUED)],
@@ -162,18 +158,21 @@ class TestOpeningImportRollbackPlan(unittest.TestCase):
 			company="Test Co",
 			cheque_no="123",
 		)
-		with patch(
-			"erpnext_extensions.cheque_management.accounting_rollback.pdc.plan.index_journal_references",
-			return_value={
-				(WORKFLOW_ISSUED, WORKFLOW_CLEARED): {
-					"name": "ref1",
-					"journal_entry": "JE-1",
-					"pdc_transition_key": "PDC-OI-PLAN|Payable|Issued|Cleared",
-					"purpose": "Payable Clear",
-				}
-			},
-		), patch(
-			"erpnext_extensions.cheque_management.accounting_rollback.pdc.plan.validate_rollback_blockers",
+		with (
+			patch(
+				"erpnext_extensions.cheque_management.accounting_rollback.pdc.plan.index_journal_references",
+				return_value={
+					(WORKFLOW_ISSUED, WORKFLOW_CLEARED): {
+						"name": "ref1",
+						"journal_entry": "JE-1",
+						"pdc_transition_key": "PDC-OI-PLAN|Payable|Issued|Cleared",
+						"purpose": "Payable Clear",
+					}
+				},
+			),
+			patch(
+				"erpnext_extensions.cheque_management.accounting_rollback.pdc.plan.validate_rollback_blockers",
+			),
 		):
 			plan = build_pdc_rollback_plan(pdc, WORKFLOW_ISSUED)
 		self.assertEqual(len(plan.steps), 1)

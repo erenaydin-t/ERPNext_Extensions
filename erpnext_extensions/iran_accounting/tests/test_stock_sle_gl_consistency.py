@@ -6,9 +6,13 @@ import random
 import unittest
 
 import frappe
+from erpnext.stock.doctype.stock_entry.stock_entry_utils import make_stock_entry
 from frappe.utils import flt, random_string
 
 from erpnext_extensions.iran_accounting.domain.currency import round_row_amount_financial
+from erpnext_extensions.iran_accounting.domain.stock_entry_ledger_contract import (
+	enforce_stock_entry_ledger_contract,
+)
 from erpnext_extensions.iran_accounting.e2e_bootstrap import (
 	enable_perpetual_inventory,
 	ensure_test_item,
@@ -19,15 +23,11 @@ from erpnext_extensions.iran_accounting.e2e_bootstrap import (
 	submit_material_receipt,
 	submit_material_transfer,
 )
-from erpnext_extensions.iran_accounting.domain.stock_entry_ledger_contract import (
-	enforce_stock_entry_ledger_contract,
-)
 from erpnext_extensions.iran_accounting.stock_gl_consistency import (
-	assert_stock_entry_ledger_determinism,
 	assert_sle_gl_equal,
+	assert_stock_entry_ledger_determinism,
 )
 from erpnext_extensions.iran_accounting.validation import voucher_db_flags
-from erpnext.stock.doctype.stock_entry.stock_entry_utils import make_stock_entry
 
 
 class TestStockSleGlConsistency(unittest.TestCase):
@@ -124,9 +124,7 @@ class TestStockSleGlConsistency(unittest.TestCase):
 		se.insert()
 		se.submit()
 		doc = frappe.get_doc("Stock Entry", se.name)
-		expected = sum(
-			round_row_amount_financial(qty, rate, "IRR") for _, qty, rate in items
-		)
+		expected = sum(round_row_amount_financial(qty, rate, "IRR") for _, qty, rate in items)
 		self.assertEqual(flt(doc.total_incoming_value), expected)
 		self._assert_voucher(se.name)
 

@@ -23,4 +23,3 @@ def execute():
 	)
 
 	_apply()
-

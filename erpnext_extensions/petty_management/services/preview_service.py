@@ -64,4 +64,3 @@ def doc_for_preview(doc=None, pm_clearance: str | None = None) -> Document:
 		if not frappe.has_permission("PM Clearance", "create"):
 			frappe.throw(_("Not permitted"), frappe.PermissionError)
 	return dobj
-

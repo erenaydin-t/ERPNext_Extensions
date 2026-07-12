@@ -8,11 +8,11 @@ import unittest
 import frappe
 from frappe.utils import today
 
+import erpnext_extensions.petty_management.tests.test_pm_clearance as pm_ct
 from erpnext_extensions.petty_management.services.opening_advance_service import (
 	get_opening_advance_available_amount,
 	sum_prior_opening_allocations,
 )
-import erpnext_extensions.petty_management.tests.test_pm_clearance as pm_ct
 
 
 def _insert_opening_allocation_seed(

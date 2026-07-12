@@ -136,9 +136,7 @@ def expand_pdc_accounting_ledger_amount_precision() -> None:
 		cur_len = row[0].get("CHARACTER_MAXIMUM_LENGTH")
 		target_len = 300
 		if cur_len is None or int(cur_len) < target_len:
-			frappe.db.sql(
-				f"ALTER TABLE `{words_table}` MODIFY `{words_col}` VARCHAR({target_len})"
-			)
+			frappe.db.sql(f"ALTER TABLE `{words_table}` MODIFY `{words_col}` VARCHAR({target_len})")
 			logger.info("Updated %s.%s to VARCHAR(%s)", words_table, words_col, target_len)
 
 	logger.info("Completed expand_pdc_accounting_ledger_amount_precision")

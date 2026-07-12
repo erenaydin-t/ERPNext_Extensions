@@ -22,7 +22,9 @@ from __future__ import annotations
 import frappe
 from frappe.utils import flt
 
-from erpnext_extensions.cheque_management.pdc_payment_request_eligibility import is_payment_request_settlement_eligible
+from erpnext_extensions.cheque_management.pdc_payment_request_eligibility import (
+	is_payment_request_settlement_eligible,
+)
 from erpnext_extensions.cheque_management.pdc_settlement_capacity import (
 	sum_effective_pdc_allocations_to_reference,
 	sum_payment_entry_allocations_to_payment_request,
@@ -117,7 +119,9 @@ def sync_payment_request_status_from_settlement(pr_name: str | None) -> None:
 def _iter_pr_names_from_pdc_allocations(doc) -> list[str]:
 	out: list[str] = []
 	for row in doc.get("allocations") or []:
-		if getattr(row, "reference_doctype", None) == "Payment Request" and getattr(row, "reference_name", None):
+		if getattr(row, "reference_doctype", None) == "Payment Request" and getattr(
+			row, "reference_name", None
+		):
 			out.append(row.reference_name.strip())
 	return list(dict.fromkeys(out))
 
@@ -139,7 +143,9 @@ def on_payment_entry_changed(doc, method=None):
 		pr = getattr(row, "payment_request", None)
 		if pr:
 			names.append(pr.strip())
-		elif getattr(row, "reference_doctype", None) == "Payment Request" and getattr(row, "reference_name", None):
+		elif getattr(row, "reference_doctype", None) == "Payment Request" and getattr(
+			row, "reference_name", None
+		):
 			names.append(row.reference_name.strip())
 	for pr in dict.fromkeys(names):
 		sync_payment_request_status_from_settlement(pr)

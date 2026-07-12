@@ -9,13 +9,13 @@ import frappe
 from frappe.exceptions import ValidationError
 from frappe.utils import flt, today
 
+import erpnext_extensions.petty_management.tests.test_pm_clearance as pm_ct
 from erpnext_extensions.petty_management.services.opening_advance_service import (
 	get_opening_advance_available_amount,
 	pm_opening_advance_query_for_pm_clearance,
 	remaining_at_cutover_amount,
 	sum_prior_opening_allocations,
 )
-import erpnext_extensions.petty_management.tests.test_pm_clearance as pm_ct
 
 
 def _submit_pi_or_skip(pi):

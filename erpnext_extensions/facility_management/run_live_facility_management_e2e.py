@@ -17,9 +17,9 @@ from erpnext_extensions.facility_management.doctype.facility.facility import (
 	create_receipt_journal_entry,
 )
 from erpnext_extensions.facility_management.facility_accounting import (
-	get_facility_dimension_fieldname,
 	_validate_receipt_je_dimensions,
 	_validate_repayment_je_dimensions,
+	get_facility_dimension_fieldname,
 )
 from erpnext_extensions.facility_management.facility_accounting_dimensions import (
 	provision_facility_accounting_dimension,
@@ -95,7 +95,9 @@ def _gl_rows(je_name: str | None, dim_fn: str | None) -> list[dict]:
 def _assert_dim(rows: list[dict], dim_fn: str, facility_name: str, label: str, errors: list[str]):
 	for r in rows:
 		if r.get(dim_fn) != facility_name:
-			errors.append(f"{label}: account {r.get('account')} dim={r.get(dim_fn)!r} expected {facility_name!r}")
+			errors.append(
+				f"{label}: account {r.get('account')} dim={r.get(dim_fn)!r} expected {facility_name!r}"
+			)
 
 
 def _assert_receipt_excel_dimensions(facility_doc, je_name: str, errors: list[str]) -> None:

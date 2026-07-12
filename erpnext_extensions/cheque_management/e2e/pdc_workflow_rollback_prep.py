@@ -56,7 +56,11 @@ def _account(company: str, parent: str, account_name: str) -> str:
 
 def _ensure_pdc_settings(company: str, ci_hand: str, ci_clear: str, pool: str, protested: str) -> str:
 	name = frappe.db.get_value("PDC Settings", {"company": company}, "name") or company
-	doc = frappe.get_doc("PDC Settings", name) if frappe.db.exists("PDC Settings", name) else frappe.new_doc("PDC Settings")
+	doc = (
+		frappe.get_doc("PDC Settings", name)
+		if frappe.db.exists("PDC Settings", name)
+		else frappe.new_doc("PDC Settings")
+	)
 	doc.company = company
 	doc.name = name
 	doc.default_cheques_in_hand_account = ci_hand
@@ -321,7 +325,8 @@ def prepare_pdc_workflow_rollback_e2e():
 			"doctype": "Supplier",
 			"supplier_name": _uniq("SUP-E2E"),
 			"supplier_type": "Individual",
-			"supplier_group": frappe.db.get_value("Supplier Group", {}, "name", order_by="lft asc") or "All Supplier Groups",
+			"supplier_group": frappe.db.get_value("Supplier Group", {}, "name", order_by="lft asc")
+			or "All Supplier Groups",
 		}
 	).insert(ignore_permissions=True)
 	frappe.db.commit()
@@ -540,4 +545,3 @@ def e2e_forward_register_after_rollback(pdc_name: str) -> dict:
 		return {"ok": False, "workflow_state": doc.workflow_state, "reason": "not_draft"}
 	state = e2e_apply_pdc_workflow(pdc_name, "Register Cheque")
 	return {"ok": state == "Registered", "workflow_state": state}
-

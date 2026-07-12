@@ -15,7 +15,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque as pdc_mod
-
 from erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque import (
 	build_pdc_journal_entry_data,
 )
@@ -132,12 +131,8 @@ class TestPDCReceivableAccountingFlow(unittest.TestCase):
 
 	def test_transition_keys_unique_per_edge(self) -> None:
 		k1 = build_pdc_transition_key(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_DRAFT, WORKFLOW_REGISTERED)
-		k2 = build_pdc_transition_key(
-			CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_REGISTERED, WORKFLOW_SENT_TO_BANK
-		)
-		k3 = build_pdc_transition_key(
-			CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_SENT_TO_BANK, WORKFLOW_CLEARED
-		)
+		k2 = build_pdc_transition_key(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_REGISTERED, WORKFLOW_SENT_TO_BANK)
+		k3 = build_pdc_transition_key(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_SENT_TO_BANK, WORKFLOW_CLEARED)
 		self.assertEqual(len({k1, k2, k3}), 3)
 
 

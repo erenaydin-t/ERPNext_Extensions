@@ -37,7 +37,9 @@ def prepare_receipt_preview_facility():
 
 
 def prepare_repayment_preview_draft():
-	from erpnext_extensions.facility_management.e2e.facility_repayment_je_prep import create_draft_repayment_for_e2e
+	from erpnext_extensions.facility_management.e2e.facility_repayment_je_prep import (
+		create_draft_repayment_for_e2e,
+	)
 
 	out = create_draft_repayment_for_e2e()
 	out["je_count"] = frappe.db.count("Journal Entry")

@@ -4,11 +4,10 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 import frappe
 from frappe.utils import flt
-
-from unittest.mock import patch
 
 from erpnext_extensions.petty_management.services.allocation_service import (
 	get_pm_request_paid_amount,
@@ -17,13 +16,13 @@ from erpnext_extensions.petty_management.services.request_action_policy import (
 	compute_pm_request_action_flags,
 )
 from erpnext_extensions.petty_management.services.request_service import create_payment_entry
+from erpnext_extensions.petty_management.tests import test_pm_clearance as tpm
 from erpnext_extensions.petty_management.tests.test_pm_request_multi_pe import (
 	_create_funding_pe,
 	_ensure_pm_settings_bank,
 	_new_submitted_request,
 	_sync_funding_fields,
 )
-from erpnext_extensions.petty_management.tests import test_pm_clearance as tpm
 
 
 class TestPMDraftPaymentEntryDelete(unittest.TestCase):

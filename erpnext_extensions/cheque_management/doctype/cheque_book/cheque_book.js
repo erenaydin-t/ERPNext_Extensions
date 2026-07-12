@@ -31,12 +31,14 @@ frappe.ui.form.on("Cheque Book", {
 	company(frm) {
 		// Keep bank_account consistent with selected company.
 		if (frm.doc.bank_account) {
-			frappe.db.get_value("Bank Account", frm.doc.bank_account, ["company", "is_company_account"]).then((r) => {
-				const m = (r && r.message) || {};
-				if (m.company && frm.doc.company && m.company !== frm.doc.company) {
-					frm.set_value("bank_account", "");
-				}
-			});
+			frappe.db
+				.get_value("Bank Account", frm.doc.bank_account, ["company", "is_company_account"])
+				.then((r) => {
+					const m = (r && r.message) || {};
+					if (m.company && frm.doc.company && m.company !== frm.doc.company) {
+						frm.set_value("bank_account", "");
+					}
+				});
 		}
 	},
 	setup(frm) {
@@ -71,16 +73,13 @@ frappe.ui.form.on("Cheque Book", {
 			const badge = (label, val, color) =>
 				`<span class="indicator-pill whitespace-nowrap ${color}"> ${label}: ${val} </span>`;
 			frm.dashboard.set_headline(
-				__(
-					'<div class="flex" style="gap:8px; flex-wrap: wrap;">{0}{1}{2}{3}{4}</div>',
-					[
-						badge(__("Total"), g, "blue"),
-						badge(__("Available"), a, a <= 5 ? "orange" : "green"),
-						badge(__("Reserved"), r, r > 0 ? "orange" : "gray"),
-						badge(__("Used"), u, "gray"),
-						badge(__("Void"), v, v > 0 ? "red" : "gray"),
-					]
-				)
+				__('<div class="flex" style="gap:8px; flex-wrap: wrap;">{0}{1}{2}{3}{4}</div>', [
+					badge(__("Total"), g, "blue"),
+					badge(__("Available"), a, a <= 5 ? "orange" : "green"),
+					badge(__("Reserved"), r, r > 0 ? "orange" : "gray"),
+					badge(__("Used"), u, "gray"),
+					badge(__("Void"), v, v > 0 ? "red" : "gray"),
+				])
 			);
 			if (a <= 5 && g > 0) {
 				frm.dashboard.set_headline_alert(
@@ -139,4 +138,3 @@ frappe.ui.form.on("Cheque Book", {
 		}).addClass("btn-primary");
 	},
 });
-

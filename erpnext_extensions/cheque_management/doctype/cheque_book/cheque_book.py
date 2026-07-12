@@ -6,7 +6,6 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import now_datetime
 
-
 MAX_LEAVES_PER_BOOK = 5000
 
 
@@ -128,12 +127,17 @@ class ChequeBook(Document):
 		start = int(self.start_number)
 		end = int(self.end_number)
 		if end < start:
-			frappe.throw(frappe._("End Number must be greater than or equal to Start Number."), title=frappe._("Cheque Book"))
+			frappe.throw(
+				frappe._("End Number must be greater than or equal to Start Number."),
+				title=frappe._("Cheque Book"),
+			)
 
 		count = (end - start) + 1
 		if count > MAX_LEAVES_PER_BOOK:
 			frappe.throw(
-				frappe._("Cheque leaf range is too large ({0}). Maximum allowed is {1}.").format(count, MAX_LEAVES_PER_BOOK),
+				frappe._("Cheque leaf range is too large ({0}). Maximum allowed is {1}.").format(
+					count, MAX_LEAVES_PER_BOOK
+				),
 				title=frappe._("Cheque Book"),
 			)
 
@@ -143,7 +147,9 @@ class ChequeBook(Document):
 			if w < 0:
 				frappe.throw(frappe._("Number Width cannot be negative."), title=frappe._("Cheque Book"))
 			if w > 0 and w > 32:
-				frappe.throw(frappe._("Number Width must be between 1 and 32 when set."), title=frappe._("Cheque Book"))
+				frappe.throw(
+					frappe._("Number Width must be between 1 and 32 when set."), title=frappe._("Cheque Book")
+				)
 
 	def _validate_immutability_after_generation(self) -> None:
 		"""Once leaves exist, generation-defining fields become immutable."""
@@ -192,20 +198,28 @@ class ChequeBook(Document):
 
 		if frappe.db.exists("Cheque Leaf", {"cheque_book": self.name}):
 			frappe.throw(
-				frappe._("Cheque leaves already exist for this Cheque Book. Generation is not allowed again."),
+				frappe._(
+					"Cheque leaves already exist for this Cheque Book. Generation is not allowed again."
+				),
 				title=frappe._("Cheque Book"),
 			)
 
 		prefix = _normalize_prefix(self.prefix)
 		start = int(self.start_number)
 		end = int(self.end_number)
-		width = int(self.number_width) if (self.number_width is not None and str(self.number_width).strip()) else None
+		width = (
+			int(self.number_width)
+			if (self.number_width is not None and str(self.number_width).strip())
+			else None
+		)
 		if width is not None and width <= 0:
 			width = None
 
 		to_create: list[GeneratedLeaf] = []
 		for seq in range(start, end + 1):
-			to_create.append(GeneratedLeaf(sequence_no=seq, cheque_number=_format_cheque_number(prefix, seq, width)))
+			to_create.append(
+				GeneratedLeaf(sequence_no=seq, cheque_number=_format_cheque_number(prefix, seq, width))
+			)
 
 		# Uniqueness: cheque_number must not already exist for same company + bank_account.
 		# We check in chunks to keep query size reasonable.
@@ -216,7 +230,11 @@ class ChequeBook(Document):
 			nums = [x.cheque_number for x in chunk]
 			rows = frappe.get_all(
 				"Cheque Leaf",
-				filters={"company": self.company, "bank_account": self.bank_account, "cheque_number": ["in", nums]},
+				filters={
+					"company": self.company,
+					"bank_account": self.bank_account,
+					"cheque_number": ["in", nums],
+				},
 				pluck="cheque_number",
 			)
 			existing.update(rows or [])
@@ -286,4 +304,3 @@ class ChequeBook(Document):
 			"void_leaves_count": self.void_leaves_count,
 			"status": self.status,
 		}
-

@@ -46,9 +46,9 @@ def _find_existing_submitted_reversal_je(dt: str, invoice_name: str) -> str | No
 		return None
 	if len(rows) > 1:
 		frappe.throw(
-			_("Multiple submitted Journal Entries exist for the same PDC advance reversal on {0} {1}.").format(
-				dt, invoice_name
-			),
+			_(
+				"Multiple submitted Journal Entries exist for the same PDC advance reversal on {0} {1}."
+			).format(dt, invoice_name),
 			title=_("PDC Advance"),
 		)
 	return (rows[0] or {}).get("name")
@@ -73,15 +73,17 @@ def _find_existing_submitted_application_je(dt: str, invoice_name: str) -> str |
 		return None
 	if len(rows) > 1:
 		frappe.throw(
-			_("Multiple submitted Journal Entries exist for the same PDC advance application on {0} {1}.").format(
-				dt, invoice_name
-			),
+			_(
+				"Multiple submitted Journal Entries exist for the same PDC advance application on {0} {1}."
+			).format(dt, invoice_name),
 			title=_("PDC Advance"),
 		)
 	return (rows[0] or {}).get("name")
 
 
-def _validate_existing_je_matches_expected_total(dt: str, invoice_name: str, je_name: str, expected_total: float) -> None:
+def _validate_existing_je_matches_expected_total(
+	dt: str, invoice_name: str, je_name: str, expected_total: float
+) -> None:
 	"""Safety check: ensure existing JE matches the expected invoice reference amount."""
 	if not je_name:
 		return
@@ -109,9 +111,9 @@ def _validate_existing_je_matches_expected_total(dt: str, invoice_name: str, je_
 		if not adv:
 			# If accounts are missing we cannot validate; fail safe.
 			frappe.throw(
-				_("Could not validate existing Journal Entry {0} against advance account (missing company defaults).").format(
-					je_name
-				),
+				_(
+					"Could not validate existing Journal Entry {0} against advance account (missing company defaults)."
+				).format(je_name),
 				title=_("PDC Advance"),
 			)
 		acc = frappe.db.sql(
@@ -150,13 +152,13 @@ def _company_default_advance_received_account(company: str) -> str | None:
 
 def _invoice_order_link(dt: str, doc) -> tuple[str | None, str | None]:
 	if dt == "Purchase Invoice":
-		for it in (getattr(doc, "items", None) or []):
+		for it in getattr(doc, "items", None) or []:
 			po = (getattr(it, "purchase_order", None) or "").strip()
 			if po:
 				return "Purchase Order", po
 		return None, None
 	if dt == "Sales Invoice":
-		for it in (getattr(doc, "items", None) or []):
+		for it in getattr(doc, "items", None) or []:
 			so = (getattr(it, "sales_order", None) or "").strip()
 			if so:
 				return "Sales Order", so
@@ -190,13 +192,17 @@ def _validate_order_based_rows_match_invoice(doc, dt: str) -> tuple[str, str]:
 			title=_("PDC Advance"),
 		)
 
-	for row in (getattr(doc, "pdc_invoice_applications", None) or []):
+	for row in getattr(doc, "pdc_invoice_applications", None) or []:
 		if (getattr(row, "application_status", None) or "draft").strip() != "draft":
 			continue
 		if _row_advance_scope(row) != "order_based":
 			continue
-		if (getattr(row, "order_doctype", None) or "").strip() != order_dt or (getattr(row, "order_name", None) or "").strip() != order_nm:
-			frappe.throw(_("PDC Invoice Application rows must match the invoice order link."), title=_("PDC Advance"))
+		if (getattr(row, "order_doctype", None) or "").strip() != order_dt or (
+			getattr(row, "order_name", None) or ""
+		).strip() != order_nm:
+			frappe.throw(
+				_("PDC Invoice Application rows must match the invoice order link."), title=_("PDC Advance")
+			)
 	return order_dt, order_nm
 
 
@@ -284,7 +290,10 @@ def on_invoice_submit(doc, method=None) -> None:
 	if not (getattr(doc, "pdc_invoice_applications", None) or []):
 		return
 	has_order_based_draft = any(
-		((getattr(r, "application_status", None) or "draft").strip() == "draft" and _row_advance_scope(r) == "order_based")
+		(
+			(getattr(r, "application_status", None) or "draft").strip() == "draft"
+			and _row_advance_scope(r) == "order_based"
+		)
 		for r in (doc.pdc_invoice_applications or [])
 	)
 	order_dt, order_nm = (None, None)
@@ -292,7 +301,9 @@ def on_invoice_submit(doc, method=None) -> None:
 		order_dt, order_nm = _validate_order_based_rows_match_invoice(doc, dt)
 
 	# v1: require invoice currency == PDC currency; application row stores amount_in_pdc_currency as canonical.
-	any_posted = any((r.application_status or "").strip() == "posted" for r in (doc.pdc_invoice_applications or []))
+	any_posted = any(
+		(r.application_status or "").strip() == "posted" for r in (doc.pdc_invoice_applications or [])
+	)
 	total = 0.0
 	for row in doc.pdc_invoice_applications or []:
 		if (row.application_status or "draft").strip() != "draft":
@@ -404,7 +415,11 @@ def on_invoice_cancel(doc, method=None) -> None:
 		return
 
 	# Reverse only once.
-	to_reverse = [r for r in rows if (r.application_status or "").strip() == "posted" and not (r.reversal_je or "").strip()]
+	to_reverse = [
+		r
+		for r in rows
+		if (r.application_status or "").strip() == "posted" and not (r.reversal_je or "").strip()
+	]
 	if not to_reverse:
 		return
 
@@ -412,7 +427,9 @@ def on_invoice_cancel(doc, method=None) -> None:
 	for r in to_reverse:
 		if not (getattr(r, "posted_je", None) or "").strip():
 			frappe.throw(
-				_("PDC Invoice Application row {0} is posted but has no Posted Journal Entry.").format(getattr(r, "name", None) or ""),
+				_("PDC Invoice Application row {0} is posted but has no Posted Journal Entry.").format(
+					getattr(r, "name", None) or ""
+				),
 				title=_("PDC Advance"),
 			)
 
@@ -452,9 +469,15 @@ def on_invoice_cancel(doc, method=None) -> None:
 
 	# If some rows already point to a different reversal JE, do not silently override.
 	for r in rows:
-		if (r.application_status or "").strip() == "reversed" and (r.reversal_je or "").strip() and (r.reversal_je or "").strip() != je_name:
+		if (
+			(r.application_status or "").strip() == "reversed"
+			and (r.reversal_je or "").strip()
+			and (r.reversal_je or "").strip() != je_name
+		):
 			frappe.throw(
-				_("Invoice already has reversed rows pointing to a different reversal Journal Entry ({0}).").format(r.reversal_je),
+				_(
+					"Invoice already has reversed rows pointing to a different reversal Journal Entry ({0})."
+				).format(r.reversal_je),
 				title=_("PDC Advance"),
 			)
 
@@ -475,4 +498,3 @@ __all__ = [
 	"on_invoice_submit",
 	"on_invoice_cancel",
 ]
-

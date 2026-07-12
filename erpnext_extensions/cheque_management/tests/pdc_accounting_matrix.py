@@ -50,11 +50,7 @@ def print_pdc_accounting_matrix(pdc_name: str = "PDC-EXAMPLE") -> list[dict]:
 	for direction, fr, to in USER_MATRIX:
 		dec = get_pdc_accounting_decision(direction, fr, to)
 		spec = PDC_ACCOUNTING_TRANSITION_REGISTRY.get((direction, fr, to))
-		purpose = (
-			_purpose_for_transition(direction, fr, to)
-			if dec == PDC_ACCOUNTING_JOURNAL_ENTRY
-			else ""
-		)
+		purpose = _purpose_for_transition(direction, fr, to) if dec == PDC_ACCOUNTING_JOURNAL_ENTRY else ""
 		key = build_pdc_accounting_transition_key(pdc_name, direction, fr, to)
 		ref_delta = "+1" if dec == PDC_ACCOUNTING_JOURNAL_ENTRY else "0"
 		row = {

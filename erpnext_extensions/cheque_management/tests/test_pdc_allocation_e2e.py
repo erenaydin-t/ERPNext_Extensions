@@ -24,14 +24,19 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
+from frappe.exceptions import ValidationError
+
 import erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque as pdc_mod
+import erpnext_extensions.cheque_management.pdc_settlement_capacity as pdc_cap
+from erpnext_extensions.cheque_management import pdc_allocation as pdc_alloc
 from erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque import (
 	PostDatedCheque,
 	build_pdc_journal_entry_data,
 )
-import erpnext_extensions.cheque_management.pdc_settlement_capacity as pdc_cap
-from erpnext_extensions.cheque_management import pdc_allocation as pdc_alloc
-from erpnext_extensions.cheque_management.pdc_allocation import ALLOCATION_MODE_ADVANCE, ALLOCATION_MODE_DIRECT
+from erpnext_extensions.cheque_management.pdc_allocation import (
+	ALLOCATION_MODE_ADVANCE,
+	ALLOCATION_MODE_DIRECT,
+)
 from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
 	CHEQUE_DIRECTION_PAYABLE,
 	CHEQUE_DIRECTION_RECEIVABLE,
@@ -40,7 +45,6 @@ from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
 	WORKFLOW_REGISTERED,
 	WORKFLOW_SENT_TO_BANK,
 )
-from frappe.exceptions import ValidationError
 
 _SNAP_SI = {
 	"company": "_TC",
@@ -157,6 +161,7 @@ def _pdc(**kwargs) -> PostDatedCheque:
 @contextmanager
 def _frappe_messages_identity():
 	"""Bare unittest has no bound ``frappe.local``; bypass ``msgprint`` inside ``frappe.throw``."""
+
 	def _throw(msg, *args, **kwargs):
 		raise ValidationError(msg)
 
@@ -175,7 +180,11 @@ def _allocation_ref_patches(*, payment_request_snapshot=None):
 		patch.object(pdc_alloc, "_read_purchase_order_for_pdc_allocation", return_value=_SNAP_PO),
 		patch.object(pdc_alloc, "get_pr_remaining_capacity", return_value=1_000_000.0),
 		patch.object(pdc_alloc, "get_invoice_remaining_capacity", return_value=1_000_000.0),
-		patch.object(pdc_alloc, "get_receivable_sales_invoice_direct_settlement_remaining_capacity", return_value=1_000_000.0),
+		patch.object(
+			pdc_alloc,
+			"get_receivable_sales_invoice_direct_settlement_remaining_capacity",
+			return_value=1_000_000.0,
+		),
 		# Advance-mode order ceiling is DB-backed; bare unittest has no site/db.
 		patch.object(pdc_alloc, "get_order_remaining_advance_capacity", return_value=1_000_000.0),
 		# Diagnostic path calls PL for SI rows; bare unittest has no frappe.db / site.
@@ -457,7 +466,9 @@ class TestPDCAllocationValidation(unittest.TestCase):
 			stack.enter_context(patch.object(pdc_alloc, "get_invoice_remaining_capacity", return_value=0.0))
 			PostDatedCheque._validate_allocations(p)
 
-	def test_receivable_draft_to_registered_allows_si_with_positive_outstanding_even_if_ledger_capacity_helper_is_zero(self) -> None:
+	def test_receivable_draft_to_registered_allows_si_with_positive_outstanding_even_if_ledger_capacity_helper_is_zero(
+		self,
+	) -> None:
 		"""Oracle parity: Draft → Registered should not fail due to pre-JE ledger capacity for Sales Invoice."""
 		p = _pdc(
 			cheque_direction=CHEQUE_DIRECTION_RECEIVABLE,
@@ -482,14 +493,24 @@ class TestPDCAllocationValidation(unittest.TestCase):
 		snap["outstanding_amount"] = 20000.0
 		with ExitStack() as stack:
 			stack.enter_context(_frappe_messages_identity())
-			stack.enter_context(patch.object(pdc_alloc, "_read_sales_invoice_for_pdc_allocation", return_value=snap))
+			stack.enter_context(
+				patch.object(pdc_alloc, "_read_sales_invoice_for_pdc_allocation", return_value=snap)
+			)
 			# Payment Ledger can be 0 before Register JE; capacity must still follow invoice outstanding_amount + pending PDC math.
 			stack.enter_context(patch.object(pdc_alloc, "get_invoice_ledger_outstanding", return_value=0.0))
 			# ``from capacity import f`` binds names in pdc_allocation; patch both modules.
-			stack.enter_context(patch.object(pdc_cap, "sum_effective_pdc_direct_to_invoice", return_value=0.0))
-			stack.enter_context(patch.object(pdc_cap, "sum_effective_pdc_via_pr_to_invoice", return_value=0.0))
-			stack.enter_context(patch.object(pdc_alloc, "sum_effective_pdc_direct_to_invoice", return_value=0.0))
-			stack.enter_context(patch.object(pdc_alloc, "sum_effective_pdc_via_pr_to_invoice", return_value=0.0))
+			stack.enter_context(
+				patch.object(pdc_cap, "sum_effective_pdc_direct_to_invoice", return_value=0.0)
+			)
+			stack.enter_context(
+				patch.object(pdc_cap, "sum_effective_pdc_via_pr_to_invoice", return_value=0.0)
+			)
+			stack.enter_context(
+				patch.object(pdc_alloc, "sum_effective_pdc_direct_to_invoice", return_value=0.0)
+			)
+			stack.enter_context(
+				patch.object(pdc_alloc, "sum_effective_pdc_via_pr_to_invoice", return_value=0.0)
+			)
 			PostDatedCheque._validate_allocations(p)
 
 	def test_receivable_draft_to_registered_blocks_si_when_outstanding_is_zero(self) -> None:
@@ -516,12 +537,22 @@ class TestPDCAllocationValidation(unittest.TestCase):
 		snap["outstanding_amount"] = 0.0
 		with ExitStack() as stack:
 			stack.enter_context(_frappe_messages_identity())
-			stack.enter_context(patch.object(pdc_alloc, "_read_sales_invoice_for_pdc_allocation", return_value=snap))
+			stack.enter_context(
+				patch.object(pdc_alloc, "_read_sales_invoice_for_pdc_allocation", return_value=snap)
+			)
 			stack.enter_context(patch.object(pdc_alloc, "get_invoice_ledger_outstanding", return_value=0.0))
-			stack.enter_context(patch.object(pdc_cap, "sum_effective_pdc_direct_to_invoice", return_value=0.0))
-			stack.enter_context(patch.object(pdc_cap, "sum_effective_pdc_via_pr_to_invoice", return_value=0.0))
-			stack.enter_context(patch.object(pdc_alloc, "sum_effective_pdc_direct_to_invoice", return_value=0.0))
-			stack.enter_context(patch.object(pdc_alloc, "sum_effective_pdc_via_pr_to_invoice", return_value=0.0))
+			stack.enter_context(
+				patch.object(pdc_cap, "sum_effective_pdc_direct_to_invoice", return_value=0.0)
+			)
+			stack.enter_context(
+				patch.object(pdc_cap, "sum_effective_pdc_via_pr_to_invoice", return_value=0.0)
+			)
+			stack.enter_context(
+				patch.object(pdc_alloc, "sum_effective_pdc_direct_to_invoice", return_value=0.0)
+			)
+			stack.enter_context(
+				patch.object(pdc_alloc, "sum_effective_pdc_via_pr_to_invoice", return_value=0.0)
+			)
 			with self.assertRaises(ValidationError):
 				PostDatedCheque._validate_allocations(p)
 
@@ -585,12 +616,8 @@ class TestPDCAllocationDoesNotDriveJournalPayloads(unittest.TestCase):
 			patch.object(pdc_mod, "frappe") as mf,
 		):
 			mf._ = lambda s: s
-			j_stb_a = build_pdc_journal_entry_data(
-				heavy, WORKFLOW_REGISTERED, WORKFLOW_SENT_TO_BANK, POSTING
-			)
-			j_stb_b = build_pdc_journal_entry_data(
-				none, WORKFLOW_REGISTERED, WORKFLOW_SENT_TO_BANK, POSTING
-			)
+			j_stb_a = build_pdc_journal_entry_data(heavy, WORKFLOW_REGISTERED, WORKFLOW_SENT_TO_BANK, POSTING)
+			j_stb_b = build_pdc_journal_entry_data(none, WORKFLOW_REGISTERED, WORKFLOW_SENT_TO_BANK, POSTING)
 		self.assertEqual(j_stb_a, j_stb_b)
 
 

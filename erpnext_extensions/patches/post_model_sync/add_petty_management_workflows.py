@@ -71,9 +71,7 @@ def _repair_pm_request_workflow():
 			w.remove(row)
 			changed = True
 
-	still_refs_paid = any(
-		getattr(t, "next_state", None) == "Paid" for t in w.transitions
-	)
+	still_refs_paid = any(getattr(t, "next_state", None) == "Paid" for t in w.transitions)
 	if not still_refs_paid:
 		for row in list(w.states):
 			if row.state == "Paid":

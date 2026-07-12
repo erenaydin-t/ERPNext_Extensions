@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
+import erpnext
 import frappe
 from frappe.model.meta import get_field_precision
 from frappe.utils import cint, flt
 
-import erpnext
 import erpnext_extensions.iran_accounting.zero_value_transfer as zvt
-from erpnext_extensions.iran_accounting.domain.ledger_rounding import round_gl_entry_amounts
 from erpnext_extensions.iran_accounting.domain.currency import get_currency_precision
+from erpnext_extensions.iran_accounting.domain.ledger_rounding import round_gl_entry_amounts
 
 _PATCHED = False
 
@@ -263,6 +263,7 @@ def _patch_stock_controller():
 
 def _patch_stock_reconciliation():
 	from erpnext.stock.doctype.stock_reconciliation.stock_reconciliation import StockReconciliation
+
 	from erpnext_extensions.iran_accounting.domain.stock_reconciliation_erpnext import (
 		patched_calculate_difference_amount,
 		patched_remove_items_with_no_change,
@@ -273,8 +274,12 @@ def _patch_stock_reconciliation():
 		return
 
 	StockReconciliation._iran_original_set_total_qty_and_amount = StockReconciliation.set_total_qty_and_amount
-	StockReconciliation._iran_original_calculate_difference_amount = StockReconciliation.calculate_difference_amount
-	StockReconciliation._iran_original_remove_items_with_no_change = StockReconciliation.remove_items_with_no_change
+	StockReconciliation._iran_original_calculate_difference_amount = (
+		StockReconciliation.calculate_difference_amount
+	)
+	StockReconciliation._iran_original_remove_items_with_no_change = (
+		StockReconciliation.remove_items_with_no_change
+	)
 	StockReconciliation.set_total_qty_and_amount = patched_set_total_qty_and_amount
 	StockReconciliation.calculate_difference_amount = patched_calculate_difference_amount
 	StockReconciliation.remove_items_with_no_change = patched_remove_items_with_no_change
@@ -283,6 +288,7 @@ def _patch_stock_reconciliation():
 
 def _patch_stock_entry():
 	from erpnext.stock.doctype.stock_entry.stock_entry import StockEntry
+
 	import erpnext_extensions.iran_accounting.stock_entry as se_hooks
 
 	if getattr(StockEntry, "_iran_patched", None):
@@ -481,7 +487,10 @@ def _patch_general_ledger():
 		company = args.get("company") if isinstance(args, dict) else getattr(args, "company", None)
 		if company:
 			company_currency = erpnext.get_company_currency(company)
-			from erpnext_extensions.iran_accounting.domain.currency import get_currency_precision, is_irr_company
+			from erpnext_extensions.iran_accounting.domain.currency import (
+				get_currency_precision,
+				is_irr_company,
+			)
 
 			precision = (
 				get_currency_precision(company_currency)
@@ -515,7 +524,9 @@ def _patch_accounts_controller():
 
 	_orig = ac.set_balance_in_account_currency
 
-	def set_balance_in_account_currency(gl_dict, account_currency=None, conversion_rate=None, company_currency=None):
+	def set_balance_in_account_currency(
+		gl_dict, account_currency=None, conversion_rate=None, company_currency=None
+	):
 		_orig(gl_dict, account_currency, conversion_rate, company_currency)
 		if not company_currency and gl_dict.get("company"):
 			company_currency = erpnext.get_company_currency(gl_dict.company)

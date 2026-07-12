@@ -10,9 +10,7 @@ from pathlib import Path
 import frappe
 
 GET_DOC_PM_REQUEST = re.compile(r"""frappe\.get_doc\s*\(\s*['"]PM Request['"]""")
-TESTS_PACKAGE_IMPORT = re.compile(
-	r"(?:from|import)\s+erpnext_extensions\.petty_management\.tests(?:\.|\s|$)"
-)
+TESTS_PACKAGE_IMPORT = re.compile(r"(?:from|import)\s+erpnext_extensions\.petty_management\.tests(?:\.|\s|$)")
 
 # Paths that may load PM Request without going through guard loaders (tests, e2e, smoke).
 RAW_GET_DOC_ALLOWLIST_PREFIXES = (

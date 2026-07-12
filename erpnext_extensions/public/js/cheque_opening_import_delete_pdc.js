@@ -171,35 +171,34 @@
 		if (!rows_with_pdc.length) return;
 
 		frm.add_custom_button(__("Delete Imported PDC…"), () => {
-				const options = rows_with_pdc.map((x) => ({
-					label: `${__("Row")} ${x.row.row_number || "?"} — ${x.pdc}`,
-					value: x.pdc,
-				}));
-				if (options.length === 1) {
-					ns.open_delete_imported_pdc_dialog(options[0].value, frm);
-					return;
-				}
-				const pick = new frappe.ui.Dialog({
-					title: __("Delete Imported PDC"),
-					fields: [
-						{
-							fieldtype: "Select",
-							fieldname: "pdc_name",
-							label: __("Imported Post Dated Cheque"),
-							options: options.map((o) => o.value),
-							reqd: 1,
-						},
-					],
-					primary_action_label: __("Continue"),
-					primary_action: function () {
-						const pdc = pick.get_value("pdc_name");
-						pick.hide();
-						if (pdc) ns.open_delete_imported_pdc_dialog(pdc, frm);
-					},
-				});
-				pick.show();
+			const options = rows_with_pdc.map((x) => ({
+				label: `${__("Row")} ${x.row.row_number || "?"} — ${x.pdc}`,
+				value: x.pdc,
+			}));
+			if (options.length === 1) {
+				ns.open_delete_imported_pdc_dialog(options[0].value, frm);
+				return;
 			}
-		);
+			const pick = new frappe.ui.Dialog({
+				title: __("Delete Imported PDC"),
+				fields: [
+					{
+						fieldtype: "Select",
+						fieldname: "pdc_name",
+						label: __("Imported Post Dated Cheque"),
+						options: options.map((o) => o.value),
+						reqd: 1,
+					},
+				],
+				primary_action_label: __("Continue"),
+				primary_action: function () {
+					const pdc = pick.get_value("pdc_name");
+					pick.hide();
+					if (pdc) ns.open_delete_imported_pdc_dialog(pdc, frm);
+				},
+			});
+			pick.show();
+		});
 	};
 
 	ns.setup_delete_imported_pdc_on_pdc_form = async function (frm) {

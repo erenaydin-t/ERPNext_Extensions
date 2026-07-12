@@ -84,4 +84,3 @@ def receivable_sales_invoice_settlement_slices(doc) -> list[tuple[str, float]] |
 __all__ = [
 	"receivable_sales_invoice_settlement_slices",
 ]
-

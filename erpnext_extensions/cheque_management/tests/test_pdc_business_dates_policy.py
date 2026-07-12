@@ -62,7 +62,11 @@ def _pdc(**overrides) -> PostDatedCheque:
 
 class TestPdcBusinessDatesPhase1(unittest.TestCase):
 	def test_receivable_register_requires_received_date(self):
-		p = _pdc(cheque_direction=CHEQUE_DIRECTION_RECEIVABLE, workflow_state=WORKFLOW_REGISTERED, received_date=None)
+		p = _pdc(
+			cheque_direction=CHEQUE_DIRECTION_RECEIVABLE,
+			workflow_state=WORKFLOW_REGISTERED,
+			received_date=None,
+		)
 		with (
 			patch.object(p, "_get_previous_workflow_state_raw", return_value=WORKFLOW_DRAFT),
 			patch.object(pdc_mod, "frappe", _fake_frappe()),
@@ -148,9 +152,18 @@ class TestPdcBusinessDatesPhase1(unittest.TestCase):
 		p.reload = lambda: None
 		with (
 			patch("frappe.logger", return_value=SimpleNamespace(info=lambda *_a, **_k: None)),
-			patch("erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque.get_accounting_action", return_value="journal_entry"),
-			patch("erpnext_extensions.cheque_management.pdc_journal_entry_service.get_existing_journal_entry_for_transition", return_value=None),
-			patch("erpnext_extensions.cheque_management.pdc_journal_entry_service.post_pdc_transition_journal_entry", return_value="JE-1") as m_post,
+			patch(
+				"erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque.get_accounting_action",
+				return_value="journal_entry",
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_journal_entry_service.get_existing_journal_entry_for_transition",
+				return_value=None,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_journal_entry_service.post_pdc_transition_journal_entry",
+				return_value="JE-1",
+			) as m_post,
 		):
 			PostDatedCheque._pdc_post_save_accounting_sequence(p)
 		kw = m_post.call_args.kwargs
@@ -170,9 +183,18 @@ class TestPdcBusinessDatesPhase1(unittest.TestCase):
 		p.reload = lambda: None
 		with (
 			patch("frappe.logger", return_value=SimpleNamespace(info=lambda *_a, **_k: None)),
-			patch("erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque.get_accounting_action", return_value="journal_entry"),
-			patch("erpnext_extensions.cheque_management.pdc_journal_entry_service.get_existing_journal_entry_for_transition", return_value=None),
-			patch("erpnext_extensions.cheque_management.pdc_journal_entry_service.post_pdc_transition_journal_entry", return_value="JE-RET-1") as m_post,
+			patch(
+				"erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque.get_accounting_action",
+				return_value="journal_entry",
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_journal_entry_service.get_existing_journal_entry_for_transition",
+				return_value=None,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_journal_entry_service.post_pdc_transition_journal_entry",
+				return_value="JE-RET-1",
+			) as m_post,
 		):
 			PostDatedCheque._pdc_post_save_accounting_sequence(p)
 		self.assertEqual(m_post.call_args.kwargs.get("posting_date"), "2026-03-15")
@@ -192,9 +214,18 @@ class TestPdcBusinessDatesPhase1(unittest.TestCase):
 		p.reload = lambda: None
 		with (
 			patch("frappe.logger", return_value=SimpleNamespace(info=lambda *_a, **_k: None)),
-			patch("erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque.get_accounting_action", return_value="journal_entry"),
-			patch("erpnext_extensions.cheque_management.pdc_journal_entry_service.get_existing_journal_entry_for_transition", return_value=None),
-			patch("erpnext_extensions.cheque_management.pdc_journal_entry_service.post_pdc_transition_journal_entry", return_value="JE-BNC-1") as m_post,
+			patch(
+				"erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque.get_accounting_action",
+				return_value="journal_entry",
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_journal_entry_service.get_existing_journal_entry_for_transition",
+				return_value=None,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_journal_entry_service.post_pdc_transition_journal_entry",
+				return_value="JE-BNC-1",
+			) as m_post,
 		):
 			PostDatedCheque._pdc_post_save_accounting_sequence(p)
 		self.assertEqual(m_post.call_args.kwargs.get("posting_date"), "2026-04-20")
@@ -213,9 +244,18 @@ class TestPdcBusinessDatesPhase1(unittest.TestCase):
 		p.reload = lambda: None
 		with (
 			patch("frappe.logger", return_value=SimpleNamespace(info=lambda *_a, **_k: None)),
-			patch("erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque.get_accounting_action", return_value="journal_entry"),
-			patch("erpnext_extensions.cheque_management.pdc_journal_entry_service.get_existing_journal_entry_for_transition", return_value=None),
-			patch("erpnext_extensions.cheque_management.pdc_journal_entry_service.post_pdc_transition_journal_entry", return_value="JE-STB-1") as m_post,
+			patch(
+				"erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque.get_accounting_action",
+				return_value="journal_entry",
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_journal_entry_service.get_existing_journal_entry_for_transition",
+				return_value=None,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_journal_entry_service.post_pdc_transition_journal_entry",
+				return_value="JE-STB-1",
+			) as m_post,
 		):
 			PostDatedCheque._pdc_post_save_accounting_sequence(p)
 		self.assertEqual(m_post.call_args.kwargs.get("posting_date"), "2026-05-10")
@@ -233,9 +273,18 @@ class TestPdcBusinessDatesPhase1(unittest.TestCase):
 		p.reload = lambda: None
 		with (
 			patch("frappe.logger", return_value=SimpleNamespace(info=lambda *_a, **_k: None)),
-			patch("erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque.get_accounting_action", return_value="journal_entry"),
-			patch("erpnext_extensions.cheque_management.pdc_journal_entry_service.get_existing_journal_entry_for_transition", return_value=None),
-			patch("erpnext_extensions.cheque_management.pdc_journal_entry_service.post_pdc_transition_journal_entry", return_value="JE-ISS-1") as m_post,
+			patch(
+				"erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque.get_accounting_action",
+				return_value="journal_entry",
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_journal_entry_service.get_existing_journal_entry_for_transition",
+				return_value=None,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_journal_entry_service.post_pdc_transition_journal_entry",
+				return_value="JE-ISS-1",
+			) as m_post,
 		):
 			PostDatedCheque._pdc_post_save_accounting_sequence(p)
 		self.assertEqual(m_post.call_args.kwargs.get("posting_date"), "2026-06-01")
@@ -252,9 +301,18 @@ class TestPdcBusinessDatesPhase1(unittest.TestCase):
 		p.reload = lambda: None
 		with (
 			patch("frappe.logger", return_value=SimpleNamespace(info=lambda *_a, **_k: None)),
-			patch("erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque.get_accounting_action", return_value="journal_entry"),
-			patch("erpnext_extensions.cheque_management.pdc_journal_entry_service.get_existing_journal_entry_for_transition", return_value=None),
-			patch("erpnext_extensions.cheque_management.pdc_journal_entry_service.post_pdc_transition_journal_entry", return_value="JE-END-1") as m_post,
+			patch(
+				"erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque.get_accounting_action",
+				return_value="journal_entry",
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_journal_entry_service.get_existing_journal_entry_for_transition",
+				return_value=None,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_journal_entry_service.post_pdc_transition_journal_entry",
+				return_value="JE-END-1",
+			) as m_post,
 		):
 			PostDatedCheque._pdc_post_save_accounting_sequence(p)
 		self.assertEqual(m_post.call_args.kwargs.get("posting_date"), "2026-06-15")
@@ -262,4 +320,3 @@ class TestPdcBusinessDatesPhase1(unittest.TestCase):
 
 if __name__ == "__main__":
 	unittest.main()
-

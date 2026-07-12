@@ -13,21 +13,25 @@ from __future__ import annotations
 import frappe
 from frappe.utils import flt
 
-from erpnext_extensions.cheque_management.pdc_payment_request_eligibility import is_payment_request_settlement_eligible
+from erpnext_extensions.cheque_management.pdc_payment_request_eligibility import (
+	is_payment_request_settlement_eligible,
+)
 from erpnext_extensions.cheque_management.pdc_settlement_capacity import (
 	SETTLEMENT_REFERENCE_DOCTYPES,
-	get_remaining_settlement_capacity,
 	get_invoice_ledger_outstanding,
+	get_remaining_settlement_capacity,
+	sum_effective_pdc_allocations_to_reference,
 	sum_effective_pdc_allocations_via_payment_request_to_invoice,
 	sum_payment_entry_allocations_to_payment_request,
-	sum_effective_pdc_allocations_to_reference,
 	sum_payment_entry_allocations_to_reference,
 )
 
 PDC_ADVANCE_APP_ROW_STATUSES = ("posted", "reversed")
 
 
-def _sum_net_pdc_advance_applied_on_invoice(invoice_doctype: str, invoice_name: str, *, company: str | None = None) -> float:
+def _sum_net_pdc_advance_applied_on_invoice(
+	invoice_doctype: str, invoice_name: str, *, company: str | None = None
+) -> float:
 	"""Net applied from PDC Advances on this invoice (invoice currency).
 
 	Source-of-truth: the **posted application Journal Entries** (because those are what reduce Payment Ledger).
@@ -53,7 +57,11 @@ def _sum_net_pdc_advance_applied_on_invoice(invoice_doctype: str, invoice_name: 
 	if dt == "Purchase Invoice":
 		adv = (frappe.db.get_value("Company", co, "default_advance_paid_account") or "").strip() if co else ""
 	else:
-		adv = (frappe.db.get_value("Company", co, "default_advance_received_account") or "").strip() if co else ""
+		adv = (
+			(frappe.db.get_value("Company", co, "default_advance_received_account") or "").strip()
+			if co
+			else ""
+		)
 	if not adv:
 		return 0.0
 

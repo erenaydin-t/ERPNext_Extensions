@@ -107,9 +107,7 @@ class TestOpeningImportRollbackIntegration(IntegrationTestCase):
 		self.assertEqual(get_rollback_target_states(pdc_name), [])
 
 		if cancelled_je:
-			report = sql_verify_pdc_rollback_integrity(
-				pdc_name, cancelled_journal_entries=[cancelled_je]
-			)
+			report = sql_verify_pdc_rollback_integrity(pdc_name, cancelled_journal_entries=[cancelled_je])
 			self.assertTrue(sql_integrity_is_clean(report, [cancelled_je]))
 
 	def test_payable_cleared_baseline_no_rollback(self):

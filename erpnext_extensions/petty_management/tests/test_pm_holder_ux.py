@@ -9,6 +9,7 @@ import frappe
 from frappe.desk.search import search_link
 from frappe.utils import today
 
+import erpnext_extensions.petty_management.tests.test_pm_clearance as pm_ct
 from erpnext_extensions.petty_management.doctype.pm_holder.pm_holder import pm_holder_query
 from erpnext_extensions.petty_management.doctype.pm_opening_advance.pm_opening_advance import (
 	pm_opening_advance_link_query,
@@ -21,7 +22,6 @@ from erpnext_extensions.petty_management.services.opening_advance_service import
 	format_opening_advance_link_search_row,
 	pm_opening_advance_query_for_pm_clearance,
 )
-import erpnext_extensions.petty_management.tests.test_pm_clearance as pm_ct
 
 
 class TestPMHolderUX(unittest.TestCase):
@@ -34,7 +34,9 @@ class TestPMHolderUX(unittest.TestCase):
 		pm_ct._ensure_petty_account()
 
 	def test_format_pm_holder_title(self):
-		self.assertEqual(format_pm_holder_title("فربد ابراهیمی", "HR-EMP-00002"), "فربد ابراهیمی (HR-EMP-00002)")
+		self.assertEqual(
+			format_pm_holder_title("فربد ابراهیمی", "HR-EMP-00002"), "فربد ابراهیمی (HR-EMP-00002)"
+		)
 
 	def test_pm_holder_document_get_title(self):
 		emp = pm_ct._make_employee()

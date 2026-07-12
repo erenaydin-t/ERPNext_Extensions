@@ -6,7 +6,9 @@ Registered as a new patch so sites with the original patch already in Patch Log
 still run this logic once on migrate.
 """
 
-from erpnext_extensions.patches.post_model_sync.expand_currency_precision import execute as expand_currency_precision_execute
+from erpnext_extensions.patches.post_model_sync.expand_currency_precision import (
+	execute as expand_currency_precision_execute,
+)
 
 
 def execute():

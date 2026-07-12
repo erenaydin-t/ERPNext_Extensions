@@ -6,9 +6,8 @@ from __future__ import annotations
 from typing import Any
 
 import frappe
-from frappe.utils import flt, nowtime, random_string, today
-
 from erpnext.stock.doctype.stock_entry.stock_entry_utils import make_stock_entry
+from frappe.utils import flt, nowtime, random_string, today
 
 from erpnext_extensions.iran_accounting.domain.currency import round_row_amount_financial
 from erpnext_extensions.iran_accounting.domain.qty_rate_amount import (
@@ -272,13 +271,12 @@ def _submit_opening_sr(
 	sr.posting_date = today()
 	sr.posting_time = nowtime()
 	sr.set_posting_time = 1
-	sr.expense_account = (
-		frappe.get_cached_value("Company", company, "temporary_opening_account")
-		or frappe.db.get_value(
-			"Account",
-			{"company": company, "account_type": "Temporary", "is_group": 0},
-			"name",
-		)
+	sr.expense_account = frappe.get_cached_value(
+		"Company", company, "temporary_opening_account"
+	) or frappe.db.get_value(
+		"Account",
+		{"company": company, "account_type": "Temporary", "is_group": 0},
+		"name",
 	)
 	sr.cost_center = frappe.get_cached_value("Company", company, "cost_center")
 	sr.difference_account = sr.expense_account
@@ -310,12 +308,9 @@ def _submit_mixed_sr(
 	sr.posting_date = today()
 	sr.posting_time = nowtime()
 	sr.set_posting_time = 1
-	sr.expense_account = (
-		frappe.get_cached_value("Company", company, "stock_adjustment_account")
-		or frappe.db.get_value(
-			"Account", {"account_type": "Stock Adjustment", "company": company}, "name"
-		)
-	)
+	sr.expense_account = frappe.get_cached_value(
+		"Company", company, "stock_adjustment_account"
+	) or frappe.db.get_value("Account", {"account_type": "Stock Adjustment", "company": company}, "name")
 	sr.cost_center = frappe.get_cached_value("Company", company, "cost_center")
 	for row in rows:
 		sr.append(
@@ -489,7 +484,13 @@ def run_clean_slate_regression(
 	frappe.db.commit()
 
 	mixed_rows = [
-		{"item_code": item_mix_a, "qty": 5, "valuation_rate": 1111, "current_qty": 0, "current_valuation_rate": 0},
+		{
+			"item_code": item_mix_a,
+			"qty": 5,
+			"valuation_rate": 1111,
+			"current_qty": 0,
+			"current_valuation_rate": 0,
+		},
 		{
 			"item_code": item_mix_b,
 			"qty": 2,
@@ -553,9 +554,11 @@ def run_clean_slate_regression(
 	if settings_snap:
 		_apply_system_settings(**{k: v for k, v in settings_snap.items() if v is not None})
 
-	overall = "PASS" if all(v["status"] == "PASS" for v in vouchers) and all(
-		s["status"] == "PASS" for s in settings_cases
-	) else "FAIL"
+	overall = (
+		"PASS"
+		if all(v["status"] == "PASS" for v in vouchers) and all(s["status"] == "PASS" for s in settings_cases)
+		else "FAIL"
+	)
 
 	return {
 		"overall": overall,

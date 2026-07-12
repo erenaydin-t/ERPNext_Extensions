@@ -12,6 +12,7 @@ from erpnext_extensions.petty_management.services.request_action_policy import (
 	MSG_CLOSE_DRAFT_PE,
 	compute_pm_request_action_flags,
 )
+from erpnext_extensions.petty_management.tests import test_pm_clearance as tpm
 from erpnext_extensions.petty_management.tests.test_pm_request_multi_pe import (
 	_approve_pm_request,
 	_create_funding_pe,
@@ -19,7 +20,6 @@ from erpnext_extensions.petty_management.tests.test_pm_request_multi_pe import (
 	_new_submitted_request,
 	_sync_funding_fields,
 )
-from erpnext_extensions.petty_management.tests import test_pm_clearance as tpm
 
 
 def _flags(req_name: str) -> dict:

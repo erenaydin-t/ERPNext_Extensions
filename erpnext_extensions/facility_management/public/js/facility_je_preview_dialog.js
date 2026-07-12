@@ -17,7 +17,10 @@ erpnext_extensions.facility_management.je_preview.show_facility_je_preview_dialo
 	if (!payload.balanced) {
 		frappe.msgprint({
 			title: __("Not balanced"),
-			message: __("Total debit {0} ≠ total credit {1}", [payload.total_debit, payload.total_credit]),
+			message: __("Total debit {0} ≠ total credit {1}", [
+				payload.total_debit,
+				payload.total_credit,
+			]),
 			indicator: "orange",
 		});
 	}
@@ -38,16 +41,19 @@ erpnext_extensions.facility_management.je_preview.show_facility_je_preview_dialo
 		)
 		.join("");
 	const dialogTitle =
-		title ||
-		__("Journal Entry Preview") + ` (${payload.voucher_type || "Bank Entry"})`;
+		title || __("Journal Entry Preview") + ` (${payload.voucher_type || "Bank Entry"})`;
 	const d = new frappe.ui.Dialog({
 		title: dialogTitle,
 		size: "extra-large",
 	});
 	d.$body.html(`
 		<div class="mb-2 text-muted small">
-			<div><strong>${__("Voucher Type")}:</strong> ${frappe.utils.escape_html(payload.voucher_type || "")}</div>
-			<div><strong>${__("Posting Date")}:</strong> ${frappe.utils.escape_html(payload.posting_date || "")}</div>
+			<div><strong>${__("Voucher Type")}:</strong> ${frappe.utils.escape_html(
+		payload.voucher_type || ""
+	)}</div>
+			<div><strong>${__("Posting Date")}:</strong> ${frappe.utils.escape_html(
+		payload.posting_date || ""
+	)}</div>
 			<div><strong>${__("Remarks")}:</strong> ${frappe.utils.escape_html(payload.remarks || "")}</div>
 		</div>
 		<div class="table-responsive">
@@ -55,7 +61,9 @@ erpnext_extensions.facility_management.je_preview.show_facility_je_preview_dialo
 				<thead><tr>
 					<th>${__("Row")}</th><th>${__("Account")}</th><th>${__("Debit")}</th><th>${__("Credit")}</th>
 					<th>${__("Facility")}</th><th>${__("Department")}</th><th>${__("Cost Center")}</th>
-					<th>${__("Bank Dimension")}</th><th>${__("Bank Account Dimension")}</th><th>${__("Row Description")}</th>
+					<th>${__("Bank Dimension")}</th><th>${__("Bank Account Dimension")}</th><th>${__(
+		"Row Description"
+	)}</th>
 				</tr></thead>
 				<tbody>${rows}</tbody>
 				<tfoot><tr>

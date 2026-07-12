@@ -26,9 +26,13 @@ class TestAdvanceCandidatesMixedPoolSuggestion(unittest.TestCase):
 
 		def _sql(q, params=None, as_dict=False):
 			if "INNER JOIN `tabPDC Allocation`" in q:
-				return [{"pdc": "PDC-O1", "pdc_currency": "INR", "recognition_je_posted": 1, "instrument_dead": 0}]
+				return [
+					{"pdc": "PDC-O1", "pdc_currency": "INR", "recognition_je_posted": 1, "instrument_dead": 0}
+				]
 			# general
-			return [{"pdc": "PDC-G1", "pdc_currency": "INR", "recognition_je_posted": 1, "instrument_dead": 0}]
+			return [
+				{"pdc": "PDC-G1", "pdc_currency": "INR", "recognition_je_posted": 1, "instrument_dead": 0}
+			]
 
 		fake_frappe = SimpleNamespace(
 			db=SimpleNamespace(exists=lambda *a, **k: True, sql=_sql),
@@ -59,7 +63,9 @@ class TestAdvanceCandidatesMixedPoolSuggestion(unittest.TestCase):
 		)
 
 		def _sql(q, params=None, as_dict=False):
-			return [{"pdc": "PDC-O1", "pdc_currency": "INR", "recognition_je_posted": 1, "instrument_dead": 0}]
+			return [
+				{"pdc": "PDC-O1", "pdc_currency": "INR", "recognition_je_posted": 1, "instrument_dead": 0}
+			]
 
 		fake_frappe = SimpleNamespace(
 			db=SimpleNamespace(exists=lambda *a, **k: True, sql=_sql),
@@ -83,7 +89,9 @@ class TestAdvanceCandidatesMixedPoolSuggestion(unittest.TestCase):
 
 		def _sql(q, params=None, as_dict=False):
 			# only general query should matter; returning order-based rows would require join in q
-			return [{"pdc": "PDC-G1", "pdc_currency": "INR", "recognition_je_posted": 1, "instrument_dead": 0}]
+			return [
+				{"pdc": "PDC-G1", "pdc_currency": "INR", "recognition_je_posted": 1, "instrument_dead": 0}
+			]
 
 		fake_frappe = SimpleNamespace(
 			db=SimpleNamespace(exists=lambda *a, **k: True, sql=_sql),
@@ -102,4 +110,3 @@ class TestAdvanceCandidatesMixedPoolSuggestion(unittest.TestCase):
 		self.assertEqual(len(out["candidates"]), 1)
 		self.assertEqual(out["candidates"][0]["advance_scope"], "general")
 		self.assertEqual(out["candidates"][0]["suggested_apply_amount"], 10000.0)
-

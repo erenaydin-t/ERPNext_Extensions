@@ -46,7 +46,9 @@ def _check_irr_settings(company: str) -> tuple[list[dict], dict]:
 		"resolved_irr_precision": resolved,
 	}
 	ok = cur == "IRR" and resolved == 0
-	row = scenario_row(1, "settings", company, "PASS" if ok else "FAIL", evidence=json.dumps(info, default=str))
+	row = scenario_row(
+		1, "settings", company, "PASS" if ok else "FAIL", evidence=json.dumps(info, default=str)
+	)
 	return [row], info
 
 
@@ -89,11 +91,7 @@ def _print_table(rows: list[dict]) -> None:
 	print(line)
 	print("-" * len(line))
 	for row in rows:
-		print(
-			" | ".join(
-				str(row.get(h, "")).ljust(widths[i])[: widths[i]] for i, h in enumerate(headers)
-			)
-		)
+		print(" | ".join(str(row.get(h, "")).ljust(widths[i])[: widths[i]] for i, h in enumerate(headers)))
 
 
 def _overall_status(rows: list[dict]) -> str:
@@ -129,10 +127,7 @@ def _production_safe(rows: list[dict], status: str) -> str:
 		return "NO"
 	print_manual = any(
 		r.get("status") == "MANUAL_REQUIRED"
-		or (
-			r.get("print_ok") in ("MANUAL_REQUIRED", "MANUAL")
-			and r.get("status") == "PASS"
-		)
+		or (r.get("print_ok") in ("MANUAL_REQUIRED", "MANUAL") and r.get("status") == "PASS")
 		for r in rows
 	)
 	if print_manual:
@@ -179,8 +174,8 @@ def _print_runbook(company: str, run_repost: bool, result: dict) -> None:
 		f"{s.get('work_order_scenarios', 0)} passed"
 	)
 	print(
-		'6. Production/staging command:\n'
-		f'   bench --site <site> execute erpnext_extensions.iran_accounting.acceptance.run '
+		"6. Production/staging command:\n"
+		f"   bench --site <site> execute erpnext_extensions.iran_accounting.acceptance.run "
 		f'--kwargs \'{{"company":"{company}","include_synthetic":True,"run_repost":True,'
 		f'"scenario_count":39,"stock_entry_vouchers":["MAT-STE-2026-00102"]}}\''
 	)
@@ -201,7 +196,12 @@ def run(
 	"""
 	frappe.set_user("Administrator")
 	import erpnext_extensions.iran_accounting  # noqa: F401 — apply patches
-	include_synthetic = bool(cint(include_synthetic)) if isinstance(include_synthetic, (int, str)) else bool(include_synthetic)
+
+	include_synthetic = (
+		bool(cint(include_synthetic))
+		if isinstance(include_synthetic, (int, str))
+		else bool(include_synthetic)
+	)
 	run_repost = bool(cint(run_repost)) if isinstance(run_repost, (int, str)) else bool(run_repost)
 	scenario_count = int(scenario_count or 20)
 

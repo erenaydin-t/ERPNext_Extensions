@@ -13,10 +13,9 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import frappe
 from frappe.exceptions import ValidationError
 from frappe.tests.utils import FrappeTestCase
-
-import frappe
 
 from erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque import (
 	_pdc_assert_cheque_leaf_usable_by_pdc,
@@ -41,20 +40,14 @@ class TestPDCAssertChequeLeafUsableByPDC(FrappeTestCase):
 		_pdc_assert_cheque_leaf_usable_by_pdc(_row(status="Available"), "PDC-A")
 
 	def test_reserved_same_pdc_allowed(self):
-		_pdc_assert_cheque_leaf_usable_by_pdc(
-			_row(status="Reserved", reserved_by_pdc="PDC-A"), "PDC-A"
-		)
+		_pdc_assert_cheque_leaf_usable_by_pdc(_row(status="Reserved", reserved_by_pdc="PDC-A"), "PDC-A")
 
 	def test_reserved_other_pdc_blocked(self):
 		with self.assertRaises(ValidationError):
-			_pdc_assert_cheque_leaf_usable_by_pdc(
-				_row(status="Reserved", reserved_by_pdc="PDC-B"), "PDC-A"
-			)
+			_pdc_assert_cheque_leaf_usable_by_pdc(_row(status="Reserved", reserved_by_pdc="PDC-B"), "PDC-A")
 
 	def test_used_same_pdc_allowed(self):
-		_pdc_assert_cheque_leaf_usable_by_pdc(
-			_row(status="Used", linked_post_dated_cheque="PDC-A"), "PDC-A"
-		)
+		_pdc_assert_cheque_leaf_usable_by_pdc(_row(status="Used", linked_post_dated_cheque="PDC-A"), "PDC-A")
 
 	def test_used_other_pdc_blocked(self):
 		with self.assertRaises(ValidationError):
@@ -118,4 +111,3 @@ class TestPDCValidateChequeLeafIntegrationUsedSamePDC(FrappeTestCase):
 		):
 			with self.assertRaises(ValidationError):
 				PostDatedCheque._validate_cheque_leaf_integration(pdc)
-

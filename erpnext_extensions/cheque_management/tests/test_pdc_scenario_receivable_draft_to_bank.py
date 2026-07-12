@@ -23,17 +23,12 @@ import unittest
 from datetime import date
 from types import SimpleNamespace
 from typing import Callable
+from unittest.mock import patch
 
 import erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque as pdc_mod
 from erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque import (
 	build_pdc_journal_entry_data,
 	get_accounting_action,
-)
-from erpnext_extensions.cheque_management.pdc_workflow_to_cheque_status import (
-	CHEQUE_STATUS_IN_CLEARING,
-	CHEQUE_STATUS_IN_HAND,
-	CHEQUE_STATUS_DRAFT,
-	map_workflow_state_to_cheque_status,
 )
 from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
 	CHEQUE_DIRECTION_RECEIVABLE,
@@ -42,8 +37,13 @@ from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
 	WORKFLOW_REGISTERED,
 	WORKFLOW_SENT_TO_BANK,
 )
+from erpnext_extensions.cheque_management.pdc_workflow_to_cheque_status import (
+	CHEQUE_STATUS_DRAFT,
+	CHEQUE_STATUS_IN_CLEARING,
+	CHEQUE_STATUS_IN_HAND,
+	map_workflow_state_to_cheque_status,
+)
 from erpnext_extensions.cheque_management.tests.test_pdc_payload_builders import _SETTINGS_BASE, _doc
-from unittest.mock import patch
 
 POSTING = date(2026, 4, 4)
 
@@ -107,9 +107,7 @@ class TestReceivableDraftToSentToBankScenario(unittest.TestCase):
 			action = get_accounting_action(doc, doc_prev)
 			checks.append((f"{label} get_accounting_action({doc_prev!r}→{workflow_state!r})", repr(action)))
 			if action != expect_action:
-				failed = (
-					f"Step {label}: expected accounting action {expect_action!r}, got {action!r}."
-				)
+				failed = f"Step {label}: expected accounting action {expect_action!r}, got {action!r}."
 				break
 		if extra:
 			checks.extend(extra())
@@ -121,7 +119,13 @@ class TestReceivableDraftToSentToBankScenario(unittest.TestCase):
 		steps: tuple[ChainStep, ...] = (
 			# Initial Draft: no prior transition — do not assert a voucher action.
 			(None, WORKFLOW_DRAFT, CHEQUE_STATUS_DRAFT, "Draft", None),
-			(WORKFLOW_DRAFT, WORKFLOW_REGISTERED, CHEQUE_STATUS_IN_HAND, "Registered", PDC_ACCOUNTING_JOURNAL_ENTRY),
+			(
+				WORKFLOW_DRAFT,
+				WORKFLOW_REGISTERED,
+				CHEQUE_STATUS_IN_HAND,
+				"Registered",
+				PDC_ACCOUNTING_JOURNAL_ENTRY,
+			),
 			(
 				WORKFLOW_REGISTERED,
 				WORKFLOW_SENT_TO_BANK,
@@ -143,9 +147,7 @@ class TestReceivableDraftToSentToBankScenario(unittest.TestCase):
 			patch.object(pdc_mod, "frappe") as mf,
 		):
 			mf._ = lambda s: s
-			je = build_pdc_journal_entry_data(
-				doc, WORKFLOW_REGISTERED, WORKFLOW_SENT_TO_BANK, POSTING
-			)
+			je = build_pdc_journal_entry_data(doc, WORKFLOW_REGISTERED, WORKFLOW_SENT_TO_BANK, POSTING)
 		checks.append(("build_pdc_journal_entry_data non-null", repr(je is not None)))
 		if not je:
 			failed = "Registered→Sent to Bank JE payload is None (often missing default_cheques_in_clearing_account in settings)."
@@ -173,7 +175,9 @@ class TestReceivableDraftToSentToBankScenario(unittest.TestCase):
 			None,
 		)
 		a2 = get_accounting_action(
-			SimpleNamespace(cheque_direction=CHEQUE_DIRECTION_RECEIVABLE, workflow_state=WORKFLOW_SENT_TO_BANK),
+			SimpleNamespace(
+				cheque_direction=CHEQUE_DIRECTION_RECEIVABLE, workflow_state=WORKFLOW_SENT_TO_BANK
+			),
 			WORKFLOW_REGISTERED,
 		)
 		checks = [
@@ -181,5 +185,7 @@ class TestReceivableDraftToSentToBankScenario(unittest.TestCase):
 			("Registered→Sent to Bank action", repr(a2)),
 		]
 		if a1 != PDC_ACCOUNTING_JOURNAL_ENTRY or a2 != PDC_ACCOUNTING_JOURNAL_ENTRY:
-			_debug_fail("Full chain must book two JEs (Draft→Registered and Registered→Sent to Bank).", checks)
+			_debug_fail(
+				"Full chain must book two JEs (Draft→Registered and Registered→Sent to Bank).", checks
+			)
 			self.fail("Accounting policy mismatch for two-step chain.")

@@ -7,7 +7,10 @@ from frappe.utils import random_string, today
 
 from erpnext_extensions.facility_management.doctype.facility.facility import create_receipt_journal_entry
 from erpnext_extensions.facility_management.facility_accounting import preview_repayment_journal_entry
-from erpnext_extensions.facility_management.facility_e2e_context import apply_facility_test_accounts, ensure_bank_master
+from erpnext_extensions.facility_management.facility_e2e_context import (
+	apply_facility_test_accounts,
+	ensure_bank_master,
+)
 from erpnext_extensions.facility_management.facility_settings_doc import get_facility_settings_doc
 
 

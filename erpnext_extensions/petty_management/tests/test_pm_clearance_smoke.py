@@ -8,10 +8,10 @@ import unittest
 import frappe
 from frappe.utils import flt, today
 
+import erpnext_extensions.petty_management.tests.test_pm_clearance as pm_ct
 from erpnext_extensions.petty_management.services.opening_advance_service import (
 	get_opening_advance_available_amount,
 )
-import erpnext_extensions.petty_management.tests.test_pm_clearance as pm_ct
 
 
 def _pm():
@@ -154,11 +154,11 @@ class TestPMClearanceSmokeFlows(unittest.TestCase):
 		oa.insert(ignore_permissions=True)
 		oa.submit()
 		self._track("PM Opening Advance", oa.name)
-		from erpnext_extensions.petty_management.services.opening_advance_service import (
-			get_opening_advance_available_amount,
-		)
 		from erpnext_extensions.petty_management.services.allocation_service import (
 			get_pm_request_available_amount,
+		)
+		from erpnext_extensions.petty_management.services.opening_advance_service import (
+			get_opening_advance_available_amount,
 		)
 
 		open_before = get_opening_advance_available_amount(oa.name)

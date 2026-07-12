@@ -34,11 +34,7 @@ def e2e_get_document_state(
 
 def e2e_document_exists(doctype: str, name: str) -> dict:
 	"""Bench-safe JSON (plain bool breaks Playwright JSON.parse)."""
-	return {
-		"exists": bool(
-			e2e_get_document_state(doctype, name, fields=["name"]).get("exists")
-		)
-	}
+	return {"exists": bool(e2e_get_document_state(doctype, name, fields=["name"]).get("exists"))}
 
 
 def e2e_wait_document_state(
@@ -86,9 +82,7 @@ def e2e_wait_workflow_state(
 	workflow_state: str,
 	**kwargs,
 ) -> dict:
-	return e2e_wait_document_state(
-		doctype, name, {"workflow_state": workflow_state}, **kwargs
-	)
+	return e2e_wait_document_state(doctype, name, {"workflow_state": workflow_state}, **kwargs)
 
 
 def e2e_wait_docstatus(

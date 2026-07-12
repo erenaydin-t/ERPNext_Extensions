@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import unittest
 
+from frappe.utils import flt
+
 from erpnext_extensions.facility_management.facility_accounting import (
 	_planned_receipt_rows,
 	_planned_repayment_rows,
@@ -14,7 +16,6 @@ from erpnext_extensions.facility_management.facility_templates import (
 	build_template_context,
 	render_facility_template,
 )
-from frappe.utils import flt
 
 
 class TestFacilityPlannedRows(unittest.TestCase):

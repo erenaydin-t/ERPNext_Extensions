@@ -14,11 +14,18 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
-from erpnext_extensions.cheque_management.pdc_payment_request_eligibility import is_payment_request_settlement_eligible
-from erpnext_extensions.cheque_management.pdc_allocation import ALLOCATION_MODE_ADVANCE, ALLOCATION_MODE_DIRECT
+from erpnext_extensions.cheque_management.pdc_advance_order_capacity import (
+	get_order_remaining_advance_capacity,
+)
+from erpnext_extensions.cheque_management.pdc_allocation import (
+	ALLOCATION_MODE_ADVANCE,
+	ALLOCATION_MODE_DIRECT,
+)
+from erpnext_extensions.cheque_management.pdc_payment_request_eligibility import (
+	is_payment_request_settlement_eligible,
+)
 from erpnext_extensions.cheque_management.pdc_settlement_capacity import SETTLEMENT_REFERENCE_DOCTYPES
 from erpnext_extensions.cheque_management.pdc_settlement_summary import get_settlement_summary_for_reference
-from erpnext_extensions.cheque_management.pdc_advance_order_capacity import get_order_remaining_advance_capacity
 
 
 def _default_payable_cheque_pool_account(company: str | None) -> str | None:

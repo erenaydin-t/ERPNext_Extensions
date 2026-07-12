@@ -116,7 +116,9 @@ def _new_payable_pdc(ctx: dict, cheque_no: str, cheque_leaf: str):
 	return doc
 
 
-def _je_for_transition(pdc_name: str, from_state: str, to_state: str, cheque_direction: str = "Payable") -> str | None:
+def _je_for_transition(
+	pdc_name: str, from_state: str, to_state: str, cheque_direction: str = "Payable"
+) -> str | None:
 	key = build_pdc_accounting_transition_key(pdc_name, cheque_direction, from_state, to_state)
 	rows = frappe.get_all(
 		"PDC Journal Reference",
@@ -213,7 +215,10 @@ def run():
 	company = frappe.db.get_value("Company", {"name": ("!=", "")}, "name", order_by="creation asc")
 	supplier = frappe.db.get_value("Supplier", {"disabled": 0}, "name", order_by="modified desc")
 	bank_account = frappe.db.get_value(
-		"Bank Account", {"company": company, "disabled": 0, "is_company_account": 1}, "name", order_by="modified desc"
+		"Bank Account",
+		{"company": company, "disabled": 0, "is_company_account": 1},
+		"name",
+		order_by="modified desc",
 	)
 	if not bank_account:
 		bank_account = frappe.db.get_value("Bank Account", {"company": company, "disabled": 0}, "name")
@@ -374,13 +379,7 @@ def run():
 	if not dup_blocked:
 		errors.append("scenario_5: duplicate leaf not blocked")
 
-	workflow_states_all = sorted(
-		{
-			s
-			for sc in scenarios
-			for s in (sc.get("workflow_states_tested") or [])
-		}
-	)
+	workflow_states_all = sorted({s for sc in scenarios for s in (sc.get("workflow_states_tested") or [])})
 
 	result = {
 		"status": "PASSED" if not errors else "FAILED",

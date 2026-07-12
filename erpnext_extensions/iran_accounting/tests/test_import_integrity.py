@@ -64,6 +64,8 @@ class TestImportIntegrity(unittest.TestCase):
 		self.assertIn("domain.stock_reconciliation_sync", edges.get("integration.monkey_patches", set()))
 
 	def test_qty_rate_amount_imports_domain_currency(self):
-		src = (Path(__file__).resolve().parents[1] / "domain" / "qty_rate_amount.py").read_text(encoding="utf-8")
+		src = (Path(__file__).resolve().parents[1] / "domain" / "qty_rate_amount.py").read_text(
+			encoding="utf-8"
+		)
 		self.assertIn("import erpnext_extensions.iran_accounting.domain.currency as rounding", src)
 		importlib.import_module("erpnext_extensions.iran_accounting.domain.qty_rate_amount")

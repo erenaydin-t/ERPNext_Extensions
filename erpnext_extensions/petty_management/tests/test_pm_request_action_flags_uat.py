@@ -16,13 +16,13 @@ from erpnext_extensions.petty_management.services.request_action_policy import (
 	compute_pm_request_action_flags,
 	validate_pm_request_workflow_action,
 )
+from erpnext_extensions.petty_management.tests import test_pm_clearance as tpm
 from erpnext_extensions.petty_management.tests.test_pm_request_multi_pe import (
 	_create_funding_pe,
 	_ensure_pm_settings_bank,
 	_new_submitted_request,
 	_sync_funding_fields,
 )
-from erpnext_extensions.petty_management.tests import test_pm_clearance as tpm
 
 
 class TestPMRequestActionFlagsUAT(unittest.TestCase):

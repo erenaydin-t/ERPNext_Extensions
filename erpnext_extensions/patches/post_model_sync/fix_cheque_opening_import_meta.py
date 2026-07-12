@@ -30,7 +30,6 @@ from typing import Any
 
 import frappe
 
-
 DOCTYPE = "Cheque Opening Import"
 
 REQUIRED_VISIBLE_FIELDS = ("import_file", "import_status", "summary", "items")
@@ -161,4 +160,3 @@ def run() -> None:
 def execute() -> None:
 	# Frappe patch runner looks for `execute()` by default.
 	run()
-

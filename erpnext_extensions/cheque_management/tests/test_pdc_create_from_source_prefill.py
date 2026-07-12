@@ -9,8 +9,8 @@ from unittest.mock import patch
 import frappe
 from frappe.exceptions import ValidationError
 
-from erpnext_extensions.cheque_management.pdc_allocation import ALLOCATION_MODE_DIRECT
 import erpnext_extensions.cheque_management.pdc_create_from_source as pdc_src
+from erpnext_extensions.cheque_management.pdc_allocation import ALLOCATION_MODE_DIRECT
 
 
 class _ThrowCtx:
@@ -50,9 +50,13 @@ class TestPdcCreateFromSourcePrefill(unittest.TestCase):
 		)()
 		fake_frappe = type("F", (), {"db": fake_db, "has_permission": staticmethod(lambda *a, **k: True)})()
 
-		with _ThrowCtx(), patch.object(pdc_src, "frappe", fake_frappe), patch(
-			"erpnext_extensions.cheque_management.pdc_create_from_source.get_settlement_summary_for_reference",
-			return_value={"company": "_TC", "currency": "INR", "remaining_balance": 250.0},
+		with (
+			_ThrowCtx(),
+			patch.object(pdc_src, "frappe", fake_frappe),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_create_from_source.get_settlement_summary_for_reference",
+				return_value={"company": "_TC", "currency": "INR", "remaining_balance": 250.0},
+			),
 		):
 			out = pdc_src.prepare_post_dated_cheque_prefill_from_source("Sales Invoice", "SINV-1")
 
@@ -89,9 +93,13 @@ class TestPdcCreateFromSourcePrefill(unittest.TestCase):
 		)()
 		fake_frappe = type("F", (), {"db": fake_db, "has_permission": staticmethod(lambda *a, **k: True)})()
 
-		with _ThrowCtx(), patch.object(pdc_src, "frappe", fake_frappe), patch(
-			"erpnext_extensions.cheque_management.pdc_create_from_source.get_settlement_summary_for_reference",
-			return_value={"company": "_TC", "currency": "INR", "remaining_balance": 500.0},
+		with (
+			_ThrowCtx(),
+			patch.object(pdc_src, "frappe", fake_frappe),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_create_from_source.get_settlement_summary_for_reference",
+				return_value={"company": "_TC", "currency": "INR", "remaining_balance": 500.0},
+			),
 		):
 			out = pdc_src.prepare_post_dated_cheque_prefill_from_source("Purchase Invoice", "PINV-1")
 
@@ -119,15 +127,22 @@ class TestPdcCreateFromSourcePrefill(unittest.TestCase):
 				return {"reference_doctype": "Purchase Invoice", "reference_name": "PINV-1"}
 			return None
 
-		fake_db = type("DB", (), {"exists": staticmethod(lambda dt, nm: True), "get_value": staticmethod(_get_value)})()
+		fake_db = type(
+			"DB", (), {"exists": staticmethod(lambda dt, nm: True), "get_value": staticmethod(_get_value)}
+		)()
 		fake_frappe = type("F", (), {"db": fake_db, "has_permission": staticmethod(lambda *a, **k: True)})()
 
-		with _ThrowCtx(), patch.object(pdc_src, "frappe", fake_frappe), patch(
-			"erpnext_extensions.cheque_management.pdc_create_from_source.get_settlement_summary_for_reference",
-			return_value={"company": "_TC", "currency": "INR", "remaining_balance": 300.0},
-		), patch(
-			"erpnext_extensions.cheque_management.pdc_create_from_source.is_payment_request_settlement_eligible",
-			return_value=True,
+		with (
+			_ThrowCtx(),
+			patch.object(pdc_src, "frappe", fake_frappe),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_create_from_source.get_settlement_summary_for_reference",
+				return_value={"company": "_TC", "currency": "INR", "remaining_balance": 300.0},
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_create_from_source.is_payment_request_settlement_eligible",
+				return_value=True,
+			),
 		):
 			out = pdc_src.prepare_post_dated_cheque_prefill_from_source("Payment Request", "PR-1")
 
@@ -140,4 +155,3 @@ class TestPdcCreateFromSourcePrefill(unittest.TestCase):
 		self.assertEqual(row.get("source_name"), "PR-1")
 		self.assertEqual(row.get("reference_doctype"), "Purchase Invoice")
 		self.assertEqual(row.get("reference_name"), "PINV-1")
-

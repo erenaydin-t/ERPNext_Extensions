@@ -36,18 +36,27 @@ def _ctx():
 	company = frappe.db.get_value("Company", {"name": ("!=", "")}, "name", order_by="creation asc")
 	bank = frappe.db.get_value("Bank", {}, "name", order_by="modified desc")
 	bank_gl = frappe.db.get_value(
-		"Account", {"company": company, "account_type": "Bank", "is_group": 0}, "name", order_by="modified desc"
+		"Account",
+		{"company": company, "account_type": "Bank", "is_group": 0},
+		"name",
+		order_by="modified desc",
 	)
 	loan_payable = None
 	deferred = frappe.db.get_value(
-		"Account", {"company": company, "root_type": "Expense", "is_group": 0}, "name", order_by="modified desc"
-	)
-	penalty = frappe.db.get_value(
 		"Account",
-		{"company": company, "root_type": "Expense", "is_group": 0, "name": ("!=", deferred)},
+		{"company": company, "root_type": "Expense", "is_group": 0},
 		"name",
 		order_by="modified desc",
-	) or deferred
+	)
+	penalty = (
+		frappe.db.get_value(
+			"Account",
+			{"company": company, "root_type": "Expense", "is_group": 0, "name": ("!=", deferred)},
+			"name",
+			order_by="modified desc",
+		)
+		or deferred
+	)
 	for row in frappe.get_all(
 		"Account",
 		filters={"company": company, "root_type": "Liability", "is_group": 0},
@@ -143,7 +152,11 @@ def run():
 	_log("Test A Receipt", t_a)
 	if t_a["voucher_type"] != "Bank Entry":
 		errors.append("A: voucher_type")
-	if dr.get(ctx["bank_gl"]) != 8000 or dr.get(ctx["deferred"]) != 1000 or cr.get(ctx["loan_payable"]) != 9000:
+	if (
+		dr.get(ctx["bank_gl"]) != 8000
+		or dr.get(ctx["deferred"]) != 1000
+		or cr.get(ctx["loan_payable"]) != 9000
+	):
 		errors.append(f"A: amounts {t_a}")
 	je_row_count = len(frappe.get_doc("Journal Entry", fac_a.receipt_journal_entry).accounts)
 	if je_row_count != 4:

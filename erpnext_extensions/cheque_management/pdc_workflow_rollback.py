@@ -114,10 +114,7 @@ def _opening_import_rollback_targets(doc) -> list[str]:
 			continue
 		# Baseline is a valid target after post-import progress even when undo edges are
 		# operational-only (e.g. Registered→Issued without a Journal Reference).
-		if (
-			state == baseline
-			and _workflow_rank(direction, current) > _workflow_rank(direction, baseline)
-		):
+		if state == baseline and _workflow_rank(direction, current) > _workflow_rank(direction, baseline):
 			targets.append(state)
 	return sorted(set(targets), key=lambda s: (_workflow_rank(direction, s), s))
 
@@ -197,9 +194,7 @@ def sql_verify_no_orphan_gl_for_pdc(pdc_name: str, journal_entries: list[str]) -
 	if not journal_entries:
 		return {"gl_entry": 0, "payment_ledger_entry": 0}
 	gl = frappe.db.count("GL Entry", {"voucher_no": ["in", journal_entries], "is_cancelled": 0})
-	ple = frappe.db.count(
-		"Payment Ledger Entry", {"voucher_no": ["in", journal_entries], "delinked": 0}
-	)
+	ple = frappe.db.count("Payment Ledger Entry", {"voucher_no": ["in", journal_entries], "delinked": 0})
 	return {"gl_entry": gl, "payment_ledger_entry": ple}
 
 
@@ -233,9 +228,7 @@ def sql_verify_pdc_rollback_integrity(
 		if not je:
 			continue
 		out[f"je_{je}_docstatus"] = frappe.db.get_value("Journal Entry", je, "docstatus") or 0
-		out[f"je_{je}_gl_active"] = frappe.db.count(
-			"GL Entry", {"voucher_no": je, "is_cancelled": 0}
-		)
+		out[f"je_{je}_gl_active"] = frappe.db.count("GL Entry", {"voucher_no": je, "is_cancelled": 0})
 		out[f"je_{je}_ple_active"] = frappe.db.count(
 			"Payment Ledger Entry", {"voucher_no": je, "delinked": 0}
 		)
@@ -244,9 +237,7 @@ def sql_verify_pdc_rollback_integrity(
 			{"parent": pdc_name, "journal_entry": je},
 		)
 
-	out["version"] = frappe.db.count(
-		"Version", {"ref_doctype": "Post Dated Cheque", "docname": pdc_name}
-	)
+	out["version"] = frappe.db.count("Version", {"ref_doctype": "Post Dated Cheque", "docname": pdc_name})
 	out["comment"] = frappe.db.count(
 		"Comment",
 		{"reference_doctype": "Post Dated Cheque", "reference_name": pdc_name},
@@ -303,9 +294,7 @@ def validate_workflow_rollback_logs_immutable(doc) -> None:
 	"""Prevent edit/delete of workflow rollback audit rows on normal PDC saves."""
 	if doc.is_new() or getattr(frappe.flags, "in_pdc_workflow_rollback", None):
 		return
-	prev = set(
-		frappe.get_all("PDC Workflow Rollback Log", filters={"parent": doc.name}, pluck="name")
-	)
+	prev = set(frappe.get_all("PDC Workflow Rollback Log", filters={"parent": doc.name}, pluck="name"))
 	if not prev:
 		return
 	current = {r.name for r in (doc.get("workflow_rollback_logs") or []) if r.name}
@@ -369,8 +358,7 @@ def opening_import_rollback_diagnostics(pdc_name: str) -> dict[str, Any]:
 		try:
 			plan = build_pdc_rollback_plan(doc, target, reason="diagnostics")
 			out["rollback_plan_steps"] = [
-				{"from": s.from_state, "to": s.to_state, "je": s.journal_entry}
-				for s in plan.steps
+				{"from": s.from_state, "to": s.to_state, "je": s.journal_entry} for s in plan.steps
 			]
 			out["undo_edges"] = [(s.from_state, s.to_state) for s in plan.steps]
 			out["preview"] = plan.to_api_dict()

@@ -31,18 +31,27 @@ def _ctx():
 	company = frappe.db.get_value("Company", {"name": ("!=", "")}, "name", order_by="creation asc")
 	bank = frappe.db.get_value("Bank", {}, "name", order_by="modified desc")
 	bank_gl = frappe.db.get_value(
-		"Account", {"company": company, "account_type": "Bank", "is_group": 0}, "name", order_by="modified desc"
+		"Account",
+		{"company": company, "account_type": "Bank", "is_group": 0},
+		"name",
+		order_by="modified desc",
 	)
 	loan_payable = None
 	deferred = frappe.db.get_value(
-		"Account", {"company": company, "root_type": "Expense", "is_group": 0}, "name", order_by="modified desc"
-	)
-	penalty = frappe.db.get_value(
 		"Account",
-		{"company": company, "root_type": "Expense", "is_group": 0, "name": ("!=", deferred)},
+		{"company": company, "root_type": "Expense", "is_group": 0},
 		"name",
 		order_by="modified desc",
-	) or deferred
+	)
+	penalty = (
+		frappe.db.get_value(
+			"Account",
+			{"company": company, "root_type": "Expense", "is_group": 0, "name": ("!=", deferred)},
+			"name",
+			order_by="modified desc",
+		)
+		or deferred
+	)
 	for row in frappe.get_all(
 		"Account",
 		filters={"company": company, "root_type": "Liability", "is_group": 0},
@@ -224,7 +233,11 @@ def run():
 		)
 
 		populate_facility_settings_template_defaults(fs)
-		t_a = {"company": ctx["company"], "mode": "populate_only", "templates": {fn: fs.get(fn) for fn in FACILITY_SETTINGS_TEMPLATE_DEFAULTS}}
+		t_a = {
+			"company": ctx["company"],
+			"mode": "populate_only",
+			"templates": {fn: fs.get(fn) for fn in FACILITY_SETTINGS_TEMPLATE_DEFAULTS},
+		}
 		results["tests"]["A_new_settings_templates"] = t_a
 		_log("Test A populate defaults (no spare company)", t_a)
 		for fn, exp in FACILITY_SETTINGS_TEMPLATE_DEFAULTS.items():

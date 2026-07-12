@@ -98,7 +98,9 @@ class TestPDCImportCleanupUnit(unittest.TestCase):
 		ctx = _site_context()
 		chq = _unique_cheque_no("UT-JR")
 		pdc = _create_draft_receivable_pdc(ctx, chq)
-		je = frappe.db.get_value("Journal Entry", {"company": ctx["company"]}, "name", order_by="modified desc")
+		je = frappe.db.get_value(
+			"Journal Entry", {"company": ctx["company"]}, "name", order_by="modified desc"
+		)
 		if not je:
 			self.skipTest("no Journal Entry for link test")
 		doc = frappe.get_doc("Post Dated Cheque", pdc)

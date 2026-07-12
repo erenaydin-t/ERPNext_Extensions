@@ -40,7 +40,9 @@ def _preview_column_indices(gl_columns: list) -> tuple[int | None, int | None, i
 			debit_i = i
 		if "credit" in label and credit_i is None:
 			credit_i = i
-		if label == "account" or (label.endswith("account") and "against" not in label and "voucher" not in label):
+		if label == "account" or (
+			label.endswith("account") and "against" not in label and "voucher" not in label
+		):
 			if account_i is None:
 				account_i = i
 	return debit_i, credit_i, account_i
@@ -116,10 +118,12 @@ def validate_accounting_ledger_preview(doc, company: str) -> dict:
 			and abs(flt(credit_total) - flt(expected_out)) <= tol
 			and flt(debit_total) == flt(credit_total)
 		)
-	no_double = not is_doubled_gl(debit_total, expected_in) and not is_doubled_gl(
-		credit_total, expected_out
-	)
-	if is_zero and totals_match and (is_doubled_gl(debit_total, expected_in) or is_doubled_gl(credit_total, expected_out)):
+	no_double = not is_doubled_gl(debit_total, expected_in) and not is_doubled_gl(credit_total, expected_out)
+	if (
+		is_zero
+		and totals_match
+		and (is_doubled_gl(debit_total, expected_in) or is_doubled_gl(credit_total, expected_out))
+	):
 		no_double = flt(debit_total) == flt(expected_in) and flt(credit_total) == flt(expected_out)
 	no_adj = not adj
 

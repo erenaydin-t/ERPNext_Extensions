@@ -61,7 +61,9 @@ def facility_link_query(doctype, txt, searchfield, start, page_len, filters):
 	)
 
 
-def facility_names_matching(company: str, facility_name: str, *, exact_facility: str | None = None) -> list[str]:
+def facility_names_matching(
+	company: str, facility_name: str, *, exact_facility: str | None = None
+) -> list[str]:
 	"""Partial match on Facility.facility_name within company."""
 	if exact_facility:
 		return [exact_facility]

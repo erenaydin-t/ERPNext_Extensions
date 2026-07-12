@@ -113,9 +113,7 @@ def run() -> dict:
 	out = create_receipt_journal_entry(fac.name)
 	fac.reload()
 	je_name = fac.receipt_journal_entry
-	meta = frappe.db.get_value(
-		"Journal Entry", je_name, ["voucher_type", "docstatus"], as_dict=True
-	)
+	meta = frappe.db.get_value("Journal Entry", je_name, ["voucher_type", "docstatus"], as_dict=True)
 	if meta.voucher_type != "Bank Entry":
 		errors.append(f"voucher_type {meta.voucher_type}")
 	if meta.docstatus != 1:
@@ -137,7 +135,11 @@ def run() -> dict:
 	loan_credit_amounts = sorted(flt(r.credit_in_account_currency) for r in loan_credits)
 	if loan_credit_amounts != sorted([PRINCIPAL, PROFIT]):
 		errors.append(f"Loan credit amounts {loan_credit_amounts}")
-	combined = [r for r in je_rows if r.account == loan_acc and flt(r.credit_in_account_currency) == PRINCIPAL + PROFIT]
+	combined = [
+		r
+		for r in je_rows
+		if r.account == loan_acc and flt(r.credit_in_account_currency) == PRINCIPAL + PROFIT
+	]
 	if combined:
 		errors.append("Aggregated principal+profit loan credit row still present")
 

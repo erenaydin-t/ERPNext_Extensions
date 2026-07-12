@@ -66,9 +66,7 @@ class TestSrGlAndAvgRateDeterminism(unittest.TestCase):
 	def test_normal_reconciliation_gl(self):
 		item = ensure_test_item(self.company, "IA-SR-GL-ADJ", stock_uom="Nos")
 		submit_material_receipt(self.company, item, qty=10, rate=5000, warehouse=self.wh)
-		sr = submit_stock_reconciliation_adjustment(
-			self.company, item, qty=12, rate=5000, warehouse=self.wh
-		)
+		sr = submit_stock_reconciliation_adjustment(self.company, item, qty=12, rate=5000, warehouse=self.wh)
 		self._assert_gl_exists_and_matches_rows(sr.name)
 
 	def test_opening_incoming_rate_equals_prior_avg(self):

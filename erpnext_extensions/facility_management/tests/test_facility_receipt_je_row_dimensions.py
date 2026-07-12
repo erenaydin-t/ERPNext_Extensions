@@ -17,7 +17,10 @@ from erpnext_extensions.facility_management.facility_e2e_context import (
 	apply_facility_test_accounts,
 	ensure_bank_master,
 )
-from erpnext_extensions.facility_management.facility_settings_doc import _je_account_has_field, get_facility_settings_doc
+from erpnext_extensions.facility_management.facility_settings_doc import (
+	_je_account_has_field,
+	get_facility_settings_doc,
+)
 
 
 def _je_row_dims(row) -> dict:

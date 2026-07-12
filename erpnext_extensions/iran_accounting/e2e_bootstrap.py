@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import frappe
-from frappe.utils import cint, flt, nowtime, random_string, today
-
 import erpnext
+import frappe
 from erpnext.stock.doctype.stock_entry.stock_entry_utils import make_stock_entry
+from frappe.utils import cint, flt, nowtime, random_string, today
 
 from erpnext_extensions.iran_accounting.validation import fetch_gl_rows, fetch_sle_rows
 
@@ -83,7 +82,9 @@ def get_irr_company(preferred: str | None = None) -> str:
 
 
 def get_warehouse(company: str) -> str:
-	wh = frappe.db.get_value("Warehouse", {"company": company, "is_group": 0}, "name", order_by="creation asc")
+	wh = frappe.db.get_value(
+		"Warehouse", {"company": company, "is_group": 0}, "name", order_by="creation asc"
+	)
 	if not wh:
 		raise frappe.ValidationError(f"No warehouse for company {company}")
 	return wh
@@ -233,7 +234,9 @@ def _company_abbr(company: str) -> str:
 def _ensure_currency(code: str) -> None:
 	if frappe.db.exists("Currency", code):
 		return
-	frappe.get_doc({"doctype": "Currency", "currency_name": code, "enabled": 1}).insert(ignore_permissions=True)
+	frappe.get_doc({"doctype": "Currency", "currency_name": code, "enabled": 1}).insert(
+		ignore_permissions=True
+	)
 
 
 def _ensure_child_account(
@@ -275,7 +278,9 @@ def ensure_foreign_currency_acceptance_masters(company: str) -> dict:
 		"Account", {"company": company, "name": ("like", "%Accounts Receivable%"), "is_group": 1}, "name"
 	)
 	if not payable_parent or not recv_parent:
-		raise frappe.ValidationError("Payable/Receivable group accounts missing for foreign currency bootstrap")
+		raise frappe.ValidationError(
+			"Payable/Receivable group accounts missing for foreign currency bootstrap"
+		)
 
 	accounts = {
 		"USD": _ensure_child_account(company, payable_parent, "IA USD Creditors", "USD", "Payable"),

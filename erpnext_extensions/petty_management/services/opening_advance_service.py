@@ -28,9 +28,7 @@ def remaining_at_cutover_amount(
 	return flt(opening_advance_amount) - flt(previously_settled_before_migration)
 
 
-def sum_prior_opening_allocations(
-	opening_advance: str, exclude_clearance_name: str | None = None
-) -> float:
+def sum_prior_opening_allocations(opening_advance: str, exclude_clearance_name: str | None = None) -> float:
 	"""Sum reserved allocations against a PM Opening Advance (source of truth)."""
 	if not opening_advance:
 		return 0.0
@@ -267,7 +265,9 @@ def get_opening_advance_allocation_context(
 	if not frappe.has_permission("PM Opening Advance", "read", pm_opening_advance):
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
 
-	exclude_clearance = pm_clearance if pm_clearance and frappe.db.exists("PM Clearance", pm_clearance) else None
+	exclude_clearance = (
+		pm_clearance if pm_clearance and frappe.db.exists("PM Clearance", pm_clearance) else None
+	)
 	if exclude_clearance:
 		from erpnext_extensions.petty_management.services.holder_service import (
 			clearance_petty_cash_account,
@@ -296,9 +296,7 @@ def get_opening_advance_allocation_context(
 		frappe.throw(msg, title=_("Invalid PM Opening Advance"))
 
 	prev = sum_prior_opening_allocations(pm_opening_advance, exclude_clearance)
-	remaining = remaining_at_cutover_amount(
-		oa.opening_advance_amount, oa.previously_settled_before_migration
-	)
+	remaining = remaining_at_cutover_amount(oa.opening_advance_amount, oa.previously_settled_before_migration)
 	available = flt(remaining) - flt(prev)
 	return {
 		"pm_opening_advance": pm_opening_advance,

@@ -18,7 +18,13 @@ function can_show_void_cheque_leaf_button(frm) {
 frappe.ui.form.on("Cheque Leaf", {
 	_apply_master_lock_ui(frm) {
 		const locked = !!(frm.doc && frm.doc.name) && !frm.is_new();
-		const locked_fields = ["company", "bank_account", "cheque_book", "cheque_number", "sequence_no"];
+		const locked_fields = [
+			"company",
+			"bank_account",
+			"cheque_book",
+			"cheque_number",
+			"sequence_no",
+		];
 		locked_fields.forEach((fn) => frm.set_df_property(fn, "read_only", locked ? 1 : 0));
 
 		// Status is lifecycle-driven; keep it read-only in the UI.
@@ -54,8 +60,7 @@ frappe.ui.form.on("Cheque Leaf", {
 				}
 				d.hide();
 				frappe.call({
-					method:
-						"erpnext_extensions.cheque_management.doctype.cheque_leaf.cheque_leaf.void_cheque_leaf",
+					method: "erpnext_extensions.cheque_management.doctype.cheque_leaf.cheque_leaf.void_cheque_leaf",
 					args: {
 						leaf_name: frm.doc.name,
 						reason: reason,
@@ -65,7 +70,10 @@ frappe.ui.form.on("Cheque Leaf", {
 					callback(r) {
 						if (r.message) {
 							frm.reload_doc().then(() => frm.refresh());
-							frappe.show_alert({ message: __("Cheque leaf voided."), indicator: "green" });
+							frappe.show_alert({
+								message: __("Cheque leaf voided."),
+								indicator: "green",
+							});
 						}
 					},
 				});

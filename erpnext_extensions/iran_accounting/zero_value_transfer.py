@@ -6,15 +6,18 @@ from __future__ import annotations
 from collections import defaultdict
 
 import frappe
-from frappe import _
-from frappe.utils import flt
-
 from erpnext.accounts.doctype.accounting_dimension.accounting_dimension import get_accounting_dimensions
 from erpnext.accounts.general_ledger import process_gl_map
 from erpnext.stock.doctype.inventory_dimension.inventory_dimension import get_inventory_dimensions
+from frappe import _
+from frappe.utils import flt
 
 from erpnext_extensions.iran_accounting.domain.stock_entry_sync import gl_movement_from_row_only
-from erpnext_extensions.iran_accounting.rounding import get_company_currency, get_currency_precision, round_currency
+from erpnext_extensions.iran_accounting.rounding import (
+	get_company_currency,
+	get_currency_precision,
+	round_currency,
+)
 
 ZERO_VALUE_TRANSFER_STOCK_ENTRY_PURPOSES = (
 	"Material Transfer",
@@ -23,7 +26,9 @@ ZERO_VALUE_TRANSFER_STOCK_ENTRY_PURPOSES = (
 )
 
 
-def absorb_gl_map_rounding_residual(gl_map, precision, debit_credit_diff=None, trx_cur_debit_credit_diff=None):
+def absorb_gl_map_rounding_residual(
+	gl_map, precision, debit_credit_diff=None, trx_cur_debit_credit_diff=None
+):
 	"""Adjust the largest GL leg to absorb sub-unit rounding without Stock Adjustment / Round Off."""
 	if not gl_map:
 		return
@@ -263,12 +268,8 @@ def _append_balanced_transfer_item_gl(self, gl_list, item_row, inventory_account
 	amount = round_currency(flt(item_row.get("amount")), company_currency)
 	if not amount:
 		return False
-	out_inv = self.get_inventory_account_dict(
-		item_row, inventory_account_map, warehouse_field="s_warehouse"
-	)
-	in_inv = self.get_inventory_account_dict(
-		item_row, inventory_account_map, warehouse_field="t_warehouse"
-	)
+	out_inv = self.get_inventory_account_dict(item_row, inventory_account_map, warehouse_field="s_warehouse")
+	in_inv = self.get_inventory_account_dict(item_row, inventory_account_map, warehouse_field="t_warehouse")
 	if not out_inv.get("account") or not in_inv.get("account"):
 		return False
 	project = item_row.project or self.get("project")
@@ -305,9 +306,7 @@ def _append_balanced_transfer_item_gl(self, gl_list, item_row, inventory_account
 	return True
 
 
-def get_gl_entries(
-	self, inventory_account_map=None, default_expense_account=None, default_cost_center=None
-):
+def get_gl_entries(self, inventory_account_map=None, default_expense_account=None, default_cost_center=None):
 	if self.doctype == "Stock Reconciliation":
 		from erpnext_extensions.iran_accounting.domain.stock_reconciliation_gl import (
 			get_stock_reconciliation_gl_entries,
@@ -372,10 +371,14 @@ def get_gl_entries(
 		used_balanced_gl = False
 		if force_balanced_transfer:
 			used_balanced_gl = True
-			balanced_gl_amounts = _get_balanced_stock_gl_amounts(self, group_amounts, precision, sle_rounding_diff)
+			balanced_gl_amounts = _get_balanced_stock_gl_amounts(
+				self, group_amounts, precision, sle_rounding_diff
+			)
 			for group_key, amount in balanced_gl_amounts.items():
 				sle, _inv_dict = group_meta[group_key]
-				_append_zero_value_transfer_inventory_gl(self, gl_list, amount, sle, _inv_dict, item_row, precision)
+				_append_zero_value_transfer_inventory_gl(
+					self, gl_list, amount, sle, _inv_dict, item_row, precision
+				)
 		else:
 			for sle in sle_list:
 				_inv_dict = self.get_inventory_account_dict(sle, inventory_account_map)
@@ -383,7 +386,9 @@ def get_gl_entries(
 				if not _inv_dict.get("account"):
 					continue
 
-				expense_account = _get_transfer_expense_account(self, item_row, inventory_account_map, sle=sle)
+				expense_account = _get_transfer_expense_account(
+					self, item_row, inventory_account_map, sle=sle
+				)
 				mov = gl_movement_from_row_only(item_row, sle, self.company)
 
 				gl_list.append(

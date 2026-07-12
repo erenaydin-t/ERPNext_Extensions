@@ -8,7 +8,6 @@ from __future__ import annotations
 from typing import Any
 
 import frappe
-
 from erpnext.accounts.doctype.accounting_dimension.accounting_dimension import get_accounting_dimensions
 
 from erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque import (
@@ -48,7 +47,9 @@ def get_pdc_bank_related_accounting_dimensions() -> list[dict[str, str]]:
 
 
 def _pick_dimension_fieldname(document_type: str, *, prefer_fieldname: str | None = None) -> str | None:
-	candidates = [d for d in get_pdc_bank_related_accounting_dimensions() if d["document_type"] == document_type]
+	candidates = [
+		d for d in get_pdc_bank_related_accounting_dimensions() if d["document_type"] == document_type
+	]
 	if not candidates:
 		return None
 	if prefer_fieldname:

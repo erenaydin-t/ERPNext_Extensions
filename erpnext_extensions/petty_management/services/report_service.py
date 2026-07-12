@@ -37,30 +37,110 @@ def get_holder_rows(filters=None):
 
 def get_pm_balance_report_data(filters=None):
 	columns = [
-		{"label": _("Employee"), "fieldname": "employee", "fieldtype": "Link", "options": "Employee", "width": 140},
+		{
+			"label": _("Employee"),
+			"fieldname": "employee",
+			"fieldtype": "Link",
+			"options": "Employee",
+			"width": 140,
+		},
 		{"label": _("Employee Name"), "fieldname": "employee_name", "fieldtype": "Data", "width": 160},
-		{"label": _("Company"), "fieldname": "company", "fieldtype": "Link", "options": "Company", "width": 140},
-		{"label": _("Petty Cash Account"), "fieldname": "petty_cash_account", "fieldtype": "Link", "options": "Account", "width": 160},
-		{"label": _("Funded Balance"), "fieldname": "funded_available_amount", "fieldtype": "Currency", "width": 130},
-		{"label": _("Opening Balance"), "fieldname": "opening_available_amount", "fieldtype": "Currency", "width": 130},
-		{"label": _("Total Available"), "fieldname": "current_balance", "fieldtype": "Currency", "width": 130},
-		{"label": _("Account GL Balance"), "fieldname": "account_gl_balance", "fieldtype": "Currency", "width": 130},
-		{"label": _("Total Funded (Paid)"), "fieldname": "total_paid_amount", "fieldtype": "Currency", "width": 120},
-		{"label": _("Funded Reserved"), "fieldname": "funded_reserved_amount", "fieldtype": "Currency", "width": 120},
-		{"label": _("Opening Gross"), "fieldname": "opening_gross_amount", "fieldtype": "Currency", "width": 120},
-		{"label": _("Opening Previously Settled"), "fieldname": "opening_previously_settled_amount", "fieldtype": "Currency", "width": 150},
-		{"label": _("Opening Remaining at Cutover"), "fieldname": "opening_remaining_at_cutover", "fieldtype": "Currency", "width": 160},
-		{"label": _("Opening Allocated in PM"), "fieldname": "opening_allocated_amount", "fieldtype": "Currency", "width": 150},
-		{"label": _("Pending Settlement Amount"), "fieldname": "pending_clearance_amount", "fieldtype": "Currency", "width": 140},
+		{
+			"label": _("Company"),
+			"fieldname": "company",
+			"fieldtype": "Link",
+			"options": "Company",
+			"width": 140,
+		},
+		{
+			"label": _("Petty Cash Account"),
+			"fieldname": "petty_cash_account",
+			"fieldtype": "Link",
+			"options": "Account",
+			"width": 160,
+		},
+		{
+			"label": _("Funded Balance"),
+			"fieldname": "funded_available_amount",
+			"fieldtype": "Currency",
+			"width": 130,
+		},
+		{
+			"label": _("Opening Balance"),
+			"fieldname": "opening_available_amount",
+			"fieldtype": "Currency",
+			"width": 130,
+		},
+		{
+			"label": _("Total Available"),
+			"fieldname": "current_balance",
+			"fieldtype": "Currency",
+			"width": 130,
+		},
+		{
+			"label": _("Account GL Balance"),
+			"fieldname": "account_gl_balance",
+			"fieldtype": "Currency",
+			"width": 130,
+		},
+		{
+			"label": _("Total Funded (Paid)"),
+			"fieldname": "total_paid_amount",
+			"fieldtype": "Currency",
+			"width": 120,
+		},
+		{
+			"label": _("Funded Reserved"),
+			"fieldname": "funded_reserved_amount",
+			"fieldtype": "Currency",
+			"width": 120,
+		},
+		{
+			"label": _("Opening Gross"),
+			"fieldname": "opening_gross_amount",
+			"fieldtype": "Currency",
+			"width": 120,
+		},
+		{
+			"label": _("Opening Previously Settled"),
+			"fieldname": "opening_previously_settled_amount",
+			"fieldtype": "Currency",
+			"width": 150,
+		},
+		{
+			"label": _("Opening Remaining at Cutover"),
+			"fieldname": "opening_remaining_at_cutover",
+			"fieldtype": "Currency",
+			"width": 160,
+		},
+		{
+			"label": _("Opening Allocated in PM"),
+			"fieldname": "opening_allocated_amount",
+			"fieldtype": "Currency",
+			"width": 150,
+		},
+		{
+			"label": _("Pending Settlement Amount"),
+			"fieldname": "pending_clearance_amount",
+			"fieldtype": "Currency",
+			"width": 140,
+		},
 		{"label": _("Settled Amount"), "fieldname": "consumed_amount", "fieldtype": "Currency", "width": 120},
 		{"label": _("Max Balance"), "fieldname": "max_balance", "fieldtype": "Currency", "width": 120},
-		{"label": _("Remaining Limit"), "fieldname": "remaining_limit", "fieldtype": "Currency", "width": 120},
+		{
+			"label": _("Remaining Limit"),
+			"fieldname": "remaining_limit",
+			"fieldtype": "Currency",
+			"width": 120,
+		},
 	]
 
 	data = []
 	for holder in get_holder_rows(filters):
 		balances = get_holder_balances(holder.name)
-		from erpnext_extensions.petty_management.services.holder_service import get_holder_funded_reserved_amount
+		from erpnext_extensions.petty_management.services.holder_service import (
+			get_holder_funded_reserved_amount,
+		)
 
 		data.append(
 			{
@@ -94,22 +174,71 @@ def get_pm_opening_advance_availability_report_data(filters=None):
 			"options": "PM Opening Advance",
 			"width": 170,
 		},
-		{"label": _("Opening Source Type"), "fieldname": "opening_source_type", "fieldtype": "Data", "width": 140},
+		{
+			"label": _("Opening Source Type"),
+			"fieldname": "opening_source_type",
+			"fieldtype": "Data",
+			"width": 140,
+		},
 		{"label": _("Reference No"), "fieldname": "reference_no", "fieldtype": "Data", "width": 120},
-		{"label": _("Holder"), "fieldname": "holder", "fieldtype": "Link", "options": "PM Holder", "width": 150},
-		{"label": _("Employee"), "fieldname": "employee", "fieldtype": "Link", "options": "Employee", "width": 130},
-		{"label": _("Company"), "fieldname": "company", "fieldtype": "Link", "options": "Company", "width": 130},
-		{"label": _("Petty Cash Account"), "fieldname": "petty_cash_account", "fieldtype": "Link", "options": "Account", "width": 160},
-		{"label": _("Opening Advance"), "fieldname": "opening_advance_amount", "fieldtype": "Currency", "width": 130},
+		{
+			"label": _("Holder"),
+			"fieldname": "holder",
+			"fieldtype": "Link",
+			"options": "PM Holder",
+			"width": 150,
+		},
+		{
+			"label": _("Employee"),
+			"fieldname": "employee",
+			"fieldtype": "Link",
+			"options": "Employee",
+			"width": 130,
+		},
+		{
+			"label": _("Company"),
+			"fieldname": "company",
+			"fieldtype": "Link",
+			"options": "Company",
+			"width": 130,
+		},
+		{
+			"label": _("Petty Cash Account"),
+			"fieldname": "petty_cash_account",
+			"fieldtype": "Link",
+			"options": "Account",
+			"width": 160,
+		},
+		{
+			"label": _("Opening Advance"),
+			"fieldname": "opening_advance_amount",
+			"fieldtype": "Currency",
+			"width": 130,
+		},
 		{
 			"label": _("Previously Settled Before Migration"),
 			"fieldname": "previously_settled_before_migration",
 			"fieldtype": "Currency",
 			"width": 180,
 		},
-		{"label": _("Remaining at Cutover"), "fieldname": "remaining_at_cutover", "fieldtype": "Currency", "width": 140},
-		{"label": _("Allocated in PM"), "fieldname": "allocated_in_pm", "fieldtype": "Currency", "width": 130},
-		{"label": _("Available Opening Balance"), "fieldname": "available_opening_balance", "fieldtype": "Currency", "width": 160},
+		{
+			"label": _("Remaining at Cutover"),
+			"fieldname": "remaining_at_cutover",
+			"fieldtype": "Currency",
+			"width": 140,
+		},
+		{
+			"label": _("Allocated in PM"),
+			"fieldname": "allocated_in_pm",
+			"fieldtype": "Currency",
+			"width": 130,
+		},
+		{
+			"label": _("Available Opening Balance"),
+			"fieldname": "available_opening_balance",
+			"fieldtype": "Currency",
+			"width": 160,
+		},
 		{"label": _("Opening Date"), "fieldname": "opening_date", "fieldtype": "Date", "width": 110},
 	]
 	conditions = ["oa.docstatus = 1", "ifnull(oa.status, '') = 'Submitted'"]
@@ -162,14 +291,52 @@ def get_pm_opening_advance_availability_report_data(filters=None):
 
 def get_pm_pending_clearance_report_data(filters=None):
 	columns = [
-		{"label": _("Employee"), "fieldname": "employee", "fieldtype": "Link", "options": "Employee", "width": 140},
+		{
+			"label": _("Employee"),
+			"fieldname": "employee",
+			"fieldtype": "Link",
+			"options": "Employee",
+			"width": 140,
+		},
 		{"label": _("Employee Name"), "fieldname": "employee_name", "fieldtype": "Data", "width": 160},
-		{"label": _("Company"), "fieldname": "company", "fieldtype": "Link", "options": "Company", "width": 140},
-		{"label": _("Petty Cash Account"), "fieldname": "petty_cash_account", "fieldtype": "Link", "options": "Account", "width": 160},
-		{"label": _("Account GL Balance"), "fieldname": "account_gl_balance", "fieldtype": "Currency", "width": 130},
-		{"label": _("Holder Available Amount"), "fieldname": "current_balance", "fieldtype": "Currency", "width": 130},
-		{"label": _("Pending Settlement Amount"), "fieldname": "pending_clearance_amount", "fieldtype": "Currency", "width": 140},
-		{"label": _("Last Clearance Date"), "fieldname": "last_clearance_date", "fieldtype": "Date", "width": 140},
+		{
+			"label": _("Company"),
+			"fieldname": "company",
+			"fieldtype": "Link",
+			"options": "Company",
+			"width": 140,
+		},
+		{
+			"label": _("Petty Cash Account"),
+			"fieldname": "petty_cash_account",
+			"fieldtype": "Link",
+			"options": "Account",
+			"width": 160,
+		},
+		{
+			"label": _("Account GL Balance"),
+			"fieldname": "account_gl_balance",
+			"fieldtype": "Currency",
+			"width": 130,
+		},
+		{
+			"label": _("Holder Available Amount"),
+			"fieldname": "current_balance",
+			"fieldtype": "Currency",
+			"width": 130,
+		},
+		{
+			"label": _("Pending Settlement Amount"),
+			"fieldname": "pending_clearance_amount",
+			"fieldtype": "Currency",
+			"width": 140,
+		},
+		{
+			"label": _("Last Clearance Date"),
+			"fieldname": "last_clearance_date",
+			"fieldtype": "Date",
+			"width": 140,
+		},
 	]
 
 	data = []
@@ -199,16 +366,62 @@ def get_pm_pending_clearance_report_data(filters=None):
 def get_pm_request_availability_report_data(filters=None):
 	filters = frappe._dict(filters or {})
 	columns = [
-		{"label": _("PM Request"), "fieldname": "pm_request", "fieldtype": "Link", "options": "PM Request", "width": 170},
-		{"label": _("Employee"), "fieldname": "employee", "fieldtype": "Link", "options": "Employee", "width": 140},
-		{"label": _("Holder"), "fieldname": "holder", "fieldtype": "Link", "options": "PM Holder", "width": 160},
-		{"label": _("Company"), "fieldname": "company", "fieldtype": "Link", "options": "Company", "width": 140},
-		{"label": _("Petty Cash Account"), "fieldname": "petty_cash_account", "fieldtype": "Link", "options": "Account", "width": 170},
-		{"label": _("Payment Entry"), "fieldname": "payment_entry", "fieldtype": "Link", "options": "Payment Entry", "width": 160},
+		{
+			"label": _("PM Request"),
+			"fieldname": "pm_request",
+			"fieldtype": "Link",
+			"options": "PM Request",
+			"width": 170,
+		},
+		{
+			"label": _("Employee"),
+			"fieldname": "employee",
+			"fieldtype": "Link",
+			"options": "Employee",
+			"width": 140,
+		},
+		{
+			"label": _("Holder"),
+			"fieldname": "holder",
+			"fieldtype": "Link",
+			"options": "PM Holder",
+			"width": 160,
+		},
+		{
+			"label": _("Company"),
+			"fieldname": "company",
+			"fieldtype": "Link",
+			"options": "Company",
+			"width": 140,
+		},
+		{
+			"label": _("Petty Cash Account"),
+			"fieldname": "petty_cash_account",
+			"fieldtype": "Link",
+			"options": "Account",
+			"width": 170,
+		},
+		{
+			"label": _("Payment Entry"),
+			"fieldname": "payment_entry",
+			"fieldtype": "Link",
+			"options": "Payment Entry",
+			"width": 160,
+		},
 		{"label": _("Request Amount"), "fieldname": "request_amount", "fieldtype": "Currency", "width": 130},
 		{"label": _("Paid Amount"), "fieldname": "paid_amount", "fieldtype": "Currency", "width": 130},
-		{"label": _("Reserved / Allocated"), "fieldname": "allocated_amount", "fieldtype": "Currency", "width": 140},
-		{"label": _("Available Amount"), "fieldname": "available_amount", "fieldtype": "Currency", "width": 140},
+		{
+			"label": _("Reserved / Allocated"),
+			"fieldname": "allocated_amount",
+			"fieldtype": "Currency",
+			"width": 140,
+		},
+		{
+			"label": _("Available Amount"),
+			"fieldname": "available_amount",
+			"fieldtype": "Currency",
+			"width": 140,
+		},
 		{"label": _("Posting Date"), "fieldname": "posting_date", "fieldtype": "Date", "width": 110},
 	]
 
@@ -256,7 +469,9 @@ def get_pm_request_availability_report_data(filters=None):
 		available = get_pm_request_available_amount(row.pm_request)
 		if filters.get("only_available") and available <= 0:
 			continue
-		data.append({**row, "paid_amount": paid, "allocated_amount": allocated, "available_amount": available})
+		data.append(
+			{**row, "paid_amount": paid, "allocated_amount": allocated, "available_amount": available}
+		)
 	return columns, data
 
 
@@ -268,11 +483,23 @@ def get_pm_ledger_report_data(filters=None):
 	columns = [
 		{"label": _("Date"), "fieldname": "posting_date", "fieldtype": "Date", "width": 100},
 		{"label": _("Document Type"), "fieldname": "voucher_type", "fieldtype": "Data", "width": 120},
-		{"label": _("Document No"), "fieldname": "voucher_no", "fieldtype": "Dynamic Link", "options": "voucher_type", "width": 140},
+		{
+			"label": _("Document No"),
+			"fieldname": "voucher_no",
+			"fieldtype": "Dynamic Link",
+			"options": "voucher_type",
+			"width": 140,
+		},
 		{"label": _("Debit"), "fieldname": "debit", "fieldtype": "Currency", "width": 100},
 		{"label": _("Credit"), "fieldname": "credit", "fieldtype": "Currency", "width": 100},
 		{"label": _("Balance"), "fieldname": "balance", "fieldtype": "Currency", "width": 120},
-		{"label": _("Project"), "fieldname": "project", "fieldtype": "Link", "options": "Project", "width": 140},
+		{
+			"label": _("Project"),
+			"fieldname": "project",
+			"fieldtype": "Link",
+			"options": "Project",
+			"width": 140,
+		},
 		{"label": _("Remarks"), "fieldname": "remarks", "fieldtype": "Data", "width": 200},
 	]
 
@@ -339,4 +566,3 @@ def get_pm_ledger_report_data(filters=None):
 		row["balance"] = balance
 		data.append(row)
 	return columns, data
-

@@ -57,9 +57,7 @@ def refresh_outstanding_for_journal_entry(je_name: str) -> list[dict[str, Any]]:
 def journal_entry_impact_snapshot(je_name: str) -> dict[str, Any]:
 	"""Read-only counts + outstanding preview for UI (dry-run)."""
 	gl_count = frappe.db.count("GL Entry", {"voucher_no": je_name, "is_cancelled": 0})
-	ple_count = frappe.db.count(
-		"Payment Ledger Entry", {"voucher_no": je_name, "delinked": 0}
-	)
+	ple_count = frappe.db.count("Payment Ledger Entry", {"voucher_no": je_name, "delinked": 0})
 	outstanding_effects: list[dict[str, Any]] = []
 	for row in frappe.get_all(
 		"Journal Entry Account",

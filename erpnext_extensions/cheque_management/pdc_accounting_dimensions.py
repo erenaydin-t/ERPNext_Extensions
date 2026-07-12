@@ -53,6 +53,7 @@ def sync_pdc_accounting_dimension_fields_allow_on_submit() -> None:
 			get_accounting_dimensions,
 		)
 	except Exception:
+
 		def get_accounting_dimensions():
 			return []
 

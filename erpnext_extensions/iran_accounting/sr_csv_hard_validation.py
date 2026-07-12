@@ -11,7 +11,10 @@ from typing import Any
 import frappe
 from frappe.utils import flt
 
-from erpnext_extensions.iran_accounting.domain.currency import get_company_currency, round_row_amount_financial
+from erpnext_extensions.iran_accounting.domain.currency import (
+	get_company_currency,
+	round_row_amount_financial,
+)
 from erpnext_extensions.iran_accounting.domain.qty_rate_amount import (
 	override_difference_amount,
 	sum_stock_reconciliation_amount_difference,
@@ -111,9 +114,7 @@ def compute_csv_expected(rows: list[dict], currency: str = "IRR") -> dict:
 
 		if csv_amount not in (None, ""):
 			if flt(_parse_num(csv_amount)) != expected_amount:
-				row_failures.append(
-					f"row {i}: CSV Amount {csv_amount} != recomputed {expected_amount}"
-				)
+				row_failures.append(f"row {i}: CSV Amount {csv_amount} != recomputed {expected_amount}")
 		if csv_amount_diff not in (None, ""):
 			if flt(_parse_num(csv_amount_diff)) != expected_amount_difference:
 				row_failures.append(
@@ -222,9 +223,7 @@ def validate_erpnext_voucher(
 		if not _irr_integer(item.amount, ccy):
 			failures.append(f"row-level: {item.name} fractional IRR amount {item.amount}")
 		if flt(item.amount) != exp_amt:
-			failures.append(
-				f"row-level: {item.name} amount {item.amount} != round(qty×rate) {exp_amt}"
-			)
+			failures.append(f"row-level: {item.name} amount {item.amount} != round(qty×rate) {exp_amt}")
 		exp_diff = flt(item.amount) - flt(item.current_amount)
 		if flt(item.amount_difference) != exp_diff:
 			failures.append(

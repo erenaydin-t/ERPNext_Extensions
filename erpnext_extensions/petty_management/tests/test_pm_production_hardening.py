@@ -125,6 +125,8 @@ class TestPMProductionHardening(unittest.TestCase):
 
 		from erpnext_extensions.petty_management.services.request_service import (
 			_build_payment_entry,
+		)
+		from erpnext_extensions.petty_management.services.request_service import (
 			create_payment_entry as create_pm_pe,
 		)
 

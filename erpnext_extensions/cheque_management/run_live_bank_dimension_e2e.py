@@ -137,7 +137,11 @@ def _run_receivable_stb_bounce_clear(
 	if bank_dim_value and resolve_pdc_bank_dimension_value(p) != bank_dim_value:
 		errors.append(f"{scenario_label}: PDC {dim_field} not set to {bank_dim_value!r}")
 
-	out: dict = {"scenario": scenario_label, "pdc": p.name, "pdc_bank_dimension": resolve_pdc_bank_dimension_value(p)}
+	out: dict = {
+		"scenario": scenario_label,
+		"pdc": p.name,
+		"pdc_bank_dimension": resolve_pdc_bank_dimension_value(p),
+	}
 
 	_transition(p, WORKFLOW_REGISTERED, received_date=t0)
 	tr_stb = _transition(p, WORKFLOW_SENT_TO_BANK, sent_to_bank_date=t0)
@@ -307,7 +311,13 @@ def run():
 			)
 		)
 
-	out = {"passed": not errors, "errors": errors, "dim_field": dim_field, "scenario_b_bank": bank_for_dim, "results": results}
+	out = {
+		"passed": not errors,
+		"errors": errors,
+		"dim_field": dim_field,
+		"scenario_b_bank": bank_for_dim,
+		"results": results,
+	}
 	print(json.dumps(out, indent=2, default=str))
 	if errors:
 		frappe.throw("Bank Dimension E2E failed:\n" + "\n".join(errors))

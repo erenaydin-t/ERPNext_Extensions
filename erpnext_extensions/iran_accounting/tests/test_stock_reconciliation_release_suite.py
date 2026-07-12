@@ -78,7 +78,9 @@ class TestStockReconciliationReleaseSuite(unittest.TestCase):
 			frappe.db.commit()
 			sr.reload()
 			self.assertEqual(flt(sr.difference_amount), 29631)
-			self.assertEqual(flt(sr.difference_amount), sum_stock_reconciliation_amount_difference(sr, self.currency))
+			self.assertEqual(
+				flt(sr.difference_amount), sum_stock_reconciliation_amount_difference(sr, self.currency)
+			)
 
 	def test_current_amount_does_not_affect_header(self):
 		with hostile_system_settings():
@@ -87,7 +89,9 @@ class TestStockReconciliationReleaseSuite(unittest.TestCase):
 			frappe.db.commit()
 			sr.reload()
 			row = sr.items[0]
-			self.assertEqual(flt(sr.difference_amount), sum_stock_reconciliation_amount_difference(sr, self.currency))
+			self.assertEqual(
+				flt(sr.difference_amount), sum_stock_reconciliation_amount_difference(sr, self.currency)
+			)
 			if flt(row.current_amount) > 0:
 				self.assertNotEqual(
 					flt(sr.difference_amount),
@@ -152,7 +156,9 @@ class TestStockReconciliationReleaseSuite(unittest.TestCase):
 		with hostile_system_settings():
 			override_difference_amount(sr)
 		self.assertGreaterEqual(len(sr.items), 100)
-		self.assertEqual(flt(sr.difference_amount), sum_stock_reconciliation_amount_difference(sr, self.currency))
+		self.assertEqual(
+			flt(sr.difference_amount), sum_stock_reconciliation_amount_difference(sr, self.currency)
+		)
 
 	def test_submit_cancel_resubmit_identical_header(self):
 		with hostile_system_settings():
@@ -205,7 +211,9 @@ class TestStockReconciliationReleaseSuite(unittest.TestCase):
 			)
 			frappe.db.commit()
 			sr.reload()
-			self.assertEqual(flt(sr.difference_amount), sum_stock_reconciliation_amount_difference(sr, self.currency))
+			self.assertEqual(
+				flt(sr.difference_amount), sum_stock_reconciliation_amount_difference(sr, self.currency)
+			)
 			self.assertEqual(
 				flt(sr.items[0].amount),
 				flt(compute_row_amount(sr.items[0], self.currency, rate_field="valuation_rate")),

@@ -60,9 +60,7 @@ def _forward_edges_on_path(path: list[str]) -> list[tuple[str, str]]:
 	return out
 
 
-def _edges_to_undo(
-	cheque_direction: str, current: str, target: str, pdc=None
-) -> list[tuple[str, str]]:
+def _edges_to_undo(cheque_direction: str, current: str, target: str, pdc=None) -> list[tuple[str, str]]:
 	current = normalize_workflow_state_value(current)
 	target = normalize_workflow_state_value(target)
 	path = _bfs_forward_path(cheque_direction, target, current)

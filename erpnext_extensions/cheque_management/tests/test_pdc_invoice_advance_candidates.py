@@ -29,7 +29,9 @@ class TestPDCInvoiceAdvanceCandidates(unittest.TestCase):
 	def test_invoice_without_order_link_returns_empty(self) -> None:
 		fake_inv = SimpleNamespace(company="_TC", currency="INR", supplier="SUP-1", items=[])
 		fake_frappe = SimpleNamespace(
-			db=SimpleNamespace(exists=lambda *a, **k: True, sql=lambda *a, **k: [], table_exists=lambda *a, **k: False),
+			db=SimpleNamespace(
+				exists=lambda *a, **k: True, sql=lambda *a, **k: [], table_exists=lambda *a, **k: False
+			),
 			get_doc=lambda *a, **k: fake_inv,
 			throw=lambda msg, *a, **k: (_ for _ in ()).throw(ValidationError(msg)),
 		)
@@ -48,7 +50,14 @@ class TestPDCInvoiceAdvanceCandidates(unittest.TestCase):
 		def _sql(q, params=None, as_dict=False):
 			if "FROM `tabPost Dated Cheque`" in q:
 				return [
-					{"pdc": "PDC-A1", "pdc_currency": "INR", "cheque_amount": 1000.0, "recognition_je_posted": 1, "instrument_dead": 0, "bucket_gross": 600.0}
+					{
+						"pdc": "PDC-A1",
+						"pdc_currency": "INR",
+						"cheque_amount": 1000.0,
+						"recognition_je_posted": 1,
+						"instrument_dead": 0,
+						"bucket_gross": 600.0,
+					}
 				]
 			if "FROM `tabPDC Invoice Application`" in q:
 				return [{"pdc": "PDC-A1", "application_status": "posted", "amt": 100.0}]
@@ -172,4 +181,3 @@ class TestPDCInvoiceAdvanceCandidates(unittest.TestCase):
 			out = cand.get_advance_pdc_candidates_for_invoice("Purchase Invoice", "PINV-1")
 		self.assertEqual(len(out), 1)
 		self.assertEqual(out[0]["open_amount"], 600.0)
-

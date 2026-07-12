@@ -85,4 +85,3 @@ __all__ = [
 	"get_order_reserved_advance_pdc_amount",
 	"get_order_remaining_advance_capacity",
 ]
-

@@ -24,8 +24,8 @@ from erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_c
 from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
 	CHEQUE_DIRECTION_PAYABLE,
 	CHEQUE_DIRECTION_RECEIVABLE,
-	WORKFLOW_ENDORSED,
 	WORKFLOW_DRAFT,
+	WORKFLOW_ENDORSED,
 	WORKFLOW_ISSUED,
 	WORKFLOW_REGISTERED,
 )

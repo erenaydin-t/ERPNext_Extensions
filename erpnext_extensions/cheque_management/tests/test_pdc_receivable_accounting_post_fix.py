@@ -38,7 +38,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque as pdc_mod
-
 from erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque import (
 	build_pdc_journal_entry_data,
 )
@@ -172,7 +171,9 @@ class TestReceivableChainThroughBankToClear(unittest.TestCase):
 			AMT,
 			"Bank debited once for clear",
 		)
-		self.assertEqual(j_clear["accounts"][1]["account"], "GL-CLR", "Credit clearing (instrument left clearing pool)")
+		self.assertEqual(
+			j_clear["accounts"][1]["account"], "GL-CLR", "Credit clearing (instrument left clearing pool)"
+		)
 
 		keys = _transition_keys_unique(
 			d.name,
@@ -275,7 +276,9 @@ class TestIdempotencyKeysNoDuplicateVoucher(unittest.TestCase):
 			CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_SENT_TO_BANK, WORKFLOW_CLEARED
 		)
 		self.assertEqual(len({e1, e2, e3}), 3)
-		f1 = build_pdc_accounting_transition_key(name, CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_DRAFT, WORKFLOW_REGISTERED)
+		f1 = build_pdc_accounting_transition_key(
+			name, CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_DRAFT, WORKFLOW_REGISTERED
+		)
 		self.assertTrue(f1.startswith(f"{name}|"))
 
 

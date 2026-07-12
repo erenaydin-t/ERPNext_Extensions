@@ -35,7 +35,9 @@ def execute():
 			if submitted <= 1e-6:
 				frappe.db.set_value("PM Request", name, "payment_status", "Not Paid", update_modified=False)
 			elif submitted + 1e-6 < requested:
-				frappe.db.set_value("PM Request", name, "payment_status", "Partially Paid", update_modified=False)
+				frappe.db.set_value(
+					"PM Request", name, "payment_status", "Partially Paid", update_modified=False
+				)
 			else:
 				frappe.db.set_value("PM Request", name, "payment_status", "Paid", update_modified=False)
 

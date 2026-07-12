@@ -28,7 +28,6 @@ from typing import Any
 
 import frappe
 
-
 DOCTYPE = "Cheque Opening Import"
 REQUIRED_VISIBLE_FIELDS = ("import_file", "import_status", "summary", "items")
 REQUIRED_ORDER = (
@@ -77,9 +76,7 @@ def execute():
 
 	missing = [f for f in REQUIRED_ORDER if f not in by_fieldname]
 	if missing:
-		raise frappe.ValidationError(
-			f"{DOCTYPE}: missing DocField rows for {', '.join(missing)}"
-		)
+		raise frappe.ValidationError(f"{DOCTYPE}: missing DocField rows for {', '.join(missing)}")
 
 	# Fix types/visibility first.
 	html_df_name = by_fieldname["import_template_actions_html"]["name"]
@@ -97,4 +94,3 @@ def execute():
 
 	frappe.clear_cache(doctype=DOCTYPE)
 	frappe.db.commit()
-

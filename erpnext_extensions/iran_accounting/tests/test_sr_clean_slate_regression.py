@@ -18,8 +18,8 @@ from erpnext_extensions.iran_accounting.sr_clean_slate_regression import (
 class TestSrCleanSlateRegression(unittest.TestCase):
 	@classmethod
 	def setUpClass(cls):
-		from erpnext_extensions.iran_accounting.integration.bootstrap import apply
 		from erpnext_extensions.iran_accounting.e2e_bootstrap import get_irr_company
+		from erpnext_extensions.iran_accounting.integration.bootstrap import apply
 
 		apply()
 		frappe.set_user("Administrator")
