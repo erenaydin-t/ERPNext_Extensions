@@ -65,7 +65,7 @@ class TestAccountExplorerVoucherSummary(unittest.TestCase):
 			self.from_date,
 			self.to_date,
 			analysis={"view_axis": "voucher"},
-			document={"include_opening_entries": 0},
+			document={"status": {"include_opening_entries": 0}},
 		)
 		result = api.get_voucher_summary(payload)
 		self.assertTrue(any("Opening entries" in warning for warning in result.get("warnings", [])))

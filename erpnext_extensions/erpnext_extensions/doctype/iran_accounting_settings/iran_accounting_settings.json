@@ -19,6 +19,8 @@
   "party_analysis_enabled",
   "dimension_analysis_enabled",
   "voucher_analysis_enabled",
+  "unified_party_enabled",
+  "currency_analysis_enabled",
   "column_break_wave2a",
   "account_explorer_party_sources",
   "section_default_behavior",
@@ -92,6 +94,20 @@
    "fieldname": "voucher_analysis_enabled",
    "fieldtype": "Check",
    "label": "Voucher Analysis Enabled"
+  },
+  {
+   "default": "0",
+   "description": "Enable Unified Accounting Party analysis on the Account Explorer page.",
+   "fieldname": "unified_party_enabled",
+   "fieldtype": "Check",
+   "label": "Unified Party Analysis Enabled"
+  },
+  {
+   "default": "0",
+   "description": "Enable currency analysis on the Account Explorer page.",
+   "fieldname": "currency_analysis_enabled",
+   "fieldtype": "Check",
+   "label": "Currency Analysis Enabled"
   },
   {
    "fieldname": "column_break_wave2a",

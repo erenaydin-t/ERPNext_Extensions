@@ -69,3 +69,30 @@ def assert_gl_navigation_allowed() -> None:
 			_("GL Entry navigation is disabled. Configure Iran Accounting Settings."),
 			frappe.ValidationError,
 		)
+
+
+def assert_unified_party_enabled() -> None:
+	assert_feature_enabled()
+	if not frappe.get_single_value("Iran Accounting Settings", "unified_party_enabled"):
+		frappe.throw(
+			_("Unified Party analysis is not enabled. Configure Iran Accounting Settings."),
+			frappe.ValidationError,
+		)
+
+
+def assert_unified_party_suggestions_allowed() -> None:
+	assert_unified_party_enabled()
+	if frappe.session.user == "Administrator":
+		return
+	roles = set(frappe.get_roles(frappe.session.user))
+	if "Accounts Manager" not in roles:
+		frappe.throw(_("Not permitted to view unified party suggestions."), frappe.PermissionError)
+
+
+def assert_currency_analysis_enabled() -> None:
+	assert_feature_enabled()
+	if not frappe.get_single_value("Iran Accounting Settings", "currency_analysis_enabled"):
+		frappe.throw(
+			_("Currency analysis is not enabled. Configure Iran Accounting Settings."),
+			frappe.ValidationError,
+		)

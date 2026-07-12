@@ -28,7 +28,20 @@ SORTABLE_FIELDS = frozenset(
 
 PARTY_SORTABLE_FIELDS = SORTABLE_FIELDS | frozenset({"party_type", "party", "party_identifier"})
 
-DIMENSION_SORTABLE_FIELDS = SORTABLE_FIELDS | frozenset({"dimension_field", "dimension_value"})
+UNIFIED_PARTY_SORTABLE_FIELDS = SORTABLE_FIELDS | frozenset(
+	{
+		"unified_party",
+		"display_code",
+		"display_title",
+		"member_count",
+		"primary_member_label",
+		"identifier_summary",
+	}
+)
+
+DIMENSION_SORTABLE_FIELDS = SORTABLE_FIELDS | frozenset({"dimension_type", "dimension_value"})
+
+CURRENCY_SORTABLE_FIELDS = SORTABLE_FIELDS | frozenset({"currency", "net_balance"})
 
 VOUCHER_SORTABLE_FIELDS = frozenset(
 	{
@@ -58,13 +71,14 @@ GL_GROUP_SORTABLE_FIELDS = frozenset(
 	}
 )
 
-VIEW_AXES = frozenset({"account_level", "party", "dimension", "voucher"})
+VIEW_AXES = frozenset({"account_level", "party", "unified_party", "dimension", "currency", "voucher"})
 
 DETAIL_MODES = frozenset({"summary", "grouped_gl"})
 
 VIRTUAL_UNCLASSIFIED_KEY = "virtual:unclassified"
 VIRTUAL_PREFIX_KEY_PREFIX = "virtual:prefix"
 VIRTUAL_PARTY_UNSPECIFIED_KEY = "virtual:party:unspecified"
+VIRTUAL_UNIFIED_UNMAPPED_KEY = "virtual:unified:unmapped"
 VIRTUAL_DIMENSION_UNSPECIFIED_PREFIX = "virtual:dimension:unspecified"
 REAL_ACCOUNT_KEY_PREFIX = "account"
 

@@ -55,6 +55,10 @@ def get_allowed_dimension_fieldnames() -> frozenset[str]:
 
 
 def get_default_dimension_field() -> str | None:
+	return get_default_dimension_type()
+
+
+def get_default_dimension_type() -> str | None:
 	dimensions = get_discovered_dimensions()
 	for preferred in ("cost_center",):
 		for row in dimensions:

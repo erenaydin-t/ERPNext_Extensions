@@ -63,6 +63,8 @@ class IranAccountingSettings(Document):
 			) or self.has_value_changed("party_analysis_enabled") or self.has_value_changed(
 				"dimension_analysis_enabled"
 			) or self.has_value_changed("voucher_analysis_enabled") or self.has_value_changed(
+				"unified_party_enabled"
+			) or self.has_value_changed("currency_analysis_enabled") or self.has_value_changed(
 				"account_explorer_party_sources"
 			):
 				self.metadata_cache_version = int(previous) + 1

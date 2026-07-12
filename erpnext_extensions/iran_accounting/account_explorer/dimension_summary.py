@@ -21,11 +21,11 @@ from erpnext_extensions.iran_accounting.account_explorer.schemas import AccountE
 
 
 def build_dimension_summary(spec: AccountExplorerQuerySpec) -> dict:
-	dimension_field = spec.dimension_scope.dimension_field
-	validate_dimension_field(dimension_field)
+	dimension_type = spec.dimension_scope.dimension_type
+	validate_dimension_field(dimension_type)
 
-	opening = get_dimension_opening_balances(spec, dimension_field)
-	period = get_dimension_period_balances(spec, dimension_field)
+	opening = get_dimension_opening_balances(spec, dimension_type)
+	period = get_dimension_period_balances(spec, dimension_type)
 	keys = set(opening.keys()) | set(period.keys())
 
 	rows: list[dict] = []
@@ -35,17 +35,17 @@ def build_dimension_summary(spec: AccountExplorerQuerySpec) -> dict:
 		is_unspecified = value == ""
 		display_code = "__NOT_SPECIFIED__" if is_unspecified else value
 		display_title = not_specified_label() if is_unspecified else get_dimension_display_title(
-			dimension_field, value
+			dimension_type, value
 		)
 		row_key = (
-			f"{VIRTUAL_DIMENSION_UNSPECIFIED_PREFIX}:{dimension_field}"
+			f"{VIRTUAL_DIMENSION_UNSPECIFIED_PREFIX}:{dimension_type}"
 			if is_unspecified
-			else f"dimension:{dimension_field}:{value}"
+			else f"dimension:{dimension_type}:{value}"
 		)
 		rows.append(
 			{
 				"row_key": row_key,
-				"dimension_field": dimension_field,
+				"dimension_type": dimension_type,
 				"dimension_value": value,
 				"display_code": display_code,
 				"display_title": display_title,
@@ -60,5 +60,5 @@ def build_dimension_summary(spec: AccountExplorerQuerySpec) -> dict:
 	rows = sort_rows(rows, spec, DIMENSION_SORTABLE_FIELDS)
 	result = paginate_summary_rows(rows, spec)
 	result["warnings"] = []
-	result["dimension_field"] = dimension_field
+	result["dimension_type"] = dimension_type
 	return result

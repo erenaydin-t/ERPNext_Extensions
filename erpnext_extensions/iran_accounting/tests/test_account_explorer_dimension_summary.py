@@ -48,12 +48,12 @@ class TestAccountExplorerDimensionSummary(unittest.TestCase):
 			self.to_date,
 			analysis={
 				"view_axis": "dimension",
-				"dimension_scope": {"dimension_field": "cost_center"},
+				"dimension_scope": {"dimension_type": "cost_center"},
 			},
 		)
 		result = api.get_dimension_summary(payload)
 		self.assertIn("rows", result)
-		self.assertEqual(result.get("dimension_field"), "cost_center")
+		self.assertEqual(result.get("dimension_type"), "cost_center")
 
 	def test_not_specified_row_label(self):
 		payload = build_payload(
@@ -63,7 +63,7 @@ class TestAccountExplorerDimensionSummary(unittest.TestCase):
 			self.to_date,
 			analysis={
 				"view_axis": "dimension",
-				"dimension_scope": {"dimension_field": "cost_center"},
+				"dimension_scope": {"dimension_type": "cost_center"},
 			},
 			document={"hide_zero_rows": 0},
 		)
@@ -84,7 +84,7 @@ class TestAccountExplorerDimensionSummary(unittest.TestCase):
 			self.to_date,
 			analysis={
 				"view_axis": "dimension",
-				"dimension_scope": {"dimension_field": "cost_center"},
+				"dimension_scope": {"dimension_type": "cost_center"},
 				"page_size": 1,
 				"page": 1,
 			},
@@ -123,7 +123,7 @@ class TestAccountExplorerDimensionSummary(unittest.TestCase):
 			self.to_date,
 			analysis={
 				"view_axis": "dimension",
-				"dimension_scope": {"dimension_field": "cost_center", "selected_value": cost_center},
+				"dimension_scope": {"dimension_type": "cost_center", "selected_dimension_value": cost_center},
 				"account_scope": {"mode": "account", "selected_account": account},
 			},
 			document={"hide_zero_rows": 0},

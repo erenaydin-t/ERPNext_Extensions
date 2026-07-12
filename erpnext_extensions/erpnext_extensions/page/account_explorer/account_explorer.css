@@ -15,9 +15,15 @@
 }
 
 .account-explorer-page .ae-nav-group {
-	display: inline-flex;
+	display: flex;
 	flex-wrap: wrap;
 	gap: 4px;
+	align-items: center;
+	width: 100%;
+}
+
+.account-explorer-page .ae-nav-group-header {
+	display: inline-flex;
 	align-items: center;
 }
 
@@ -26,11 +32,13 @@
 	color: var(--primary);
 }
 
-.account-explorer-page .ae-nav-levels {
-	display: inline-flex;
+.account-explorer-page .ae-nav-account-levels,
+.account-explorer-page .ae-nav-dimension-types {
+	display: flex;
 	flex-wrap: wrap;
 	gap: 2px;
-	margin-inline-start: 4px;
+	flex: 1 1 100%;
+	padding-inline-start: 4px;
 }
 
 .account-explorer-page .ae-dimension-picker {
@@ -63,6 +71,26 @@
 
 .account-explorer-page .ae-chip.is-virtual {
 	border-style: dashed;
+}
+
+.account-explorer-page .ae-member-panel {
+	margin-top: 12px;
+	padding: 12px;
+	border: 1px solid var(--border-color);
+	border-radius: var(--border-radius);
+	background: var(--control-bg);
+}
+
+.account-explorer-page .ae-member-panel-header {
+	margin-bottom: 8px;
+}
+
+.account-explorer-page table.ae-member-grid {
+	margin-top: 4px;
+}
+
+.account-explorer-page tr.ae-primary-member {
+	font-weight: 600;
 }
 
 .account-explorer-page .ae-grid-wrap {

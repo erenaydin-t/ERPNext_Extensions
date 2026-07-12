@@ -22,7 +22,7 @@ def build_grouped_gl_entries(spec: AccountExplorerQuerySpec) -> dict:
 	if not spec.voucher_scope.voucher_type or not spec.voucher_scope.voucher_no:
 		frappe.throw(_("Voucher type and voucher number are required for grouped GL detail."))
 
-	dimension_field = spec.dimension_scope.dimension_field
+	dimension_field = spec.dimension_scope.dimension_type
 	gle = frappe.qb.DocType("GL Entry")
 	select_fields = [gle.account, gle.party_type, gle.party, gle.debit, gle.credit, gle.against]
 	if dimension_field:

@@ -79,16 +79,85 @@ def enable_wave2b_voucher(*, include_wave2a: bool = True) -> None:
 	frappe.db.commit()
 
 
-def build_payload(company, fiscal_year, from_date, to_date, analysis=None, document=None):
-	document_scope = {
+def enable_wave2c_unified_party(*, include_wave2b: bool = True) -> None:
+	if include_wave2b:
+		enable_wave2b_voucher()
+	else:
+		enable_wave2a_analysis()
+	settings = frappe.get_single("Iran Accounting Settings")
+	settings.unified_party_enabled = 1
+	settings.currency_analysis_enabled = 1
+	for row in settings.account_explorer_party_sources or []:
+		if row.party_type == "Customer":
+			row.show_in_unified_party = 1
+			if not row.identifier_field:
+				row.identifier_field = "tax_id"
+	settings.flags.ignore_permissions = True
+	settings.save()
+	frappe.db.commit()
+
+
+def create_test_unified_accounting_party(
+	members: list[tuple[str, str]],
+	*,
+	unified_name: str = "Test Unified Party",
+	company: str | None = None,
+) -> str:
+	doc = frappe.new_doc("Unified Accounting Party")
+	doc.unified_name = unified_name
+	doc.status = "Active"
+	if company:
+		doc.company = company
+	for index, (party_type, party) in enumerate(members):
+		doc.append(
+			"members",
+			{
+				"party_type": party_type,
+				"party": party,
+				"is_primary": 1 if index == 0 else 0,
+				"sequence": index + 1,
+			},
+		)
+	doc.flags.ignore_permissions = True
+	doc.insert()
+	frappe.db.commit()
+	return doc.name
+
+
+def delete_test_unified_accounting_party(name: str) -> None:
+	if frappe.db.exists("Unified Accounting Party", name):
+		frappe.delete_doc("Unified Accounting Party", name, force=1)
+		frappe.db.commit()
+
+
+def default_document_scope(company, fiscal_year, from_date, to_date) -> dict:
+	return {
 		"company": company,
 		"fiscal_year": fiscal_year,
 		"from_date": from_date,
 		"to_date": to_date,
 		"hide_zero_rows": 0,
+		"voucher": {},
+		"accounting": {},
+		"accounting_dimensions": {},
+		"currency": {"currency_type": "account_currency", "currency": None},
+		"status": {
+			"include_opening_entries": 1,
+			"include_cancelled_entries": 0,
+			"include_default_finance_book_entries": 1,
+			"include_period_closing_vouchers": 0,
+		},
 	}
+
+
+def build_payload(company, fiscal_year, from_date, to_date, analysis=None, document=None):
+	document_scope = default_document_scope(company, fiscal_year, from_date, to_date)
 	if document:
-		document_scope.update(document)
+		for key, value in document.items():
+			if isinstance(value, dict) and key in document_scope and isinstance(document_scope[key], dict):
+				document_scope[key].update(value)
+			else:
+				document_scope[key] = value
 	analysis_context = {"view_axis": "account_level"}
 	if analysis:
 		analysis_context.update(analysis)

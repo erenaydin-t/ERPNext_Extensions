@@ -50,7 +50,8 @@ class TestAccountExplorerQuerySpec(unittest.TestCase):
 						"company": self.company,
 						"from_date": "2020-01-01",
 						"to_date": "2020-12-31",
-					}
+					},
+					"analysis_context": {"view_axis": "account_level"},
 				}
 			)
 		)

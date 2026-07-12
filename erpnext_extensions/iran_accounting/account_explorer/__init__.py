@@ -36,6 +36,36 @@ def get_party_summary(payload=None):
 
 
 @frappe.whitelist()
+def get_unified_party_summary(payload=None):
+	from erpnext_extensions.iran_accounting.account_explorer.api import get_unified_party_summary as _summary
+
+	return _summary(payload)
+
+
+@frappe.whitelist()
+def get_unified_party_member_breakdown(payload=None):
+	from erpnext_extensions.iran_accounting.account_explorer.api import (
+		get_unified_party_member_breakdown as _breakdown,
+	)
+
+	return _breakdown(payload)
+
+
+@frappe.whitelist()
+def get_unified_party_suggestions(payload=None):
+	from erpnext_extensions.iran_accounting.account_explorer.api import get_unified_party_suggestions as _suggest
+
+	return _suggest(payload)
+
+
+@frappe.whitelist()
+def get_currency_summary(payload=None):
+	from erpnext_extensions.iran_accounting.account_explorer.api import get_currency_summary as _summary
+
+	return _summary(payload)
+
+
+@frappe.whitelist()
 def get_dimension_summary(payload=None):
 	from erpnext_extensions.iran_accounting.account_explorer.api import get_dimension_summary as _summary
 

@@ -1,5 +1,40 @@
 frappe.provide("erpnext_extensions.account_explorer");
 
+function ae_default_document_scope(overrides = {}) {
+	return {
+		company: null,
+		fiscal_year: null,
+		from_date: null,
+		to_date: null,
+		finance_book: null,
+		hide_zero_rows: 1,
+		voucher: {
+			voucher_type: null,
+			voucher_no: null,
+			against_voucher_type: null,
+			against_voucher_no: null,
+			reference_no: null,
+		},
+		accounting: {
+			account: null,
+			party_type: null,
+			party: null,
+		},
+		accounting_dimensions: {},
+		currency: {
+			currency_type: "account_currency",
+			currency: null,
+		},
+		status: {
+			include_opening_entries: 1,
+			include_cancelled_entries: 0,
+			include_default_finance_book_entries: 1,
+			include_period_closing_vouchers: 0,
+		},
+		...overrides,
+	};
+}
+
 frappe.pages["account-explorer"].on_page_load = function (wrapper) {
 	const page = frappe.ui.make_app_page({
 		parent: wrapper,
@@ -24,13 +59,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		this.voucher_header = null;
 		this.show_optional_full_voucher_columns = false;
 
-		this.document_scope = {
-			company: null,
-			fiscal_year: null,
-			from_date: null,
-			to_date: null,
-			hide_zero_rows: 1,
-		};
+		this.document_scope = ae_default_document_scope();
 
 		this.analysis_context = {
 			view_axis: "account_level",
@@ -47,9 +76,13 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 				party_type: null,
 				selected_party: null,
 			},
+			unified_party_scope: {
+				selected_unified_party: null,
+				include_unmapped: 0,
+			},
 			dimension_scope: {
-				dimension_field: null,
-				selected_value: null,
+				dimension_type: null,
+				selected_dimension_value: null,
 			},
 			voucher_scope: {
 				voucher_type: null,
@@ -77,11 +110,11 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		this.$disabled = $('<div class="ae-disabled"></div>').appendTo(this.$container);
 		this.$toolbar = $('<div class="ae-toolbar"></div>').appendTo(this.$container);
 		this.$nav = $('<div class="ae-nav"></div>').appendTo(this.$container);
-		this.$dimension_picker = $('<div class="ae-dimension-picker"></div>').appendTo(this.$container);
 		this.$context = $('<div class="ae-context-bar"></div>').appendTo(this.$container);
 		this.$detail_header = $('<div class="ae-detail-header"></div>').appendTo(this.$container);
 		this.$actions = $('<div class="ae-context-actions mb-2"></div>').appendTo(this.$container);
 		this.$grid = $('<div class="ae-grid-wrap"></div>').appendTo(this.$container);
+		this.$member_panel = $('<div class="ae-member-panel"></div>').appendTo(this.$container).hide();
 		this.$pagination = $('<div class="ae-pagination"></div>').appendTo(this.$container);
 		this.$totals = $('<div class="ae-totals"></div>').appendTo(this.$container);
 		this.$warnings = $('<div class="text-muted small mt-2"></div>').appendTo(this.$container);
@@ -125,12 +158,12 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		this.$disabled.text(message).show();
 		this.$toolbar.hide();
 		this.$nav.hide();
-		this.$dimension_picker.hide();
 	}
 
 	setup_toolbar() {
 		this.$toolbar.empty();
 		const defaults = this.metadata.defaults || {};
+		const scopeDefaults = defaults.document_scope || defaults;
 
 		this.company_field = frappe.ui.form.make_control({
 			parent: this.$toolbar,
@@ -146,9 +179,9 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			},
 			render_input: true,
 		});
-		if (defaults.company) {
-			this.company_field.set_value(defaults.company);
-			this.document_scope.company = defaults.company;
+		if (scopeDefaults.company) {
+			this.company_field.set_value(scopeDefaults.company);
+			this.document_scope.company = scopeDefaults.company;
 		}
 
 		this.fy_field = frappe.ui.form.make_control({
@@ -165,9 +198,9 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			},
 			render_input: true,
 		});
-		if (defaults.fiscal_year) {
-			this.fy_field.set_value(defaults.fiscal_year);
-			this.document_scope.fiscal_year = defaults.fiscal_year;
+		if (scopeDefaults.fiscal_year) {
+			this.fy_field.set_value(scopeDefaults.fiscal_year);
+			this.document_scope.fiscal_year = scopeDefaults.fiscal_year;
 		}
 
 		this.from_date_field = frappe.ui.form.make_control({
@@ -198,18 +231,38 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			render_input: true,
 		});
 
-		if (defaults.from_date) {
-			this.from_date_field.set_value(defaults.from_date);
-			this.document_scope.from_date = defaults.from_date;
+		if (scopeDefaults.from_date) {
+			this.from_date_field.set_value(scopeDefaults.from_date);
+			this.document_scope.from_date = scopeDefaults.from_date;
 		}
-		if (defaults.to_date) {
-			this.to_date_field.set_value(defaults.to_date);
-			this.document_scope.to_date = defaults.to_date;
+		if (scopeDefaults.to_date) {
+			this.to_date_field.set_value(scopeDefaults.to_date);
+			this.document_scope.to_date = scopeDefaults.to_date;
 		}
 
 		this.analysis_context.level_sequence = this.metadata.default_level_sequence;
 		this.analysis_context.page_size = defaults.page_size || 50;
-		this.analysis_context.dimension_scope.dimension_field = this.metadata.default_dimension_field;
+		const defaultDimensionType =
+			this.metadata.default_dimension_type || this.metadata.default_dimension_field || null;
+		if (defaultDimensionType) {
+			this.analysis_context.dimension_scope.dimension_type = defaultDimensionType;
+		}
+		if (scopeDefaults.status) {
+			this.document_scope.status = { ...this.document_scope.status, ...scopeDefaults.status };
+		}
+		if (scopeDefaults.currency) {
+			this.document_scope.currency = { ...this.document_scope.currency, ...scopeDefaults.currency };
+		}
+	}
+
+	get_account_level_nav_items() {
+		return (this.metadata.levels || []).filter(
+			(level) => level.enabled && level.sequence != null && level.code_length != null && !level.fieldname
+		);
+	}
+
+	get_dimension_nav_items() {
+		return (this.metadata.dimensions || []).filter((dimension) => dimension.fieldname);
 	}
 
 	render_navigator() {
@@ -221,16 +274,22 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 				return;
 			}
 			if (axis.id === "account_level") {
-				const $group = $('<div class="ae-nav-group"></div>').appendTo(this.$nav);
-				const $btn = $('<button type="button" class="btn btn-default btn-sm ae-nav-tab">')
+				const $group = $('<div class="ae-nav-group ae-nav-group--account-levels"></div>').appendTo(this.$nav);
+				const $header = $('<div class="ae-nav-group-header"></div>').appendTo($group);
+				$('<button type="button" class="btn btn-default btn-sm ae-nav-tab">')
 					.text(__("Account Levels"))
 					.toggleClass("active", this.analysis_context.view_axis === "account_level")
-					.on("click", () => this.switch_axis("account_level"));
-				$group.append($btn);
-				const $menu = $('<div class="ae-nav-levels"></div>').appendTo($group);
-				(axis.children || []).forEach((level) => {
+					.on("click", () => this.switch_axis("account_level"))
+					.appendTo($header);
+				const $menu = $('<div class="ae-nav-account-levels"></div>').appendTo($group);
+				this.get_account_level_nav_items().forEach((level) => {
 					$('<button type="button" class="btn btn-xs btn-link ae-nav-level">')
 						.text(level.title_fa || level.title)
+						.toggleClass(
+							"active",
+							this.analysis_context.view_axis === "account_level" &&
+								this.analysis_context.level_sequence === level.sequence
+						)
 						.on("click", (e) => {
 							e.stopPropagation();
 							this.switch_axis("account_level", level.sequence);
@@ -240,9 +299,39 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 				return;
 			}
 
+			if (axis.id === "dimension") {
+				const $group = $('<div class="ae-nav-group ae-nav-group--dimensions"></div>').appendTo(this.$nav);
+				const $header = $('<div class="ae-nav-group-header"></div>').appendTo($group);
+				$('<button type="button" class="btn btn-default btn-sm ae-nav-tab">')
+					.text(__("Dimensions"))
+					.toggleClass(
+						"active",
+						this.analysis_context.view_axis === "dimension" && this.analysis_context.detail_mode === "summary"
+					)
+					.on("click", () => this.switch_axis("dimension"))
+					.appendTo($header);
+				const $menu = $('<div class="ae-nav-dimension-types"></div>').appendTo($group);
+				this.get_dimension_nav_items().forEach((dimension) => {
+					$('<button type="button" class="btn btn-xs btn-link ae-nav-dimension-type">')
+						.text(dimension.label || dimension.fieldname)
+						.toggleClass(
+							"active",
+							this.analysis_context.view_axis === "dimension" &&
+								this.analysis_context.dimension_scope.dimension_type === dimension.fieldname
+						)
+						.on("click", (e) => {
+							e.stopPropagation();
+							this.switch_axis("dimension", dimension.fieldname);
+						})
+						.appendTo($menu);
+				});
+				return;
+			}
+
 			const label_map = {
 				party: __("Parties"),
-				dimension: __("Dimensions"),
+				unified_party: __("Unified Parties"),
+				currency: __("Currencies"),
 				voucher: __("Vouchers"),
 			};
 			const label = label_map[axis.id] || axis.label;
@@ -255,60 +344,43 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 				.on("click", () => this.switch_axis(axis.id))
 				.appendTo(this.$nav);
 		});
-
-		this.render_dimension_picker();
 	}
 
-	render_dimension_picker() {
-		this.$dimension_picker.empty();
-		if (this.analysis_context.view_axis !== "dimension") {
-			this.$dimension_picker.hide();
-			return;
-		}
-		this.$dimension_picker.show();
-		const dimensions = this.metadata.dimensions || [];
-		const options = dimensions.map((d) => d.fieldname).join("\n");
-		this.dimension_field_control = frappe.ui.form.make_control({
-			parent: this.$dimension_picker,
-			df: {
-				fieldtype: "Select",
-				label: __("Dimension"),
-				fieldname: "dimension_field",
-				options,
-				change: () => {
-					this.analysis_context.dimension_scope.dimension_field = this.dimension_field_control.get_value();
-					this.analysis_context.page = 1;
-					this.refresh_summary();
-				},
-			},
-			render_input: true,
-		});
-		const current = this.analysis_context.dimension_scope.dimension_field || this.metadata.default_dimension_field;
-		if (current) {
-			this.dimension_field_control.set_value(current);
-			this.analysis_context.dimension_scope.dimension_field = current;
-		}
-	}
-
-	switch_axis(view_axis, level_sequence = null) {
+	switch_axis(view_axis, level_or_dimension = null) {
 		this.analysis_context.view_axis = view_axis;
 		this.analysis_context.detail_mode = "summary";
 		this.analysis_context.page = 1;
 		if (view_axis !== "voucher") {
 			this.analysis_context.voucher_scope = { voucher_type: null, voucher_no: null };
 		}
+		if (view_axis !== "voucher" && view_axis !== "unified_party") {
+			this.analysis_context.unified_party_scope = {
+				selected_unified_party: null,
+				include_unmapped: 0,
+			};
+		}
 		if (view_axis === "account_level") {
-			if (level_sequence) {
-				this.analysis_context.level_sequence = level_sequence;
+			if (level_or_dimension) {
+				this.analysis_context.level_sequence = level_or_dimension;
 			}
 		}
 		if (view_axis === "party") {
 			this.analysis_context.sort_field = "party_type";
+		} else if (view_axis === "unified_party") {
+			this.analysis_context.sort_field = "display_title";
+			this.analysis_context.party_scope = { party_type: null, selected_party: null };
+			this.analysis_context.unified_party_scope.selected_unified_party = null;
 		} else if (view_axis === "dimension") {
 			this.analysis_context.sort_field = "display_code";
-			if (!this.analysis_context.dimension_scope.dimension_field) {
-				this.analysis_context.dimension_scope.dimension_field = this.metadata.default_dimension_field;
+			this.analysis_context.dimension_scope.selected_dimension_value = null;
+			if (level_or_dimension) {
+				this.analysis_context.dimension_scope.dimension_type = level_or_dimension;
+			} else if (!this.analysis_context.dimension_scope.dimension_type) {
+				this.analysis_context.dimension_scope.dimension_type =
+					this.metadata.default_dimension_type || this.metadata.default_dimension_field;
 			}
+		} else if (view_axis === "currency") {
+			this.analysis_context.sort_field = "currency";
 		} else if (view_axis === "voucher") {
 			this.analysis_context.sort_field = "posting_date";
 			this.analysis_context.sort_order = "desc";
@@ -324,6 +396,14 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 
 	is_voucher_analysis_enabled() {
 		return !!(this.metadata && this.metadata.voucher_analysis_enabled);
+	}
+
+	is_unified_party_enabled() {
+		return !!(this.metadata && this.metadata.unified_party_enabled);
+	}
+
+	is_currency_analysis_enabled() {
+		return !!(this.metadata && this.metadata.currency_analysis_enabled);
 	}
 
 	sync_dates_from_fy() {
@@ -344,11 +424,19 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 
 	build_payload() {
 		return {
-			document_scope: { ...this.document_scope },
+			document_scope: {
+				...this.document_scope,
+				voucher: { ...this.document_scope.voucher },
+				accounting: { ...this.document_scope.accounting },
+				accounting_dimensions: { ...this.document_scope.accounting_dimensions },
+				currency: { ...this.document_scope.currency },
+				status: { ...this.document_scope.status },
+			},
 			analysis_context: {
 				...this.analysis_context,
 				account_scope: { ...this.analysis_context.account_scope },
 				party_scope: { ...this.analysis_context.party_scope },
+				unified_party_scope: { ...this.analysis_context.unified_party_scope },
 				dimension_scope: { ...this.analysis_context.dimension_scope },
 				voucher_scope: { ...this.analysis_context.voucher_scope },
 			},
@@ -363,8 +451,14 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		if (axis === "party") {
 			return `${this.api_base}.get_party_summary`;
 		}
+		if (axis === "unified_party") {
+			return `${this.api_base}.get_unified_party_summary`;
+		}
 		if (axis === "dimension") {
 			return `${this.api_base}.get_dimension_summary`;
+		}
+		if (axis === "currency") {
+			return `${this.api_base}.get_currency_summary`;
 		}
 		if (axis === "voucher") {
 			return `${this.api_base}.get_voucher_summary`;
@@ -412,6 +506,9 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 				this.render_totals();
 				this.render_warnings();
 				this.render_pagination();
+				if (this.analysis_context.view_axis !== "unified_party") {
+					this.hide_member_panel();
+				}
 			},
 		});
 	}
@@ -419,7 +516,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 	get_default_visible_columns() {
 		if (this.analysis_context.detail_mode === "grouped_gl") {
 			const cols = ["account", "account_name", "party_type", "party_name", "debit", "credit", "against"];
-			if (this.analysis_context.dimension_scope.dimension_field) {
+			if (this.analysis_context.dimension_scope.dimension_type) {
 				cols.splice(4, 0, "dimension_value");
 			}
 			return cols;
@@ -428,8 +525,24 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		if (axis === "party") {
 			return ["party_type", "display_code", "display_title", "period_debit", "period_credit", "debit_balance", "credit_balance"];
 		}
+		if (axis === "unified_party") {
+			return [
+				"display_code",
+				"display_title",
+				"member_count",
+				"primary_member_label",
+				"identifier_summary",
+				"period_debit",
+				"period_credit",
+				"debit_balance",
+				"credit_balance",
+			];
+		}
 		if (axis === "dimension") {
 			return ["display_code", "display_title", "period_debit", "period_credit", "debit_balance", "credit_balance"];
+		}
+		if (axis === "currency") {
+			return ["currency", "period_debit", "period_credit", "debit_balance", "credit_balance", "net_balance"];
 		}
 		if (axis === "voucher") {
 			const cols = [
@@ -551,6 +664,13 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			$tr.on("click", () => {
 				$body.find("tr.selected").removeClass("selected");
 				$tr.addClass("selected");
+				if (
+					this.analysis_context.view_axis === "unified_party" &&
+					row.unified_party &&
+					!row.is_virtual_group
+				) {
+					this.load_member_breakdown(row);
+				}
 			});
 		});
 
@@ -566,6 +686,22 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 								this.render_grid(columns);
 							}),
 						" " + __("Show full voucher debit/credit columns")
+					)
+				)
+			);
+		}
+		if (this.analysis_context.view_axis === "unified_party" && this.analysis_context.detail_mode === "summary") {
+			$wrap.append(
+				$('<div class="ae-grid-options mb-2">').append(
+					$('<label class="small text-muted">').append(
+						$("<input type='checkbox'>")
+							.prop("checked", !!this.analysis_context.unified_party_scope.include_unmapped)
+							.on("change", (e) => {
+								this.analysis_context.unified_party_scope.include_unmapped = e.target.checked ? 1 : 0;
+								this.analysis_context.page = 1;
+								this.refresh_summary();
+							}),
+						" " + __("Include unmapped parties")
 					)
 				)
 			);
@@ -643,13 +779,95 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		this.analysis_context.sort_field = "posting_date";
 		this.analysis_context.sort_order = "desc";
 		this.analysis_context.page = 1;
+		if (breadcrumb.selected_unified_party) {
+			this.analysis_context.unified_party_scope = {
+				selected_unified_party: breadcrumb.selected_unified_party,
+				include_unmapped: 0,
+			};
+		}
+		if (breadcrumb.dimension_type) {
+			this.analysis_context.dimension_scope = {
+				dimension_type: breadcrumb.dimension_type,
+				selected_dimension_value: breadcrumb.selected_dimension_value ?? null,
+			};
+		}
 		if (label) {
 			this.push_breadcrumb({ label, axis: "voucher", ...breadcrumb });
 		}
 		this.render_navigator();
 		this.render_breadcrumbs();
+		this.hide_member_panel();
 		this.refresh_summary();
 		return true;
+	}
+
+	load_member_breakdown(row) {
+		if (!row.unified_party) {
+			return;
+		}
+		this.analysis_context.unified_party_scope.selected_unified_party = row.unified_party;
+		const payload = this.build_payload();
+		frappe.call({
+			method: `${this.api_base}.get_unified_party_member_breakdown`,
+			args: { payload: JSON.stringify(payload) },
+			callback: (r) => {
+				const data = r.message || {};
+				this.render_member_panel(row, data.rows || []);
+			},
+		});
+	}
+
+	render_member_panel(row, members) {
+		this.$member_panel.empty().show();
+		const title = row.display_title || row.unified_party;
+		this.$member_panel.append(
+			$('<div class="ae-member-panel-header">').append(
+				$("<strong>").text(__("Members of {0}", [title])),
+				$('<span class="text-muted small ml-2">').text(__("{0} members", [members.length]))
+			)
+		);
+		if (!members.length) {
+			this.$member_panel.append($('<div class="ae-empty small">').text(__("No members found.")));
+			return;
+		}
+		const $table = $('<table class="ae-grid ae-member-grid"><thead></thead><tbody></tbody></table>');
+		const $head = $("<tr></tr>").appendTo($table.find("thead"));
+		["party_type", "display_title", "party_identifier", "period_debit", "period_credit"].forEach((col) => {
+			const labels = {
+				party_type: __("Party Type"),
+				display_title: __("Party"),
+				party_identifier: __("Identifier"),
+				period_debit: __("Debit Turnover"),
+				period_credit: __("Credit Turnover"),
+			};
+			$("<th>").text(labels[col] || col).appendTo($head);
+		});
+		const $body = $table.find("tbody");
+		members.forEach((member) => {
+			const $tr = $("<tr>").appendTo($body);
+			if (member.is_primary) {
+				$tr.addClass("ae-primary-member");
+			}
+			["party_type", "display_title", "party_identifier"].forEach((col) => {
+				$("<td>").text(member[col] ?? "").appendTo($tr);
+			});
+			["period_debit", "period_credit"].forEach((col) => {
+				$("<td>")
+					.addClass("amount")
+					.text(
+						format_currency(
+							member[col] ?? 0,
+							this.currency_code || frappe.defaults.get_default("currency")
+						)
+					)
+					.appendTo($tr);
+			});
+		});
+		this.$member_panel.append($table);
+	}
+
+	hide_member_panel() {
+		this.$member_panel.empty().hide();
 	}
 
 	drill_row(row) {
@@ -691,27 +909,58 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			return;
 		}
 
+		if (axis === "unified_party") {
+			if (row.is_virtual_group || !row.unified_party) {
+				return;
+			}
+			this.analysis_context.unified_party_scope = {
+				selected_unified_party: row.unified_party,
+				include_unmapped: 0,
+			};
+			this.switch_to_voucher_axis(row.display_title || row.unified_party, {
+				selected_unified_party: row.unified_party,
+			});
+			return;
+		}
+
 		if (axis === "dimension") {
 			if (row.is_virtual_group || !row.drill_down_enabled) {
 				return;
 			}
-			if (this.analysis_context.dimension_scope.selected_value !== null) {
+			const dimensionType = row.dimension_type || this.analysis_context.dimension_scope.dimension_type;
+			if (this.analysis_context.dimension_scope.selected_dimension_value !== null) {
+				this.analysis_context.dimension_scope = {
+					dimension_type: dimensionType,
+					selected_dimension_value: row.dimension_value,
+				};
 				this.switch_to_voucher_axis(row.display_title || row.display_code, {
-					dimension_field: row.dimension_field,
-					selected_value: row.dimension_value,
+					dimension_type: dimensionType,
+					selected_dimension_value: row.dimension_value,
 				});
 				return;
 			}
-			this.analysis_context.dimension_scope.selected_value = row.dimension_value;
+			this.analysis_context.dimension_scope.selected_dimension_value = row.dimension_value;
 			this.push_breadcrumb({
 				label: row.display_title || row.display_code,
 				axis: "dimension",
-				dimension_field: row.dimension_field,
-				selected_value: row.dimension_value,
+				dimension_type: dimensionType,
+				selected_dimension_value: row.dimension_value,
 			});
 			this.analysis_context.page = 1;
 			this.render_breadcrumbs();
 			this.refresh_summary();
+			return;
+		}
+
+		if (axis === "currency") {
+			if (!row.currency) {
+				return;
+			}
+			this.document_scope.currency = {
+				...this.document_scope.currency,
+				currency: row.currency,
+			};
+			this.switch_to_voucher_axis(row.currency, { currency: row.currency });
 			return;
 		}
 
@@ -823,6 +1072,18 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		} else if (last.axis === "voucher") {
 			this.analysis_context.view_axis = "voucher";
 			this.analysis_context.detail_mode = "summary";
+			if (last.selected_unified_party) {
+				this.analysis_context.unified_party_scope = {
+					selected_unified_party: last.selected_unified_party,
+					include_unmapped: 0,
+				};
+			}
+		} else if (last.axis === "unified_party") {
+			this.analysis_context.view_axis = "unified_party";
+			this.analysis_context.unified_party_scope = {
+				selected_unified_party: last.selected_unified_party || null,
+				include_unmapped: last.include_unmapped || 0,
+			};
 		} else if (last.axis === "party") {
 			this.analysis_context.view_axis = "party";
 			this.analysis_context.party_scope = {
@@ -831,9 +1092,17 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			};
 		} else if (last.axis === "dimension") {
 			this.analysis_context.view_axis = "dimension";
-			this.analysis_context.dimension_scope.dimension_field =
-				last.dimension_field || this.analysis_context.dimension_scope.dimension_field;
-			this.analysis_context.dimension_scope.selected_value = last.selected_value;
+			this.analysis_context.dimension_scope.dimension_type =
+				last.dimension_type || this.analysis_context.dimension_scope.dimension_type;
+			this.analysis_context.dimension_scope.selected_dimension_value = last.selected_dimension_value;
+		} else if (last.axis === "currency") {
+			this.analysis_context.view_axis = "currency";
+			if (last.currency) {
+				this.document_scope.currency = {
+					...this.document_scope.currency,
+					currency: last.currency,
+				};
+			}
 		} else {
 			this.analysis_context.view_axis = "account_level";
 			this.analysis_context.account_scope = {
@@ -873,7 +1142,11 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			party_type: null,
 			selected_party: null,
 		};
-		this.analysis_context.dimension_scope.selected_value = null;
+		this.analysis_context.unified_party_scope = {
+			selected_unified_party: null,
+			include_unmapped: 0,
+		};
+		this.analysis_context.dimension_scope.selected_dimension_value = null;
 		this.analysis_context.voucher_scope = {
 			voucher_type: null,
 			voucher_no: null,
@@ -882,6 +1155,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		this.analysis_context.level_sequence = this.metadata?.default_level_sequence;
 		this.analysis_context.page = 1;
 		this.voucher_header = null;
+		this.hide_member_panel();
 		this.render_breadcrumbs();
 		this.render_detail_header();
 		if (refresh) {
@@ -891,21 +1165,24 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 
 	reset_document_scope() {
 		const defaults = this.metadata?.defaults || {};
-		if (defaults.company) {
-			this.company_field.set_value(defaults.company);
+		const scopeDefaults = defaults.document_scope || defaults;
+		if (scopeDefaults.company) {
+			this.company_field.set_value(scopeDefaults.company);
 		}
-		if (defaults.fiscal_year) {
-			this.fy_field.set_value(defaults.fiscal_year);
+		if (scopeDefaults.fiscal_year) {
+			this.fy_field.set_value(scopeDefaults.fiscal_year);
 		}
-		this.from_date_field.set_value(defaults.from_date || "");
-		this.to_date_field.set_value(defaults.to_date || "");
-		this.document_scope = {
-			company: defaults.company || null,
-			fiscal_year: defaults.fiscal_year || null,
-			from_date: defaults.from_date || null,
-			to_date: defaults.to_date || null,
-			hide_zero_rows: 1,
-		};
+		this.from_date_field.set_value(scopeDefaults.from_date || "");
+		this.to_date_field.set_value(scopeDefaults.to_date || "");
+		this.document_scope = ae_default_document_scope({
+			company: scopeDefaults.company || null,
+			fiscal_year: scopeDefaults.fiscal_year || null,
+			from_date: scopeDefaults.from_date || null,
+			to_date: scopeDefaults.to_date || null,
+			hide_zero_rows: scopeDefaults.hide_zero_rows ?? 1,
+			status: { ...ae_default_document_scope().status, ...(scopeDefaults.status || {}) },
+			currency: { ...ae_default_document_scope().currency, ...(scopeDefaults.currency || {}) },
+		});
 		this.render_prompt(__("Document scope reset. Click Apply to reload."));
 	}
 

@@ -58,7 +58,7 @@ class TestAccountExplorerAxisPermissions(unittest.TestCase):
 			self.to_date,
 			analysis={
 				"view_axis": "dimension",
-				"dimension_scope": {"dimension_field": "cost_center"},
+				"dimension_scope": {"dimension_type": "cost_center"},
 			},
 		)
 		with self.assertRaises(frappe.ValidationError):
@@ -98,3 +98,78 @@ class TestAccountExplorerAxisPermissions(unittest.TestCase):
 		axis_ids = {axis["id"] for axis in meta.get("axes", [])}
 		self.assertIn("voucher", axis_ids)
 		self.assertTrue(meta.get("voucher_analysis_enabled"))
+
+	def test_unified_party_axis_blocked_when_disabled(self):
+		enable_wave2a_analysis()
+		settings = frappe.get_single("Iran Accounting Settings")
+		settings.unified_party_enabled = 0
+		settings.flags.ignore_permissions = True
+		settings.save()
+		frappe.db.commit()
+
+		payload = build_payload(
+			self.company,
+			self.fiscal_year,
+			self.from_date,
+			self.to_date,
+			analysis={"view_axis": "unified_party"},
+		)
+		with self.assertRaises(frappe.ValidationError):
+			api.get_unified_party_summary(payload)
+
+	def test_unified_party_requires_party_analysis(self):
+		enable_account_explorer()
+		settings = frappe.get_single("Iran Accounting Settings")
+		settings.party_analysis_enabled = 0
+		settings.unified_party_enabled = 1
+		settings.flags.ignore_permissions = True
+		settings.save()
+		frappe.db.commit()
+
+		payload = build_payload(
+			self.company,
+			self.fiscal_year,
+			self.from_date,
+			self.to_date,
+			analysis={"view_axis": "unified_party"},
+		)
+		with self.assertRaises(frappe.ValidationError):
+			api.get_unified_party_summary(payload)
+
+	def test_metadata_includes_unified_party_axis_when_enabled(self):
+		from erpnext_extensions.iran_accounting.tests.test_account_explorer_fixtures import enable_wave2c_unified_party
+
+		enable_wave2c_unified_party()
+		meta = api.get_metadata()
+		axis_ids = {axis["id"] for axis in meta.get("axes", [])}
+		self.assertIn("unified_party", axis_ids)
+		self.assertTrue(meta.get("unified_party_enabled"))
+		self.assertTrue(meta.get("unified_party_columns"))
+
+	def test_currency_axis_blocked_when_disabled(self):
+		enable_wave2a_analysis()
+		settings = frappe.get_single("Iran Accounting Settings")
+		settings.currency_analysis_enabled = 0
+		settings.flags.ignore_permissions = True
+		settings.save()
+		frappe.db.commit()
+
+		payload = build_payload(
+			self.company,
+			self.fiscal_year,
+			self.from_date,
+			self.to_date,
+			analysis={"view_axis": "currency"},
+		)
+		with self.assertRaises(frappe.ValidationError):
+			api.get_currency_summary(payload)
+
+	def test_metadata_includes_currency_axis_when_enabled(self):
+		from erpnext_extensions.iran_accounting.tests.test_account_explorer_fixtures import enable_wave2c_unified_party
+
+		enable_wave2c_unified_party()
+		meta = api.get_metadata()
+		axis_ids = {axis["id"] for axis in meta.get("axes", [])}
+		self.assertIn("currency", axis_ids)
+		self.assertTrue(meta.get("currency_analysis_enabled"))
+		self.assertTrue(meta.get("currency_columns"))
