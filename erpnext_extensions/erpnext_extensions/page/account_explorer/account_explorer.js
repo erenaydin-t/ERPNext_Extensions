@@ -119,6 +119,39 @@ function ae_normalize_multi_value(value) {
 	return value;
 }
 
+function ae_trim_compact_decimals(value) {
+	const str = String(value);
+	if (!str.includes(".")) {
+		return str;
+	}
+	return str.replace(/(\.\d*?[1-9])0+$/, "$1").replace(/\.0+$/, "").replace(/\.$/, "");
+}
+
+function ae_format_compact_amount(value, currency_code) {
+	const num = flt(value);
+	const full = format_currency(num, currency_code);
+	const abs = Math.abs(num);
+	if (abs >= 1000000000) {
+		return {
+			compact: `${ae_trim_compact_decimals((num / 1000000000).toFixed(1))} B`,
+			full,
+		};
+	}
+	if (abs >= 1000000) {
+		return {
+			compact: `${ae_trim_compact_decimals((num / 1000000).toFixed(1))} M`,
+			full,
+		};
+	}
+	if (abs >= 1000) {
+		return {
+			compact: `${ae_trim_compact_decimals((num / 1000).toFixed(2))} K`,
+			full,
+		};
+	}
+	return { compact: full, full };
+}
+
 function ae_scope_value_to_control(value) {
 	if (Array.isArray(value)) {
 		return value;
@@ -253,7 +286,9 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		this.$container = $('<div class="ae-shell"></div>').appendTo(this.page.main);
 		this.$disabled = $('<div class="ae-disabled"></div>').appendTo(this.$container);
 		this.$toolbar = $('<div class="ae-toolbar"></div>').appendTo(this.$container);
-		this.$filter_panel = $('<div class="ae-filter-panel ae-filter-panel--collapsed"></div>').appendTo(this.$container);
+		this.$filter_panel = $('<div class="ae-filter-panel ae-filter-panel--collapsed" id="ae-filter-panel"></div>').appendTo(
+			this.$container
+		);
 		this.$nav = $('<div class="ae-nav"></div>').appendTo(this.$container);
 		this.$context = $('<div class="ae-context-bar"></div>').appendTo(this.$container);
 		this.$detail_header = $('<div class="ae-detail-header"></div>').appendTo(this.$container);
@@ -412,6 +447,8 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 
 		this.$advanced_filters_btn = $('<button type="button" class="btn btn-default btn-sm ae-advanced-filters-btn">')
 			.text(__("Filters"))
+			.attr("aria-expanded", "false")
+			.attr("aria-controls", "ae-filter-panel")
 			.on("click", () => this.toggle_filter_panel())
 			.appendTo($secondary_group);
 
@@ -762,10 +799,41 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 
 	toggle_filter_panel(force_open = null) {
 		this.filter_panel_open = force_open === null ? !this.filter_panel_open : !!force_open;
-		this.$filter_panel.toggleClass("ae-filter-panel--collapsed", !this.filter_panel_open);
+		this.update_filter_panel_ui();
 		if (this.filter_panel_open) {
 			this.sync_filter_controls_from_document_scope();
 		}
+	}
+
+	update_filter_panel_ui() {
+		if (this.$filter_panel) {
+			this.$filter_panel.toggleClass("ae-filter-panel--collapsed", !this.filter_panel_open);
+		}
+		if (!this.$advanced_filters_btn) {
+			return;
+		}
+		const count = ae_count_active_document_scope_filters(this.document_scope);
+		const label = count ? `${__("Filters")} (${count})` : __("Filters");
+		this.$advanced_filters_btn
+			.text(label)
+			.attr("aria-expanded", this.filter_panel_open ? "true" : "false")
+			.toggleClass("active", this.filter_panel_open);
+	}
+
+	format_display_amount(value) {
+		return ae_format_compact_amount(
+			value ?? 0,
+			this.currency_code || frappe.defaults.get_default("currency")
+		);
+	}
+
+	render_amount_cell($cell, value) {
+		const { compact, full } = this.format_display_amount(value);
+		$cell.addClass("ae-amount-compact").attr("title", full).attr("aria-label", full);
+		if (compact !== full) {
+			$cell.addClass("ae-amount-compact--abbreviated");
+		}
+		$cell.text(compact);
 	}
 
 	make_filter_section(title, $parent, section_key) {
@@ -797,9 +865,14 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 	setup_filter_panel(scopeDefaults = {}) {
 		this.$filter_panel.empty();
 		this.filter_controls = {};
-		$('<div class="ae-filter-panel-heading">')
-			.text(__("Document Scope Filters"))
-			.appendTo(this.$filter_panel);
+		const $heading = $('<div class="ae-filter-panel-heading"></div>').appendTo(this.$filter_panel);
+		$heading.append($('<span class="ae-filter-panel-title">').text(__("Document Scope Filters")));
+		$heading.append(
+			$('<button type="button" class="btn btn-xs btn-default ae-filter-panel-collapse">')
+				.text(__("Collapse"))
+				.attr("aria-label", __("Collapse filters"))
+				.on("click", () => this.toggle_filter_panel(false))
+		);
 		const $grid = $('<div class="ae-filter-grid"></div>').appendTo(this.$filter_panel);
 
 		const general_body = this.make_filter_section(__("General"), $grid, "general");
@@ -962,6 +1035,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			.appendTo($actions);
 
 		this.sync_filter_controls_from_document_scope(scopeDefaults);
+		this.update_filter_panel_ui();
 	}
 
 	sync_filter_controls_from_document_scope(scopeOverride = null) {
@@ -1041,27 +1115,14 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 	}
 
 	update_advanced_filters_button() {
-		if (!this.$advanced_filters_btn) {
-			return;
-		}
-		const count = ae_count_active_document_scope_filters(this.document_scope);
-		const label = count ? `${__("Filters")} (${count})` : __("Filters");
-		this.$advanced_filters_btn.text(label);
+		this.update_filter_panel_ui();
 	}
 
 	render_filter_summary() {
 		if (!this.$filter_summary) {
 			this.$filter_summary = $('<div class="ae-filter-summary"></div>').insertAfter(this.$filter_panel);
 		}
-		this.$filter_summary.empty();
-		const count = ae_count_active_document_scope_filters(this.document_scope);
-		if (!count) {
-			this.$filter_summary.hide();
-			return;
-		}
-		this.$filter_summary.show().append(
-			$('<span class="ae-chip">').text(`${__("Active Filters")}: ${count}`)
-		);
+		this.$filter_summary.hide().empty();
 	}
 
 	get_account_level_nav_items() {
@@ -1609,9 +1670,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 						$('<span class="ae-drill-label">').text(value ?? "")
 					);
 				} else if (col.fieldtype === "Currency") {
-					$cell.text(
-						format_currency(value ?? 0, this.currency_code || frappe.defaults.get_default("currency"))
-					);
+					this.render_amount_cell($cell, value);
 				} else {
 					$cell.text(value ?? "");
 				}
@@ -1834,15 +1893,9 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 				$("<td>").text(member[col] ?? "").appendTo($tr);
 			});
 			["period_debit", "period_credit"].forEach((col) => {
-				$("<td>")
-					.addClass("amount")
-					.text(
-						format_currency(
-							member[col] ?? 0,
-							this.currency_code || frappe.defaults.get_default("currency")
-						)
-					)
-					.appendTo($tr);
+				const $amount = $("<td>").addClass("amount");
+				this.render_amount_cell($amount, member[col] ?? 0);
+				$amount.appendTo($tr);
 			});
 		});
 		this.$member_panel.append($table);
@@ -2221,14 +2274,18 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			];
 		}
 		items.forEach(([field, label]) => {
-			const value = format_currency(
-				this.totals[field] || 0,
-				this.currency_code || frappe.defaults.get_default("currency")
-			);
+			const { compact, full } = this.format_display_amount(this.totals[field] || 0);
+			const $value = $('<div class="ae-total-item-value amount ae-amount-compact">')
+				.text(compact)
+				.attr("title", full)
+				.attr("aria-label", full);
+			if (compact !== full) {
+				$value.addClass("ae-amount-compact--abbreviated");
+			}
 			$items.append(
 				$('<div class="ae-total-item ae-total-kpi">').append(
 					$('<div class="ae-total-item-label">').text(label),
-					$('<div class="ae-total-item-value amount">').text(value)
+					$value
 				)
 			);
 		});
