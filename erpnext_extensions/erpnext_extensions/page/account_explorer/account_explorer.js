@@ -257,27 +257,18 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		this.$nav = $('<div class="ae-nav"></div>').appendTo(this.$container);
 		this.$context = $('<div class="ae-context-bar"></div>').appendTo(this.$container);
 		this.$detail_header = $('<div class="ae-detail-header"></div>').appendTo(this.$container);
-		this.$actions = $('<div class="ae-context-actions mb-2"></div>').appendTo(this.$container);
+		this.$actions = $('<div class="ae-context-actions"></div>').appendTo(this.$container).hide();
 		this.$grid = $('<div class="ae-grid-wrap"></div>').appendTo(this.$container);
 		this.$member_panel = $('<div class="ae-member-panel"></div>').appendTo(this.$container).hide();
-		this.$pagination = $('<div class="ae-pagination"></div>').appendTo(this.$container);
 		this.$totals = $('<div class="ae-totals"></div>').appendTo(this.$container);
+		this.$pagination = $('<div class="ae-pagination"></div>').appendTo(this.$container);
 		this.$warnings = $('<div class="text-muted small mt-2"></div>').appendTo(this.$container);
-
-		this.render_context_actions();
 	}
 
-	render_context_actions() {
-		this.$actions.empty();
-		this.$actions.append(
-			$('<button class="btn btn-default btn-sm">').text(__("Back")).on("click", () => this.go_back()),
-			" ",
-			$('<button class="btn btn-default btn-sm">').text(__("Reset Analysis")).on("click", () => this.reset_analysis()),
-			" ",
-			$('<button class="btn btn-default btn-sm">')
-				.text(__("Reset Document Scope"))
-				.on("click", () => this.reset_document_scope())
-		);
+	update_context_actions() {
+		if (this.$back_btn) {
+			this.$back_btn.toggle(!!this.breadcrumbs?.length);
+		}
 	}
 
 	load_metadata() {
@@ -313,8 +304,12 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		const defaults = this.metadata.defaults || {};
 		const scopeDefaults = defaults.document_scope || defaults;
 
+		const $scope = $('<div class="ae-toolbar-scope"></div>').appendTo(this.$toolbar);
+		$('<div class="ae-toolbar-section-label">').text(__("Scope")).appendTo($scope);
+		const $scope_fields = $('<div class="ae-toolbar-scope-fields"></div>').appendTo($scope);
+
 		this.company_field = frappe.ui.form.make_control({
-			parent: this.$toolbar,
+			parent: $scope_fields,
 			df: {
 				fieldtype: "Link",
 				label: __("Company"),
@@ -333,7 +328,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		}
 
 		this.fy_field = frappe.ui.form.make_control({
-			parent: this.$toolbar,
+			parent: $scope_fields,
 			df: {
 				fieldtype: "Link",
 				label: __("Fiscal Year"),
@@ -352,7 +347,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		}
 
 		this.from_date_field = frappe.ui.form.make_control({
-			parent: this.$toolbar,
+			parent: $scope_fields,
 			df: {
 				fieldtype: "Date",
 				label: __("From Date"),
@@ -366,7 +361,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		});
 
 		this.to_date_field = frappe.ui.form.make_control({
-			parent: this.$toolbar,
+			parent: $scope_fields,
 			df: {
 				fieldtype: "Date",
 				label: __("To Date"),
@@ -403,23 +398,82 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		}
 
 		const $toolbar_actions = $('<div class="ae-toolbar-actions"></div>').appendTo(this.$toolbar);
-		this.$advanced_filters_btn = $('<button type="button" class="btn btn-default btn-sm ae-advanced-filters-btn">')
-			.text(__("Advanced Filters"))
-			.on("click", () => this.toggle_filter_panel())
-			.appendTo($toolbar_actions);
-		$('<button type="button" class="btn btn-primary btn-sm">')
+		const $primary_group = $('<div class="ae-toolbar-group ae-toolbar-group--primary"></div>').appendTo(
+			$toolbar_actions
+		);
+		const $secondary_group = $('<div class="ae-toolbar-group ae-toolbar-group--secondary ae-toolbar-group--tools"></div>').appendTo(
+			$toolbar_actions
+		);
+
+		$('<button type="button" class="btn btn-primary btn-sm ae-btn-apply">')
 			.text(__("Apply"))
 			.on("click", () => this.apply_scope())
-			.appendTo($toolbar_actions);
+			.appendTo($primary_group);
+
+		this.$advanced_filters_btn = $('<button type="button" class="btn btn-default btn-sm ae-advanced-filters-btn">')
+			.text(__("Filters"))
+			.on("click", () => this.toggle_filter_panel())
+			.appendTo($secondary_group);
 
 		if (this.metadata.saved_views_enabled) {
-			this.setup_saved_views_ui($toolbar_actions);
+			this.setup_saved_views_ui($secondary_group);
 		}
 
-		this.setup_export_ui($toolbar_actions);
+		this.setup_export_ui($secondary_group);
+
+		const $utility_group = $('<div class="ae-toolbar-group ae-toolbar-group--utility"></div>').appendTo(
+			$toolbar_actions
+		);
+		this.$back_btn = $('<button type="button" class="btn btn-default btn-sm ae-btn-back">')
+			.text(__("Back"))
+			.hide()
+			.on("click", () => this.go_back())
+			.appendTo($utility_group);
+		$('<button type="button" class="btn btn-default btn-sm" title="' + __("Reset drill-down path") + '">')
+			.text(__("Reset Analysis"))
+			.on("click", () => this.reset_analysis())
+			.appendTo($utility_group);
+		$('<button type="button" class="btn btn-default btn-sm" title="' + __("Reset all filters to defaults") + '">')
+			.text(__("Reset Scope"))
+			.on("click", () => this.reset_document_scope())
+			.appendTo($utility_group);
 
 		this.setup_filter_panel(scopeDefaults);
 		this.update_advanced_filters_button();
+		this.update_context_actions();
+	}
+
+	get_currency_type_label() {
+		const type = this.document_scope?.currency?.currency_type || "account_currency";
+		const match = (this.metadata?.currency_types || []).find((row) => row.value === type);
+		return match?.label || type;
+	}
+
+	set_currency_mode(currency_type) {
+		this.document_scope.currency = {
+			...this.document_scope.currency,
+			currency_type,
+		};
+		if (this.filter_controls?.currency_type) {
+			this.filter_controls.currency_type.set_value(currency_type);
+		}
+		this.render_navigator();
+		this.update_advanced_filters_button();
+		this.render_filter_summary();
+		if (this.document_scope.from_date && this.document_scope.to_date) {
+			this.refresh_summary();
+		}
+	}
+
+	toggle_sort(field) {
+		if (this.analysis_context.sort_field === field) {
+			this.analysis_context.sort_order = this.analysis_context.sort_order === "asc" ? "desc" : "asc";
+		} else {
+			this.analysis_context.sort_field = field;
+			this.analysis_context.sort_order = "asc";
+		}
+		this.analysis_context.page = 1;
+		this.refresh_summary();
 	}
 
 	get_scope_status_defaults() {
@@ -429,8 +483,9 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 
 	setup_saved_views_ui($parent) {
 		const $group = $('<div class="ae-saved-views-group"></div>').appendTo($parent);
+		$('<span class="ae-toolbar-group-label">').text(__("Views")).appendTo($group);
 		this.$saved_view_select = $('<select class="form-control input-sm ae-saved-view-select">')
-			.append($("<option>").val("").text(__("Load View")))
+			.append($("<option>").val("").text(__("Select view…")))
 			.on("change", () => {
 				const name = this.$saved_view_select.val();
 				if (name) {
@@ -438,15 +493,16 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 				}
 			})
 			.appendTo($group);
-		$('<button type="button" class="btn btn-default btn-sm">')
-			.text(__("Save View"))
+		const $view_actions = $('<div class="ae-saved-views-actions btn-group"></div>').appendTo($group);
+		$('<button type="button" class="btn btn-default btn-sm" title="' + __("Save current view") + '">')
+			.text(__("Save"))
 			.on("click", () => this.prompt_save_view())
-			.appendTo($group);
-		this.$delete_saved_view_btn = $('<button type="button" class="btn btn-default btn-sm">')
-			.text(__("Delete View"))
+			.appendTo($view_actions);
+		this.$delete_saved_view_btn = $('<button type="button" class="btn btn-default btn-sm" title="' + __("Delete view") + '">')
+			.text(__("Delete"))
 			.prop("disabled", true)
 			.on("click", () => this.delete_active_saved_view())
-			.appendTo($group);
+			.appendTo($view_actions);
 	}
 
 	refresh_saved_views_list() {
@@ -460,7 +516,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			callback: (r) => {
 				this.saved_views = r.message || [];
 				const current = this.active_saved_view?.name || "";
-				this.$saved_view_select.empty().append($("<option>").val("").text(__("Load View")));
+				this.$saved_view_select.empty().append($("<option>").val("").text(__("Select view…")));
 				this.saved_views.forEach((row) => {
 					this.$saved_view_select.append(
 						$("<option>").val(row.name).text(row.view_name).prop("selected", row.name === current)
@@ -627,7 +683,9 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 
 	setup_export_ui($parent) {
 		const export_enabled = cint(this.metadata?.export_enabled);
-		const $group = $('<div class="ae-export-group btn-group"></div>').appendTo($parent);
+		const $wrap = $('<div class="ae-export-wrap"></div>').appendTo($parent);
+		$('<span class="ae-toolbar-group-label">').text(__("Export")).appendTo($wrap);
+		const $group = $('<div class="ae-export-group btn-group"></div>').appendTo($wrap);
 		this.$export_btn = $('<button type="button" class="btn btn-default btn-sm dropdown-toggle">')
 			.text(__("Export"))
 			.prop("disabled", !export_enabled)
@@ -710,10 +768,13 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		}
 	}
 
-	make_filter_section(title) {
-		const $section = $('<div class="ae-filter-section"></div>').appendTo(this.$filter_panel);
-		$('<div class="ae-filter-section-title">').text(title).appendTo($section);
-		const $body = $('<div class="ae-filter-section-body"></div>').appendTo($section);
+	make_filter_section(title, $parent, section_key) {
+		const $section = $('<div class="ae-filter-card"></div>').appendTo($parent || this.$filter_panel);
+		if (section_key) {
+			$section.addClass(`ae-filter-card--${section_key}`);
+		}
+		$('<div class="ae-filter-section-title ae-filter-card-title">').text(title).appendTo($section);
+		const $body = $('<div class="ae-filter-section-body ae-filter-card-body"></div>').appendTo($section);
 		return $body;
 	}
 
@@ -736,8 +797,12 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 	setup_filter_panel(scopeDefaults = {}) {
 		this.$filter_panel.empty();
 		this.filter_controls = {};
+		$('<div class="ae-filter-panel-heading">')
+			.text(__("Document Scope Filters"))
+			.appendTo(this.$filter_panel);
+		const $grid = $('<div class="ae-filter-grid"></div>').appendTo(this.$filter_panel);
 
-		const general_body = this.make_filter_section(__("General"));
+		const general_body = this.make_filter_section(__("General"), $grid, "general");
 		this.filter_controls.finance_book = this.make_filter_control(
 			general_body,
 			{
@@ -749,7 +814,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			() => {}
 		);
 
-		const voucher_body = this.make_filter_section(__("Voucher"));
+		const voucher_body = this.make_filter_section(__("Voucher"), $grid, "voucher");
 		this.filter_controls.voucher_type = this.make_filter_control(voucher_body, {
 			fieldtype: "Data",
 			label: __("Voucher Type"),
@@ -776,7 +841,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			fieldname: "reference_no",
 		});
 
-		const accounting_body = this.make_filter_section(__("Accounting"));
+		const accounting_body = this.make_filter_section(__("Accounting"), $grid, "accounting");
 		this.filter_controls.account = this.make_filter_control(accounting_body, {
 			fieldtype: "MultiSelectList",
 			label: __("Account"),
@@ -817,7 +882,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			},
 		});
 
-		const dimensions_body = this.make_filter_section(__("Dimensions"));
+		const dimensions_body = this.make_filter_section(__("Dimensions"), $grid, "dimensions");
 		this.filter_controls.dimensions = {};
 		(this.metadata?.dimensions || []).forEach((dimension) => {
 			this.filter_controls.dimensions[dimension.fieldname] = this.make_filter_control(
@@ -840,7 +905,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			);
 		});
 
-		const currency_body = this.make_filter_section(__("Currency"));
+		const currency_body = this.make_filter_section(__("Currency"), $grid, "currency");
 		const currency_type_values = (this.metadata?.currency_types || [
 			{ value: "account_currency", label: __("Account Currency") },
 			{ value: "transaction_currency", label: __("Transaction Currency") },
@@ -860,7 +925,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			options: currency_options,
 		});
 
-		const status_body = this.make_filter_section(__("Status"));
+		const status_body = this.make_filter_section(__("Status"), $grid, "status");
 		this.filter_controls.include_opening_entries = this.make_filter_control(status_body, {
 			fieldtype: "Check",
 			label: __("Include Opening Entries"),
@@ -980,7 +1045,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			return;
 		}
 		const count = ae_count_active_document_scope_filters(this.document_scope);
-		const label = count ? `${__("Advanced Filters")} (${count})` : __("Advanced Filters");
+		const label = count ? `${__("Filters")} (${count})` : __("Filters");
 		this.$advanced_filters_btn.text(label);
 	}
 
@@ -1009,85 +1074,219 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		return (this.metadata.dimensions || []).filter((dimension) => dimension.fieldname);
 	}
 
+	is_page_rtl() {
+		return (document.documentElement.getAttribute("dir") || "").toLowerCase() === "rtl";
+	}
+
+	get_bilingual_label(primary, alternate) {
+		const main = (primary || "").trim();
+		const alt = (alternate || "").trim();
+		if (!main && !alt) {
+			return "";
+		}
+		if (!alt || main === alt) {
+			return main || alt;
+		}
+		return this.is_page_rtl() ? main : alt || main;
+	}
+
+	get_level_nav_label(level) {
+		return this.get_bilingual_label(level.title_fa, level.title);
+	}
+
+	get_level_nav_sublabel(level) {
+		const fa = (level.title_fa || "").trim();
+		const en = (level.title || "").trim();
+		if (!fa || !en || fa === en) {
+			return "";
+		}
+		return this.is_page_rtl() ? en : fa;
+	}
+
+	get_axis_path_label(axis) {
+		const map = {
+			account_level: __("Account Levels"),
+			party: __("Parties"),
+			unified_party: __("Unified Parties"),
+			dimension: __("Dimensions"),
+			currency: __("Currencies"),
+			voucher: __("Vouchers"),
+		};
+		return map[axis] || axis || __("Analysis");
+	}
+
+	get_breadcrumb_axis_label(axis) {
+		const map = {
+			account_level: __("Account Level"),
+			party: __("Party"),
+			unified_party: __("Unified Party"),
+			dimension: __("Dimension"),
+			currency: __("Currency"),
+			voucher: __("Voucher"),
+		};
+		return map[axis] || axis || __("Step");
+	}
+
+	get_company_path_label() {
+		const company = this.document_scope.company || this.company_field?.get_value();
+		return company || __("Company");
+	}
+
+	get_current_view_path_label() {
+		if (this.analysis_context.detail_mode === "grouped_gl") {
+			return __("Voucher");
+		}
+		return this.get_axis_path_label(this.analysis_context.view_axis);
+	}
+
+	build_analysis_path_segments() {
+		const segments = [{ label: this.get_company_path_label(), kind: "company" }];
+		const crumbs = this.breadcrumbs || [];
+
+		if (!crumbs.length) {
+			segments.push({
+				label: this.get_current_view_path_label(),
+				kind: "view",
+				active: true,
+			});
+			return segments;
+		}
+
+		const entry_axis = crumbs[0].axis || this.analysis_context.view_axis;
+		segments.push({ label: this.get_breadcrumb_axis_label(entry_axis), kind: "axis" });
+
+		crumbs.forEach((chip, index) => {
+			segments.push({
+				label: chip.label,
+				kind: "crumb",
+				is_virtual: !!chip.is_virtual_group,
+				crumb_index: index,
+				active: index === crumbs.length - 1 && this.analysis_context.detail_mode !== "grouped_gl",
+			});
+		});
+
+		if (this.analysis_context.detail_mode === "grouped_gl") {
+			const voucher_no = this.analysis_context.voucher_scope?.voucher_no;
+			segments.push({
+				label: voucher_no || __("GL Detail"),
+				kind: "detail",
+				active: true,
+			});
+		}
+
+		return segments;
+	}
+
+	render_level_nav_pill($menu, level) {
+		const is_level_active =
+			this.analysis_context.view_axis === "account_level" &&
+			this.analysis_context.level_sequence === level.sequence;
+		const label = this.get_level_nav_label(level);
+		const sublabel = this.get_level_nav_sublabel(level);
+		const $pill = $('<button type="button" class="ae-nav-pill ae-nav-pill--level">')
+			.toggleClass("active", is_level_active)
+			.attr("aria-current", is_level_active ? "true" : "false")
+			.on("click", (e) => {
+				e.stopPropagation();
+				this.switch_axis("account_level", level.sequence);
+			});
+		$pill.append($('<span class="ae-nav-pill-label">').text(label));
+		if (sublabel) {
+			$pill.append($('<span class="ae-nav-pill-sublabel">').text(sublabel));
+		}
+		$menu.append($pill);
+	}
+
 	render_navigator() {
 		this.$nav.empty().show();
-		const axes = this.metadata.axes || [];
+		const $shell = $('<div class="ae-nav-shell"></div>').appendTo(this.$nav);
+		const $tabs = $('<div class="ae-nav-tabs" role="tablist"></div>').appendTo($shell);
+		const $sub = $('<div class="ae-nav-sub"></div>').appendTo($shell);
 
-		axes.forEach((axis) => {
+		const label_map = {
+			account_level: __("Account Levels"),
+			party: __("Parties"),
+			unified_party: __("Unified Parties"),
+			dimension: __("Dimensions"),
+			currency: __("Currencies"),
+			voucher: __("Vouchers"),
+		};
+
+		(this.metadata.axes || []).forEach((axis) => {
 			if (!axis.enabled) {
 				return;
 			}
-			if (axis.id === "account_level") {
-				const $group = $('<div class="ae-nav-group ae-nav-group--account-levels"></div>').appendTo(this.$nav);
-				const $header = $('<div class="ae-nav-group-header"></div>').appendTo($group);
-				$('<button type="button" class="btn btn-default btn-sm ae-nav-tab">')
-					.text(__("Account Levels"))
-					.toggleClass("active", this.analysis_context.view_axis === "account_level")
-					.on("click", () => this.switch_axis("account_level"))
-					.appendTo($header);
-				const $menu = $('<div class="ae-nav-account-levels"></div>').appendTo($group);
-				this.get_account_level_nav_items().forEach((level) => {
-					$('<button type="button" class="btn btn-xs btn-link ae-nav-level">')
-						.text(level.title_fa || level.title)
-						.toggleClass(
-							"active",
-							this.analysis_context.view_axis === "account_level" &&
-								this.analysis_context.level_sequence === level.sequence
-						)
-						.on("click", (e) => {
-							e.stopPropagation();
-							this.switch_axis("account_level", level.sequence);
-						})
-						.appendTo($menu);
-				});
-				return;
-			}
-
-			if (axis.id === "dimension") {
-				const $group = $('<div class="ae-nav-group ae-nav-group--dimensions"></div>').appendTo(this.$nav);
-				const $header = $('<div class="ae-nav-group-header"></div>').appendTo($group);
-				$('<button type="button" class="btn btn-default btn-sm ae-nav-tab">')
-					.text(__("Dimensions"))
-					.toggleClass(
-						"active",
-						this.analysis_context.view_axis === "dimension" && this.analysis_context.detail_mode === "summary"
-					)
-					.on("click", () => this.switch_axis("dimension"))
-					.appendTo($header);
-				const $menu = $('<div class="ae-nav-dimension-types"></div>').appendTo($group);
-				this.get_dimension_nav_items().forEach((dimension) => {
-					$('<button type="button" class="btn btn-xs btn-link ae-nav-dimension-type">')
-						.text(dimension.label || dimension.fieldname)
-						.toggleClass(
-							"active",
-							this.analysis_context.view_axis === "dimension" &&
-								this.analysis_context.dimension_scope.dimension_type === dimension.fieldname
-						)
-						.on("click", (e) => {
-							e.stopPropagation();
-							this.switch_axis("dimension", dimension.fieldname);
-						})
-						.appendTo($menu);
-				});
-				return;
-			}
-
-			const label_map = {
-				party: __("Parties"),
-				unified_party: __("Unified Parties"),
-				currency: __("Currencies"),
-				voucher: __("Vouchers"),
-			};
-			const label = label_map[axis.id] || axis.label;
-			$('<button type="button" class="btn btn-default btn-sm ae-nav-tab">')
-				.text(label)
-				.toggleClass(
-					"active",
-					this.analysis_context.view_axis === axis.id && this.analysis_context.detail_mode === "summary"
-				)
-				.on("click", () => this.switch_axis(axis.id))
-				.appendTo(this.$nav);
+			const is_active =
+				this.analysis_context.view_axis === axis.id && this.analysis_context.detail_mode === "summary";
+			$('<button type="button" class="ae-nav-tab" role="tab">')
+				.text(label_map[axis.id] || axis.label)
+				.toggleClass("active", is_active)
+				.attr("aria-selected", is_active ? "true" : "false")
+				.on("click", () => {
+					if (axis.id === "account_level") {
+						this.switch_axis("account_level");
+						return;
+					}
+					if (axis.id === "dimension") {
+						this.switch_axis("dimension");
+						return;
+					}
+					this.switch_axis(axis.id);
+				})
+				.appendTo($tabs);
 		});
+
+		$sub.empty();
+		let has_sub = false;
+		if (this.analysis_context.view_axis === "account_level") {
+			has_sub = true;
+			const $row = $('<div class="ae-nav-sub-row ae-nav-sub-row--levels"></div>').appendTo($sub);
+			$row.append($('<div class="ae-nav-sub-label">').text(__("Account Hierarchy")));
+			const $menu = $('<div class="ae-nav-sub-items ae-nav-sub-items--levels"></div>').appendTo($row);
+			this.get_account_level_nav_items().forEach((level) => {
+				this.render_level_nav_pill($menu, level);
+			});
+		} else if (this.analysis_context.view_axis === "dimension") {
+			has_sub = true;
+			const $row = $('<div class="ae-nav-sub-row ae-nav-sub-row--dimensions"></div>').appendTo($sub);
+			$row.append($('<div class="ae-nav-sub-label">').text(__("Dimension Types")));
+			const $menu = $('<div class="ae-nav-sub-items ae-nav-sub-items--dimensions"></div>').appendTo($row);
+			this.get_dimension_nav_items().forEach((dimension) => {
+				const is_dimension_active =
+					this.analysis_context.view_axis === "dimension" &&
+					this.analysis_context.dimension_scope.dimension_type === dimension.fieldname;
+				$('<button type="button" class="ae-nav-pill">')
+					.text(dimension.label || dimension.fieldname)
+					.toggleClass("active", is_dimension_active)
+					.attr("aria-current", is_dimension_active ? "true" : "false")
+					.on("click", (e) => {
+						e.stopPropagation();
+						this.switch_axis("dimension", dimension.fieldname);
+					})
+					.appendTo($menu);
+			});
+		} else if (this.analysis_context.view_axis === "currency") {
+			has_sub = true;
+			const $row = $('<div class="ae-nav-sub-row ae-nav-sub-row--currency"></div>').appendTo($sub);
+			$row.append($('<div class="ae-nav-sub-label">').text(__("Currency Mode")));
+			const $menu = $('<div class="ae-nav-sub-items ae-nav-sub-items--currency"></div>').appendTo($row);
+			(this.metadata.currency_types || [
+				{ value: "account_currency", label: __("Account Currency") },
+				{ value: "transaction_currency", label: __("Transaction Currency") },
+			]).forEach((type) => {
+				const is_currency_active = (this.document_scope.currency?.currency_type || "account_currency") === type.value;
+				$('<button type="button" class="ae-nav-pill ae-nav-pill--currency">')
+					.text(type.label)
+					.toggleClass("active", is_currency_active)
+					.attr("aria-current", is_currency_active ? "true" : "false")
+					.on("click", (e) => {
+						e.stopPropagation();
+						this.set_currency_mode(type.value);
+					})
+					.appendTo($menu);
+			});
+		}
+		$sub.toggle(has_sub);
 	}
 
 	switch_axis(view_axis, level_or_dimension = null) {
@@ -1354,11 +1553,34 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		const visible = columns.filter((c) => allowed.has(c.id));
 		const show_voucher_actions =
 			this.analysis_context.view_axis === "voucher" && this.analysis_context.detail_mode === "summary";
+		const currency_label = this.currency_code || frappe.defaults.get_default("currency");
+		const currency_type_label = this.get_currency_type_label();
+		const $meta = $('<div class="ae-grid-meta"></div>')
+			.append($('<span class="ae-grid-meta-item">').text(__("Rows: {0}", [this.rows.length])))
+			.append(
+				$('<span class="ae-grid-meta-item ae-currency-badge" title="' + __("Presentation currency") + '">').text(
+					currency_label
+				)
+			);
+		if (this.analysis_context.view_axis === "currency" || this.document_scope.currency?.currency_type !== "account_currency") {
+			$meta.append(
+				$('<span class="ae-grid-meta-item ae-currency-mode" title="' + __("Currency aggregation mode") + '">').text(
+					currency_type_label
+				)
+			);
+		}
 		const $table = $('<table class="ae-grid"><thead></thead><tbody></tbody></table>');
 		const $head = $("<tr></tr>").appendTo($table.find("thead"));
 		visible.forEach((col) => {
 			const cls = col.fieldtype === "Currency" ? "amount" : "";
-			$("<th>").addClass(cls).text(__(col.label)).appendTo($head);
+			const is_sorted = this.analysis_context.sort_field === col.id;
+			const sort_cls = is_sorted ? ` ae-sort-active ae-sort-${this.analysis_context.sort_order}` : "";
+			$("<th>")
+				.addClass(`${cls} ae-sortable${sort_cls}`)
+				.attr("aria-sort", is_sorted ? this.analysis_context.sort_order + "ending" : "none")
+				.append($('<span class="ae-th-label">').text(__(col.label)), $('<span class="ae-sort-indicator">'))
+				.on("click", () => this.toggle_sort(col.id))
+				.appendTo($head);
 		});
 		if (show_voucher_actions) {
 			$("<th>").addClass("ae-actions-col").text(__("Actions")).appendTo($head);
@@ -1370,11 +1592,23 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			if (row.is_virtual_group) {
 				$tr.addClass("ae-virtual-row");
 			}
-			visible.forEach((col) => {
+			if (row.drill_down_enabled !== 0 && row.drill_down_enabled !== false) {
+				$tr.addClass("ae-grid-row--drillable");
+			}
+			const is_drillable = row.drill_down_enabled !== 0 && row.drill_down_enabled !== false;
+			if (is_drillable) {
+				$tr.attr("title", __("Click to select · Double-click to drill down"));
+			}
+			visible.forEach((col, col_index) => {
 				const cls = col.fieldtype === "Currency" ? "amount" : "";
 				let value = row[col.id];
 				const $cell = $("<td>").addClass(cls);
-				if (col.fieldtype === "Currency") {
+				if (col_index === 0 && is_drillable) {
+					$cell.addClass("ae-drill-cell").append(
+						$('<span class="ae-drill-icon" aria-hidden="true">›</span>'),
+						$('<span class="ae-drill-label">').text(value ?? "")
+					);
+				} else if (col.fieldtype === "Currency") {
 					$cell.text(
 						format_currency(value ?? 0, this.currency_code || frappe.defaults.get_default("currency"))
 					);
@@ -1453,7 +1687,8 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 				)
 			);
 		}
-		$wrap.append($table);
+		$wrap.append($meta);
+		$wrap.append($('<div class="ae-grid-scroll"></div>').append($table));
 		this.$grid.empty().append($wrap);
 	}
 
@@ -1778,25 +2013,38 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 	}
 
 	render_breadcrumbs() {
-		this.$context.empty();
-		if (!this.breadcrumbs.length) {
-			this.$context.append(
-				$('<span class="text-muted">').text(__("Analysis Path")),
-				$('<span class="ae-chip">').text(__("Company scope"))
-			);
-			return;
-		}
-		this.breadcrumbs.forEach((chip, index) => {
-			const $chip = $('<span class="ae-chip">')
-				.toggleClass("is-virtual", !!chip.is_virtual_group)
-				.text(chip.label);
-			const $close = $('<button class="btn btn-xs btn-link">×</button>').on("click", (e) => {
-				e.stopPropagation();
-				this.breadcrumbs = this.breadcrumbs.slice(0, index);
-				this.restore_context_from_breadcrumbs();
-			});
-			this.$context.append($chip.append($close), " / ");
+		this.$context.empty().addClass("ae-breadcrumb-bar");
+		const segments = this.build_analysis_path_segments();
+		const $trail = $('<nav class="ae-breadcrumb" aria-label="' + __("Analysis Path") + '"></nav>');
+		const $list = $('<ol class="ae-breadcrumb-list"></ol>').appendTo($trail);
+
+		segments.forEach((segment, index) => {
+			if (index > 0) {
+				$list.append($('<li class="ae-breadcrumb-sep" aria-hidden="true"><span>›</span></li>'));
+			}
+			const $item = $('<li class="ae-breadcrumb-item"></li>')
+				.toggleClass("is-active", !!segment.active)
+				.toggleClass("is-virtual", !!segment.is_virtual);
+			if (segment.crumb_index !== undefined && segment.crumb_index < (this.breadcrumbs?.length || 0) - 1) {
+				$item.append(
+					$('<button type="button" class="ae-breadcrumb-link">')
+						.text(segment.label)
+						.on("click", () => {
+							this.breadcrumbs = this.breadcrumbs.slice(0, segment.crumb_index + 1);
+							this.restore_context_from_breadcrumbs();
+						})
+				);
+			} else {
+				$item.append($('<span class="ae-breadcrumb-text">').text(segment.label));
+			}
+			$list.append($item);
 		});
+
+		this.$context.append(
+			$('<span class="ae-breadcrumb-heading">').text(__("Analysis Path")),
+			$trail
+		);
+		this.update_context_actions();
 	}
 
 	restore_context_from_breadcrumbs() {
@@ -1938,6 +2186,20 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 
 	render_totals() {
 		this.$totals.empty();
+		if (!this.rows.length) {
+			this.$totals.hide();
+			return;
+		}
+		this.$totals.show().addClass("ae-totals-bar");
+		const currency_label = this.currency_code || frappe.defaults.get_default("currency");
+		const $inner = $('<div class="ae-totals-inner"></div>').appendTo(this.$totals);
+		const $lead = $('<div class="ae-totals-lead"></div>').appendTo($inner);
+		$lead.append($('<div class="ae-totals-title">').text(__("Totals")));
+		$lead.append($('<div class="ae-totals-currency-wrap"></div>').append(
+			$('<span class="ae-totals-currency-label">').text(__("Currency")),
+			$('<span class="ae-totals-currency ae-currency-badge">').text(currency_label)
+		));
+		const $items = $('<div class="ae-totals-items ae-totals-kpi-row"></div>').appendTo($inner);
 		let items;
 		if (this.analysis_context.detail_mode === "grouped_gl") {
 			items = [
@@ -1963,8 +2225,11 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 				this.totals[field] || 0,
 				this.currency_code || frappe.defaults.get_default("currency")
 			);
-			this.$totals.append(
-				$("<div>").html(`<strong>${label}:</strong> <span class="amount">${frappe.utils.escape_html(value)}</span>`)
+			$items.append(
+				$('<div class="ae-total-item ae-total-kpi">').append(
+					$('<div class="ae-total-item-label">').text(label),
+					$('<div class="ae-total-item-value amount">').text(value)
+				)
 			);
 		});
 	}
