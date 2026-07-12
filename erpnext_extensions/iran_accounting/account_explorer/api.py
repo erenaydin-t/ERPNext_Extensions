@@ -255,6 +255,7 @@ def validate_document_scope(payload) -> dict:
 		"to_date": str(spec.to_date),
 		"fiscal_year": spec.fiscal_year,
 		"scoped_account_count": len(spec.included_account_names or []),
+		"document_scope": _document_scope_response(spec),
 	}
 
 

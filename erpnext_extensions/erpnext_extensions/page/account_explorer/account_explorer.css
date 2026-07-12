@@ -6,6 +6,71 @@
 	margin-bottom: 12px;
 }
 
+.account-explorer-page .ae-toolbar-actions {
+	display: inline-flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	align-items: center;
+	margin-inline-start: auto;
+}
+
+.account-explorer-page .ae-filter-panel {
+	border: 1px solid var(--border-color);
+	border-radius: var(--border-radius);
+	background: var(--card-bg, var(--control-bg));
+	margin-bottom: 12px;
+	padding: 12px;
+}
+
+.account-explorer-page .ae-filter-panel--collapsed {
+	display: none;
+}
+
+.account-explorer-page .ae-filter-section {
+	margin-bottom: 12px;
+}
+
+.account-explorer-page .ae-filter-section-title {
+	font-weight: 600;
+	font-size: var(--text-sm);
+	margin-bottom: 8px;
+	color: var(--text-color);
+}
+
+.account-explorer-page .ae-filter-section-body {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+	gap: 8px 12px;
+}
+
+.account-explorer-page .ae-filter-panel-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	justify-content: flex-end;
+	margin-top: 8px;
+	padding-top: 8px;
+	border-top: 1px solid var(--border-color);
+}
+
+.account-explorer-page .ae-filter-summary {
+	margin-bottom: 8px;
+}
+
+.account-explorer-page .ae-filter-section-body .form-group {
+	margin-bottom: 0;
+}
+
+html[dir="rtl"] .account-explorer-page .ae-toolbar-actions,
+html[dir="rtl"] .account-explorer-page .ae-filter-panel-actions {
+	flex-direction: row-reverse;
+}
+
+html[dir="rtl"] .account-explorer-page .ae-toolbar-actions {
+	margin-inline-start: 0;
+	margin-inline-end: auto;
+}
+
 .account-explorer-page .ae-nav {
 	display: flex;
 	flex-wrap: wrap;

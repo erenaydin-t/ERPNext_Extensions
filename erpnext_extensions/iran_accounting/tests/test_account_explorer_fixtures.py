@@ -136,6 +136,7 @@ def default_document_scope(company, fiscal_year, from_date, to_date) -> dict:
 		"fiscal_year": fiscal_year,
 		"from_date": from_date,
 		"to_date": to_date,
+		"finance_book": None,
 		"hide_zero_rows": 0,
 		"voucher": {},
 		"accounting": {},

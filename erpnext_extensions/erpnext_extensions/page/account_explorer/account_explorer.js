@@ -1,5 +1,110 @@
 frappe.provide("erpnext_extensions.account_explorer");
 
+function ae_clone_document_scope(scope) {
+	return {
+		...scope,
+		voucher: { ...(scope.voucher || {}) },
+		accounting: { ...(scope.accounting || {}) },
+		accounting_dimensions: { ...(scope.accounting_dimensions || {}) },
+		currency: { ...(scope.currency || {}) },
+		status: { ...(scope.status || {}) },
+	};
+}
+
+function ae_clear_advanced_document_scope(scope, status_defaults = {}) {
+	return {
+		...scope,
+		finance_book: null,
+		voucher: {
+			voucher_type: null,
+			voucher_no: null,
+			against_voucher_type: null,
+			against_voucher_no: null,
+			reference_no: null,
+		},
+		accounting: {
+			account: null,
+			party_type: null,
+			party: null,
+		},
+		accounting_dimensions: {},
+		currency: {
+			currency_type: scope.currency?.currency_type || "account_currency",
+			currency: null,
+		},
+		status: {
+			include_opening_entries: status_defaults.include_opening_entries ?? 1,
+			include_cancelled_entries: status_defaults.include_cancelled_entries ?? 0,
+			include_default_finance_book_entries: status_defaults.include_default_finance_book_entries ?? 1,
+			include_period_closing_vouchers: status_defaults.include_period_closing_vouchers ?? 0,
+		},
+	};
+}
+
+function ae_count_active_document_scope_filters(scope) {
+	if (!scope) {
+		return 0;
+	}
+	let count = 0;
+	if (scope.finance_book) {
+		count += 1;
+	}
+	const voucher = scope.voucher || {};
+	["voucher_type", "voucher_no", "against_voucher_type", "against_voucher_no", "reference_no"].forEach((key) => {
+		if (voucher[key]) {
+			count += 1;
+		}
+	});
+	const accounting = scope.accounting || {};
+	["account", "party_type", "party"].forEach((key) => {
+		const value = accounting[key];
+		if (value && (!Array.isArray(value) || value.length)) {
+			count += 1;
+		}
+	});
+	Object.values(scope.accounting_dimensions || {}).forEach((value) => {
+		if (value && (!Array.isArray(value) || value.length)) {
+			count += 1;
+		}
+	});
+	if (scope.currency?.currency) {
+		count += 1;
+	}
+	if (scope.currency?.currency_type && scope.currency.currency_type !== "account_currency") {
+		count += 1;
+	}
+	const status = scope.status || {};
+	if (!status.include_opening_entries) {
+		count += 1;
+	}
+	if (status.include_cancelled_entries) {
+		count += 1;
+	}
+	if (!status.include_default_finance_book_entries) {
+		count += 1;
+	}
+	if (status.include_period_closing_vouchers) {
+		count += 1;
+	}
+	return count;
+}
+
+function ae_serialize_document_scope(scope) {
+	return JSON.stringify({
+		company: scope.company || null,
+		fiscal_year: scope.fiscal_year || null,
+		from_date: scope.from_date || null,
+		to_date: scope.to_date || null,
+		finance_book: scope.finance_book || null,
+		hide_zero_rows: scope.hide_zero_rows ?? 1,
+		voucher: { ...(scope.voucher || {}) },
+		accounting: { ...(scope.accounting || {}) },
+		accounting_dimensions: { ...(scope.accounting_dimensions || {}) },
+		currency: { ...(scope.currency || {}) },
+		status: { ...(scope.status || {}) },
+	});
+}
+
 function ae_default_document_scope(overrides = {}) {
 	return {
 		company: null,
@@ -58,6 +163,8 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		this.warnings = [];
 		this.voucher_header = null;
 		this.show_optional_full_voucher_columns = false;
+		this.filter_panel_open = false;
+		this.filter_controls = {};
 
 		this.document_scope = ae_default_document_scope();
 
@@ -109,6 +216,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		this.$container = $('<div class="ae-shell"></div>').appendTo(this.page.main);
 		this.$disabled = $('<div class="ae-disabled"></div>').appendTo(this.$container);
 		this.$toolbar = $('<div class="ae-toolbar"></div>').appendTo(this.$container);
+		this.$filter_panel = $('<div class="ae-filter-panel ae-filter-panel--collapsed"></div>').appendTo(this.$container);
 		this.$nav = $('<div class="ae-nav"></div>').appendTo(this.$container);
 		this.$context = $('<div class="ae-context-bar"></div>').appendTo(this.$container);
 		this.$detail_header = $('<div class="ae-detail-header"></div>').appendTo(this.$container);
@@ -129,9 +237,9 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			" ",
 			$('<button class="btn btn-default btn-sm">').text(__("Reset Analysis")).on("click", () => this.reset_analysis()),
 			" ",
-			$('<button class="btn btn-default btn-sm">').text(__("Reset Document Scope")).on("click", () => this.reset_document_scope()),
-			" ",
-			$('<button class="btn btn-primary btn-sm">').text(__("Apply")).on("click", () => this.apply_scope())
+			$('<button class="btn btn-default btn-sm">')
+				.text(__("Reset Document Scope"))
+				.on("click", () => this.reset_document_scope())
 		);
 	}
 
@@ -253,6 +361,314 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		if (scopeDefaults.currency) {
 			this.document_scope.currency = { ...this.document_scope.currency, ...scopeDefaults.currency };
 		}
+
+		const $toolbar_actions = $('<div class="ae-toolbar-actions"></div>').appendTo(this.$toolbar);
+		this.$advanced_filters_btn = $('<button type="button" class="btn btn-default btn-sm ae-advanced-filters-btn">')
+			.text(__("Advanced Filters"))
+			.on("click", () => this.toggle_filter_panel())
+			.appendTo($toolbar_actions);
+		$('<button type="button" class="btn btn-primary btn-sm">')
+			.text(__("Apply"))
+			.on("click", () => this.apply_scope())
+			.appendTo($toolbar_actions);
+
+		this.setup_filter_panel(scopeDefaults);
+		this.update_advanced_filters_button();
+	}
+
+	get_scope_status_defaults() {
+		const scopeDefaults = (this.metadata?.defaults || {}).document_scope || this.metadata?.defaults || {};
+		return scopeDefaults.status || {};
+	}
+
+	toggle_filter_panel(force_open = null) {
+		this.filter_panel_open = force_open === null ? !this.filter_panel_open : !!force_open;
+		this.$filter_panel.toggleClass("ae-filter-panel--collapsed", !this.filter_panel_open);
+		if (this.filter_panel_open) {
+			this.sync_filter_controls_from_document_scope();
+		}
+	}
+
+	make_filter_section(title) {
+		const $section = $('<div class="ae-filter-section"></div>').appendTo(this.$filter_panel);
+		$('<div class="ae-filter-section-title">').text(title).appendTo($section);
+		const $body = $('<div class="ae-filter-section-body"></div>').appendTo($section);
+		return $body;
+	}
+
+	make_filter_control(parent, df, on_change) {
+		const control = frappe.ui.form.make_control({
+			parent,
+			df: {
+				...df,
+				change: () => {
+					if (on_change) {
+						on_change(control);
+					}
+				},
+			},
+			render_input: true,
+		});
+		return control;
+	}
+
+	setup_filter_panel(scopeDefaults = {}) {
+		this.$filter_panel.empty();
+		this.filter_controls = {};
+
+		const general_body = this.make_filter_section(__("General"));
+		this.filter_controls.finance_book = this.make_filter_control(
+			general_body,
+			{
+				fieldtype: "Link",
+				label: __("Finance Book"),
+				fieldname: "finance_book",
+				options: "Finance Book",
+			},
+			() => {}
+		);
+
+		const voucher_body = this.make_filter_section(__("Voucher"));
+		this.filter_controls.voucher_type = this.make_filter_control(voucher_body, {
+			fieldtype: "Data",
+			label: __("Voucher Type"),
+			fieldname: "voucher_type",
+		});
+		this.filter_controls.voucher_no = this.make_filter_control(voucher_body, {
+			fieldtype: "Data",
+			label: __("Voucher No"),
+			fieldname: "voucher_no",
+		});
+		this.filter_controls.against_voucher_type = this.make_filter_control(voucher_body, {
+			fieldtype: "Data",
+			label: __("Against Voucher Type"),
+			fieldname: "against_voucher_type",
+		});
+		this.filter_controls.against_voucher_no = this.make_filter_control(voucher_body, {
+			fieldtype: "Data",
+			label: __("Against Voucher No"),
+			fieldname: "against_voucher_no",
+		});
+		this.filter_controls.reference_no = this.make_filter_control(voucher_body, {
+			fieldtype: "Data",
+			label: __("Reference No / Bill No"),
+			fieldname: "reference_no",
+		});
+
+		const accounting_body = this.make_filter_section(__("Accounting"));
+		this.filter_controls.account = this.make_filter_control(accounting_body, {
+			fieldtype: "Link",
+			label: __("Account"),
+			fieldname: "account",
+			options: "Account",
+			get_query: () => ({
+				filters: {
+					company: this.document_scope.company || this.company_field?.get_value(),
+					is_group: 0,
+				},
+			}),
+		});
+		const party_types = (this.metadata?.party_sources || [])
+			.filter((row) => row.enabled)
+			.map((row) => row.party_type);
+		this.filter_controls.party_type = this.make_filter_control(
+			accounting_body,
+			{
+				fieldtype: "Select",
+				label: __("Party Type"),
+				fieldname: "party_type",
+				options: ["", ...party_types],
+			},
+			() => {
+				this.filter_controls.party?.set_value(null);
+			}
+		);
+		this.filter_controls.party = this.make_filter_control(accounting_body, {
+			fieldtype: "Dynamic Link",
+			label: __("Party"),
+			fieldname: "party",
+			options: "party_type",
+		});
+
+		const dimensions_body = this.make_filter_section(__("Dimensions"));
+		this.filter_controls.dimensions = {};
+		(this.metadata?.dimensions || []).forEach((dimension) => {
+			this.filter_controls.dimensions[dimension.fieldname] = this.make_filter_control(
+				dimensions_body,
+				{
+					fieldtype: "Link",
+					label: dimension.label || dimension.fieldname,
+					fieldname: dimension.fieldname,
+					options: dimension.document_type || dimension.fieldname,
+					get_query: () => {
+						const filters = {};
+						if (this.document_scope.company && frappe.meta.has_field(dimension.document_type, "company")) {
+							filters.company = this.document_scope.company;
+						}
+						return { filters };
+					},
+				},
+				() => {}
+			);
+		});
+
+		const currency_body = this.make_filter_section(__("Currency"));
+		const currency_type_values = (this.metadata?.currency_types || [
+			{ value: "account_currency", label: __("Account Currency") },
+			{ value: "transaction_currency", label: __("Transaction Currency") },
+		]).map((row) => row.value);
+		this.filter_controls.currency_type = this.make_filter_control(currency_body, {
+			fieldtype: "Select",
+			label: __("Currency Type"),
+			fieldname: "currency_type",
+			options: currency_type_values,
+			default: "account_currency",
+		});
+		const currency_options = ["", ...(this.metadata?.currencies || [])].join("\n");
+		this.filter_controls.currency = this.make_filter_control(currency_body, {
+			fieldtype: "Select",
+			label: __("Currency"),
+			fieldname: "currency",
+			options: currency_options,
+		});
+
+		const status_body = this.make_filter_section(__("Status"));
+		this.filter_controls.include_opening_entries = this.make_filter_control(status_body, {
+			fieldtype: "Check",
+			label: __("Include Opening Entries"),
+			fieldname: "include_opening_entries",
+			default: 1,
+		});
+		this.filter_controls.include_cancelled_entries = this.make_filter_control(status_body, {
+			fieldtype: "Check",
+			label: __("Include Cancelled Entries"),
+			fieldname: "include_cancelled_entries",
+			default: 0,
+		});
+		this.filter_controls.include_default_finance_book_entries = this.make_filter_control(status_body, {
+			fieldtype: "Check",
+			label: __("Include Default Finance Book Entries"),
+			fieldname: "include_default_finance_book_entries",
+			default: 1,
+		});
+		this.filter_controls.include_period_closing_vouchers = this.make_filter_control(status_body, {
+			fieldtype: "Check",
+			label: __("Include Period Closing Vouchers"),
+			fieldname: "include_period_closing_vouchers",
+			default: 0,
+		});
+
+		const $actions = $('<div class="ae-filter-panel-actions"></div>').appendTo(this.$filter_panel);
+		$('<button type="button" class="btn btn-primary btn-sm">')
+			.text(__("Apply"))
+			.on("click", () => this.apply_scope())
+			.appendTo($actions);
+		$('<button type="button" class="btn btn-default btn-sm">')
+			.text(__("Clear"))
+			.on("click", () => this.clear_filter_panel())
+			.appendTo($actions);
+
+		this.sync_filter_controls_from_document_scope(scopeDefaults);
+	}
+
+	sync_filter_controls_from_document_scope(scopeOverride = null) {
+		const scope = scopeOverride || this.document_scope;
+		this.filter_controls.finance_book?.set_value(scope.finance_book || "");
+		this.filter_controls.voucher_type?.set_value(scope.voucher?.voucher_type || "");
+		this.filter_controls.voucher_no?.set_value(scope.voucher?.voucher_no || "");
+		this.filter_controls.against_voucher_type?.set_value(scope.voucher?.against_voucher_type || "");
+		this.filter_controls.against_voucher_no?.set_value(scope.voucher?.against_voucher_no || "");
+		this.filter_controls.reference_no?.set_value(scope.voucher?.reference_no || "");
+		this.filter_controls.account?.set_value(scope.accounting?.account || "");
+		this.filter_controls.party_type?.set_value(scope.accounting?.party_type || "");
+		this.filter_controls.party?.set_value(scope.accounting?.party || "");
+		Object.entries(this.filter_controls.dimensions || {}).forEach(([fieldname, control]) => {
+			control.set_value(scope.accounting_dimensions?.[fieldname] || "");
+		});
+		this.filter_controls.currency_type?.set_value(scope.currency?.currency_type || "account_currency");
+		this.filter_controls.currency?.set_value(scope.currency?.currency || "");
+		this.filter_controls.include_opening_entries?.set_value(scope.status?.include_opening_entries ? 1 : 0);
+		this.filter_controls.include_cancelled_entries?.set_value(scope.status?.include_cancelled_entries ? 1 : 0);
+		this.filter_controls.include_default_finance_book_entries?.set_value(
+			scope.status?.include_default_finance_book_entries ? 1 : 0
+		);
+		this.filter_controls.include_period_closing_vouchers?.set_value(
+			scope.status?.include_period_closing_vouchers ? 1 : 0
+		);
+	}
+
+	sync_document_scope_from_controls() {
+		this.document_scope.company = this.company_field.get_value();
+		this.document_scope.fiscal_year = this.fy_field.get_value();
+		this.document_scope.from_date = this.from_date_field.get_value();
+		this.document_scope.to_date = this.to_date_field.get_value();
+		this.document_scope.finance_book = this.filter_controls.finance_book?.get_value() || null;
+		this.document_scope.voucher = {
+			voucher_type: this.filter_controls.voucher_type?.get_value() || null,
+			voucher_no: this.filter_controls.voucher_no?.get_value() || null,
+			against_voucher_type: this.filter_controls.against_voucher_type?.get_value() || null,
+			against_voucher_no: this.filter_controls.against_voucher_no?.get_value() || null,
+			reference_no: this.filter_controls.reference_no?.get_value() || null,
+		};
+		this.document_scope.accounting = {
+			account: this.filter_controls.account?.get_value() || null,
+			party_type: this.filter_controls.party_type?.get_value() || null,
+			party: this.filter_controls.party?.get_value() || null,
+		};
+		const accounting_dimensions = {};
+		Object.entries(this.filter_controls.dimensions || {}).forEach(([fieldname, control]) => {
+			const value = control.get_value();
+			if (value) {
+				accounting_dimensions[fieldname] = value;
+			}
+		});
+		this.document_scope.accounting_dimensions = accounting_dimensions;
+		this.document_scope.currency = {
+			currency_type: this.filter_controls.currency_type?.get_value() || "account_currency",
+			currency: this.filter_controls.currency?.get_value() || null,
+		};
+		this.document_scope.status = {
+			include_opening_entries: this.filter_controls.include_opening_entries?.get_value() ? 1 : 0,
+			include_cancelled_entries: this.filter_controls.include_cancelled_entries?.get_value() ? 1 : 0,
+			include_default_finance_book_entries: this.filter_controls.include_default_finance_book_entries?.get_value()
+				? 1
+				: 0,
+			include_period_closing_vouchers: this.filter_controls.include_period_closing_vouchers?.get_value() ? 1 : 0,
+		};
+	}
+
+	clear_filter_panel() {
+		this.document_scope = ae_clear_advanced_document_scope(
+			ae_clone_document_scope(this.document_scope),
+			this.get_scope_status_defaults()
+		);
+		this.sync_filter_controls_from_document_scope();
+		this.update_advanced_filters_button();
+		this.render_filter_summary();
+	}
+
+	update_advanced_filters_button() {
+		if (!this.$advanced_filters_btn) {
+			return;
+		}
+		const count = ae_count_active_document_scope_filters(this.document_scope);
+		const label = count ? `${__("Advanced Filters")} (${count})` : __("Advanced Filters");
+		this.$advanced_filters_btn.text(label);
+	}
+
+	render_filter_summary() {
+		if (!this.$filter_summary) {
+			this.$filter_summary = $('<div class="ae-filter-summary"></div>').insertAfter(this.$filter_panel);
+		}
+		this.$filter_summary.empty();
+		const count = ae_count_active_document_scope_filters(this.document_scope);
+		if (!count) {
+			this.$filter_summary.hide();
+			return;
+		}
+		this.$filter_summary.show().append(
+			$('<span class="ae-chip">').text(`${__("Active Filters")}: ${count}`)
+		);
 	}
 
 	get_account_level_nav_items() {
@@ -467,6 +883,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 	}
 
 	apply_scope() {
+		this.sync_document_scope_from_controls();
 		if (!this.document_scope.company) {
 			frappe.msgprint(__("Company is required."));
 			return;
@@ -476,6 +893,8 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			return;
 		}
 		this.analysis_context.page = 1;
+		this.update_advanced_filters_button();
+		this.render_filter_summary();
 		this.refresh_summary();
 	}
 
@@ -1183,6 +1602,9 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			status: { ...ae_default_document_scope().status, ...(scopeDefaults.status || {}) },
 			currency: { ...ae_default_document_scope().currency, ...(scopeDefaults.currency || {}) },
 		});
+		this.sync_filter_controls_from_document_scope();
+		this.update_advanced_filters_button();
+		this.render_filter_summary();
 		this.render_prompt(__("Document scope reset. Click Apply to reload."));
 	}
 
@@ -1260,3 +1682,11 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		}
 	}
 };
+
+$.extend(erpnext_extensions.account_explorer, {
+	ae_default_document_scope,
+	ae_clone_document_scope,
+	ae_clear_advanced_document_scope,
+	ae_count_active_document_scope_filters,
+	ae_serialize_document_scope,
+});
