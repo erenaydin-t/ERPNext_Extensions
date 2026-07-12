@@ -212,6 +212,7 @@ def get_metadata() -> dict:
 		"export_background_threshold": export_background_threshold,
 		"diagnostics_enabled": diagnostics_enabled,
 		"allow_gl_entry_navigation": int(settings.allow_gl_entry_navigation or 0),
+		"voucher_print_format": settings.account_explorer_voucher_print_format or None,
 		"axes": axes,
 		"levels": levels,
 		"party_sources": party_sources,

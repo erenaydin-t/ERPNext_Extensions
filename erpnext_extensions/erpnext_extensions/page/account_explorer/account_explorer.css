@@ -789,7 +789,24 @@
 }
 
 .account-explorer-page .ae-actions-col {
-	min-width: 140px;
+	min-width: 180px;
+}
+
+.account-explorer-page .ae-voucher-actions {
+	white-space: nowrap;
+}
+
+.account-explorer-page .ae-voucher-action-sep {
+	display: inline-block;
+	margin: 0 2px;
+	color: var(--text-muted);
+	opacity: 0.55;
+	font-size: 10px;
+	user-select: none;
+}
+
+.account-explorer-page .ae-voucher-action {
+	min-width: 0;
 }
 
 /* ── Totals summary (compact horizontal KPI) ── */

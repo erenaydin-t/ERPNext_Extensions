@@ -40,7 +40,8 @@
   "query_timeout_seconds",
   "metadata_cache_duration_seconds",
   "column_break_perf",
-  "allow_gl_entry_navigation"
+  "allow_gl_entry_navigation",
+  "account_explorer_voucher_print_format"
  ],
  "fields": [
   {
@@ -228,6 +229,13 @@
    "fieldname": "allow_gl_entry_navigation",
    "fieldtype": "Check",
    "label": "Allow GL Entry Navigation"
+  },
+  {
+   "description": "Default print format for Account Explorer voucher Print action. Printing engine integration is configured separately.",
+   "fieldname": "account_explorer_voucher_print_format",
+   "fieldtype": "Link",
+   "label": "Account Explorer Voucher Print Format",
+   "options": "Print Format"
   }
  ],
  "issingle": 1,

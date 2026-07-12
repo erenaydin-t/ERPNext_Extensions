@@ -301,8 +301,12 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 	}
 
 	update_context_actions() {
+		const has_voucher_drill =
+			this.analysis_context.view_axis === "voucher" &&
+			(this.analysis_context.detail_mode === "grouped_gl" ||
+				this.analysis_context.voucher_scope?.voucher_no);
 		if (this.$back_btn) {
-			this.$back_btn.toggle(!!this.breadcrumbs?.length);
+			this.$back_btn.toggle(!!this.breadcrumbs?.length || has_voucher_drill);
 		}
 	}
 
@@ -1256,11 +1260,72 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 	}
 
 	build_analysis_path_segments() {
-		const segments = [{ label: this.get_company_path_label(), kind: "company" }];
-		const crumbs = this.breadcrumbs || [];
+		const segments = [
+			{
+				step: "company",
+				label: this.get_company_path_label(),
+				kind: "company",
+				clickable: true,
+			},
+		];
+		const trail = this.get_normalized_breadcrumb_trail();
 
-		if (!crumbs.length) {
+		trail.forEach((chip, index) => {
 			segments.push({
+				step: `crumb:${index}`,
+				label: chip.label,
+				kind: "crumb",
+				crumb_index: index,
+				is_virtual: !!chip.is_virtual_group,
+				clickable: true,
+			});
+		});
+
+		if (this.analysis_context.view_axis === "voucher") {
+			const voucher_scope = this.analysis_context.voucher_scope || {};
+			const has_type = !!voucher_scope.voucher_type;
+			const has_no = !!voucher_scope.voucher_no;
+			const is_gl = this.analysis_context.detail_mode === "grouped_gl";
+
+			segments.push({
+				step: "voucher_axis",
+				label: __("Voucher"),
+				kind: "axis",
+				clickable: has_type || has_no || is_gl,
+			});
+
+			if (has_type) {
+				segments.push({
+					step: "voucher_type",
+					label: voucher_scope.voucher_type,
+					kind: "voucher_meta",
+					clickable: has_no || is_gl,
+				});
+			}
+			if (has_no) {
+				segments.push({
+					step: "voucher_no",
+					label: voucher_scope.voucher_no,
+					kind: "voucher_meta",
+					clickable: is_gl,
+				});
+			}
+			if (is_gl) {
+				segments.push({
+					step: "gl_detail",
+					label: __("GL Detail"),
+					kind: "detail",
+					active: true,
+				});
+			} else {
+				segments[segments.length - 1].active = true;
+			}
+			return segments;
+		}
+
+		if (!trail.length) {
+			segments.push({
+				step: "view",
 				label: this.get_current_view_path_label(),
 				kind: "view",
 				active: true,
@@ -1268,29 +1333,90 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			return segments;
 		}
 
-		const entry_axis = crumbs[0].axis || this.analysis_context.view_axis;
-		segments.push({ label: this.get_breadcrumb_axis_label(entry_axis), kind: "axis" });
-
-		crumbs.forEach((chip, index) => {
-			segments.push({
-				label: chip.label,
-				kind: "crumb",
-				is_virtual: !!chip.is_virtual_group,
-				crumb_index: index,
-				active: index === crumbs.length - 1 && this.analysis_context.detail_mode !== "grouped_gl",
-			});
+		segments.push({
+			step: "view",
+			label: this.get_axis_path_label(this.analysis_context.view_axis),
+			kind: "view",
+			active: true,
 		});
-
-		if (this.analysis_context.detail_mode === "grouped_gl") {
-			const voucher_no = this.analysis_context.voucher_scope?.voucher_no;
-			segments.push({
-				label: voucher_no || __("GL Detail"),
-				kind: "detail",
-				active: true,
-			});
-		}
-
 		return segments;
+	}
+
+	get_breadcrumb_chip_key(chip) {
+		return [
+			chip.axis,
+			chip.label,
+			chip.selected_account,
+			chip.virtual_row_key,
+			chip.selected_party,
+			chip.party_type,
+			chip.dimension_type,
+			chip.selected_dimension_value,
+			chip.selected_unified_party,
+			chip.currency,
+		].join("|");
+	}
+
+	get_normalized_breadcrumb_trail() {
+		const trail = [];
+		let previous_key = null;
+		(this.breadcrumbs || []).forEach((chip) => {
+			if (chip.axis === "voucher" || chip.detail_mode === "grouped_gl") {
+				return;
+			}
+			const key = this.get_breadcrumb_chip_key(chip);
+			if (key === previous_key) {
+				return;
+			}
+			trail.push(chip);
+			previous_key = key;
+		});
+		return trail;
+	}
+
+	navigate_to_path_step(segment) {
+		if (!segment || segment.active) {
+			return;
+		}
+		if (segment.step === "company") {
+			this.reset_analysis();
+			return;
+		}
+		if (segment.step && segment.step.startsWith("crumb:")) {
+			const trail = this.get_normalized_breadcrumb_trail();
+			this.breadcrumbs = trail.slice(0, segment.crumb_index + 1);
+			this.restore_context_from_breadcrumbs();
+			return;
+		}
+		if (segment.step === "voucher_axis") {
+			this.analysis_context.view_axis = "voucher";
+			this.analysis_context.detail_mode = "summary";
+			this.analysis_context.voucher_scope = { voucher_type: null, voucher_no: null };
+			this.render_navigator();
+			this.render_breadcrumbs();
+			this.render_detail_header();
+			this.refresh_summary();
+			return;
+		}
+		if (segment.step === "voucher_type") {
+			const voucher_type = this.analysis_context.voucher_scope?.voucher_type;
+			this.analysis_context.view_axis = "voucher";
+			this.analysis_context.detail_mode = "summary";
+			this.analysis_context.voucher_scope = { voucher_type, voucher_no: null };
+			this.render_navigator();
+			this.render_breadcrumbs();
+			this.render_detail_header();
+			this.refresh_summary();
+			return;
+		}
+		if (segment.step === "voucher_no") {
+			this.analysis_context.view_axis = "voucher";
+			this.analysis_context.detail_mode = "summary";
+			this.render_navigator();
+			this.render_breadcrumbs();
+			this.render_detail_header();
+			this.refresh_summary();
+		}
 	}
 
 	render_level_nav_pill($menu, level) {
@@ -1732,28 +1858,49 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 				$cell.appendTo($tr);
 			});
 			if (show_voucher_actions) {
-				const $actions = $('<td class="ae-row-actions">').appendTo($tr);
-				$('<button class="btn btn-xs btn-default" title="' + __("View GL") + '">')
-					.text(__("GL"))
-					.on("click", (e) => {
-						e.stopPropagation();
-						this.open_grouped_gl_detail(row);
-					})
-					.appendTo($actions);
-				$('<button class="btn btn-xs btn-default ml-1" title="' + __("GL List") + '">')
-					.text(__("List"))
-					.on("click", (e) => {
-						e.stopPropagation();
-						this.navigate_gl_list(row);
-					})
-					.appendTo($actions);
-				$('<button class="btn btn-xs btn-default ml-1" title="' + __("Open Voucher") + '">')
-					.text(__("Open"))
-					.on("click", (e) => {
-						e.stopPropagation();
-						this.navigate_source_voucher(row);
-					})
-					.appendTo($actions);
+				const $actions = $('<td class="ae-row-actions ae-voucher-actions">').appendTo($tr);
+				const action_specs = [
+					{
+						key: "gl",
+						label: __("GL"),
+						title: __("Grouped GL detail in Account Explorer"),
+						handler: () => this.open_grouped_gl_detail(row),
+					},
+					{
+						key: "list",
+						label: __("List"),
+						title: __("General Ledger report for this voucher"),
+						handler: () => this.navigate_gl_list(row),
+					},
+					{
+						key: "open",
+						label: __("Open"),
+						title: __("Open source ERPNext document"),
+						handler: () => this.navigate_source_voucher(row),
+					},
+				];
+				if (this.metadata?.voucher_print_format) {
+					action_specs.push({
+						key: "print",
+						label: __("Print"),
+						title: __("Print voucher using configured format"),
+						handler: () => this.navigate_print_voucher(row),
+					});
+				}
+				action_specs.forEach((spec, index) => {
+					if (index > 0) {
+						$actions.append($('<span class="ae-voucher-action-sep" aria-hidden="true">|</span>'));
+					}
+					$('<button type="button" class="btn btn-xs btn-default ae-voucher-action">')
+						.addClass(`ae-voucher-action--${spec.key}`)
+						.text(spec.label)
+						.attr("title", spec.title)
+						.on("click", (e) => {
+							e.stopPropagation();
+							spec.handler();
+						})
+						.appendTo($actions);
+				});
 			}
 			$tr.on("dblclick", () => this.drill_row(row));
 			$tr.on("click", () => {
@@ -1813,17 +1960,11 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		};
 		this.analysis_context.detail_mode = "grouped_gl";
 		this.analysis_context.view_axis = "voucher";
-		this.push_breadcrumb({
-			label: row.voucher_no,
-			axis: "voucher",
-			voucher_type: row.voucher_type,
-			voucher_no: row.voucher_no,
-			detail_mode: "grouped_gl",
-		});
 		this.render_breadcrumbs();
 		this.render_navigator();
 		this.render_detail_header();
 		this.refresh_summary();
+		this.update_context_actions();
 	}
 
 	navigate_with_target(row, route_key) {
@@ -1843,8 +1984,12 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 				const target = r.message || {};
 				const route = target[route_key];
 				const allowed =
-					route_key === "gl_list_route" ? target.can_open_gl_list : target.can_open_source;
-				if (!allowed || !route) {
+					route_key === "gl_list_route"
+						? target.can_open_gl_list
+						: route_key === "print_route"
+							? target.can_print
+							: target.can_open_source;
+				if (!allowed || (!route && route_key !== "print_route")) {
 					frappe.msgprint((target.messages || []).join("<br>") || __("Navigation is not allowed."));
 					return;
 				}
@@ -1853,9 +1998,26 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 					frappe.set_route(route[0], route[1]);
 					return;
 				}
+				if (route_key === "print_route") {
+					this.open_voucher_print_preview(target);
+					return;
+				}
 				frappe.set_route(...route);
 			},
 		});
+	}
+
+	open_voucher_print_preview(target) {
+		const print_route = target.print_route || {};
+		if (!target.can_print || !print_route.doctype || !print_route.name) {
+			frappe.msgprint(__("Voucher print is not available."));
+			return;
+		}
+		let url = `/printview?doctype=${encodeURIComponent(print_route.doctype)}&name=${encodeURIComponent(print_route.name)}`;
+		if (print_route.format) {
+			url += `&format=${encodeURIComponent(print_route.format)}`;
+		}
+		window.open(frappe.urllib.get_full_url(url));
 	}
 
 	navigate_gl_list(row) {
@@ -1864,6 +2026,16 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 
 	navigate_source_voucher(row) {
 		this.navigate_with_target(row, "source_route");
+	}
+
+	navigate_print_voucher(row) {
+		if (!this.metadata?.voucher_print_format) {
+			frappe.msgprint(
+				__("Configure Account Explorer Voucher Print Format in Iran Accounting Settings.")
+			);
+			return;
+		}
+		this.navigate_with_target(row, "print_route");
 	}
 
 	switch_to_voucher_axis(label, breadcrumb = {}) {
@@ -1886,9 +2058,6 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 				dimension_type: breadcrumb.dimension_type,
 				selected_dimension_value: breadcrumb.selected_dimension_value ?? null,
 			};
-		}
-		if (label) {
-			this.push_breadcrumb({ label, axis: "voucher", ...breadcrumb });
 		}
 		this.render_navigator();
 		this.render_breadcrumbs();
@@ -2117,6 +2286,14 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 	}
 
 	push_breadcrumb(chip) {
+		if (!chip || chip.axis === "voucher" || chip.detail_mode === "grouped_gl") {
+			return;
+		}
+		const key = this.get_breadcrumb_chip_key(chip);
+		const last = this.breadcrumbs[this.breadcrumbs.length - 1];
+		if (last && this.get_breadcrumb_chip_key(last) === key) {
+			return;
+		}
 		this.breadcrumbs.push(chip);
 	}
 
@@ -2133,14 +2310,11 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			const $item = $('<li class="ae-breadcrumb-item"></li>')
 				.toggleClass("is-active", !!segment.active)
 				.toggleClass("is-virtual", !!segment.is_virtual);
-			if (segment.crumb_index !== undefined && segment.crumb_index < (this.breadcrumbs?.length || 0) - 1) {
+			if (segment.clickable && !segment.active) {
 				$item.append(
 					$('<button type="button" class="ae-breadcrumb-link">')
 						.text(segment.label)
-						.on("click", () => {
-							this.breadcrumbs = this.breadcrumbs.slice(0, segment.crumb_index + 1);
-							this.restore_context_from_breadcrumbs();
-						})
+						.on("click", () => this.navigate_to_path_step(segment))
 				);
 			} else {
 				$item.append($('<span class="ae-breadcrumb-text">').text(segment.label));
@@ -2156,7 +2330,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 	}
 
 	restore_context_from_breadcrumbs() {
-		const trail = [...this.breadcrumbs];
+		const trail = this.get_normalized_breadcrumb_trail();
 		this.reset_analysis(false);
 		this.breadcrumbs = trail;
 		if (!this.breadcrumbs.length) {
@@ -2165,23 +2339,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			return;
 		}
 		const last = this.breadcrumbs[this.breadcrumbs.length - 1];
-		if (last.detail_mode === "grouped_gl") {
-			this.analysis_context.view_axis = "voucher";
-			this.analysis_context.detail_mode = "grouped_gl";
-			this.analysis_context.voucher_scope = {
-				voucher_type: last.voucher_type,
-				voucher_no: last.voucher_no,
-			};
-		} else if (last.axis === "voucher") {
-			this.analysis_context.view_axis = "voucher";
-			this.analysis_context.detail_mode = "summary";
-			if (last.selected_unified_party) {
-				this.analysis_context.unified_party_scope = {
-					selected_unified_party: last.selected_unified_party,
-					include_unmapped: 0,
-				};
-			}
-		} else if (last.axis === "unified_party") {
+		if (last.axis === "unified_party") {
 			this.analysis_context.view_axis = "unified_party";
 			this.analysis_context.unified_party_scope = {
 				selected_unified_party: last.selected_unified_party || null,
@@ -2225,6 +2383,27 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 	}
 
 	go_back() {
+		if (this.analysis_context.detail_mode === "grouped_gl") {
+			this.analysis_context.detail_mode = "summary";
+			this.render_navigator();
+			this.render_breadcrumbs();
+			this.render_detail_header();
+			this.refresh_summary();
+			this.update_context_actions();
+			return;
+		}
+		if (this.analysis_context.view_axis === "voucher" && this.analysis_context.voucher_scope?.voucher_no) {
+			this.analysis_context.voucher_scope = {
+				voucher_type: this.analysis_context.voucher_scope.voucher_type,
+				voucher_no: null,
+			};
+			this.render_navigator();
+			this.render_breadcrumbs();
+			this.render_detail_header();
+			this.refresh_summary();
+			this.update_context_actions();
+			return;
+		}
 		if (this.breadcrumbs.length) {
 			this.breadcrumbs.pop();
 			this.restore_context_from_breadcrumbs();
