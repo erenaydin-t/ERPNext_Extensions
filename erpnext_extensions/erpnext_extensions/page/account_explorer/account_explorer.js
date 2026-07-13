@@ -1,3 +1,9 @@
+{% include "erpnext_extensions/erpnext_extensions/page/account_explorer/core/explorer_events.js" %}
+{% include "erpnext_extensions/erpnext_extensions/page/account_explorer/core/explorer_store.js" %}
+{% include "erpnext_extensions/erpnext_extensions/page/account_explorer/core/explorer_plugins.js" %}
+{% include "erpnext_extensions/erpnext_extensions/page/account_explorer/core/explorer_workspace_state.js" %}
+{% include "erpnext_extensions/erpnext_extensions/page/account_explorer/adapters/ae_datatable_adapter.js" %}
+
 frappe.provide("erpnext_extensions.account_explorer");
 
 function ae_clone_document_scope(scope) {
@@ -217,6 +223,10 @@ frappe.pages["account-explorer"].on_page_load = function (wrapper) {
 
 	page.main.addClass("account-explorer-page");
 	wrapper.account_explorer = new erpnext_extensions.account_explorer.Controller(page);
+
+	$(wrapper).bind("show", () => {
+		wrapper.account_explorer?.on_page_show();
+	});
 };
 
 erpnext_extensions.account_explorer.Controller = class AccountExplorerController {
@@ -273,9 +283,77 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		};
 
 		this.breadcrumbs = [];
+		this._init_explorer_architecture();
 		this.setup_actions();
 		this.render_shell();
 		this.load_metadata();
+	}
+
+	_init_explorer_architecture() {
+		const core = erpnext_extensions.account_explorer.core;
+		const adapters = erpnext_extensions.account_explorer.adapters;
+
+		this.events = new core.ExplorerEventBus();
+		this.store = new core.ExplorerStore(this.events);
+		this.plugins = new core.ExplorerPluginRegistry(this.events, this.store);
+		this.workspace_state = new core.ExplorerWorkspaceState(this.store, this.events);
+		this.datatable_adapter = new adapters.AEDataTableAdapter();
+		this._page_shown = false;
+
+		this.store.replace(
+			{
+				document_scope: this.document_scope,
+				analysis_context: this.analysis_context,
+				presentation: this.build_presentation_state(),
+				selection: {
+					selected_row_key: null,
+					checked_row_keys: [],
+				},
+				navigation: {
+					breadcrumbs: this.breadcrumbs,
+				},
+				loading: {
+					metadata: true,
+					summary: false,
+				},
+			},
+			{ silent: true }
+		);
+		this.breadcrumbs = this.store.get("navigation").breadcrumbs;
+	}
+
+	_reset_breadcrumbs(trail = []) {
+		const crumbs = this.store.get("navigation").breadcrumbs;
+		crumbs.length = 0;
+		(trail || []).forEach((chip) => crumbs.push(chip));
+		this.breadcrumbs = crumbs;
+	}
+
+	_sync_store_context({ emit = false } = {}) {
+		const patch = {
+			document_scope: this.document_scope,
+			analysis_context: this.analysis_context,
+			presentation: this.build_presentation_state(),
+			navigation: { breadcrumbs: this.breadcrumbs },
+		};
+		this.store.patch(patch, { silent: !emit });
+		if (emit) {
+			this.events.emit("context:change", patch);
+		}
+	}
+
+	on_page_show() {
+		if (!this._page_shown) {
+			this._page_shown = true;
+			return;
+		}
+		if (!this.metadata?.enabled) {
+			return;
+		}
+		this.events.emit("page:show");
+		if (this.document_scope.company && this.document_scope.from_date && this.document_scope.to_date) {
+			this.refresh_summary();
+		}
 	}
 
 	setup_actions() {
@@ -315,6 +393,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			method: `${this.api_base}.get_account_explorer_metadata`,
 			callback: (r) => {
 				this.metadata = r.message || {};
+				this.store.patch({ loading: { metadata: false } });
 				if (!this.metadata.enabled) {
 					this.show_disabled(
 						__("Account Explorer is not enabled. Open Iran Accounting Settings to configure and enable it.")
@@ -745,7 +824,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		}
 		this.show_optional_full_voucher_columns = !!presentation.show_optional_full_voucher_columns;
 
-		this.breadcrumbs = [];
+		this._reset_breadcrumbs();
 		this.render_navigator();
 		this.render_breadcrumbs();
 		this.render_detail_header();
@@ -1384,7 +1463,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		}
 		if (segment.step && segment.step.startsWith("crumb:")) {
 			const trail = this.get_normalized_breadcrumb_trail();
-			this.breadcrumbs = trail.slice(0, segment.crumb_index + 1);
+			this._reset_breadcrumbs(trail.slice(0, segment.crumb_index + 1));
 			this.restore_context_from_breadcrumbs();
 			return;
 		}
@@ -1574,6 +1653,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		}
 		this.render_navigator();
 		this.render_detail_header();
+		this._sync_store_context({ emit: true });
 		if (this.document_scope.from_date && this.document_scope.to_date) {
 			this.refresh_summary();
 		}
@@ -1676,6 +1756,9 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			return;
 		}
 
+		this.store.patch({ loading: { summary: true } });
+		this.events.emit("summary:loading");
+
 		frappe.call({
 			method: this.get_summary_method(),
 			args: { payload: JSON.stringify(this.build_payload()) },
@@ -1697,6 +1780,8 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 				if (this.analysis_context.view_axis !== "unified_party") {
 					this.hide_member_panel();
 				}
+				this.store.patch({ loading: { summary: false } });
+				this.events.emit("summary:loaded", { data });
 			},
 		});
 	}
@@ -2332,7 +2417,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 	restore_context_from_breadcrumbs() {
 		const trail = this.get_normalized_breadcrumb_trail();
 		this.reset_analysis(false);
-		this.breadcrumbs = trail;
+		this._reset_breadcrumbs(trail);
 		if (!this.breadcrumbs.length) {
 			this.render_breadcrumbs();
 			this.render_detail_header();
@@ -2411,7 +2496,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 	}
 
 	reset_analysis(refresh = true) {
-		this.breadcrumbs = [];
+		this._reset_breadcrumbs();
 		this.analysis_context.account_scope = {
 			mode: "tree",
 			selected_account: null,

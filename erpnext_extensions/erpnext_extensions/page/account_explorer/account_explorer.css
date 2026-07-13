@@ -1,5 +1,20 @@
 /* Account Explorer — analytical workspace layout */
 
+.account-explorer-page {
+	--ae-primary: var(--primary);
+	--ae-surface: var(--card-bg, var(--control-bg));
+	--ae-border: var(--border-color);
+	--ae-radius: var(--border-radius-lg, var(--border-radius));
+	--ae-spacing: 6px;
+	--ae-shadow: var(--shadow-xs, none);
+	--ae-grid-row-hover: var(--highlight-color, rgba(0, 0, 0, 0.04));
+	--ae-text-muted: var(--text-muted);
+}
+
+[data-theme="dark"] .account-explorer-page {
+	--ae-grid-row-hover: var(--highlight-color, rgba(255, 255, 255, 0.06));
+}
+
 .account-explorer-page .ae-shell {
 	display: flex;
 	flex-direction: column;
@@ -11,11 +26,11 @@
 	display: flex;
 	flex-direction: column;
 	gap: 0;
-	padding: 4px 6px;
-	border: 1px solid var(--border-color);
-	border-radius: var(--border-radius-lg, var(--border-radius));
-	background: var(--card-bg, var(--control-bg));
-	box-shadow: var(--shadow-xs, none);
+	padding: 4px var(--ae-spacing);
+	border: 1px solid var(--ae-border);
+	border-radius: var(--ae-radius);
+	background: var(--ae-surface);
+	box-shadow: var(--ae-shadow);
 }
 
 .account-explorer-page .ae-toolbar-row {
