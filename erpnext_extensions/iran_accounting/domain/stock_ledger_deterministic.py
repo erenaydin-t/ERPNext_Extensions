@@ -17,6 +17,9 @@ from erpnext_extensions.iran_accounting.domain.ledger_rounding import (
 	_set_entry_value,
 	_zero_positive_opening_stock_reconciliation_outgoing_rate,
 )
+from erpnext_extensions.iran_accounting.domain.stock_reconciliation_sync import (
+	_prior_warehouse_sle_before,
+)
 
 
 def irr_avg_rate_from_balance(cumulative_value: float, cumulative_qty: float, currency: str) -> float:
@@ -26,43 +29,28 @@ def irr_avg_rate_from_balance(cumulative_value: float, cumulative_qty: float, cu
 	return float(round_currency(flt(cumulative_value) / flt(cumulative_qty), currency))
 
 
-def _sr_row_balance_amount(sle_doc_or_dict, currency: str) -> float:
-	detail_no = _get_entry_value(sle_doc_or_dict, "voucher_detail_no")
-	if _get_entry_value(sle_doc_or_dict, "voucher_type") != "Stock Reconciliation" or not detail_no:
-		return 0.0
-	row = frappe.db.get_value(
-		"Stock Reconciliation Item",
-		detail_no,
-		["amount"],
-		as_dict=True,
-	)
-	if not row or row.amount in (None, ""):
-		return 0.0
-	return flt(round_currency(row.amount, currency))
-
-
 def resolve_irr_balance_avg_rate(sle_doc_or_dict, company: str) -> float:
-	"""Avg rate from balance value / qty; SR falls back to row.amount when SLE value implies zero avg."""
+	"""Avg rate = round(stock_value / qty_after_transaction, IRR)."""
 	currency = get_company_currency(company)
 	qty_after = flt(_get_entry_value(sle_doc_or_dict, "qty_after_transaction"))
 	if not qty_after:
 		return 0.0
 
 	stock_value = flt(_get_entry_value(sle_doc_or_dict, "stock_value"))
-	incoming = flt(_get_entry_value(sle_doc_or_dict, "incoming_rate"))
-	candidates: list[float] = []
 	if stock_value > 0:
-		candidates.append(stock_value)
-	row_bal = _sr_row_balance_amount(sle_doc_or_dict, currency)
-	if row_bal > 0:
-		candidates.append(row_bal)
-	if incoming > 0 and qty_after > 0:
-		candidates.append(flt(round_currency(incoming * qty_after, currency)))
+		return irr_avg_rate_from_balance(stock_value, qty_after, currency)
 
-	balance_value = max(candidates) if candidates else 0.0
-	if not balance_value:
-		return 0.0
-	return irr_avg_rate_from_balance(balance_value, qty_after, currency)
+	detail_no = _get_entry_value(sle_doc_or_dict, "voucher_detail_no")
+	if _get_entry_value(sle_doc_or_dict, "voucher_type") == "Stock Reconciliation" and detail_no:
+		row = frappe.db.get_value(
+			"Stock Reconciliation Item",
+			detail_no,
+			["valuation_rate"],
+			as_dict=True,
+		)
+		if row and row.valuation_rate not in (None, ""):
+			return float(round_currency(row.valuation_rate, currency))
+	return 0.0
 
 
 def apply_irr_deterministic_sle_valuation(sle_doc_or_dict, company: str | None = None) -> None:
@@ -82,6 +70,8 @@ def apply_irr_deterministic_sle_valuation(sle_doc_or_dict, company: str | None =
 
 	prev_qty = qty_after - actual_qty
 	prev_value = stock_value - movement
+	if _get_entry_value(sle_doc_or_dict, "voucher_type") == "Stock Reconciliation":
+		prev_qty, prev_value = _prior_warehouse_sle_before(sle_doc_or_dict)
 
 	if not qty_after:
 		_set_entry_value(sle_doc_or_dict, "valuation_rate", 0.0)

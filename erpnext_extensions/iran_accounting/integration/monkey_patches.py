@@ -124,6 +124,9 @@ def _patch_stock_controller():
 		StockController._iran_original_get_stock_ledger_details = StockController.get_stock_ledger_details
 
 	for name, func in zvt.STOCK_CONTROLLER_METHODS.items():
+		if name == "get_gl_entries":
+			# Stock Entry only — see StockEntry.get_gl_entries below. DN/PR/SI must use core SLE-based GL.
+			continue
 		setattr(StockController, name, func)
 
 	def get_debit_field_precision(self):
@@ -310,11 +313,12 @@ def _patch_stock_entry():
 		before_gl_preview._iran_wrapped = True
 		StockEntry.before_gl_preview = before_gl_preview
 
-	_orig_get_gl = StockEntry.get_gl_entries
-
-	def get_gl_entries(self, inventory_account_map):
-		gl_entries = _orig_get_gl(self, inventory_account_map)
-		return zvt.finalize_zero_value_transfer_gl_map(self, gl_entries)
+	def get_gl_entries(
+		self, inventory_account_map=None, default_expense_account=None, default_cost_center=None
+	):
+		return zvt.get_gl_entries(
+			self, inventory_account_map, default_expense_account, default_cost_center
+		)
 
 	StockEntry.get_gl_entries = get_gl_entries
 	StockEntry._iran_patched = True
