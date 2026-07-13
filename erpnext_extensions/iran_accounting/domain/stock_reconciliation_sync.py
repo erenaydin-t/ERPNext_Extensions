@@ -13,6 +13,54 @@ from erpnext_extensions.iran_accounting.domain.currency import (
 )
 
 
+def _prior_warehouse_sle_before(sle) -> tuple[float, float]:
+	"""(qty_after_transaction, stock_value) of last SLE before this row."""
+	if not sle.item_code or not sle.warehouse or not sle.company:
+		return 0.0, 0.0
+
+	name = sle.get("name")
+	args = {
+		"item_code": sle.item_code,
+		"warehouse": sle.warehouse,
+		"company": sle.company,
+		"posting_date": sle.posting_date,
+		"posting_time": sle.posting_time or "00:00:00",
+		"creation": sle.creation or "1900-01-01 00:00:00",
+		"name": name or "",
+	}
+	name_clause = "and name != %(name)s" if name else ""
+	row = frappe.db.sql(
+		f"""
+		select qty_after_transaction, stock_value
+		from `tabStock Ledger Entry`
+		where item_code = %(item_code)s
+		  and warehouse = %(warehouse)s
+		  and company = %(company)s
+		  and is_cancelled = 0
+		  {name_clause}
+		  and (
+			posting_date < %(posting_date)s
+			or (posting_date = %(posting_date)s and posting_time < %(posting_time)s)
+			or (
+				posting_date = %(posting_date)s
+				and posting_time = %(posting_time)s
+				and creation < %(creation)s
+			)
+		  )
+		order by posting_date desc, posting_time desc, creation desc, name desc
+		limit 1
+		""",
+		args,
+	)
+	if not row:
+		return 0.0, 0.0
+	return flt(row[0][0]), flt(row[0][1])
+
+
+def _warehouse_stock_value_before_sle(sle) -> float:
+	return _prior_warehouse_sle_before(sle)[1]
+
+
 def sync_irr_sle_from_stock_reconciliation_row(sle) -> None:
 	if not sle.company or not is_irr_company(sle.company):
 		return
@@ -30,10 +78,9 @@ def sync_irr_sle_from_stock_reconciliation_row(sle) -> None:
 		return
 	ccy = get_company_currency(sle.company)
 	amt_diff = round_currency(row.amount_difference, ccy)
-	amount = round_currency(row.amount, ccy)
 	sle.stock_value_difference = amt_diff
-	if flt(sle.qty_after_transaction) and amount:
-		sle.stock_value = amount
+	prev_balance = _warehouse_stock_value_before_sle(sle)
+	sle.stock_value = round_currency(prev_balance + amt_diff, ccy)
 
 
 def assert_stock_reconciliation_row_sle_mirror(voucher_no: str, company: str) -> list[str]:
