@@ -6,20 +6,24 @@ from __future__ import annotations
 import json
 import urllib.parse
 import urllib.request
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 import frappe
 from frappe.utils import flt
 
 from erpnext_extensions.iran_accounting.domain.currency import get_company_currency, is_irr_company
+from erpnext_extensions.iran_accounting.domain.stock_entry_ledger_contract import _gl_stock_account_net
 from erpnext_extensions.iran_accounting.domain.stock_entry_sync import (
+	signed_movement_from_row_amount,
 	stock_entry_row_amount,
 	sum_stock_entry_row_amounts,
-	signed_movement_from_row_amount,
 )
-from erpnext_extensions.iran_accounting.domain.stock_entry_ledger_contract import _gl_stock_account_net
-from erpnext_extensions.iran_accounting.validation import fetch_gl_rows, fetch_sle_rows, gl_debit_credit_totals
+from erpnext_extensions.iran_accounting.validation import (
+	fetch_gl_rows,
+	fetch_sle_rows,
+	gl_debit_credit_totals,
+)
 
 
 def _round_irr_amount(qty, rate) -> int:
@@ -100,13 +104,12 @@ def _fetch_cost_center_allocation_hint(
 			base_url,
 			api_key,
 			api_secret,
-			_resource_url(base_url, "Cost Center Allocation", rows[0]["name"]).replace(base_url.rstrip("/"), ""),
+			_resource_url(base_url, "Cost Center Allocation", rows[0]["name"]).replace(
+				base_url.rstrip("/"), ""
+			),
 		)
 		data = doc.get("data") or doc
-		pcts = [
-			float(r.get("percentage") or 0)
-			for r in (data.get("allocation_percentages") or [])
-		]
+		pcts = [float(r.get("percentage") or 0) for r in (data.get("allocation_percentages") or [])]
 		return {"name": data.get("name"), "percentages": pcts, "main_cost_center": main_cc}
 	except Exception:
 		return None
@@ -232,7 +235,9 @@ def analyze_stock_entry_ledger_drift(voucher_no: str) -> dict[str, Any]:
 				"(SLE is not split by cost center)."
 			)
 		elif row_total == sle_total:
-			root_cause = "GL stock net diverges from SLE while row amounts match SLE — inspect GL merge/split path."
+			root_cause = (
+				"GL stock net diverges from SLE while row amounts match SLE — inspect GL merge/split path."
+			)
 		else:
 			root_cause = "Row/SLE mismatch — inspect SLE sync before GL."
 
@@ -376,7 +381,9 @@ def _api_only_report(
 			}
 		)
 
-	sle_fields = json.dumps(["name", "stock_value_difference", "voucher_detail_no", "actual_qty", "is_cancelled"])
+	sle_fields = json.dumps(
+		["name", "stock_value_difference", "voucher_detail_no", "actual_qty", "is_cancelled"]
+	)
 	sle_resp = _api_get(
 		base_url,
 		api_key,
@@ -384,9 +391,7 @@ def _api_only_report(
 		"/api/resource/" + urllib.parse.quote("Stock Ledger Entry"),
 		{
 			"fields": sle_fields,
-			"filters": json.dumps(
-				[["voucher_type", "=", "Stock Entry"], ["voucher_no", "=", voucher_no]]
-			),
+			"filters": json.dumps([["voucher_type", "=", "Stock Entry"], ["voucher_no", "=", voucher_no]]),
 			"limit_page_length": 500,
 		},
 	)
@@ -440,7 +445,9 @@ def _api_only_report(
 	root_cause = None
 	main_cc = item_rows[0]["cost_center"] if item_rows else None
 	if main_cc and data.get("docstatus") == 0 and not gls:
-		hint = _fetch_cost_center_allocation_hint(base_url, api_key, api_secret, company, main_cc, posting_date)
+		hint = _fetch_cost_center_allocation_hint(
+			base_url, api_key, api_secret, company, main_cc, posting_date
+		)
 		if hint and hint.get("percentages"):
 			amounts = [r["expected_amount"] for r in item_rows]
 			cc_sim = _simulate_cc_allocation_loss(amounts, hint["percentages"])

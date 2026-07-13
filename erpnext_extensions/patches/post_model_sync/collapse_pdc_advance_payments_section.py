@@ -18,4 +18,3 @@ def execute():
 	# UX polish: match native Advances section behavior (collapsible + collapsed by default).
 	for dt in ("Purchase Invoice", "Sales Invoice"):
 		_set(dt, "pdc_advance_payments_section", collapsible=1, collapsed=1)
-

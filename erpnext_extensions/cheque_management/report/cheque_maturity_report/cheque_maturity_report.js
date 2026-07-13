@@ -59,4 +59,3 @@ frappe.query_reports["Cheque Maturity Report"] = {
 		},
 	],
 };
-

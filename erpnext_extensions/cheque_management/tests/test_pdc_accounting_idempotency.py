@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import unittest
-
 from unittest.mock import MagicMock, patch
 
 from erpnext_extensions.cheque_management.pdc_accounting_idempotency import (
@@ -75,10 +74,14 @@ class TestPDCAccountingIdempotency(unittest.TestCase):
 			CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_REGISTERED, WORKFLOW_CLEARED
 		)
 		self.assertTrue(
-			stored_transition_key_matches(full, name, CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_REGISTERED, WORKFLOW_CLEARED)
+			stored_transition_key_matches(
+				full, name, CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_REGISTERED, WORKFLOW_CLEARED
+			)
 		)
 		self.assertTrue(
-			stored_transition_key_matches(legacy, name, CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_REGISTERED, WORKFLOW_CLEARED)
+			stored_transition_key_matches(
+				legacy, name, CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_REGISTERED, WORKFLOW_CLEARED
+			)
 		)
 		self.assertFalse(
 			stored_transition_key_matches(

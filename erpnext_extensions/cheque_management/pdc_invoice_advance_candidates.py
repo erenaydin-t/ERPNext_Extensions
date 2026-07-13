@@ -14,13 +14,13 @@ def _invoice_primary_order(invoice_doctype: str, invoice_doc) -> tuple[str | Non
 	"""
 	dt = (invoice_doctype or "").strip()
 	if dt == "Purchase Invoice":
-		for it in (getattr(invoice_doc, "items", None) or []):
+		for it in getattr(invoice_doc, "items", None) or []:
 			po = (getattr(it, "purchase_order", None) or "").strip()
 			if po:
 				return "Purchase Order", po
 		return None, None
 	if dt == "Sales Invoice":
-		for it in (getattr(invoice_doc, "items", None) or []):
+		for it in getattr(invoice_doc, "items", None) or []:
 			so = (getattr(it, "sales_order", None) or "").strip()
 			if so:
 				return "Sales Order", so
@@ -88,8 +88,9 @@ def get_advance_pdc_candidates_for_invoice(invoice_doctype: str, invoice_name: s
 		return []
 
 	# Applications already posted/reversed for this order bucket (in PDC currency).
-	app_rows = frappe.db.sql(
-		"""
+	app_rows = (
+		frappe.db.sql(
+			"""
 		SELECT
 		  post_dated_cheque AS pdc,
 		  application_status,
@@ -100,9 +101,12 @@ def get_advance_pdc_candidates_for_invoice(invoice_doctype: str, invoice_name: s
 		  AND application_status IN ('posted', 'reversed')
 		GROUP BY post_dated_cheque, application_status
 		""",
-		(order_dt, order_nm),
-		as_dict=True,
-	) if frappe.db.table_exists("tabPDC Invoice Application") else []
+			(order_dt, order_nm),
+			as_dict=True,
+		)
+		if frappe.db.table_exists("tabPDC Invoice Application")
+		else []
+	)
 
 	applied_map: dict[str, float] = {}
 	reversed_map: dict[str, float] = {}
@@ -159,7 +163,9 @@ def get_advance_pdc_candidates(invoice_doctype: str | None = None, invoice_name:
 	if not (order_dt and order_nm):
 		return {
 			"reason": "no_order_link",
-			"message": _("This invoice is not linked to a Purchase Order / Sales Order, so order-based PDC advances cannot be applied."),
+			"message": _(
+				"This invoice is not linked to a Purchase Order / Sales Order, so order-based PDC advances cannot be applied."
+			),
 			"candidates": [],
 		}
 
@@ -175,4 +181,3 @@ def get_advance_pdc_candidates(invoice_doctype: str | None = None, invoice_name:
 
 
 __all__ = ["get_advance_pdc_candidates_for_invoice", "get_advance_pdc_candidates"]
-

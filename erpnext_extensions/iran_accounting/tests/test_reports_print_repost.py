@@ -16,8 +16,8 @@ from erpnext_extensions.iran_accounting.diagnostics import (
 from erpnext_extensions.iran_accounting.e2e_bootstrap import get_irr_company
 from erpnext_extensions.iran_accounting.reports import (
 	run_general_ledger_report,
-	run_stock_ledger_report,
 	run_statement_of_accounts_report,
+	run_stock_ledger_report,
 )
 from erpnext_extensions.iran_accounting.validation import assert_report_rows_no_irr_decimals
 
@@ -52,7 +52,11 @@ class TestIranAccountingReportsPrintRepost(FrappeTestCase):
 			}
 		)
 		self.assertTrue(columns)
-		assert_report_rows_no_irr_decimals(data, self.company, ("stock_value", "stock_value_difference", "incoming_rate", "valuation_rate", "in_out_rate"))
+		assert_report_rows_no_irr_decimals(
+			data,
+			self.company,
+			("stock_value", "stock_value_difference", "incoming_rate", "valuation_rate", "in_out_rate"),
+		)
 
 	def test_statement_of_accounts_no_irr_decimals(self):
 		account = frappe.db.get_value(
@@ -79,7 +83,9 @@ class TestIranAccountingReportsPrintRepost(FrappeTestCase):
 		out = check_print_output("MAT-STE-2026-00005", doctype="Stock Entry")
 		# Print may still show fractional valuation_rate/qty; flag for manual review only.
 		if out["status"] == "FAIL":
-			self.skipTest(f"Print has decimal snippets (often valuation_rate): {out.get('decimal_snippets_found')[:5]}")
+			self.skipTest(
+				f"Print has decimal snippets (often valuation_rate): {out.get('decimal_snippets_found')[:5]}"
+			)
 
 	def test_repost_does_not_reintroduce_fractional_irr_or_adjustments(self):
 		if frappe.db.exists("Stock Entry", "MAT-STE-2026-00005"):

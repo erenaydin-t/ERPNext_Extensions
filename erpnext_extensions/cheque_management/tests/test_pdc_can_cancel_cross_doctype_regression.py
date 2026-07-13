@@ -7,26 +7,25 @@ import unittest
 
 import frappe
 from frappe.exceptions import DoesNotExistError, ValidationError
+from frappe.model.workflow import can_cancel_document as frappe_can_cancel_document
 
 from erpnext_extensions.cheque_management.pdc_direct_cancel_policy import (
 	can_cancel_document as ext_can_cancel_document,
-)
-from erpnext_extensions.cheque_management.tests.test_pdc_direct_cancel import (
-	_make_submitted_registered_payable,
-)
-from erpnext_extensions.cheque_management.utils.pdc_import_cleanup import (
-	unlink_opening_import_and_delete_pdc,
-)
-from erpnext_extensions.cheque_management.tests.test_pdc_import_cleanup import (
-	_attach_coi_import_link,
-	_create_draft_receivable_pdc,
 )
 from erpnext_extensions.cheque_management.run_live_party_orchestration_e2e import (
 	_site_context,
 	_unique_cheque_no,
 )
-from frappe.model.workflow import can_cancel_document as frappe_can_cancel_document
-
+from erpnext_extensions.cheque_management.tests.test_pdc_direct_cancel import (
+	_make_submitted_registered_payable,
+)
+from erpnext_extensions.cheque_management.tests.test_pdc_import_cleanup import (
+	_attach_coi_import_link,
+	_create_draft_receivable_pdc,
+)
+from erpnext_extensions.cheque_management.utils.pdc_import_cleanup import (
+	unlink_opening_import_and_delete_pdc,
+)
 
 # ERPNext / common desk doctypes (workflow or standard cancel toolbar).
 _NON_PDC_DOCTYPES = (

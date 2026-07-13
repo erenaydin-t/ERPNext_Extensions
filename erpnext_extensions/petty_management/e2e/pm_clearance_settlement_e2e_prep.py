@@ -74,4 +74,3 @@ def prepare() -> dict:
 		"purchase_order": po.name,
 		"supplier_advance_account": advance_account,
 	}
-

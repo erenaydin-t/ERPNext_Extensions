@@ -1,7 +1,7 @@
 # Copyright (c) 2026, ERPNext Extensions contributors
 
 import unittest
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 
 from erpnext_extensions.iran_accounting.domain.gl_cost_center_allocation import (
 	absorb_irr_cost_center_split_residual,

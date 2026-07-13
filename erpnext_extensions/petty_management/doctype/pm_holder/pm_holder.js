@@ -37,11 +37,13 @@ frappe.ui.form.on("PM Holder", {
 		if (frappe.meta.has_field("Bank Account", "company")) {
 			filters.company = frm.doc.company;
 		}
-		frappe.db.get_list("Bank Account", { filters, fields: ["name"], limit: 2 }).then((rows) => {
-			if (rows.length === 1) {
-				frm.set_value("default_employee_bank_account", rows[0].name);
-			}
-		});
+		frappe.db
+			.get_list("Bank Account", { filters, fields: ["name"], limit: 2 })
+			.then((rows) => {
+				if (rows.length === 1) {
+					frm.set_value("default_employee_bank_account", rows[0].name);
+				}
+			});
 	},
 	refresh(frm) {
 		if (!frm.is_new()) {

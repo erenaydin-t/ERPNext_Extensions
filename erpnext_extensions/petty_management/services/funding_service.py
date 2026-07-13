@@ -40,7 +40,9 @@ def derive_payment_status_from_totals(doc: Document) -> None:
 		doc.payment_status = "Paid"
 
 
-def sync_pm_request_funding_fields(pm_request: str | Document, exclude_payment_entry: str | None = None) -> None:
+def sync_pm_request_funding_fields(
+	pm_request: str | Document, exclude_payment_entry: str | None = None
+) -> None:
 	from erpnext_extensions.petty_management.services.request_api_guard import get_pm_request_doc_internal
 
 	doc = pm_request if isinstance(pm_request, Document) else get_pm_request_doc_internal(pm_request)
@@ -89,9 +91,9 @@ def validate_new_pe_amount(pm_request: str, new_amount: float) -> None:
 	requested = flt(doc.total_requested_amount)
 	if submitted + draft + flt(new_amount) > requested + _EPS:
 		frappe.throw(
-			_("Payment amount exceeds remaining request balance (submitted {0}, draft {1}, requested {2}).").format(
-				submitted, draft, requested
-			),
+			_(
+				"Payment amount exceeds remaining request balance (submitted {0}, draft {1}, requested {2})."
+			).format(submitted, draft, requested),
 			title=_("Over-funding"),
 		)
 

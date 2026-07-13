@@ -92,8 +92,7 @@ def apply_pdc_instrument_after_rollback(
 			step_removed = [
 				r
 				for r in removed
-				if r.get("transition_key") == step.transition_key
-				or r.get("name") == step.journal_entry
+				if r.get("transition_key") == step.transition_key or r.get("name") == step.journal_entry
 			]
 			_append_rollback_audit_row(
 				pdc.name,
@@ -109,9 +108,7 @@ def apply_pdc_instrument_after_rollback(
 				},
 			)
 
-		comment = _("Workflow rolled back: {0} → {1}. Reason: {2}").format(
-			from_state, target, plan.reason
-		)
+		comment = _("Workflow rolled back: {0} → {1}. Reason: {2}").format(from_state, target, plan.reason)
 		frappe.get_doc("Post Dated Cheque", pdc.name).add_comment("Workflow", comment)
 	finally:
 		frappe.flags.in_pdc_workflow_rollback = None

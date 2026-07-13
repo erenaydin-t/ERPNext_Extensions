@@ -34,14 +34,19 @@ class TestAcceptanceRunner(unittest.TestCase):
 		self.assertEqual(_overall_status(rows), "PASS")
 
 	def test_check_irr_settings_mock(self):
-		with mock.patch(
-			"erpnext_extensions.iran_accounting.acceptance.get_company_currency", return_value="IRR"
-		), mock.patch(
-			"erpnext_extensions.iran_accounting.acceptance.get_currency_precision", return_value=0
-		), mock.patch(
-			"erpnext_extensions.iran_accounting.acceptance.frappe.db.get_single_value", return_value=None
-		), mock.patch(
-			"erpnext_extensions.iran_accounting.acceptance.frappe.db.get_value", return_value="#,###"
+		with (
+			mock.patch(
+				"erpnext_extensions.iran_accounting.acceptance.get_company_currency", return_value="IRR"
+			),
+			mock.patch(
+				"erpnext_extensions.iran_accounting.acceptance.get_currency_precision", return_value=0
+			),
+			mock.patch(
+				"erpnext_extensions.iran_accounting.acceptance.frappe.db.get_single_value", return_value=None
+			),
+			mock.patch(
+				"erpnext_extensions.iran_accounting.acceptance.frappe.db.get_value", return_value="#,###"
+			),
 		):
 			rows, info = _check_irr_settings("ESPAD")
 		self.assertEqual(rows[0]["status"], "PASS")

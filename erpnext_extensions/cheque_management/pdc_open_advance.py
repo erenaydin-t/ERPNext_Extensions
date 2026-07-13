@@ -6,7 +6,6 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
-
 ALLOCATION_MODE_ADVANCE = "advance"
 _ALLOWED_ORDERS = ("Purchase Order", "Sales Order")
 
@@ -118,7 +117,9 @@ def _sum_applications_for_pdc(pdc_name: str) -> tuple[float, float]:
 	return applied, reversed
 
 
-def _sum_applications_for_pdc_order(pdc_name: str, order_doctype: str, order_name: str) -> tuple[float, float]:
+def _sum_applications_for_pdc_order(
+	pdc_name: str, order_doctype: str, order_name: str
+) -> tuple[float, float]:
 	"""Return (applied_amount, reversed_amount) in PDC currency for this instrument+order bucket."""
 	if not _invoice_app_table_exists():
 		return 0.0, 0.0
@@ -229,7 +230,9 @@ def get_pdc_open_advance_by_order(pdc_name: str, order_doctype: str, order_name:
 	allocatable = _is_allocatable_advance(h)
 
 	# v1: when not recognized, gross is 0 so open is 0.
-	bucket_gross = _sum_order_bucket_gross_from_allocations(h.name, order_doctype, order_name) if allocatable else 0.0
+	bucket_gross = (
+		_sum_order_bucket_gross_from_allocations(h.name, order_doctype, order_name) if allocatable else 0.0
+	)
 	applied, reversed_amt = (
 		_sum_applications_for_pdc_order(h.name, order_doctype, order_name) if allocatable else (0.0, 0.0)
 	)
@@ -333,7 +336,12 @@ def get_open_advance_for_order(order_doctype: str, order_name: str) -> dict:
 		total_open += open_amt
 		count += 1
 
-	return {"order_doctype": order_doctype, "order_name": order_name, "open_amount": flt(total_open), "pdc_count": count}
+	return {
+		"order_doctype": order_doctype,
+		"order_name": order_name,
+		"open_amount": flt(total_open),
+		"pdc_count": count,
+	}
 
 
 __all__ = [
@@ -342,4 +350,3 @@ __all__ = [
 	"get_open_advance_for_order",
 	"is_pdc_advance_allocatable",
 ]
-

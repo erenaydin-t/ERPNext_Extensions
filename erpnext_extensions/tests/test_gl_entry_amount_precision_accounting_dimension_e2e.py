@@ -16,12 +16,12 @@ from decimal import Decimal
 from unittest.mock import patch
 
 import frappe
-from frappe.utils import today
-
 from erpnext.accounts.doctype.accounting_dimension.accounting_dimension import (
 	make_dimension_in_accounting_doctypes,
 	toggle_disabling,
 )
+from frappe.utils import today
+
 from erpnext_extensions.patches.post_model_sync.expand_gl_entry_amount_precision import (
 	execute as expand_gl_entry_amount_precision_execute,
 )
@@ -149,9 +149,9 @@ def _ensure_link_record_for_doctype(doctype: str, *, company: str | None = None)
 	if doctype == "Item Group":
 		name = "EE-GL-Prec-Item-Group"
 		if not frappe.db.exists("Item Group", name):
-			frappe.get_doc(
-				{"doctype": "Item Group", "item_group_name": name, "is_group": 0}
-			).insert(ignore_permissions=True)
+			frappe.get_doc({"doctype": "Item Group", "item_group_name": name, "is_group": 0}).insert(
+				ignore_permissions=True
+			)
 		return
 	if doctype == "Sales Person":
 		name = "EE-GL-Prec-Sales-Person"
@@ -187,9 +187,7 @@ def _site_company_country_and_currency() -> tuple[str, str]:
 		as_dict=True,
 	)
 	if not row or not row.country or not row.default_currency:
-		raise AssertionError(
-			"No existing Company on site to derive country/currency for the test company"
-		)
+		raise AssertionError("No existing Company on site to derive country/currency for the test company")
 	return row.country, row.default_currency
 
 
@@ -246,9 +244,7 @@ def _ensure_test_accounting_dimension_fieldname(*, company: str) -> str:
 		make_dimension_in_accounting_doctypes(dim_doc)
 
 	if not frappe.db.exists("Custom Field", {"dt": "GL Entry", "fieldname": fieldname}):
-		raise AssertionError(
-			f"Custom Field on GL Entry for test dimension {fieldname!r} was not created"
-		)
+		raise AssertionError(f"Custom Field on GL Entry for test dimension {fieldname!r} was not created")
 	return fieldname
 
 

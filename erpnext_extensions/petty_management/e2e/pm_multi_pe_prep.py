@@ -94,8 +94,9 @@ def prepare_draft_pe_blocks_close() -> dict:
 	emp = tpm._make_employee()
 	tpm._make_holder(emp)
 	req = _new_submitted_request(emp, 50_000)
-	from erpnext_extensions.petty_management.services.request_service import create_payment_entry
 	import inspect
+
+	from erpnext_extensions.petty_management.services.request_service import create_payment_entry
 
 	sig = inspect.signature(create_payment_entry)
 	if "paid_amount" in sig.parameters:

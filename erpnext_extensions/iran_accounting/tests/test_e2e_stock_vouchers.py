@@ -70,7 +70,10 @@ class TestIranAccountingStockE2E(FrappeTestCase):
 
 	def test_mtfm_preview_submit_repost_no_adjustment_no_double_no_decimals(self):
 		if frappe.db.exists("Stock Entry", "PO-JOB00049-1"):
-			from erpnext_extensions.iran_accounting.e2e_bootstrap import preview_gl_totals, preview_stock_entry_gl
+			from erpnext_extensions.iran_accounting.e2e_bootstrap import (
+				preview_gl_totals,
+				preview_stock_entry_gl,
+			)
 
 			se = frappe.get_doc("Stock Entry", "PO-JOB00049-1")
 			preview = preview_stock_entry_gl(se.company, se.name)
@@ -93,7 +96,6 @@ class TestIranAccountingStockE2E(FrappeTestCase):
 		from erpnext_extensions.iran_accounting.validation import fetch_gl_rows, fetch_sle_rows
 
 		return fetch_gl_rows(doctype, name), fetch_sle_rows(doctype, name)
-
 
 
 if __name__ == "__main__":

@@ -6,11 +6,11 @@ import frappe
 from frappe.utils import flt, today
 
 from erpnext_extensions.facility_management.doctype.facility.facility import create_receipt_journal_entry
+from erpnext_extensions.facility_management.e2e.facility_repayment_je_prep import prepare_active_facility
 from erpnext_extensions.facility_management.facility_accounting import (
 	create_and_submit_repayment_je,
 	preview_repayment_journal_entry,
 )
-from erpnext_extensions.facility_management.e2e.facility_repayment_je_prep import prepare_active_facility
 
 REPAYMENT_ACCOUNTS_AND_DIMENSIONS = (
 	"bank_account",
@@ -79,18 +79,27 @@ def run_repayment_override_integration() -> dict:
 
 	prev = preview_repayment_journal_entry(rep)
 	je_accounts = {row["account"] for row in prev.get("rows") or []}
-	missing = [overrides[fn] for fn in ("bank_account", "loan_payable_account") if overrides.get(fn) not in je_accounts]
+	missing = [
+		overrides[fn]
+		for fn in ("bank_account", "loan_payable_account")
+		if overrides.get(fn) not in je_accounts
+	]
 
 	rep.submit()
 	je_name = rep.journal_entry
 	je = frappe.get_doc("Journal Entry", je_name)
 	submitted_accounts = {row.account for row in je.accounts}
 	missing_submit = [
-		overrides[fn] for fn in overrides if fn.endswith("_account") and overrides[fn] not in submitted_accounts
+		overrides[fn]
+		for fn in overrides
+		if fn.endswith("_account") and overrides[fn] not in submitted_accounts
 	]
 
 	ok = not missing and not missing_submit
-	if overrides.get("interest_expense_account") and overrides["interest_expense_account"] not in submitted_accounts:
+	if (
+		overrides.get("interest_expense_account")
+		and overrides["interest_expense_account"] not in submitted_accounts
+	):
 		ok = False
 
 	return {

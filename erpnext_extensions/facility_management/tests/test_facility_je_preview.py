@@ -11,6 +11,8 @@ from frappe.utils import flt, random_string, today
 
 from erpnext_extensions.facility_management.doctype.facility.facility import (
 	create_receipt_journal_entry,
+)
+from erpnext_extensions.facility_management.doctype.facility.facility import (
 	preview_receipt_journal_entry as preview_receipt_api,
 )
 from erpnext_extensions.facility_management.facility_accounting import (
@@ -27,7 +29,10 @@ from erpnext_extensions.facility_management.facility_e2e_context import (
 	apply_facility_test_accounts,
 	ensure_bank_master,
 )
-from erpnext_extensions.facility_management.facility_settings_doc import get_facility_settings_doc, resolve_account
+from erpnext_extensions.facility_management.facility_settings_doc import (
+	get_facility_settings_doc,
+	resolve_account,
+)
 
 
 def _preview_rows_from_plan(plan) -> list[dict]:
@@ -176,7 +181,9 @@ class TestReceiptJePreview(unittest.TestCase):
 
 class TestRepaymentJePreview(unittest.TestCase):
 	def _draft_repayment(self):
-		from erpnext_extensions.facility_management.e2e.facility_repayment_je_prep import prepare_active_facility
+		from erpnext_extensions.facility_management.e2e.facility_repayment_je_prep import (
+			prepare_active_facility,
+		)
 
 		prep = prepare_active_facility()
 		rep = frappe.new_doc("Facility Repayment")

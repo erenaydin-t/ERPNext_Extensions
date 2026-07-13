@@ -79,7 +79,9 @@ def run():
 	_transition(pdc_a, WORKFLOW_SENT_TO_BANK, sent_to_bank_date=t0)
 	tr = _transition(pdc_a, WORKFLOW_CLEARED, cleared_date=t0)
 	rep = _je_report(tr["je"], ctx)
-	results.append({"test": "A_receivable_clear_after_sent_to_bank", "pdc": pdc_a.name, "transition": tr, "report": rep})
+	results.append(
+		{"test": "A_receivable_clear_after_sent_to_bank", "pdc": pdc_a.name, "transition": tr, "report": rep}
+	)
 	errors.extend(_assert_party_policy(rep, "A", expect_both=False, expect_clear_split=True))
 	if clearing_acc:
 		cr = [r for r in rep["accounts"] if r.get("credit")][0]
@@ -95,10 +97,14 @@ def run():
 		_transition(pdc_b, WORKFLOW_UNDER_LEGAL_ACTION)
 		tr = _transition(pdc_b, WORKFLOW_CLEARED, cleared_date=t0)
 		rep = _je_report(tr["je"], ctx)
-		results.append({"test": "B_clear_from_under_legal_action", "pdc": pdc_b.name, "transition": tr, "report": rep})
+		results.append(
+			{"test": "B_clear_from_under_legal_action", "pdc": pdc_b.name, "transition": tr, "report": rep}
+		)
 		errors.extend(_assert_party_policy(rep, "B", expect_both=False, expect_clear_split=True))
 	else:
-		results.append({"test": "B_clear_from_under_legal_action", "skipped": True, "reason": "no protested account"})
+		results.append(
+			{"test": "B_clear_from_under_legal_action", "skipped": True, "reason": "no protested account"}
+		)
 
 	# Test C — Payable Clear (pool may be Payable type)
 	pdc_c = _new_payable_pdc(ctx, _unique_cheque_no("CLR-C"))
@@ -121,7 +127,9 @@ def run():
 			_pdc_validate_clearing_bank_ledger_account(doc_stub, ar_gl)
 			errors.append("D: expected bank validation to reject Receivable GL")
 		except frappe.ValidationError as e:
-			results.append({"test": "D_bank_rejects_receivable_gl", "gl": ar_gl, "ok": True, "message": str(e)})
+			results.append(
+				{"test": "D_bank_rejects_receivable_gl", "gl": ar_gl, "ok": True, "message": str(e)}
+			)
 	else:
 		results.append({"test": "D_bank_rejects_receivable_gl", "skipped": True})
 

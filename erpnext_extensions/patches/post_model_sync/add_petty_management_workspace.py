@@ -18,7 +18,6 @@ from erpnext_extensions.petty_management.desk_workspace_config import (
 	WORKSPACE_TRANSACTION_LINKS,
 )
 
-
 MODULE_NAME = "Petty Management"
 APP_NAME = "erpnext_extensions"
 

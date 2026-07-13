@@ -43,4 +43,3 @@ def _delete_columns(doctype: str, fieldnames: tuple[str, ...]) -> None:
 
 	# Compatibility fallback for benches where frappe.db.delete_column is not available.
 	delete_fields({doctype: existing_fieldnames}, delete=1)
-

@@ -38,10 +38,36 @@ Design reference: ``PDC_DESIGN_FINAL_FA.md``; English notes: ``../../DEVELOPER.m
 import logging
 
 import frappe
-from frappe.model.document import Document
 from frappe import validate_and_sanitize_search_inputs
+from frappe.model.document import Document
 from frappe.utils import cint, cstr, getdate, now_datetime
 
+from erpnext_extensions.cheque_management.pdc_allocation import (
+	ALLOCATION_MODE_ADVANCE,
+	apply_pdc_allocation_row_defaults_from_parent,
+	autofill_pdc_allocations_from_parent_reference,
+	pdc_allocation_effective_milestone_workflow_state,
+	sanitize_pdc_allocation_child_rows,
+	sync_pdc_allocation_summary_amounts,
+	validate_pdc_allocation_rows,
+	validate_pdc_allocation_workflow_milestone,
+	validate_post_dated_cheque_allocation_mode_immutability,
+)
+from erpnext_extensions.cheque_management.pdc_allocation import (
+	is_pdc_allocation_draft_only as _is_pdc_allocation_draft_only,
+)
+from erpnext_extensions.cheque_management.pdc_allocation import (
+	is_pdc_allocation_effective as _is_pdc_allocation_effective,
+)
+from erpnext_extensions.cheque_management.pdc_payable_purchase_invoice_je_refs import (
+	payable_purchase_invoice_settlement_slices,
+)
+from erpnext_extensions.cheque_management.pdc_receivable_accounting import (
+	receivable_intermediary_account_for_bank_clear,
+)
+from erpnext_extensions.cheque_management.pdc_receivable_sales_invoice_je_refs import (
+	receivable_sales_invoice_settlement_slices,
+)
 from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
 	CHEQUE_DIRECTION_PAYABLE,
 	CHEQUE_DIRECTION_RECEIVABLE,
@@ -66,28 +92,6 @@ from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
 	get_pdc_workflow_transition_validation_error,
 	is_workflow_previous_empty,
 	normalize_workflow_state_value,
-)
-from erpnext_extensions.cheque_management.pdc_receivable_accounting import (
-	receivable_intermediary_account_for_bank_clear,
-)
-from erpnext_extensions.cheque_management.pdc_allocation import (
-	apply_pdc_allocation_row_defaults_from_parent,
-	autofill_pdc_allocations_from_parent_reference,
-	ALLOCATION_MODE_ADVANCE,
-	is_pdc_allocation_draft_only as _is_pdc_allocation_draft_only,
-	is_pdc_allocation_effective as _is_pdc_allocation_effective,
-	pdc_allocation_effective_milestone_workflow_state,
-	sanitize_pdc_allocation_child_rows,
-	sync_pdc_allocation_summary_amounts,
-	validate_post_dated_cheque_allocation_mode_immutability,
-	validate_pdc_allocation_rows,
-	validate_pdc_allocation_workflow_milestone,
-)
-from erpnext_extensions.cheque_management.pdc_payable_purchase_invoice_je_refs import (
-	payable_purchase_invoice_settlement_slices,
-)
-from erpnext_extensions.cheque_management.pdc_receivable_sales_invoice_je_refs import (
-	receivable_sales_invoice_settlement_slices,
 )
 from erpnext_extensions.cheque_management.pdc_workflow_to_cheque_status import (
 	CHEQUE_STATUS_RETURNED_FROM_PAYEE,
@@ -160,7 +164,9 @@ PDC_JE_REMARK_REPLACE_ISSUED_PAYABLE_CHEQUE = "Replace issued payable cheque"
 PDC_JE_REMARK_REPLACE_RETURNED_PAYABLE_CHEQUE = "Replace returned payable cheque"
 PDC_JE_REMARK_CLEAR_PAYABLE_CHEQUE = "Clear payable cheque"
 # Journal Entry remarks — Payable Registered → Cancelled (reverse register settlement)
-PDC_JE_REMARK_CANCEL_REGISTERED_PAYABLE_CHEQUE = "Cancel registered payable cheque (reverse supplier settlement)"
+PDC_JE_REMARK_CANCEL_REGISTERED_PAYABLE_CHEQUE = (
+	"Cancel registered payable cheque (reverse supplier settlement)"
+)
 
 # Journal Entry remarks — Receivable → Cleared (Dr bank, Cr intermediary; no party)
 PDC_JE_REMARK_CLEAR_RECEIVABLE_REGISTERED = (
@@ -174,6 +180,7 @@ PDC_JE_REMARK_CLEAR_RECEIVABLE_LEGAL = (
 )
 #
 # NOTE: This app does not use Payment Entry for PDC lifecycle.
+
 
 def _resolve_holder_party_type_and_party(doc) -> tuple[str | None, str | None]:
 	"""Holder for endorsement / display: ``holder_party*`` if set, else drawer ``party*``."""
@@ -215,13 +222,18 @@ def get_accounting_action(doc, previous_workflow_state: str | None) -> str:
 	if (
 		(getattr(doc, "allocation_mode", None) or "").strip() == ALLOCATION_MODE_ADVANCE
 		and (cheque_direction or "").strip() == CHEQUE_DIRECTION_PAYABLE
-		and (getattr(doc, "effective_stage_for_advance_recognition", None) or "register").strip().lower() == "issue"
+		and (getattr(doc, "effective_stage_for_advance_recognition", None) or "register").strip().lower()
+		== "issue"
 		and from_state == WORKFLOW_REGISTERED
 		and to_state == WORKFLOW_ISSUED
 	):
 		decision = PDC_ACCOUNTING_JOURNAL_ENTRY
 	# Enforce lifecycle rule: selector can only yield journal_entry or no_document.
-	return PDC_ACCOUNTING_JOURNAL_ENTRY if decision == PDC_ACCOUNTING_JOURNAL_ENTRY else PDC_ACCOUNTING_NO_DOCUMENT
+	return (
+		PDC_ACCOUNTING_JOURNAL_ENTRY
+		if decision == PDC_ACCOUNTING_JOURNAL_ENTRY
+		else PDC_ACCOUNTING_NO_DOCUMENT
+	)
 
 
 def _get_party_account_or_company_default(party_type, party, company, account_kind="receivable"):
@@ -234,6 +246,7 @@ def _get_party_account_or_company_default(party_type, party, company, account_ki
 		return frappe.get_cached_value("Company", company, "default_payable_account")
 	try:
 		from erpnext.accounts.party import get_party_account
+
 		account = get_party_account(party_type, party, company)
 		if account:
 			return account
@@ -315,7 +328,10 @@ def _validate_advance_account_override(doc) -> None:
 		as_dict=True,
 	)
 	if not row:
-		frappe.throw(frappe._("Advance / Prepayment Account {0} does not exist.").format(acc), title=frappe._("Account"))
+		frappe.throw(
+			frappe._("Advance / Prepayment Account {0} does not exist.").format(acc),
+			title=frappe._("Account"),
+		)
 
 	if cint(row.get("disabled", 0)):
 		frappe.throw(
@@ -332,7 +348,9 @@ def _validate_advance_account_override(doc) -> None:
 	acc_company = (row.get("company") or "").strip()
 	if company and acc_company and acc_company != company:
 		frappe.throw(
-			frappe._("Advance / Prepayment Account must belong to the same Company as this Post Dated Cheque."),
+			frappe._(
+				"Advance / Prepayment Account must belong to the same Company as this Post Dated Cheque."
+			),
 			title=frappe._("Account"),
 		)
 
@@ -414,7 +432,10 @@ def resolve_pdc_accounts_for_journal(doc, settings=None):
 		1) ``doc.account_paid_from`` when explicitly set on the PDC (payable only)
 		2) ``settings.default_payable_cheque_account``
 		"""
-		if doc is not None and (getattr(doc, "cheque_direction", None) or "").strip() == CHEQUE_DIRECTION_PAYABLE:
+		if (
+			doc is not None
+			and (getattr(doc, "cheque_direction", None) or "").strip() == CHEQUE_DIRECTION_PAYABLE
+		):
 			explicit = _strip_link_name_or_none(getattr(doc, "account_paid_from", None))
 			if explicit:
 				return explicit
@@ -589,12 +610,12 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 			)
 
 		if edge == (WORKFLOW_REGISTERED, WORKFLOW_ENDORSED):
-			holder_pt = _strip_link_name_or_none(getattr(doc, "holder_party_type", None)) or _strip_link_name_or_none(
-				getattr(doc, "party_type", None)
-			)
-			holder_p = _strip_link_name_or_none(getattr(doc, "holder_party", None)) or _strip_link_name_or_none(
-				getattr(doc, "party", None)
-			)
+			holder_pt = _strip_link_name_or_none(
+				getattr(doc, "holder_party_type", None)
+			) or _strip_link_name_or_none(getattr(doc, "party_type", None))
+			holder_p = _strip_link_name_or_none(
+				getattr(doc, "holder_party", None)
+			) or _strip_link_name_or_none(getattr(doc, "party", None))
 			for r in rows:
 				pt, p = r.get("party_type"), r.get("party")
 				if not pt and not p:
@@ -729,10 +750,16 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 					title=frappe._("PDC accounting integrity"),
 				)
 			debit_rows = [
-				r for r in rows if float(r.get("debit_in_account_currency") or 0) and not float(r.get("credit_in_account_currency") or 0)
+				r
+				for r in rows
+				if float(r.get("debit_in_account_currency") or 0)
+				and not float(r.get("credit_in_account_currency") or 0)
 			]
 			credit_rows = [
-				r for r in rows if float(r.get("credit_in_account_currency") or 0) and not float(r.get("debit_in_account_currency") or 0)
+				r
+				for r in rows
+				if float(r.get("credit_in_account_currency") or 0)
+				and not float(r.get("debit_in_account_currency") or 0)
 			]
 			if len(debit_rows) != 1 or len(credit_rows) != 1:
 				frappe.throw(
@@ -743,7 +770,10 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 				)
 			dr = debit_rows[0]
 			cr = credit_rows[0]
-			if _strip_link_name_or_none(dr.get("account")) != expected_pool or _strip_link_name_or_none(cr.get("account")) != expected_bank:
+			if (
+				_strip_link_name_or_none(dr.get("account")) != expected_pool
+				or _strip_link_name_or_none(cr.get("account")) != expected_bank
+			):
 				frappe.throw(
 					frappe._(
 						"Payable PDC accounting integrity: Cleared must only use Dr {0} (Payable Cheque account) and Cr {1} (Bank)."
@@ -780,9 +810,9 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 
 	def _return_je(payload: dict) -> dict:
 		edge = (from_state, to_state)
-		skip_party_mirror = (
-			doc.cheque_direction == CHEQUE_DIRECTION_RECEIVABLE
-			and edge == (WORKFLOW_REGISTERED, WORKFLOW_ENDORSED)
+		skip_party_mirror = doc.cheque_direction == CHEQUE_DIRECTION_RECEIVABLE and edge == (
+			WORKFLOW_REGISTERED,
+			WORKFLOW_ENDORSED,
 		)
 		if not skip_party_mirror:
 			bank_gl = _pdc_bank_gl_account(doc) if to_state == WORKFLOW_CLEARED else None
@@ -803,13 +833,19 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 			if (getattr(doc, "allocation_mode", None) or "").strip() == ALLOCATION_MODE_ADVANCE:
 				if cint(getattr(doc, "recognition_je_posted", 0)):
 					return None
-				eff = (getattr(doc, "effective_stage_for_advance_recognition", None) or "register").strip().lower()
+				eff = (
+					(getattr(doc, "effective_stage_for_advance_recognition", None) or "register")
+					.strip()
+					.lower()
+				)
 				if eff != "register":
 					return None
-				debit_account = _strip_link_name_or_none(getattr(doc, "account_paid_to", None)) or acc["cheques_in_hand"]
-				credit_account = _resolve_advance_account_override(doc) or _company_default_advance_received_account(
-					getattr(doc, "company", None)
+				debit_account = (
+					_strip_link_name_or_none(getattr(doc, "account_paid_to", None)) or acc["cheques_in_hand"]
 				)
+				credit_account = _resolve_advance_account_override(
+					doc
+				) or _company_default_advance_received_account(getattr(doc, "company", None))
 				if not debit_account or not credit_account:
 					return None
 				remark = render_pdc_je_text(
@@ -833,10 +869,12 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 				]
 				je["set_recognition_je_posted"] = 1
 				return _return_je(je)
-			debit_account = _strip_link_name_or_none(getattr(doc, "account_paid_to", None)) or acc["cheques_in_hand"]
-			credit_account = _strip_link_name_or_none(getattr(doc, "account_paid_from", None)) or _get_party_account_or_company_default(
-				doc.party_type, doc.party, doc.company, "receivable"
+			debit_account = (
+				_strip_link_name_or_none(getattr(doc, "account_paid_to", None)) or acc["cheques_in_hand"]
 			)
+			credit_account = _strip_link_name_or_none(
+				getattr(doc, "account_paid_from", None)
+			) or _get_party_account_or_company_default(doc.party_type, doc.party, doc.company, "receivable")
 			if not debit_account or not credit_account:
 				return None
 			remark = render_pdc_je_text(
@@ -884,7 +922,9 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 		if from_state == WORKFLOW_REGISTERED and to_state == WORKFLOW_SENT_TO_BANK:
 			if not acc["cheques_in_clearing"]:
 				return None
-			credit_account = _strip_link_name_or_none(getattr(doc, "account_paid_to", None)) or acc["cheques_in_hand"]
+			credit_account = (
+				_strip_link_name_or_none(getattr(doc, "account_paid_to", None)) or acc["cheques_in_hand"]
+			)
 			if not credit_account:
 				return None
 			remark = render_pdc_je_text(
@@ -982,11 +1022,15 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 		if from_state == WORKFLOW_BOUNCED and to_state == WORKFLOW_REPLACED:
 			if not acc["protested"]:
 				return None
-			debit_account = _strip_link_name_or_none(getattr(doc, "account_paid_to", None)) or acc["cheques_in_hand"]
+			debit_account = (
+				_strip_link_name_or_none(getattr(doc, "account_paid_to", None)) or acc["cheques_in_hand"]
+			)
 			if not debit_account:
 				return None
 			remark = render_pdc_je_text(
-				getattr(settings, "je_remark_replace_receivable_after_bounce_template", None) if settings else None,
+				getattr(settings, "je_remark_replace_receivable_after_bounce_template", None)
+				if settings
+				else None,
 				fallback_text=frappe._(PDC_JE_REMARK_REPLACE_RECEIVABLE_AFTER_BOUNCE),
 				context=ctx,
 				append_cheque_no_suffix=True,
@@ -1007,14 +1051,18 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 		# Returned -> Replaced (Receivable): Dr Cheques in Hand, Cr party AR (inverse of Registered->Returned).
 		# TODO(accounting): Tie to ``replaces_cheque`` / prior return JE — confirm amounts and timing.
 		if from_state == WORKFLOW_RETURNED and to_state == WORKFLOW_REPLACED:
-			debit_account = _strip_link_name_or_none(getattr(doc, "account_paid_to", None)) or acc["cheques_in_hand"]
-			credit_account = _strip_link_name_or_none(getattr(doc, "account_paid_from", None)) or _get_party_account_or_company_default(
-				doc.party_type, doc.party, doc.company, "receivable"
+			debit_account = (
+				_strip_link_name_or_none(getattr(doc, "account_paid_to", None)) or acc["cheques_in_hand"]
 			)
+			credit_account = _strip_link_name_or_none(
+				getattr(doc, "account_paid_from", None)
+			) or _get_party_account_or_company_default(doc.party_type, doc.party, doc.company, "receivable")
 			if not debit_account or not credit_account:
 				return None
 			remark = render_pdc_je_text(
-				getattr(settings, "je_remark_replace_receivable_after_return_template", None) if settings else None,
+				getattr(settings, "je_remark_replace_receivable_after_return_template", None)
+				if settings
+				else None,
 				fallback_text=frappe._(PDC_JE_REMARK_REPLACE_RECEIVABLE_AFTER_RETURN),
 				context=ctx,
 				append_cheque_no_suffix=True,
@@ -1036,14 +1084,18 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 
 		# Registered -> Returned: Dr party AR (``account_paid_from`` / party receivable), Cr Cheques in Hand (``account_paid_to`` / resolver).
 		if from_state == WORKFLOW_REGISTERED and to_state == WORKFLOW_RETURNED:
-			debit_account = _strip_link_name_or_none(getattr(doc, "account_paid_from", None)) or _get_party_account_or_company_default(
-				doc.party_type, doc.party, doc.company, "receivable"
+			debit_account = _strip_link_name_or_none(
+				getattr(doc, "account_paid_from", None)
+			) or _get_party_account_or_company_default(doc.party_type, doc.party, doc.company, "receivable")
+			credit_account = (
+				_strip_link_name_or_none(getattr(doc, "account_paid_to", None)) or acc["cheques_in_hand"]
 			)
-			credit_account = _strip_link_name_or_none(getattr(doc, "account_paid_to", None)) or acc["cheques_in_hand"]
 			if not debit_account or not credit_account:
 				return None
 			remark = render_pdc_je_text(
-				getattr(settings, "je_remark_return_receivable_to_party_template", None) if settings else None,
+				getattr(settings, "je_remark_return_receivable_to_party_template", None)
+				if settings
+				else None,
 				fallback_text=frappe._(PDC_JE_REMARK_RETURN_RECEIVABLE_CHEQUE_TO_PARTY),
 				context=ctx,
 				append_cheque_no_suffix=True,
@@ -1087,15 +1139,17 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 		# Registered -> Endorsed: Dr settlement GL (preferred) or endorsed holder AR — Cr Cheques in Hand.
 		# No bank / PE; drawer (party) must not appear on lines (registration already credited AR).
 		if from_state == WORKFLOW_REGISTERED and to_state == WORKFLOW_ENDORSED:
-			holder_party_type = _strip_link_name_or_none(getattr(doc, "holder_party_type", None)) or _strip_link_name_or_none(
-				getattr(doc, "party_type", None)
-			)
-			holder_party = _strip_link_name_or_none(getattr(doc, "holder_party", None)) or _strip_link_name_or_none(
-				getattr(doc, "party", None)
-			)
+			holder_party_type = _strip_link_name_or_none(
+				getattr(doc, "holder_party_type", None)
+			) or _strip_link_name_or_none(getattr(doc, "party_type", None))
+			holder_party = _strip_link_name_or_none(
+				getattr(doc, "holder_party", None)
+			) or _strip_link_name_or_none(getattr(doc, "party", None))
 			if not holder_party_type or not holder_party:
 				return None
-			credit_account = _strip_link_name_or_none(getattr(doc, "account_paid_to", None)) or acc["cheques_in_hand"]
+			credit_account = (
+				_strip_link_name_or_none(getattr(doc, "account_paid_to", None)) or acc["cheques_in_hand"]
+			)
 			if not credit_account:
 				return None
 			doc_settlement = _strip_link_name_or_none(getattr(doc, "endorsement_settlement_account", None))
@@ -1149,13 +1203,17 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 			if (getattr(doc, "allocation_mode", None) or "").strip() == ALLOCATION_MODE_ADVANCE:
 				if cint(getattr(doc, "recognition_je_posted", 0)):
 					return None
-				eff = (getattr(doc, "effective_stage_for_advance_recognition", None) or "register").strip().lower()
+				eff = (
+					(getattr(doc, "effective_stage_for_advance_recognition", None) or "register")
+					.strip()
+					.lower()
+				)
 				# If recognition is configured at `issue`, do not post at register.
 				if eff == "issue":
 					return None
-				debit_account = _resolve_advance_account_override(doc) or _company_default_advance_paid_account(
-					getattr(doc, "company", None)
-				)
+				debit_account = _resolve_advance_account_override(
+					doc
+				) or _company_default_advance_paid_account(getattr(doc, "company", None))
 				credit_account = acc.get("payable_cheque")
 				if not debit_account or not credit_account:
 					return None
@@ -1182,9 +1240,9 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 				return _return_je(je)
 			if not acc["payable_cheque"]:
 				return None
-			debit_account = _strip_link_name_or_none(getattr(doc, "account_paid_to", None)) or _get_party_account_or_company_default(
-				doc.party_type, doc.party, doc.company, "payable"
-			)
+			debit_account = _strip_link_name_or_none(
+				getattr(doc, "account_paid_to", None)
+			) or _get_party_account_or_company_default(doc.party_type, doc.party, doc.company, "payable")
 			if not debit_account:
 				return None
 			remark = render_pdc_je_text(
@@ -1209,7 +1267,9 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 				return None
 			if cint(getattr(doc, "recognition_je_posted", 0)):
 				return None
-			eff = (getattr(doc, "effective_stage_for_advance_recognition", None) or "register").strip().lower()
+			eff = (
+				(getattr(doc, "effective_stage_for_advance_recognition", None) or "register").strip().lower()
+			)
 			if eff != "issue":
 				return None
 			debit_account = _resolve_advance_account_override(doc) or _company_default_advance_paid_account(
@@ -1244,9 +1304,9 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 		if from_state == WORKFLOW_REGISTERED and to_state == WORKFLOW_CANCELLED:
 			if not acc["payable_cheque"]:
 				return None
-			credit_account = _strip_link_name_or_none(getattr(doc, "account_paid_to", None)) or _get_party_account_or_company_default(
-				doc.party_type, doc.party, doc.company, "payable"
-			)
+			credit_account = _strip_link_name_or_none(
+				getattr(doc, "account_paid_to", None)
+			) or _get_party_account_or_company_default(doc.party_type, doc.party, doc.company, "payable")
 			if not credit_account:
 				return None
 			remark = render_pdc_je_text(
@@ -1270,13 +1330,15 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 		if from_state == WORKFLOW_ISSUED and to_state == WORKFLOW_RETURNED:
 			if not acc["payable_cheque"]:
 				return None
-			credit_account = _strip_link_name_or_none(getattr(doc, "account_paid_to", None)) or _get_party_account_or_company_default(
-				doc.party_type, doc.party, doc.company, "payable"
-			)
+			credit_account = _strip_link_name_or_none(
+				getattr(doc, "account_paid_to", None)
+			) or _get_party_account_or_company_default(doc.party_type, doc.party, doc.company, "payable")
 			if not credit_account:
 				return None
 			remark = render_pdc_je_text(
-				getattr(settings, "je_remark_returned_payable_from_payee_template", None) if settings else None,
+				getattr(settings, "je_remark_returned_payable_from_payee_template", None)
+				if settings
+				else None,
 				fallback_text=frappe._(PDC_JE_REMARK_RETURNED_PAYABLE_CHEQUE_FROM_PAYEE),
 				context=ctx,
 				append_cheque_no_suffix=True,
@@ -1297,9 +1359,9 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 		if from_state == WORKFLOW_ISSUED and to_state == WORKFLOW_REPLACED:
 			if not acc["payable_cheque"]:
 				return None
-			credit_account = _strip_link_name_or_none(getattr(doc, "account_paid_to", None)) or _get_party_account_or_company_default(
-				doc.party_type, doc.party, doc.company, "payable"
-			)
+			credit_account = _strip_link_name_or_none(
+				getattr(doc, "account_paid_to", None)
+			) or _get_party_account_or_company_default(doc.party_type, doc.party, doc.company, "payable")
 			if not credit_account:
 				return None
 			remark = render_pdc_je_text(
@@ -1324,9 +1386,9 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 		if from_state == WORKFLOW_RETURNED and to_state == WORKFLOW_REPLACED:
 			if not acc["payable_cheque"]:
 				return None
-			debit_account = _strip_link_name_or_none(getattr(doc, "account_paid_to", None)) or _get_party_account_or_company_default(
-				doc.party_type, doc.party, doc.company, "payable"
-			)
+			debit_account = _strip_link_name_or_none(
+				getattr(doc, "account_paid_to", None)
+			) or _get_party_account_or_company_default(doc.party_type, doc.party, doc.company, "payable")
 			if not debit_account:
 				return None
 			remark = render_pdc_je_text(
@@ -1349,9 +1411,9 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 		if from_state == WORKFLOW_ISSUED and to_state == WORKFLOW_CANCELLED:
 			if not acc["payable_cheque"]:
 				return None
-			credit_account = _strip_link_name_or_none(getattr(doc, "account_paid_to", None)) or _get_party_account_or_company_default(
-				doc.party_type, doc.party, doc.company, "payable"
-			)
+			credit_account = _strip_link_name_or_none(
+				getattr(doc, "account_paid_to", None)
+			) or _get_party_account_or_company_default(doc.party_type, doc.party, doc.company, "payable")
 			if not credit_account:
 				return None
 			remark = render_pdc_je_text(
@@ -1732,16 +1794,16 @@ class PostDatedCheque(Document):
 		}
 		status_locked = {"In Clearing", "Cleared", "Bounced", "Returned"}
 
-		sent_to_bank_date_set = bool(getattr(before, "sent_to_bank_date", None) or getattr(self, "sent_to_bank_date", None))
+		sent_to_bank_date_set = bool(
+			getattr(before, "sent_to_bank_date", None) or getattr(self, "sent_to_bank_date", None)
+		)
 		in_locked_ws = (prev_ws in ws_locked) or (cur_ws in ws_locked)
 		in_locked_status = (prev_status in status_locked) or (cur_status in status_locked)
 
 		# Registered is NOT sent-to-bank-or-later from sent_to_bank_date alone (it may be prefilled early).
 		# If workflow/cheque_status already indicates clearing lifecycle, those signals still lock.
 		sent_to_bank_signal = (
-			sent_to_bank_date_set
-			and (prev_ws != WORKFLOW_REGISTERED)
-			and (cur_ws != WORKFLOW_REGISTERED)
+			sent_to_bank_date_set and (prev_ws != WORKFLOW_REGISTERED) and (cur_ws != WORKFLOW_REGISTERED)
 		)
 
 		if not (sent_to_bank_signal or in_locked_ws or in_locked_status):
@@ -1790,8 +1852,12 @@ class PostDatedCheque(Document):
 			prev_ws = (getattr(before, "workflow_state", None) or "").strip()
 			cur_ws = (getattr(self, "workflow_state", None) or "").strip()
 			receivable_locked_states = {"Sent to Bank", "In Clearing", "Cleared"}
-			sent_to_bank = bool(getattr(before, "sent_to_bank_date", None) or getattr(self, "sent_to_bank_date", None))
-			in_locked_state = bool((prev_ws in receivable_locked_states) or (cur_ws in receivable_locked_states))
+			sent_to_bank = bool(
+				getattr(before, "sent_to_bank_date", None) or getattr(self, "sent_to_bank_date", None)
+			)
+			in_locked_state = bool(
+				(prev_ws in receivable_locked_states) or (cur_ws in receivable_locked_states)
+			)
 			if sent_to_bank or in_locked_state:
 				frappe.throw(
 					frappe._("Cheque Direction cannot be changed after a receivable cheque is sent to bank."),
@@ -1852,7 +1918,10 @@ class PostDatedCheque(Document):
 				# If it's not parseable, existing framework validations will catch it.
 				continue
 			if dt and dt > today:
-				frappe.throw(frappe._("{0} cannot be in the future.").format(frappe._(label)), title=frappe._("Invalid Date"))
+				frappe.throw(
+					frappe._("{0} cannot be in the future.").format(frappe._(label)),
+					title=frappe._("Invalid Date"),
+				)
 
 	def _validate_advance_scope_structural(self) -> None:
 		"""Advance-mode `advance_scope` structural validation (v1).
@@ -1877,7 +1946,9 @@ class PostDatedCheque(Document):
 
 		scope = (getattr(self, "advance_scope", None) or "").strip() or "order_based"
 		if scope not in ("order_based", "general"):
-			frappe.throw(frappe._("Advance Scope must be order_based or general."), title=frappe._("PDC Advance"))
+			frappe.throw(
+				frappe._("Advance Scope must be order_based or general."), title=frappe._("PDC Advance")
+			)
 
 		# v1: dims must be empty if the field exists.
 		if hasattr(self, "advance_pool_dim_set"):
@@ -1892,7 +1963,9 @@ class PostDatedCheque(Document):
 				allowed = s in ("", "{}", "null")
 			if not allowed:
 				frappe.throw(
-					frappe._("Advance pool dimensions are not supported in v1. Leave Advance Pool Dim Set empty."),
+					frappe._(
+						"Advance pool dimensions are not supported in v1. Leave Advance Pool Dim Set empty."
+					),
 					title=frappe._("PDC Advance"),
 				)
 
@@ -1924,7 +1997,9 @@ class PostDatedCheque(Document):
 				)
 			if ref_dt not in allowed_refs or not ref_nm:
 				frappe.throw(
-					frappe._("Order-based advance PDC allocation rows must reference a Purchase Order or Sales Order."),
+					frappe._(
+						"Order-based advance PDC allocation rows must reference a Purchase Order or Sales Order."
+					),
 					title=frappe._("PDC Advance"),
 				)
 
@@ -2181,7 +2256,9 @@ class PostDatedCheque(Document):
 				frappe._("Effective Stage for Advance Recognition must be 'register' or 'issue'."),
 				title=frappe._("Invalid Advance Recognition Stage"),
 			)
-		if (getattr(self, "cheque_direction", None) or "").strip() == CHEQUE_DIRECTION_RECEIVABLE and eff == "issue":
+		if (
+			getattr(self, "cheque_direction", None) or ""
+		).strip() == CHEQUE_DIRECTION_RECEIVABLE and eff == "issue":
 			frappe.throw(
 				frappe._(
 					"Advance Recognition stage 'issue' is not supported for Receivable cheques. "
@@ -2355,8 +2432,7 @@ class PostDatedCheque(Document):
 		):
 			posting_date = getattr(self, "received_date", None)
 		elif (
-			curr_norm == WORKFLOW_ISSUED
-			and (self.cheque_direction or "").strip() == CHEQUE_DIRECTION_PAYABLE
+			curr_norm == WORKFLOW_ISSUED and (self.cheque_direction or "").strip() == CHEQUE_DIRECTION_PAYABLE
 		):
 			# Operational Issued transition does not post a JE; handover is still mandatory for validation.
 			posting_date = getattr(self, "handover_date", None)
@@ -2392,8 +2468,7 @@ class PostDatedCheque(Document):
 					title=frappe._("Missing Sent to Bank Date"),
 				)
 		elif (
-			curr_norm == WORKFLOW_ISSUED
-			and (self.cheque_direction or "").strip() == CHEQUE_DIRECTION_PAYABLE
+			curr_norm == WORKFLOW_ISSUED and (self.cheque_direction or "").strip() == CHEQUE_DIRECTION_PAYABLE
 		):
 			if not posting_date:
 				frappe.throw(
@@ -2536,11 +2611,7 @@ class PostDatedCheque(Document):
 		if getattr(frappe.flags, "in_pdc_workflow_rollback", None):
 			return
 		prev_raw = self._get_previous_workflow_state_raw()
-		cheque_type = (
-			self.cheque_direction
-			if self.cheque_direction in ("Receivable", "Payable")
-			else ""
-		)
+		cheque_type = self.cheque_direction if self.cheque_direction in ("Receivable", "Payable") else ""
 		err = get_pdc_workflow_transition_validation_error(
 			cheque_type,
 			prev_raw,
@@ -2671,9 +2742,7 @@ class PostDatedCheque(Document):
 		hp = _strip_link_name_or_none(self.holder_party)
 		if not ht or not hp:
 			frappe.throw(
-				frappe._(
-					"Holder Party Type and Holder Party are required when Workflow State is Endorsed."
-				),
+				frappe._("Holder Party Type and Holder Party are required when Workflow State is Endorsed."),
 				title=frappe._("Invalid Endorsed workflow state"),
 			)
 		if not frappe.db.exists(ht, hp):
@@ -2835,9 +2904,7 @@ class PostDatedCheque(Document):
 		if self.cheque_direction == CHEQUE_DIRECTION_PAYABLE:
 			if ws == WORKFLOW_ISSUED and not self.bank_account:
 				frappe.throw(
-					frappe._(
-						"Bank Account is required for Payable cheques when Workflow State is Issued."
-					),
+					frappe._("Bank Account is required for Payable cheques when Workflow State is Issued."),
 					title=frappe._("Bank Account required"),
 				)
 		elif self.cheque_direction == CHEQUE_DIRECTION_RECEIVABLE:
@@ -2977,9 +3044,7 @@ class PostDatedCheque(Document):
 			return
 		if self.cheque_direction not in (CHEQUE_DIRECTION_RECEIVABLE, CHEQUE_DIRECTION_PAYABLE):
 			frappe.throw(
-				frappe._(
-					"Workflow State Returned requires Cheque Direction Receivable or Payable."
-				),
+				frappe._("Workflow State Returned requires Cheque Direction Receivable or Payable."),
 				title=frappe._("Invalid Returned workflow state"),
 			)
 		if not (self.return_reason or "").strip():
@@ -3028,9 +3093,7 @@ class PostDatedCheque(Document):
 		if has_replaces or has_replaced_by:
 			return
 		frappe.throw(
-			frappe._(
-				"When Workflow State is Replaced, set at least one of Replaces Cheque or Replaced By."
-			),
+			frappe._("When Workflow State is Replaced, set at least one of Replaces Cheque or Replaced By."),
 			title=frappe._("Missing replacement link"),
 		)
 
@@ -3103,14 +3166,10 @@ class PostDatedCheque(Document):
 		msgs: list[str] = []
 		if self.cheque_direction == CHEQUE_DIRECTION_RECEIVABLE:
 			if not _strip_link_name_or_none(getattr(self, "bank_account", None)):
-				msgs.append(
-					frappe._("Set **Bank Account** on this PDC (required to clear at the bank).")
-				)
+				msgs.append(frappe._("Set **Bank Account** on this PDC (required to clear at the bank)."))
 			elif not _pdc_bank_gl_account(self):
 				msgs.append(
-					frappe._(
-						"The linked **Bank Account** must have a company **Account** (GL) in ERPNext."
-					)
+					frappe._("The linked **Bank Account** must have a company **Account** (GL) in ERPNext.")
 				)
 			if not getattr(self, "cheque_amount", None):
 				msgs.append(frappe._("Set **Cheque Amount**."))
@@ -3149,9 +3208,7 @@ class PostDatedCheque(Document):
 			acc = resolve_pdc_accounts_for_journal(self, settings)
 			if not acc.get("payable_cheque"):
 				msgs.append(
-					frappe._(
-						"Set **Default Payable Cheque Account** in **PDC Settings** for this company."
-					)
+					frappe._("Set **Default Payable Cheque Account** in **PDC Settings** for this company.")
 				)
 			if not getattr(self, "cheque_amount", None):
 				msgs.append(frappe._("Set **Cheque Amount**."))
@@ -3204,7 +3261,9 @@ class PostDatedCheque(Document):
 					title=frappe._("Replacement link conflict"),
 				)
 		if rb:
-			other_rc = _strip_link_name_or_none(frappe.db.get_value("Post Dated Cheque", rb, "replaces_cheque"))
+			other_rc = _strip_link_name_or_none(
+				frappe.db.get_value("Post Dated Cheque", rb, "replaces_cheque")
+			)
 			if other_rc and (not self.name or other_rc != self.name):
 				frappe.throw(
 					frappe._(
@@ -3263,9 +3322,7 @@ class PostDatedCheque(Document):
 					title=frappe._("Circular replacement"),
 				)
 			visited.add(cur)
-			nxt = _strip_link_name_or_none(
-				frappe.db.get_value("Post Dated Cheque", cur, "replaces_cheque")
-			)
+			nxt = _strip_link_name_or_none(frappe.db.get_value("Post Dated Cheque", cur, "replaces_cheque"))
 			if not nxt:
 				break
 			cur = nxt
@@ -3301,13 +3358,17 @@ class PostDatedCheque(Document):
 
 		# B.replaces_cheque = A  →  A.replaced_by = B
 		if cur_rc and frappe.db.exists("Post Dated Cheque", cur_rc):
-			existing = _strip_link_name_or_none(frappe.db.get_value("Post Dated Cheque", cur_rc, "replaced_by"))
+			existing = _strip_link_name_or_none(
+				frappe.db.get_value("Post Dated Cheque", cur_rc, "replaced_by")
+			)
 			if existing in (None, self.name):
 				frappe.db.set_value("Post Dated Cheque", cur_rc, "replaced_by", self.name)
 
 		# A.replaced_by = B  →  B.replaces_cheque = A
 		if cur_rb and frappe.db.exists("Post Dated Cheque", cur_rb):
-			existing = _strip_link_name_or_none(frappe.db.get_value("Post Dated Cheque", cur_rb, "replaces_cheque"))
+			existing = _strip_link_name_or_none(
+				frappe.db.get_value("Post Dated Cheque", cur_rb, "replaces_cheque")
+			)
 			if existing in (None, self.name):
 				frappe.db.set_value("Post Dated Cheque", cur_rb, "replaces_cheque", self.name)
 
@@ -3354,7 +3415,9 @@ class PostDatedCheque(Document):
 		if not self.party_type or not self.party:
 			# Draft UX resilience: sometimes clients fill holder fields first; for Receivable we can safely
 			# treat holder as the received-from party when it is a valid receivable party type.
-			if (self.docstatus or 0) == 0 and (self.cheque_direction or "").strip() == CHEQUE_DIRECTION_RECEIVABLE:
+			if (self.docstatus or 0) == 0 and (
+				self.cheque_direction or ""
+			).strip() == CHEQUE_DIRECTION_RECEIVABLE:
 				ht = _strip_link_name_or_none(getattr(self, "holder_party_type", None))
 				hp = _strip_link_name_or_none(getattr(self, "holder_party", None))
 				if ht in {"Customer", "Employee", "Shareholder"} and hp:
@@ -3424,18 +3487,24 @@ class PostDatedCheque(Document):
 
 		row = _pdc_get_cheque_leaf_row_for_update(leaf)
 		if not row:
-			frappe.throw(frappe._("Cheque Leaf {0} does not exist.").format(leaf), title=frappe._("Cheque Leaf"))
+			frappe.throw(
+				frappe._("Cheque Leaf {0} does not exist.").format(leaf), title=frappe._("Cheque Leaf")
+			)
 
 		if row.company != self.company or row.bank_account != self.bank_account:
 			frappe.throw(
-				frappe._("Cheque Leaf must belong to the same Company and Bank Account as this Post Dated Cheque."),
+				frappe._(
+					"Cheque Leaf must belong to the same Company and Bank Account as this Post Dated Cheque."
+				),
 				title=frappe._("Cheque Leaf"),
 			)
 
 		_pdc_assert_cheque_leaf_usable_by_pdc(row, self.name or "")
 
 		# Enforce cheque_no match.
-		if (row.cheque_number or "").strip() and (self.cheque_no or "").strip() != (row.cheque_number or "").strip():
+		if (row.cheque_number or "").strip() and (self.cheque_no or "").strip() != (
+			row.cheque_number or ""
+		).strip():
 			frappe.throw(
 				frappe._("Cheque Number must match the selected Cheque Leaf."),
 				title=frappe._("Cheque Leaf"),
@@ -3507,13 +3576,17 @@ class PostDatedCheque(Document):
 
 	def _has_register_entry(self):
 		"""Check if Register JE already exists (Receive for receivable, Payable Issue for payable)."""
-		for ref in (self.journal_references or []):
+		for ref in self.journal_references or []:
 			if ref.purpose in ("Receive", "Payable Issue"):
 				return True
 		if self.name:
 			count = frappe.db.count(
 				"PDC Journal Reference",
-				{"parent": self.name, "parenttype": "Post Dated Cheque", "purpose": ["in", ["Receive", "Payable Issue"]]},
+				{
+					"parent": self.name,
+					"parenttype": "Post Dated Cheque",
+					"purpose": ["in", ["Receive", "Payable Issue"]],
+				},
 			)
 			if count and count > 0:
 				return True
@@ -3528,7 +3601,11 @@ class PostDatedCheque(Document):
 		if self._has_register_entry():
 			return None
 		settings = self.get_pdc_settings()
-		posting_date = posting_date or (getattr(self, "received_date", None) if self.cheque_direction == "Receivable" else None) or getdate()
+		posting_date = (
+			posting_date
+			or (getattr(self, "received_date", None) if self.cheque_direction == "Receivable" else None)
+			or getdate()
+		)
 
 		if self.cheque_direction == "Receivable":
 			if not settings.get("default_cheques_in_hand_account"):
@@ -3539,7 +3616,9 @@ class PostDatedCheque(Document):
 				)
 			if not self.account_paid_from:
 				frappe.throw(
-					frappe._("Account Paid From is required for Receivable cheque. Set it or select Party first.")
+					frappe._(
+						"Account Paid From is required for Receivable cheque. Set it or select Party first."
+					)
 				)
 			je = frappe.new_doc("Journal Entry")
 			je.posting_date = posting_date
@@ -3548,9 +3627,7 @@ class PostDatedCheque(Document):
 			je.cheque_no = self.cheque_no
 			je.cheque_date = self.cheque_due_date
 			je.user_remark = render_pdc_je_text(
-				getattr(settings, "je_user_remark_register_receivable_template", None)
-				if settings
-				else None,
+				getattr(settings, "je_user_remark_register_receivable_template", None) if settings else None,
 				fallback_text=frappe._("Cheque {0} received from party - PDC Register").format(
 					self.cheque_no
 				),
@@ -3592,9 +3669,9 @@ class PostDatedCheque(Document):
 		if self.cheque_direction == "Payable":
 			if not settings.get("default_payable_cheque_account"):
 				frappe.throw(
-					frappe._("Default Payable Cheque Account is not set in PDC Settings for company {0}.").format(
-						self.company
-					)
+					frappe._(
+						"Default Payable Cheque Account is not set in PDC Settings for company {0}."
+					).format(self.company)
 				)
 			if not self.account_paid_to:
 				frappe.throw(
@@ -3607,9 +3684,7 @@ class PostDatedCheque(Document):
 			je.cheque_no = self.cheque_no
 			je.cheque_date = self.cheque_due_date
 			je.user_remark = render_pdc_je_text(
-				getattr(settings, "je_user_remark_register_payable_template", None)
-				if settings
-				else None,
+				getattr(settings, "je_user_remark_register_payable_template", None) if settings else None,
 				fallback_text=frappe._("Cheque {0} issued to party - PDC Register").format(self.cheque_no),
 				context=PDCDescriptionContext.from_doc(self),
 				append_cheque_no_suffix=False,
@@ -3715,11 +3790,15 @@ def _pdc_get_cheque_leaf_row_for_update(leaf_name: str):
 def _pdc_reserve_leaf_for_pdc(leaf_name: str, pdc: "PostDatedCheque") -> None:
 	row = _pdc_get_cheque_leaf_row_for_update(leaf_name)
 	if not row:
-		frappe.throw(frappe._("Cheque Leaf {0} does not exist.").format(leaf_name), title=frappe._("Cheque Leaf"))
+		frappe.throw(
+			frappe._("Cheque Leaf {0} does not exist.").format(leaf_name), title=frappe._("Cheque Leaf")
+		)
 
 	if row.company != pdc.company or row.bank_account != pdc.bank_account:
 		frappe.throw(
-			frappe._("Cheque Leaf must belong to the same Company and Bank Account as this Post Dated Cheque."),
+			frappe._(
+				"Cheque Leaf must belong to the same Company and Bank Account as this Post Dated Cheque."
+			),
 			title=frappe._("Cheque Leaf"),
 		)
 	if row.status == "Reserved" and (row.reserved_by_pdc or "") != (pdc.name or ""):
@@ -3728,7 +3807,9 @@ def _pdc_reserve_leaf_for_pdc(leaf_name: str, pdc: "PostDatedCheque") -> None:
 			title=frappe._("Cheque Leaf"),
 		)
 	if row.status in ("Used", "Void"):
-		frappe.throw(frappe._("Cannot reserve a {0} cheque leaf.").format(row.status), title=frappe._("Cheque Leaf"))
+		frappe.throw(
+			frappe._("Cannot reserve a {0} cheque leaf.").format(row.status), title=frappe._("Cheque Leaf")
+		)
 	if row.status == "Reserved" and (row.reserved_by_pdc or "") == (pdc.name or ""):
 		return
 
@@ -3748,7 +3829,7 @@ def _pdc_release_leaf_if_reserved_by_pdc(leaf_name: str, pdc_name: str) -> None:
 		return
 	if (row.reserved_by_pdc or "") != (pdc_name or ""):
 		return
-	if (row.linked_post_dated_cheque or ""):
+	if row.linked_post_dated_cheque or "":
 		return
 
 	frappe.db.set_value(
@@ -3762,12 +3843,16 @@ def _pdc_release_leaf_if_reserved_by_pdc(leaf_name: str, pdc_name: str) -> None:
 def _pdc_mark_leaf_used_for_pdc(leaf_name: str, pdc: "PostDatedCheque") -> None:
 	row = _pdc_get_cheque_leaf_row_for_update(leaf_name)
 	if not row:
-		frappe.throw(frappe._("Cheque Leaf {0} does not exist.").format(leaf_name), title=frappe._("Cheque Leaf"))
+		frappe.throw(
+			frappe._("Cheque Leaf {0} does not exist.").format(leaf_name), title=frappe._("Cheque Leaf")
+		)
 	if row.status == "Used" and (row.linked_post_dated_cheque or "") == (pdc.name or ""):
 		return
 	if row.company != pdc.company or row.bank_account != pdc.bank_account:
 		frappe.throw(
-			frappe._("Cheque Leaf must belong to the same Company and Bank Account as this Post Dated Cheque."),
+			frappe._(
+				"Cheque Leaf must belong to the same Company and Bank Account as this Post Dated Cheque."
+			),
 			title=frappe._("Cheque Leaf"),
 		)
 	if row.status == "Reserved" and (row.reserved_by_pdc or "") not in ("", pdc.name or ""):
@@ -3776,7 +3861,9 @@ def _pdc_mark_leaf_used_for_pdc(leaf_name: str, pdc: "PostDatedCheque") -> None:
 			title=frappe._("Cheque Leaf"),
 		)
 	if row.status not in ("Available", "Reserved"):
-		frappe.throw(frappe._("Cheque Leaf must be Available or Reserved to be used."), title=frappe._("Cheque Leaf"))
+		frappe.throw(
+			frappe._("Cheque Leaf must be Available or Reserved to be used."), title=frappe._("Cheque Leaf")
+		)
 
 	from frappe.utils import now_datetime
 
@@ -3799,7 +3886,12 @@ def _pdc_cancel_leaf_for_pdc(leaf_name: str, pdc: "PostDatedCheque") -> None:
 	if not row:
 		return
 	from frappe.utils import now_datetime
-	if row.status == "Reserved" and (row.reserved_by_pdc or "") == (pdc.name or "") and not (row.linked_post_dated_cheque or ""):
+
+	if (
+		row.status == "Reserved"
+		and (row.reserved_by_pdc or "") == (pdc.name or "")
+		and not (row.linked_post_dated_cheque or "")
+	):
 		frappe.db.set_value(
 			"Cheque Leaf",
 			leaf_name,
@@ -3815,7 +3907,9 @@ def _pdc_cancel_leaf_for_pdc(leaf_name: str, pdc: "PostDatedCheque") -> None:
 			{
 				"status": "Void",
 				"voided_on": now_datetime(),
-				"void_reason": frappe._("Voided because Post Dated Cheque {0} was cancelled.").format(pdc.name),
+				"void_reason": frappe._("Voided because Post Dated Cheque {0} was cancelled.").format(
+					pdc.name
+				),
 				"voided_by": frappe.session.user,
 			},
 			update_modified=False,

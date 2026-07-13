@@ -25,7 +25,6 @@ from erpnext_extensions.cheque_management.pdc_open_advance import (
 	get_pdc_open_advance_instrument,
 )
 
-
 AdvanceScope = Literal["order_based", "general"]
 ResourceType = Literal["instrument", "order_bucket"]
 
@@ -192,7 +191,9 @@ def validate_pdc_invoice_application_rows_structural(invoice_doc) -> None:
 		if scope_raw == "order_based":
 			if not odt or not onm:
 				frappe.throw(
-					_("PDC Invoice Application: Order DocType and Order are required for order_based advances."),
+					_(
+						"PDC Invoice Application: Order DocType and Order are required for order_based advances."
+					),
 					title=_("PDC Advance"),
 				)
 		else:
@@ -248,7 +249,7 @@ def get_advance_candidates_for_invoice(
 		order_dt = "Sales Order"
 
 	order_nm: str | None = None
-	for it in (getattr(inv, "items", None) or []):
+	for it in getattr(inv, "items", None) or []:
 		val = (getattr(it, order_field, None) or "").strip()
 		if val:
 			order_nm = val
@@ -487,7 +488,7 @@ def normalize_invoice_pdc_application_rows(invoice_doc) -> list[NormalizedApplic
 		order_dt = "Sales Order"
 
 	order_nm: str | None = None
-	for it in (getattr(invoice_doc, "items", None) or []):
+	for it in getattr(invoice_doc, "items", None) or []:
 		val = (getattr(it, order_field, None) or "").strip()
 		if val:
 			order_nm = val
@@ -550,14 +551,16 @@ def normalize_invoice_pdc_application_rows(invoice_doc) -> list[NormalizedApplic
 				)
 			if not odt or not onm:
 				frappe.throw(
-					_("Row {0}: Order DocType and Order are required for order_based advances.").format(row_name),
+					_("Row {0}: Order DocType and Order are required for order_based advances.").format(
+						row_name
+					),
 					title=_("PDC Advance"),
 				)
 			if odt != order_dt or onm != order_nm:
 				frappe.throw(
-					_("Row {0}: Order-based advance rows must match the invoice order link ({1} {2}).").format(
-						row_name, order_dt, order_nm
-					),
+					_(
+						"Row {0}: Order-based advance rows must match the invoice order link ({1} {2})."
+					).format(row_name, order_dt, order_nm),
 					title=_("PDC Advance"),
 				)
 		else:
@@ -569,34 +572,45 @@ def normalize_invoice_pdc_application_rows(invoice_doc) -> list[NormalizedApplic
 				)
 
 		# Eligibility checks against PDC header (read-only)
-		p = frappe.db.get_value(
-			"Post Dated Cheque",
-			pdc,
-			[
-				"docstatus",
-				"allocation_mode",
-				"advance_scope",
-				"recognition_je_posted",
-				"instrument_dead",
-				"workflow_state",
-				"company",
-				"party_type",
-				"party",
-				"currency",
-			],
-			as_dict=True,
-		) or {}
+		p = (
+			frappe.db.get_value(
+				"Post Dated Cheque",
+				pdc,
+				[
+					"docstatus",
+					"allocation_mode",
+					"advance_scope",
+					"recognition_je_posted",
+					"instrument_dead",
+					"workflow_state",
+					"company",
+					"party_type",
+					"party",
+					"currency",
+				],
+				as_dict=True,
+			)
+			or {}
+		)
 
 		if int(p.get("docstatus") or 0) != 1:
-			frappe.throw(_("Row {0}: PDC {1} must be submitted.").format(row_name, pdc), title=_("PDC Advance"))
+			frappe.throw(
+				_("Row {0}: PDC {1} must be submitted.").format(row_name, pdc), title=_("PDC Advance")
+			)
 		if (p.get("allocation_mode") or "").strip() != "advance":
-			frappe.throw(_("Row {0}: PDC {1} is not in advance mode.").format(row_name, pdc), title=_("PDC Advance"))
+			frappe.throw(
+				_("Row {0}: PDC {1} is not in advance mode.").format(row_name, pdc), title=_("PDC Advance")
+			)
 		if int(p.get("recognition_je_posted") or 0) != 1:
-			frappe.throw(_("Row {0}: PDC {1} is not recognized yet.").format(row_name, pdc), title=_("PDC Advance"))
+			frappe.throw(
+				_("Row {0}: PDC {1} is not recognized yet.").format(row_name, pdc), title=_("PDC Advance")
+			)
 		if int(p.get("instrument_dead") or 0) == 1:
 			frappe.throw(_("Row {0}: PDC {1} is dead.").format(row_name, pdc), title=_("PDC Advance"))
 		if (p.get("workflow_state") or "").strip() in ("Cancelled", "Replaced"):
-			frappe.throw(_("Row {0}: PDC {1} is cancelled/replaced.").format(row_name, pdc), title=_("PDC Advance"))
+			frappe.throw(
+				_("Row {0}: PDC {1} is cancelled/replaced.").format(row_name, pdc), title=_("PDC Advance")
+			)
 
 		if (p.get("company") or "").strip() != company:
 			frappe.throw(_("Row {0}: PDC company mismatch.").format(row_name), title=_("PDC Advance"))
@@ -614,14 +628,22 @@ def normalize_invoice_pdc_application_rows(invoice_doc) -> list[NormalizedApplic
 		p_scope = (p.get("advance_scope") or "").strip()
 		if scope == "order_based":
 			if p_scope not in ("", "order_based"):
-				frappe.throw(_("Row {0}: PDC {1} is not order-based.").format(row_name, pdc), title=_("PDC Advance"))
+				frappe.throw(
+					_("Row {0}: PDC {1} is not order-based.").format(row_name, pdc), title=_("PDC Advance")
+				)
 		else:
 			# general
 			if p_scope != "general":
-				frappe.throw(_("Row {0}: PDC {1} is not general advance.").format(row_name, pdc), title=_("PDC Advance"))
+				frappe.throw(
+					_("Row {0}: PDC {1} is not general advance.").format(row_name, pdc),
+					title=_("PDC Advance"),
+				)
 			# General PDC must have no allocation rows
 			if frappe.db.exists("PDC Allocation", {"parenttype": "Post Dated Cheque", "parent": pdc}):
-				frappe.throw(_("Row {0}: General advance PDC must not have allocation rows.").format(row_name), title=_("PDC Advance"))
+				frappe.throw(
+					_("Row {0}: General advance PDC must not have allocation rows.").format(row_name),
+					title=_("PDC Advance"),
+				)
 
 		out.append(
 			NormalizedApplicationRow(
@@ -663,7 +685,9 @@ def build_consumption_plan(invoice_doc, rows: list[NormalizedApplicationRow]) ->
 	by_bucket: dict[tuple[str, str, str], float] = {}
 	for r in rows or []:
 		total += flt(r.amount_in_pdc_currency)
-		by_instrument[r.post_dated_cheque] = by_instrument.get(r.post_dated_cheque, 0.0) + flt(r.amount_in_pdc_currency)
+		by_instrument[r.post_dated_cheque] = by_instrument.get(r.post_dated_cheque, 0.0) + flt(
+			r.amount_in_pdc_currency
+		)
 		if r.advance_scope == "order_based":
 			if not (r.order_doctype and r.order_name):
 				frappe.throw(_("Order-based row is missing order key."), title=_("PDC Advance"))
@@ -684,7 +708,9 @@ def build_consumption_plan(invoice_doc, rows: list[NormalizedApplicationRow]) ->
 	for (pdc, odt, onm), amt in sorted(by_bucket.items()):
 		demands.append(
 			ResourceDemand(
-				key=ResourceKey(type="order_bucket", post_dated_cheque=pdc, order_doctype=odt, order_name=onm),
+				key=ResourceKey(
+					type="order_bucket", post_dated_cheque=pdc, order_doctype=odt, order_name=onm
+				),
 				advance_scope="order_based",
 				requested_amount=flt(amt),
 			)
@@ -817,7 +843,7 @@ def validate_before_invoice_submit(invoice_doc) -> None:
 	order_field = "purchase_order" if dt == "Purchase Invoice" else "sales_order"
 	order_dt = "Purchase Order" if dt == "Purchase Invoice" else "Sales Order"
 	order_nm = ""
-	for it in (getattr(invoice_doc, "items", None) or []):
+	for it in getattr(invoice_doc, "items", None) or []:
 		v = (getattr(it, order_field, None) or "").strip()
 		if v:
 			order_nm = v
@@ -828,7 +854,9 @@ def validate_before_invoice_submit(invoice_doc) -> None:
 		gen_req = flt(sum(flt(r.amount_in_pdc_currency) for r in rows if r.advance_scope == "general"))
 		if gen_req > 1e-9 and order_open > order_req + 1e-9:
 			frappe.msgprint(
-				_("General PDC Advance is being used while order-based advance is still available for this order."),
+				_(
+					"General PDC Advance is being used while order-based advance is still available for this order."
+				),
 				title=_("PDC Advance"),
 				indicator="orange",
 			)
@@ -875,4 +903,3 @@ __all__ = [
 	"apply_pdc_advance_on_submit",
 	"reverse_pdc_advance_on_cancel",
 ]
-

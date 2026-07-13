@@ -29,13 +29,9 @@ def ensure_module_def() -> None:
 	"""Create/repair the ``Module Def`` for this module (idempotent)."""
 	if frappe.db.exists("Module Def", MODULE_NAME):
 		# Keep it linked to this app (and non-custom) if a stale record exists.
-		current = frappe.db.get_value(
-			"Module Def", MODULE_NAME, ["app_name", "custom"], as_dict=True
-		)
+		current = frappe.db.get_value("Module Def", MODULE_NAME, ["app_name", "custom"], as_dict=True)
 		if current and (current.app_name != APP_NAME or current.custom):
-			frappe.db.set_value(
-				"Module Def", MODULE_NAME, {"app_name": APP_NAME, "custom": 0}
-			)
+			frappe.db.set_value("Module Def", MODULE_NAME, {"app_name": APP_NAME, "custom": 0})
 		return
 
 	doc = frappe.new_doc("Module Def")

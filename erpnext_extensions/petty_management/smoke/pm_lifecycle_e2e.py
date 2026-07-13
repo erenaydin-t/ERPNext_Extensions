@@ -7,6 +7,7 @@ import json
 import frappe
 from frappe.utils import flt, today
 
+import erpnext_extensions.petty_management.tests.test_pm_clearance as pm_ct
 from erpnext_extensions.patches.post_model_sync.add_petty_management_workflows import (
 	repair_pm_clearance_workflow,
 	repair_pm_request_workflow,
@@ -14,11 +15,13 @@ from erpnext_extensions.patches.post_model_sync.add_petty_management_workflows i
 from erpnext_extensions.petty_management.services.opening_advance_service import (
 	get_opening_advance_available_amount,
 )
-from erpnext_extensions.petty_management.services.workflow_utils import apply_pm_workflow, resolve_workflow_state_link
+from erpnext_extensions.petty_management.services.workflow_utils import (
+	apply_pm_workflow,
+	resolve_workflow_state_link,
+)
 from erpnext_extensions.petty_management.smoke.final_acceptance_opening_clearance import (
 	_patch_pi_round_floats_compat,
 )
-import erpnext_extensions.petty_management.tests.test_pm_clearance as pm_ct
 
 
 def _submit_pi(pi):
@@ -144,7 +147,11 @@ def execute():
 		)
 		cl2.append(
 			"request_allocations",
-			{"funding_source_type": "PM Opening Advance", "pm_opening_advance": oa.name, "allocated_amount": 1000},
+			{
+				"funding_source_type": "PM Opening Advance",
+				"pm_opening_advance": oa.name,
+				"allocated_amount": 1000,
+			},
 		)
 		cl2.insert(ignore_permissions=True)
 		frappe.db.set_value(

@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
+import erpnext
 import frappe
 from frappe import _
 from frappe.utils import cint, flt
-
-import erpnext
 
 from erpnext_extensions.iran_accounting.domain.currency import is_irr_company
 from erpnext_extensions.iran_accounting.domain.qty_rate_amount import (
@@ -69,9 +68,9 @@ def on_submit_stock_reconciliation(doc, method=None) -> None:
 	gl_mag = max(flt(debit), flt(credit))
 	if not gl_rows or gl_mag != abs(net):
 		frappe.throw(
-			_(
-				"Stock Reconciliation {0}: GL missing or total {1} != net row movement {2}"
-			).format(doc.name, gl_mag, net),
+			_("Stock Reconciliation {0}: GL missing or total {1} != net row movement {2}").format(
+				doc.name, gl_mag, net
+			),
 			title=_("IRR Ledger Determinism"),
 		)
 
@@ -79,7 +78,6 @@ def on_submit_stock_reconciliation(doc, method=None) -> None:
 @frappe.whitelist()
 def repair_stock_reconciliation_irr_amount_alignment(voucher_no: str):
 	from erpnext_extensions.iran_accounting.diagnostics import run_repost_for_voucher_impl
-
 	from erpnext_extensions.iran_accounting.domain.qty_rate_amount import override_difference_amount
 
 	doc = frappe.get_doc("Stock Reconciliation", voucher_no)

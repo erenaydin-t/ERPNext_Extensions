@@ -83,7 +83,9 @@ class TestTemplateFacilityName(unittest.TestCase):
 
 	def test_custom_template_preserved(self):
 		custom = "پرداخت وام شرکت فلان - {facility_number}"
-		doc = frappe._dict({fn: FACILITY_SETTINGS_TEMPLATE_DEFAULTS[fn] for fn in FACILITY_SETTINGS_TEMPLATE_DEFAULTS})
+		doc = frappe._dict(
+			{fn: FACILITY_SETTINGS_TEMPLATE_DEFAULTS[fn] for fn in FACILITY_SETTINGS_TEMPLATE_DEFAULTS}
+		)
 		doc.default_repayment_remarks_template = custom
 		self.assertFalse(migrate_facility_settings_templates_to_facility_name(doc))
 		self.assertEqual(doc.default_repayment_remarks_template, custom)

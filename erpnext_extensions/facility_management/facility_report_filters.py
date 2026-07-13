@@ -38,21 +38,21 @@ def resolve_ledger_facility(filters) -> str:
 	name_part = (filters.get("facility_name") or "").strip()
 	if not name_part and not filters.get("facility_type"):
 		frappe.throw(_("Facility or Facility Name is required."))
-	names = facility_names_matching(filters.company, name_part) if name_part else frappe.get_all(
-		"Facility",
-		filters={"company": filters.company},
-		pluck="name",
+	names = (
+		facility_names_matching(filters.company, name_part)
+		if name_part
+		else frappe.get_all(
+			"Facility",
+			filters={"company": filters.company},
+			pluck="name",
+		)
 	)
 	if filters.get("facility_type"):
 		names = [
-			n
-			for n in names
-			if frappe.db.get_value("Facility", n, "facility_type") == filters.facility_type
+			n for n in names if frappe.db.get_value("Facility", n, "facility_type") == filters.facility_type
 		]
 	if not names:
 		frappe.throw(_("No facility found for the selected filters."))
 	if len(names) > 1:
-		frappe.throw(
-			_("Multiple facilities match. Select a Facility or use a more specific Facility Name.")
-		)
+		frappe.throw(_("Multiple facilities match. Select a Facility or use a more specific Facility Name."))
 	return names[0]

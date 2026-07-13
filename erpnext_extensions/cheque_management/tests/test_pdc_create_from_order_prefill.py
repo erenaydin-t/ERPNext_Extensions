@@ -55,9 +55,13 @@ class TestPdcCreateFromOrderPrefill(unittest.TestCase):
 		)()
 		fake_frappe = type("F", (), {"db": fake_db, "has_permission": staticmethod(lambda *a, **k: True)})()
 
-		with _ThrowCtx(), patch.object(pdc_src, "frappe", fake_frappe), patch(
-			"erpnext_extensions.cheque_management.pdc_create_from_source.get_order_remaining_advance_capacity",
-			return_value=10_000.0,
+		with (
+			_ThrowCtx(),
+			patch.object(pdc_src, "frappe", fake_frappe),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_create_from_source.get_order_remaining_advance_capacity",
+				return_value=10_000.0,
+			),
 		):
 			out = pdc_src.prepare_post_dated_cheque_prefill_from_order("Purchase Order", "PO-1")
 
@@ -108,9 +112,13 @@ class TestPdcCreateFromOrderPrefill(unittest.TestCase):
 		)()
 		fake_frappe = type("F", (), {"db": fake_db, "has_permission": staticmethod(lambda *a, **k: True)})()
 
-		with _ThrowCtx(), patch.object(pdc_src, "frappe", fake_frappe), patch(
-			"erpnext_extensions.cheque_management.pdc_create_from_source.get_order_remaining_advance_capacity",
-			return_value=10_000.0,
+		with (
+			_ThrowCtx(),
+			patch.object(pdc_src, "frappe", fake_frappe),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_create_from_source.get_order_remaining_advance_capacity",
+				return_value=10_000.0,
+			),
 		):
 			out = pdc_src.prepare_post_dated_cheque_prefill_from_order("Sales Order", "SO-1")
 
@@ -154,13 +162,16 @@ class TestPdcCreateFromOrderPrefill(unittest.TestCase):
 		)()
 		fake_frappe = type("F", (), {"db": fake_db, "has_permission": staticmethod(lambda *a, **k: True)})()
 
-		with _ThrowCtx(), patch.object(pdc_src, "frappe", fake_frappe), patch(
-			"erpnext_extensions.cheque_management.pdc_create_from_source.get_order_remaining_advance_capacity",
-			return_value=10_000.0,
+		with (
+			_ThrowCtx(),
+			patch.object(pdc_src, "frappe", fake_frappe),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_create_from_source.get_order_remaining_advance_capacity",
+				return_value=10_000.0,
+			),
 		):
 			out_draft = pdc_src.prepare_post_dated_cheque_prefill_from_order("Purchase Order", "PO-DRAFT")
 			out_cancel = pdc_src.prepare_post_dated_cheque_prefill_from_order("Sales Order", "SO-CANCEL")
 
 		self.assertFalse(out_draft.get("can_create"))
 		self.assertFalse(out_cancel.get("can_create"))
-

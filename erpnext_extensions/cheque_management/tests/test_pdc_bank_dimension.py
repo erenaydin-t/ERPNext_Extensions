@@ -15,9 +15,21 @@ from erpnext_extensions.cheque_management.pdc_bank_dimension import (
 	resolve_pdc_bank_dimension_value,
 )
 
-_BANK_DIM_ONLY = [{"fieldname": "bank_dimension", "name": "Bank Dimension", "label": "Bank Dimension", "document_type": "Bank"}]
+_BANK_DIM_ONLY = [
+	{
+		"fieldname": "bank_dimension",
+		"name": "Bank Dimension",
+		"label": "Bank Dimension",
+		"document_type": "Bank",
+	}
+]
 _BOTH_DIMS = [
-	{"fieldname": "bank_dimension", "name": "Bank Dimension", "label": "Bank Dimension", "document_type": "Bank"},
+	{
+		"fieldname": "bank_dimension",
+		"name": "Bank Dimension",
+		"label": "Bank Dimension",
+		"document_type": "Bank",
+	},
 	{
 		"fieldname": "bank_account_dimension",
 		"name": "Bank Account Dimension",
@@ -152,9 +164,7 @@ class TestPDCBankDimension(unittest.TestCase):
 				return_value=[],
 			),
 		):
-			entry = build_je_account_row_from_pdc_payload(
-				doc, row, bank_gl_party_strip="BANK-GL"
-			)
+			entry = build_je_account_row_from_pdc_payload(doc, row, bank_gl_party_strip="BANK-GL")
 			self.assertNotIn("party_type", entry)
 			self.assertNotIn("party", entry)
 

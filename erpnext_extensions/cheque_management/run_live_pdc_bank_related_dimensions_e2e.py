@@ -41,7 +41,9 @@ def _today():
 	return getdate(today())
 
 
-def _set_pdc_dims(pdc, *, bank_fn: str | None, bank_val: str | None, ba_fn: str | None, ba_val: str | None) -> None:
+def _set_pdc_dims(
+	pdc, *, bank_fn: str | None, bank_val: str | None, ba_fn: str | None, ba_val: str | None
+) -> None:
 	if bank_fn:
 		pdc.set(bank_fn, bank_val)
 	if ba_fn:
@@ -412,7 +414,9 @@ def run():
 	ba_df = meta.get_field(ba_fn) if ba_fn else None
 	cf_allow = None
 	if ba_fn:
-		cf_allow = frappe.db.get_value("Custom Field", {"dt": "Post Dated Cheque", "fieldname": ba_fn}, "allow_on_submit")
+		cf_allow = frappe.db.get_value(
+			"Custom Field", {"dt": "Post Dated Cheque", "fieldname": ba_fn}, "allow_on_submit"
+		)
 	g_ok = bool(ba_fn and frappe.db.exists("Custom Field", {"dt": "Post Dated Cheque", "fieldname": ba_fn}))
 	allow_ok = cint(cf_allow or (ba_df.allow_on_submit if ba_df else 0)) == 1
 	cases.append(

@@ -15,7 +15,13 @@ from erpnext_extensions.petty_management.services.request_api_guard import pm_re
 def execute(filters=None):
 	filters = filters or {}
 	columns = [
-		{"label": "PM Request", "fieldname": "pm_request", "fieldtype": "Link", "options": "PM Request", "width": 160},
+		{
+			"label": "PM Request",
+			"fieldname": "pm_request",
+			"fieldtype": "Link",
+			"options": "PM Request",
+			"width": 160,
+		},
 		{"label": "Requested", "fieldname": "requested", "fieldtype": "Currency", "width": 110},
 		{"label": "Paid", "fieldname": "paid", "fieldtype": "Currency", "width": 110},
 		{"label": "Remaining", "fieldname": "remaining", "fieldtype": "Currency", "width": 110},
@@ -23,9 +29,21 @@ def execute(filters=None):
 		{"label": "Available", "fieldname": "available", "fieldtype": "Currency", "width": 110},
 		{"label": "Payment Status", "fieldname": "payment_status", "fieldtype": "Data", "width": 120},
 		{"label": "Closed", "fieldname": "is_closed", "fieldtype": "Check", "width": 70},
-		{"label": "Latest PE", "fieldname": "latest_pe", "fieldtype": "Link", "options": "Payment Entry", "width": 140},
+		{
+			"label": "Latest PE",
+			"fieldname": "latest_pe",
+			"fieldtype": "Link",
+			"options": "Payment Entry",
+			"width": 140,
+		},
 		{"label": "PE Count", "fieldname": "pe_count", "fieldtype": "Int", "width": 80},
-		{"label": "Payment Entry", "fieldname": "payment_entry", "fieldtype": "Link", "options": "Payment Entry", "width": 140},
+		{
+			"label": "Payment Entry",
+			"fieldname": "payment_entry",
+			"fieldtype": "Link",
+			"options": "Payment Entry",
+			"width": 140,
+		},
 		{"label": "PE Amount", "fieldname": "pe_amount", "fieldtype": "Currency", "width": 110},
 		{"label": "PE Status", "fieldname": "pe_status", "fieldtype": "Data", "width": 100},
 	]

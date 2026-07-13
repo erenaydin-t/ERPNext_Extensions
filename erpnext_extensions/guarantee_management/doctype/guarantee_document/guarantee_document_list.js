@@ -2,7 +2,13 @@
 // License: MIT
 
 frappe.listview_settings["Guarantee Document"] = {
-	add_fields: ["party_type", "other_party_name", "guarantee_direction", "document_no", "expiry_date"],
+	add_fields: [
+		"party_type",
+		"other_party_name",
+		"guarantee_direction",
+		"document_no",
+		"expiry_date",
+	],
 
 	get_indicator(doc) {
 		const status = (doc.status || "Draft").trim();

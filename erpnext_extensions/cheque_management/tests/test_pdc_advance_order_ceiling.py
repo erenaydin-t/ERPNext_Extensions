@@ -8,7 +8,10 @@ import frappe
 from frappe.exceptions import ValidationError
 
 import erpnext_extensions.cheque_management.pdc_advance_order_capacity as cap
-from erpnext_extensions.cheque_management.pdc_allocation import ALLOCATION_MODE_ADVANCE, validate_pdc_allocation_rows
+from erpnext_extensions.cheque_management.pdc_allocation import (
+	ALLOCATION_MODE_ADVANCE,
+	validate_pdc_allocation_rows,
+)
 from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
 	CHEQUE_DIRECTION_PAYABLE,
 	CHEQUE_DIRECTION_RECEIVABLE,
@@ -30,7 +33,16 @@ class _ThrowCtx:
 		return False
 
 
-def _pdc(*, direction: str, party_type: str, party: str, company="_TC", currency="INR", name="PDC-1", allocations=None):
+def _pdc(
+	*,
+	direction: str,
+	party_type: str,
+	party: str,
+	company="_TC",
+	currency="INR",
+	name="PDC-1",
+	allocations=None,
+):
 	return SimpleNamespace(
 		name=name,
 		company=company,
@@ -46,7 +58,7 @@ def _pdc(*, direction: str, party_type: str, party: str, company="_TC", currency
 
 
 def _alloc(order_dt, order_nm, amt, *, company="_TC", party_type="Supplier", party="SUP-1"):
- return SimpleNamespace(
+	return SimpleNamespace(
 		allocation_mode=ALLOCATION_MODE_ADVANCE,
 		reference_doctype=order_dt,
 		reference_name=order_nm,
@@ -57,7 +69,7 @@ def _alloc(order_dt, order_nm, amt, *, company="_TC", party_type="Supplier", par
 		currency="INR",
 		source_doctype=None,
 		source_name=None,
- )
+	)
 
 
 class TestAdvanceOrderCeiling(unittest.TestCase):
@@ -83,12 +95,22 @@ class TestAdvanceOrderCeiling(unittest.TestCase):
 			allocations=[_alloc("Purchase Order", "PO-1", 500.0)],
 		)
 		# Remaining capacity excluding self is 400 -> doc total 500 should block.
-		with _ThrowCtx(), patch(
-			"erpnext_extensions.cheque_management.pdc_allocation.get_order_remaining_advance_capacity",
-			return_value=400.0,
-		), patch(
-			"erpnext_extensions.cheque_management.pdc_allocation._read_purchase_order_for_pdc_allocation",
-			return_value={"company": "_TC", "currency": "INR", "supplier": "SUP-1", "docstatus": 1, "status": "To Receive"},
+		with (
+			_ThrowCtx(),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_allocation.get_order_remaining_advance_capacity",
+				return_value=400.0,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_allocation._read_purchase_order_for_pdc_allocation",
+				return_value={
+					"company": "_TC",
+					"currency": "INR",
+					"supplier": "SUP-1",
+					"docstatus": 1,
+					"status": "To Receive",
+				},
+			),
 		):
 			with self.assertRaises(ValidationError):
 				validate_pdc_allocation_rows(doc)
@@ -101,13 +123,22 @@ class TestAdvanceOrderCeiling(unittest.TestCase):
 			name="PDC-SELF",
 			allocations=[_alloc("Sales Order", "SO-1", 400.0, party_type="Customer", party="CUST-1")],
 		)
-		with _ThrowCtx(), patch(
-			"erpnext_extensions.cheque_management.pdc_allocation.get_order_remaining_advance_capacity",
-			return_value=400.0,
-		), patch(
-			"erpnext_extensions.cheque_management.pdc_allocation._read_sales_order_for_pdc_allocation",
-			return_value={"company": "_TC", "currency": "INR", "customer": "CUST-1", "docstatus": 1, "status": "To Deliver"},
+		with (
+			_ThrowCtx(),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_allocation.get_order_remaining_advance_capacity",
+				return_value=400.0,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_allocation._read_sales_order_for_pdc_allocation",
+				return_value={
+					"company": "_TC",
+					"currency": "INR",
+					"customer": "CUST-1",
+					"docstatus": 1,
+					"status": "To Deliver",
+				},
+			),
 		):
 			# Should not raise.
 			validate_pdc_allocation_rows(doc)
-

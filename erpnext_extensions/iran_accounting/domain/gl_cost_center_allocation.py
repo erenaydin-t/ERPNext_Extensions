@@ -37,6 +37,8 @@ def distribute_gl_based_on_cost_center_allocation_irr(gl_map, precision=None, fr
 	"""Drop-in replacement for ERPNext distribute_gl with exact IRR splits."""
 	from erpnext.accounts.general_ledger import (
 		distribute_gl_based_on_cost_center_allocation as _orig,
+	)
+	from erpnext.accounts.general_ledger import (
 		get_cost_center_allocation_data,
 		validate_expense_against_budget,
 	)

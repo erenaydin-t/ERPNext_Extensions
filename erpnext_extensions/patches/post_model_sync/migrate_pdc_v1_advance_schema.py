@@ -106,7 +106,9 @@ def _map_allocation_mode_values_after_rename(table: str):
 		val = (row.get("allocation_mode") or "").strip()
 		if not val:
 			frappe.throw(
-				_("Migration stopped: PDC Allocation {0} has empty `allocation_mode` after rename.").format(name)
+				_("Migration stopped: PDC Allocation {0} has empty `allocation_mode` after rename.").format(
+					name
+				)
 			)
 		if val not in _LEGACY_ALLOCATION_TYPE_TO_MODE:
 			frappe.throw(

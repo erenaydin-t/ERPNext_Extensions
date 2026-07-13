@@ -556,7 +556,9 @@ class ChequeOpeningImport(Document):
 	def preview_file(self):
 		self.check_permission("write")
 		if not self.name:
-			frappe.throw(frappe._("Save the document (with file attached) before Preview."), title=frappe._("Preview"))
+			frappe.throw(
+				frappe._("Save the document (with file attached) before Preview."), title=frappe._("Preview")
+			)
 		if not self.import_file:
 			frappe.throw(frappe._("Attach a file first."), title=frappe._("Preview"))
 
@@ -643,7 +645,9 @@ class ChequeOpeningImport(Document):
 			frappe.throw(frappe._("Attach a file first."), title=frappe._("Import"))
 		if (self.import_status or "").strip() in ("Completed", "Completed With Errors"):
 			frappe.throw(
-				frappe._("This import has already been completed. Change the file and Preview again to re-run."),
+				frappe._(
+					"This import has already been completed. Change the file and Preview again to re-run."
+				),
 				title=frappe._("Import"),
 			)
 		if (self.import_status or "").strip() != "Previewed":

@@ -130,4 +130,3 @@ class TestPMRequestViewPaymentEntriesFlags(unittest.TestCase):
 		flags = compute_pm_request_action_flags(doc)
 		self.assertTrue(flags["can_view_payment_entries"])
 		self.assertTrue(cint(flags["is_closed"]))
-

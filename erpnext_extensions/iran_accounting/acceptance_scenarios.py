@@ -8,9 +8,8 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 import frappe
-from frappe.utils import add_days, flt, today
-
 from erpnext.stock.doctype.stock_entry.stock_entry_utils import make_stock_entry
+from frappe.utils import add_days, flt, today
 
 from erpnext_extensions.iran_accounting.diagnostics import (
 	assert_print_no_fractional_irr,
@@ -92,7 +91,9 @@ def scenario_row(
 	return row
 
 
-def _status_from_sql_checks(checks: dict, *, preview_ok: bool | None = None, repost_ok: bool | None = None) -> str:
+def _status_from_sql_checks(
+	checks: dict, *, preview_ok: bool | None = None, repost_ok: bool | None = None
+) -> str:
 	mandatory = [
 		checks.get("db_gl_ok"),
 		checks.get("db_sle_ok"),
@@ -146,9 +147,7 @@ def _row_from_sql_checks(
 
 def _item(ctx: AcceptanceContext, tag: str, *, allow_fraction_qty: bool = False) -> str:
 	uom = ctx.b.fractional_uom() if allow_fraction_qty else None
-	return ctx.b.ensure_test_item(
-		ctx.company, prefix=f"{SYNTHETIC_PREFIX}-{tag}", stock_uom=uom
-	)
+	return ctx.b.ensure_test_item(ctx.company, prefix=f"{SYNTHETIC_PREFIX}-{tag}", stock_uom=uom)
 
 
 def _audit(ctx: AcceptanceContext, doctype: str, name: str) -> dict:
@@ -160,7 +159,9 @@ def _audit(ctx: AcceptanceContext, doctype: str, name: str) -> dict:
 	return flags
 
 
-def _repost(ctx: AcceptanceContext, doctype: str, name: str, *, normalize_after: bool = True) -> tuple[bool, str]:
+def _repost(
+	ctx: AcceptanceContext, doctype: str, name: str, *, normalize_after: bool = True
+) -> tuple[bool, str]:
 	if not ctx.run_repost:
 		return True, "repost_skipped"
 	try:
@@ -187,7 +188,11 @@ def _row_from_voucher(
 	if with_repost and ctx.run_repost:
 		repost_ok, evidence = _repost(ctx, doctype, name)
 		flags = _audit(ctx, doctype, name)
-	status = "PASS" if flags["gl_ok"] and flags["sle_ok"] and flags.get("totals_ok", True) and (repost_ok is not False) else "FAIL"
+	status = (
+		"PASS"
+		if flags["gl_ok"] and flags["sle_ok"] and flags.get("totals_ok", True) and (repost_ok is not False)
+		else "FAIL"
+	)
 	return scenario_row(
 		scenario_no,
 		area,
@@ -215,7 +220,9 @@ def s01_settings(ctx: AcceptanceContext) -> dict:
 		"resolved_irr_precision": resolved,
 	}
 	ok = cur == "IRR" and resolved == 0
-	return scenario_row(1, "settings", ctx.company, "PASS" if ok else "FAIL", evidence=json.dumps(info, default=str))
+	return scenario_row(
+		1, "settings", ctx.company, "PASS" if ok else "FAIL", evidence=json.dumps(info, default=str)
+	)
 
 
 def s02_gl_rounding(ctx: AcceptanceContext) -> dict:
@@ -275,10 +282,12 @@ def s05_opening_mr(ctx: AcceptanceContext) -> dict:
 def s06_pr_simple_ma(ctx: AcceptanceContext) -> dict:
 	item = _item(ctx, "PR-MA")
 	try:
-		from erpnext.buying.doctype.purchase_order.test_purchase_order import create_purchase_order
 		from erpnext.buying.doctype.purchase_order.purchase_order import make_purchase_receipt
+		from erpnext.buying.doctype.purchase_order.test_purchase_order import create_purchase_order
 
-		po = create_purchase_order(item_code=item, qty=1, rate=12, company=ctx.company, warehouse=ctx.warehouse)
+		po = create_purchase_order(
+			item_code=item, qty=1, rate=12, company=ctx.company, warehouse=ctx.warehouse
+		)
 		po.insert(ignore_permissions=True)
 		po.submit()
 		pr1 = make_purchase_receipt(po.name)
@@ -287,7 +296,9 @@ def s06_pr_simple_ma(ctx: AcceptanceContext) -> dict:
 			r.warehouse = ctx.warehouse
 		pr1.insert(ignore_permissions=True)
 		pr1.submit()
-		po2 = create_purchase_order(item_code=item, qty=1, rate=13, company=ctx.company, warehouse=ctx.warehouse)
+		po2 = create_purchase_order(
+			item_code=item, qty=1, rate=13, company=ctx.company, warehouse=ctx.warehouse
+		)
 		po2.insert(ignore_permissions=True)
 		po2.submit()
 		pr2 = make_purchase_receipt(po2.name)
@@ -305,8 +316,8 @@ def s06_pr_simple_ma(ctx: AcceptanceContext) -> dict:
 def s07_pr_fractional(ctx: AcceptanceContext) -> dict:
 	item = _item(ctx, "PR-FRAC")
 	try:
-		from erpnext.buying.doctype.purchase_order.test_purchase_order import create_purchase_order
 		from erpnext.buying.doctype.purchase_order.purchase_order import make_purchase_receipt
+		from erpnext.buying.doctype.purchase_order.test_purchase_order import create_purchase_order
 
 		po = create_purchase_order(
 			item_code=item, qty=3, rate=123.456, company=ctx.company, warehouse=ctx.warehouse
@@ -341,7 +352,15 @@ def s08_pi_irr_stock(ctx: AcceptanceContext) -> dict:
 	uom = frappe.get_cached_value("Item", item, "stock_uom")
 	pi.append(
 		"items",
-		{"item_code": item, "qty": 1, "rate": 500.777, "warehouse": ctx.warehouse, "uom": uom, "stock_uom": uom, "conversion_factor": 1},
+		{
+			"item_code": item,
+			"qty": 1,
+			"rate": 500.777,
+			"warehouse": ctx.warehouse,
+			"uom": uom,
+			"stock_uom": uom,
+			"conversion_factor": 1,
+		},
 	)
 	try:
 		pi.insert(ignore_permissions=True)
@@ -354,7 +373,9 @@ def s08_pi_irr_stock(ctx: AcceptanceContext) -> dict:
 
 def s09_pi_irr_no_stock(ctx: AcceptanceContext) -> dict:
 	supplier = _irr_supplier()
-	expense = frappe.db.get_value("Account", {"company": ctx.company, "root_type": "Expense", "is_group": 0}, "name")
+	expense = frappe.db.get_value(
+		"Account", {"company": ctx.company, "root_type": "Expense", "is_group": 0}, "name"
+	)
 	if not supplier or not expense:
 		return scenario_row(9, "Purchase Invoice IRR", "", "SKIP", evidence="no supplier/expense")
 	pi = frappe.new_doc("Purchase Invoice")
@@ -375,7 +396,9 @@ def s09_pi_irr_no_stock(ctx: AcceptanceContext) -> dict:
 
 
 def s10_pi_usd(ctx: AcceptanceContext) -> dict:
-	usd_acct = frappe.db.get_value("Account", {"company": ctx.company, "account_currency": "USD", "is_group": 0}, "name")
+	usd_acct = frappe.db.get_value(
+		"Account", {"company": ctx.company, "account_currency": "USD", "is_group": 0}, "name"
+	)
 	supplier = _irr_supplier()
 	if not usd_acct or not supplier:
 		return scenario_row(10, "Purchase Invoice USD", "", "SKIP", evidence="no USD account/supplier")
@@ -387,7 +410,10 @@ def s10_pi_usd(ctx: AcceptanceContext) -> dict:
 	pi.posting_date = today()
 	item = _item(ctx, "PI-USD")
 	uom = frappe.get_cached_value("Item", item, "stock_uom")
-	pi.append("items", {"item_code": item, "qty": 1, "rate": 10.55, "uom": uom, "stock_uom": uom, "conversion_factor": 1})
+	pi.append(
+		"items",
+		{"item_code": item, "qty": 1, "rate": 10.55, "uom": uom, "stock_uom": uom, "conversion_factor": 1},
+	)
 	try:
 		pi.insert(ignore_permissions=True)
 		pi.submit()
@@ -420,7 +446,15 @@ def s11_si_irr_stock(ctx: AcceptanceContext) -> dict:
 	uom = frappe.get_cached_value("Item", item, "stock_uom")
 	si.append(
 		"items",
-		{"item_code": item, "qty": 1, "rate": 50.333, "warehouse": ctx.warehouse, "uom": uom, "stock_uom": uom, "conversion_factor": 1},
+		{
+			"item_code": item,
+			"qty": 1,
+			"rate": 50.333,
+			"warehouse": ctx.warehouse,
+			"uom": uom,
+			"stock_uom": uom,
+			"conversion_factor": 1,
+		},
 	)
 	try:
 		si.insert(ignore_permissions=True)
@@ -433,7 +467,9 @@ def s11_si_irr_stock(ctx: AcceptanceContext) -> dict:
 
 def s12_si_irr_no_stock(ctx: AcceptanceContext) -> dict:
 	customer = _irr_customer()
-	income = frappe.db.get_value("Account", {"company": ctx.company, "root_type": "Income", "is_group": 0}, "name")
+	income = frappe.db.get_value(
+		"Account", {"company": ctx.company, "root_type": "Income", "is_group": 0}, "name"
+	)
 	if not customer or not income:
 		return scenario_row(12, "Sales Invoice IRR", "", "SKIP", evidence="no customer/income")
 	si = frappe.new_doc("Sales Invoice")
@@ -469,7 +505,15 @@ def s14_delivery_note(ctx: AcceptanceContext) -> dict:
 	uom = frappe.get_cached_value("Item", item, "stock_uom")
 	dn.append(
 		"items",
-		{"item_code": item, "qty": 1, "rate": 33.333, "warehouse": ctx.warehouse, "uom": uom, "stock_uom": uom, "conversion_factor": 1},
+		{
+			"item_code": item,
+			"qty": 1,
+			"rate": 33.333,
+			"warehouse": ctx.warehouse,
+			"uom": uom,
+			"stock_uom": uom,
+			"conversion_factor": 1,
+		},
 	)
 	try:
 		dn.insert(ignore_permissions=True)
@@ -517,9 +561,7 @@ def s19_stock_reco_adj(ctx: AcceptanceContext) -> dict:
 	item = _item(ctx, "SR-ADJ")
 	ctx.b.submit_material_receipt(ctx.company, item, 2, 100, ctx.warehouse)
 	frappe.db.commit()
-	sr = ctx.b.submit_stock_reconciliation_adjustment(
-		ctx.company, item, 5, 100.333, ctx.warehouse
-	)
+	sr = ctx.b.submit_stock_reconciliation_adjustment(ctx.company, item, 5, 100.333, ctx.warehouse)
 	ctx.refs["sr_adj"] = sr.name
 	return _row_from_voucher(ctx, 19, "Stock Reconciliation adjustment", "Stock Reconciliation", sr.name)
 
@@ -539,9 +581,11 @@ def s20_work_order_bom(ctx: AcceptanceContext) -> dict:
 def s21_mtfm(ctx: AcceptanceContext) -> dict:
 	"""MTfM: preview (Desk API) -> submit -> SQL -> repost -> SQL."""
 	try:
-		import erpnext_extensions.iran_accounting  # noqa: F401
-		from erpnext.manufacturing.doctype.work_order.work_order import make_stock_entry as wo_make_stock_entry
+		from erpnext.manufacturing.doctype.work_order.work_order import (
+			make_stock_entry as wo_make_stock_entry,
+		)
 
+		import erpnext_extensions.iran_accounting  # noqa: F401
 		from erpnext_extensions.iran_accounting.preview_validation import (
 			get_accounting_ledger_preview_rows,
 			preview_gl_signature,
@@ -624,7 +668,9 @@ def s21_mtfm(ctx: AcceptanceContext) -> dict:
 def s22_manufacture(ctx: AcceptanceContext) -> dict:
 	try:
 		_rm, _fg, wo_name, _bom = _make_bom_wo(ctx, reuse=True)
-		from erpnext.manufacturing.doctype.work_order.work_order import make_stock_entry as wo_make_stock_entry
+		from erpnext.manufacturing.doctype.work_order.work_order import (
+			make_stock_entry as wo_make_stock_entry,
+		)
 
 		if not ctx.refs.get("mtfm"):
 			mtfm = frappe.get_doc(wo_make_stock_entry(wo_name, "Material Transfer for Manufacture", qty=1))
@@ -651,19 +697,32 @@ def s24_repost_riv(ctx: AcceptanceContext) -> dict:
 	repost_ok, ev = _repost(ctx, "Stock Entry", name)
 	flags = _audit(ctx, "Stock Entry", name)
 	status = "PASS" if repost_ok and flags["gl_ok"] and flags["sle_ok"] else "FAIL"
-	return scenario_row(24, "Repost", name, status, gl_ok=flags["gl_ok"], sle_ok=flags["sle_ok"], repost_ok=repost_ok, evidence=ev)
+	return scenario_row(
+		24,
+		"Repost",
+		name,
+		status,
+		gl_ok=flags["gl_ok"],
+		sle_ok=flags["sle_ok"],
+		repost_ok=repost_ok,
+		evidence=ev,
+	)
 
 
 def s25_gl_report(ctx: AcceptanceContext) -> dict:
 	out = assert_reports_no_fractional_irr(ctx.company)
 	ok = out.get("status") == "PASS"
-	return scenario_row(25, "Reports", "General Ledger", "PASS" if ok else "FAIL", report_ok=ok, evidence=str(out))
+	return scenario_row(
+		25, "Reports", "General Ledger", "PASS" if ok else "FAIL", report_ok=ok, evidence=str(out)
+	)
 
 
 def s26_sl_report(ctx: AcceptanceContext) -> dict:
 	out = assert_reports_no_fractional_irr(ctx.company)
 	ok = out.get("status") == "PASS"
-	return scenario_row(26, "Reports", "Stock Ledger", "PASS" if ok else "FAIL", report_ok=ok, evidence=str(out))
+	return scenario_row(
+		26, "Reports", "Stock Ledger", "PASS" if ok else "FAIL", report_ok=ok, evidence=str(out)
+	)
 
 
 def s27_preview(ctx: AcceptanceContext) -> dict:
@@ -689,9 +748,7 @@ def s27_preview(ctx: AcceptanceContext) -> dict:
 				debit += flt(row[di])
 			if ci is not None and len(row) > ci:
 				credit += flt(row[ci])
-		totals_ok = flt(debit) == flt(se.total_incoming_value) and flt(credit) == flt(
-			se.total_outgoing_value
-		)
+		totals_ok = flt(debit) == flt(se.total_incoming_value) and flt(credit) == flt(se.total_outgoing_value)
 		if zv.get("applicable"):
 			totals_ok = bool(zv.get("ok"))
 		elif flt(se.total_incoming_value) == 0 and flt(se.total_outgoing_value) == 0:
@@ -712,7 +769,9 @@ def s27_preview(ctx: AcceptanceContext) -> dict:
 def s28_print(ctx: AcceptanceContext) -> dict:
 	name = ctx.refs.get("mfg") or ctx.refs.get("mr")
 	if not name:
-		return scenario_row(28, "Print", "", "MANUAL_REQUIRED", print_ok=None, evidence="no voucher for print")
+		return scenario_row(
+			28, "Print", "", "MANUAL_REQUIRED", print_ok=None, evidence="no voucher for print"
+		)
 	out = assert_print_no_fractional_irr("Stock Entry", name)
 	if out.get("manual_required") or out.get("status") == "MANUAL_REQUIRED":
 		return scenario_row(
@@ -733,7 +792,10 @@ def s29_stock_ledger_report_export(ctx: AcceptanceContext) -> dict:
 			"SKIP",
 			evidence="voucher not on site",
 		)
-	from erpnext_extensions.iran_accounting.diagnostics import _normalize_irr_stock_entry, check_stock_ledger_report
+	from erpnext_extensions.iran_accounting.diagnostics import (
+		_normalize_irr_stock_entry,
+		check_stock_ledger_report,
+	)
 
 	posting = frappe.db.get_value("Stock Entry", voucher, "posting_date")
 	_normalize_irr_stock_entry(voucher)
@@ -809,13 +871,7 @@ def s30_strict_sle_db_rates(ctx: AcceptanceContext) -> dict:
 	db_ok = not after_repost_frac
 	report_ok = sl_out.get("report_ok")
 	export_ok = sl_out.get("export_ok")
-	ok = (
-		db_ok
-		and report_ok
-		and export_ok
-		and repost_ok
-		and not after_normalize_frac
-	)
+	ok = db_ok and report_ok and export_ok and repost_ok and not after_normalize_frac
 
 	evidence = json.dumps(
 		{
@@ -846,18 +902,18 @@ def _fc_supplier(currency: str) -> str | None:
 	name = f"IA-FC-ACC-SUP-{currency}"
 	if frappe.db.exists("Supplier", name):
 		return name
-	return frappe.db.get_value("Supplier", {"name": ("like", "IA-FC-ACC-SUP%")}, "name") or frappe.db.get_value(
-		"Supplier", {}, "name"
-	)
+	return frappe.db.get_value(
+		"Supplier", {"name": ("like", "IA-FC-ACC-SUP%")}, "name"
+	) or frappe.db.get_value("Supplier", {}, "name")
 
 
 def _fc_customer(currency: str) -> str | None:
 	name = f"IA-FC-ACC-CUS-{currency}"
 	if frappe.db.exists("Customer", name):
 		return name
-	return frappe.db.get_value("Customer", {"name": ("like", "IA-FC-ACC-CUS%")}, "name") or frappe.db.get_value(
-		"Customer", {}, "name"
-	)
+	return frappe.db.get_value(
+		"Customer", {"name": ("like", "IA-FC-ACC-CUS%")}, "name"
+	) or frappe.db.get_value("Customer", {}, "name")
 
 
 def _fc_account(company: str, currency: str, *, receivable: bool = False) -> str | None:
@@ -878,7 +934,9 @@ def _fc_account(company: str, currency: str, *, receivable: bool = False) -> str
 		return name
 	abbr = frappe.get_cached_value("Company", company, "abbr")
 	label = "Debtors" if receivable else "Creditors"
-	return frappe.db.get_value("Account", {"company": company, "name": f"IA {currency} {label} - {abbr}"}, "name")
+	return frappe.db.get_value(
+		"Account", {"company": company, "name": f"IA {currency} {label} - {abbr}"}, "name"
+	)
 
 
 def _ensure_fc_masters(ctx: AcceptanceContext) -> None:
@@ -904,9 +962,7 @@ def _fc_row_from_check(
 		validate_foreign_currency_voucher,
 	)
 
-	chk = validate_foreign_currency_voucher(
-		doctype, voucher, company, txn_currency, expect_sle=expect_sle
-	)
+	chk = validate_foreign_currency_voucher(doctype, voucher, company, txn_currency, expect_sle=expect_sle)
 	reports = chk.get("reports") or {}
 	return scenario_row(
 		scenario_no,
@@ -1001,7 +1057,9 @@ def s32_eur_pi_update_stock(ctx: AcceptanceContext) -> dict:
 	return _fc_row_from_check(32, "EUR PI update_stock", "Purchase Invoice", pi.name, ctx.company, "EUR")
 
 
-def _submit_fc_purchase_receipt(ctx: AcceptanceContext, currency: str, ref_key: str, scenario_no: int, label: str) -> dict:
+def _submit_fc_purchase_receipt(
+	ctx: AcceptanceContext, currency: str, ref_key: str, scenario_no: int, label: str
+) -> dict:
 	_ensure_fc_masters(ctx)
 	supplier = _fc_supplier(currency)
 	if not supplier or not _fc_account(ctx.company, currency):
@@ -1043,7 +1101,9 @@ def s34_eur_purchase_receipt(ctx: AcceptanceContext) -> dict:
 	return _submit_fc_purchase_receipt(ctx, "EUR", "fc_pr_eur", 34, "EUR Purchase Receipt")
 
 
-def _submit_fc_sales_invoice(ctx: AcceptanceContext, currency: str, ref_key: str, scenario_no: int, label: str) -> dict:
+def _submit_fc_sales_invoice(
+	ctx: AcceptanceContext, currency: str, ref_key: str, scenario_no: int, label: str
+) -> dict:
 	_ensure_fc_masters(ctx)
 	customer = _fc_customer(currency)
 	if not customer or not _fc_account(ctx.company, currency, receivable=True):
@@ -1229,7 +1289,9 @@ def s39_stock_value_residual_safety(ctx: AcceptanceContext) -> dict:
 	)
 
 
-def _opening_sr_row(ctx: AcceptanceContext, scenario_no: int, area: str, qty: float, rate: float, *, batch: bool = False) -> dict:
+def _opening_sr_row(
+	ctx: AcceptanceContext, scenario_no: int, area: str, qty: float, rate: float, *, batch: bool = False
+) -> dict:
 	from erpnext_extensions.iran_accounting.stock_reconciliation_debug import (
 		_create_opening_sr,
 		_ensure_batch,
@@ -1398,8 +1460,7 @@ def s47_negative_reco_outgoing_rate(ctx: AcceptanceContext) -> dict:
 		voucher,
 		"PASS" if ok else "FAIL",
 		report_ok=ok,
-		evidence="; ".join(fail)
-		or f"out_qty={rpt.get('out_qty')},in_out_rate={rpt.get('in_out_rate')}",
+		evidence="; ".join(fail) or f"out_qty={rpt.get('out_qty')},in_out_rate={rpt.get('in_out_rate')}",
 	)
 
 
@@ -1521,7 +1582,15 @@ def s54_purchase_order_qty_rate(ctx: AcceptanceContext) -> dict:
 	uom = frappe.get_cached_value("Item", item, "stock_uom")
 	po.append(
 		"items",
-		{"item_code": item, "qty": 1.333, "rate": 1000.4, "uom": uom, "stock_uom": uom, "conversion_factor": 1, "schedule_date": today()},
+		{
+			"item_code": item,
+			"qty": 1.333,
+			"rate": 1000.4,
+			"uom": uom,
+			"stock_uom": uom,
+			"conversion_factor": 1,
+			"schedule_date": today(),
+		},
 	)
 	try:
 		po.insert(ignore_permissions=True)
@@ -1533,7 +1602,9 @@ def s54_purchase_order_qty_rate(ctx: AcceptanceContext) -> dict:
 
 def s55_purchase_invoice_irr_no_stock_qty_rate(ctx: AcceptanceContext) -> dict:
 	supplier = _irr_supplier()
-	expense = frappe.db.get_value("Account", {"company": ctx.company, "root_type": "Expense", "is_group": 0}, "name")
+	expense = frappe.db.get_value(
+		"Account", {"company": ctx.company, "root_type": "Expense", "is_group": 0}, "name"
+	)
 	if not supplier or not expense:
 		return scenario_row(55, "PI IRR update_stock=0 qty×rate", "", "SKIP", evidence="no supplier/expense")
 	item = _item(ctx, "PI-QR-NS", allow_fraction_qty=True)
@@ -1581,7 +1652,15 @@ def s56_purchase_invoice_irr_update_stock_qty_rate(ctx: AcceptanceContext) -> di
 	uom = frappe.get_cached_value("Item", item, "stock_uom")
 	pi.append(
 		"items",
-		{"item_code": item, "qty": 1.333, "rate": 1000.4, "warehouse": ctx.warehouse, "uom": uom, "stock_uom": uom, "conversion_factor": 1},
+		{
+			"item_code": item,
+			"qty": 1.333,
+			"rate": 1000.4,
+			"warehouse": ctx.warehouse,
+			"uom": uom,
+			"stock_uom": uom,
+			"conversion_factor": 1,
+		},
 	)
 	try:
 		pi.insert(ignore_permissions=True)
@@ -1594,8 +1673,8 @@ def s56_purchase_invoice_irr_update_stock_qty_rate(ctx: AcceptanceContext) -> di
 def s57_purchase_receipt_qty_rate(ctx: AcceptanceContext) -> dict:
 	item = _item(ctx, "PR-QR")
 	try:
-		from erpnext.buying.doctype.purchase_order.test_purchase_order import create_purchase_order
 		from erpnext.buying.doctype.purchase_order.purchase_order import make_purchase_receipt
+		from erpnext.buying.doctype.purchase_order.test_purchase_order import create_purchase_order
 
 		po = create_purchase_order(
 			item_code=item, qty=1.333, rate=1000.4, company=ctx.company, warehouse=ctx.warehouse
@@ -1626,7 +1705,15 @@ def s58_delivery_note_qty_rate(ctx: AcceptanceContext) -> dict:
 	uom = frappe.get_cached_value("Item", item, "stock_uom")
 	dn.append(
 		"items",
-		{"item_code": item, "qty": 1.333, "rate": 1000.4, "warehouse": ctx.warehouse, "uom": uom, "stock_uom": uom, "conversion_factor": 1},
+		{
+			"item_code": item,
+			"qty": 1.333,
+			"rate": 1000.4,
+			"warehouse": ctx.warehouse,
+			"uom": uom,
+			"stock_uom": uom,
+			"conversion_factor": 1,
+		},
 	)
 	try:
 		dn.insert(ignore_permissions=True)
@@ -1644,7 +1731,9 @@ def s59_stock_entry_qty_rate(ctx: AcceptanceContext) -> dict:
 
 def s60_sales_invoice_irr_no_stock_qty_rate(ctx: AcceptanceContext) -> dict:
 	customer = _irr_customer()
-	income = frappe.db.get_value("Account", {"company": ctx.company, "root_type": "Income", "is_group": 0}, "name")
+	income = frappe.db.get_value(
+		"Account", {"company": ctx.company, "root_type": "Income", "is_group": 0}, "name"
+	)
 	if not customer or not income:
 		return scenario_row(60, "SI IRR update_stock=0 qty×rate", "", "SKIP", evidence="no customer/income")
 	si = frappe.new_doc("Sales Invoice")
@@ -1654,7 +1743,16 @@ def s60_sales_invoice_irr_no_stock_qty_rate(ctx: AcceptanceContext) -> dict:
 	si.currency = "IRR"
 	si.conversion_rate = 1
 	si.update_stock = 0
-	si.append("items", {"item_name": "IA svc SI", "qty": 1.333, "rate": 1000.4, "income_account": income, "uom": ctx.b.fractional_uom()})
+	si.append(
+		"items",
+		{
+			"item_name": "IA svc SI",
+			"qty": 1.333,
+			"rate": 1000.4,
+			"income_account": income,
+			"uom": ctx.b.fractional_uom(),
+		},
+	)
 	try:
 		si.insert(ignore_permissions=True)
 		si.submit()
@@ -1679,7 +1777,15 @@ def s61_sales_invoice_irr_update_stock_qty_rate(ctx: AcceptanceContext) -> dict:
 	uom = frappe.get_cached_value("Item", item, "stock_uom")
 	si.append(
 		"items",
-		{"item_code": item, "qty": 1.333, "rate": 1000.4, "warehouse": ctx.warehouse, "uom": uom, "stock_uom": uom, "conversion_factor": 1},
+		{
+			"item_code": item,
+			"qty": 1.333,
+			"rate": 1000.4,
+			"warehouse": ctx.warehouse,
+			"uom": uom,
+			"stock_uom": uom,
+			"conversion_factor": 1,
+		},
 	)
 	try:
 		si.insert(ignore_permissions=True)
@@ -1725,7 +1831,9 @@ def s63_fc_qty_rate_irr_base(ctx: AcceptanceContext) -> dict:
 	pi.conversion_rate = _fc_conversion_rate("USD")
 	pi.update_stock = 0
 	pi.posting_date = today()
-	expense = frappe.db.get_value("Account", {"company": ctx.company, "root_type": "Expense", "is_group": 0}, "name")
+	expense = frappe.db.get_value(
+		"Account", {"company": ctx.company, "root_type": "Expense", "is_group": 0}, "name"
+	)
 	pi.append(
 		"items",
 		{

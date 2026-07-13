@@ -45,6 +45,7 @@ def run_pm_verification_smoke() -> dict[str, Any]:
 		holder_name = tpm._make_holder(emp)
 		step("pm_holder", holder=holder_name)
 
+		from erpnext_extensions.petty_management.doctype.pm_clearance import pm_clearance as mod
 		from erpnext_extensions.petty_management.services.allocation_service import (
 			get_pm_request_available_amount,
 			sum_prior_pm_request_allocations,
@@ -53,7 +54,6 @@ def run_pm_verification_smoke() -> dict[str, Any]:
 			create_payment_entry,
 			request_ready_for_payment_entry,
 		)
-		from erpnext_extensions.petty_management.doctype.pm_clearance import pm_clearance as mod
 
 		req = frappe.new_doc("PM Request")
 		req.company = tpm.COMPANY
@@ -151,11 +151,19 @@ def run_pm_verification_smoke() -> dict[str, Any]:
 
 		tpm._approve_pm_clearance_for_reservation(cl.name)
 		res_appr = flt(sum_prior_pm_request_allocations(req.name, None))
-		step("sum_prior_after_clearance_approved", sum_prior=res_appr, available=flt(get_pm_request_available_amount(req.name)))
+		step(
+			"sum_prior_after_clearance_approved",
+			sum_prior=res_appr,
+			available=flt(get_pm_request_available_amount(req.name)),
+		)
 
 		prev = frappe.db.count("Journal Entry")
 		mod.preview_pm_clearance_settlement(pm_clearance=cl.name)
-		step("preview_ok", journal_entry_count_before=prev, journal_entry_count_after=frappe.db.count("Journal Entry"))
+		step(
+			"preview_ok",
+			journal_entry_count_before=prev,
+			journal_entry_count_after=frappe.db.count("Journal Entry"),
+		)
 
 		cl_appr = tpm._workflow_state_for("PM Clearance", "Approved")
 		if cl_appr:

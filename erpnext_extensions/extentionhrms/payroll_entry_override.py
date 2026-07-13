@@ -18,8 +18,7 @@ Wire-up (``hooks.py``)::
 
     override_doctype_class = {
         "Payroll Entry": (
-            "erpnext_extensions.extentionhrms.payroll_entry_override."
-            "PayrollEntryWithAccountingDimensions"
+            "erpnext_extensions.extentionhrms.payroll_entry_override." "PayrollEntryWithAccountingDimensions"
         ),
     }
 
@@ -209,9 +208,7 @@ class PayrollEntryWithAccountingDimensions(PayrollEntry):
 		separate row per employee (with the Employee as Party) instead of being
 		aggregated by cost centre / department. Empty if the custom field is
 		absent (e.g. before migrate)."""
-		if not frappe.get_meta("Salary Component").has_field(
-			PROCESS_BASED_ON_EMPLOYEE_FIELD
-		):
+		if not frappe.get_meta("Salary Component").has_field(PROCESS_BASED_ON_EMPLOYEE_FIELD):
 			return frozenset()
 		rows = frappe.get_all(
 			"Salary Component",
@@ -255,9 +252,7 @@ class PayrollEntryWithAccountingDimensions(PayrollEntry):
 		would fail the mandatory-dimension check, so we surface a clear error.
 		"""
 		if frappe.get_meta("Company").has_field(ROUND_OFF_DEPARTMENT_CUSTOM_FIELD):
-			configured = frappe.get_cached_value(
-				"Company", self.company, ROUND_OFF_DEPARTMENT_CUSTOM_FIELD
-			)
+			configured = frappe.get_cached_value("Company", self.company, ROUND_OFF_DEPARTMENT_CUSTOM_FIELD)
 			if configured:
 				return configured
 		frappe.throw(

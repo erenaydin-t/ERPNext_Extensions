@@ -19,12 +19,11 @@ from unittest.mock import patch
 from frappe.exceptions import ValidationError
 
 import erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque as pdc
-
 from erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque import (
+	PDC_JE_REMARK_CLEAR_PAYABLE_CHEQUE,
 	PDC_JE_REMARK_CLEAR_RECEIVABLE_CLEARING,
 	PDC_JE_REMARK_CLEAR_RECEIVABLE_LEGAL,
 	PDC_JE_REMARK_CLEAR_RECEIVABLE_REGISTERED,
-	PDC_JE_REMARK_CLEAR_PAYABLE_CHEQUE,
 	PDC_JE_REMARK_REGISTER_PAYABLE_CHEQUE,
 	PDC_JE_REMARK_REGISTER_RECEIVABLE_CHEQUE,
 	PDC_JE_REMARK_SEND_RECEIVABLE_CHEQUE_TO_BANK,
@@ -41,8 +40,8 @@ from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
 	WORKFLOW_ENDORSED,
 	WORKFLOW_ISSUED,
 	WORKFLOW_REGISTERED,
-	WORKFLOW_RETURNED,
 	WORKFLOW_REPLACED,
+	WORKFLOW_RETURNED,
 	WORKFLOW_SENT_TO_BANK,
 	WORKFLOW_UNDER_LEGAL_ACTION,
 )
@@ -170,9 +169,7 @@ class TestPDCJournalEntryPayloadBuilder(unittest.TestCase):
 			patch.object(pdc, "frappe") as mf,
 		):
 			mf._ = lambda s: s
-			je = build_pdc_journal_entry_data(
-				doc, WORKFLOW_REGISTERED, WORKFLOW_SENT_TO_BANK, POSTING
-			)
+			je = build_pdc_journal_entry_data(doc, WORKFLOW_REGISTERED, WORKFLOW_SENT_TO_BANK, POSTING)
 		assert je is not None
 		self.assertEqual(je["remarks"], f"{PDC_JE_REMARK_SEND_RECEIVABLE_CHEQUE_TO_BANK} — CHK-9")
 		dr, cr = je["accounts"]
@@ -187,9 +184,7 @@ class TestPDCJournalEntryPayloadBuilder(unittest.TestCase):
 			patch.object(pdc, "frappe") as mf,
 		):
 			mf._ = lambda s: s
-			je = build_pdc_journal_entry_data(
-				doc, WORKFLOW_SENT_TO_BANK, WORKFLOW_BOUNCED, POSTING
-			)
+			je = build_pdc_journal_entry_data(doc, WORKFLOW_SENT_TO_BANK, WORKFLOW_BOUNCED, POSTING)
 		assert je is not None
 		dr, cr = je["accounts"]
 		self.assertEqual(dr["account"], "ACC-PROTEST-SET")
@@ -207,9 +202,7 @@ class TestPDCJournalEntryPayloadBuilder(unittest.TestCase):
 			patch.object(pdc, "frappe") as mf,
 		):
 			mf._ = lambda s: s
-			je = build_pdc_journal_entry_data(
-				doc, WORKFLOW_SENT_TO_BANK, WORKFLOW_BOUNCED, POSTING
-			)
+			je = build_pdc_journal_entry_data(doc, WORKFLOW_SENT_TO_BANK, WORKFLOW_BOUNCED, POSTING)
 		assert je is not None
 		dr = je["accounts"][0]
 		# Resolver prefers PDC Settings cheques-in-hand over ``account_paid_to``.
@@ -224,9 +217,7 @@ class TestPDCJournalEntryPayloadBuilder(unittest.TestCase):
 			patch.object(pdc, "frappe") as mf,
 		):
 			mf._ = lambda s: s
-			je = build_pdc_journal_entry_data(
-				doc, WORKFLOW_DRAFT, WORKFLOW_REGISTERED, POSTING
-			)
+			je = build_pdc_journal_entry_data(doc, WORKFLOW_DRAFT, WORKFLOW_REGISTERED, POSTING)
 		assert je is not None
 		self.assertEqual(je["remarks"], f"{PDC_JE_REMARK_REGISTER_PAYABLE_CHEQUE} — CHK-9")
 		dr, cr = je["accounts"]
@@ -316,9 +307,7 @@ class TestPDCJournalEntryPayloadBuilder(unittest.TestCase):
 			patch.object(pdc, "frappe") as mf,
 		):
 			mf._ = lambda s: s
-			je = build_pdc_journal_entry_data(
-				doc, WORKFLOW_REGISTERED, WORKFLOW_ENDORSED, POSTING
-			)
+			je = build_pdc_journal_entry_data(doc, WORKFLOW_REGISTERED, WORKFLOW_ENDORSED, POSTING)
 		assert je is not None
 		dr, cr = je["accounts"]
 		self.assertEqual(dr["account"], "ACC-ENDORSE-SET")
@@ -339,9 +328,7 @@ class TestPDCJournalEntryPayloadBuilder(unittest.TestCase):
 			patch.object(pdc, "frappe") as mf,
 		):
 			mf._ = lambda s: s
-			je = build_pdc_journal_entry_data(
-				doc, WORKFLOW_REGISTERED, WORKFLOW_ENDORSED, POSTING
-			)
+			je = build_pdc_journal_entry_data(doc, WORKFLOW_REGISTERED, WORKFLOW_ENDORSED, POSTING)
 		assert je is not None
 		dr, _cr = je["accounts"]
 		self.assertEqual(dr["account"], "ACC-ENDORSE-DOC")
@@ -353,15 +340,11 @@ class TestPDCJournalEntryPayloadBuilder(unittest.TestCase):
 		)
 		with (
 			patch.object(pdc, "_get_pdc_settings_for_company", return_value=dict(_SETTINGS_BASE)),
-			patch.object(
-				pdc, "_get_party_account_or_company_default", return_value="ACC-HOLDER-AR"
-			),
+			patch.object(pdc, "_get_party_account_or_company_default", return_value="ACC-HOLDER-AR"),
 			patch.object(pdc, "frappe") as mf,
 		):
 			mf._ = lambda s: s
-			je = build_pdc_journal_entry_data(
-				doc, WORKFLOW_REGISTERED, WORKFLOW_ENDORSED, POSTING
-			)
+			je = build_pdc_journal_entry_data(doc, WORKFLOW_REGISTERED, WORKFLOW_ENDORSED, POSTING)
 		assert je is not None
 		dr, cr = je["accounts"]
 		self.assertEqual(dr["account"], "ACC-HOLDER-AR")
@@ -376,15 +359,11 @@ class TestPDCJournalEntryPayloadBuilder(unittest.TestCase):
 		)
 		with (
 			patch.object(pdc, "_get_pdc_settings_for_company", return_value=dict(_SETTINGS_BASE)),
-			patch.object(
-				pdc, "_get_party_account_or_company_default", return_value="ACC-SHOULD-NOT-CALL"
-			),
+			patch.object(pdc, "_get_party_account_or_company_default", return_value="ACC-SHOULD-NOT-CALL"),
 			patch.object(pdc, "frappe") as mf,
 		):
 			mf._ = lambda s: s
-			je = build_pdc_journal_entry_data(
-				doc, WORKFLOW_REGISTERED, WORKFLOW_ENDORSED, POSTING
-			)
+			je = build_pdc_journal_entry_data(doc, WORKFLOW_REGISTERED, WORKFLOW_ENDORSED, POSTING)
 		self.assertIsNone(je)
 
 	def test_bounced_to_replaced_requires_protested_account(self) -> None:
@@ -397,9 +376,7 @@ class TestPDCJournalEntryPayloadBuilder(unittest.TestCase):
 			patch.object(pdc, "frappe") as mf,
 		):
 			mf._ = lambda s: s
-			je = build_pdc_journal_entry_data(
-				doc, WORKFLOW_BOUNCED, WORKFLOW_REPLACED, POSTING
-			)
+			je = build_pdc_journal_entry_data(doc, WORKFLOW_BOUNCED, WORKFLOW_REPLACED, POSTING)
 		self.assertIsNone(je)
 
 	def test_returns_none_when_not_journal_entry_decision(self) -> None:
@@ -411,9 +388,7 @@ class TestPDCJournalEntryPayloadBuilder(unittest.TestCase):
 		):
 			mf._ = lambda s: s
 			self.assertIsNone(
-				build_pdc_journal_entry_data(
-					doc, WORKFLOW_REGISTERED, WORKFLOW_REPLACED, POSTING
-				)
+				build_pdc_journal_entry_data(doc, WORKFLOW_REGISTERED, WORKFLOW_REPLACED, POSTING)
 			)
 
 	def test_receivable_registered_to_cleared_is_journal_entry_bank_vs_in_hand(self) -> None:
@@ -425,9 +400,7 @@ class TestPDCJournalEntryPayloadBuilder(unittest.TestCase):
 			patch.object(pdc, "frappe") as mf,
 		):
 			mf._ = lambda s: s
-			je = build_pdc_journal_entry_data(
-				doc, WORKFLOW_REGISTERED, WORKFLOW_CLEARED, POSTING
-			)
+			je = build_pdc_journal_entry_data(doc, WORKFLOW_REGISTERED, WORKFLOW_CLEARED, POSTING)
 		assert je is not None
 		self.assertEqual(je["voucher_type"], "Bank Entry")
 		dr, cr = je["accounts"]
@@ -448,9 +421,7 @@ class TestPDCJournalEntryPayloadBuilder(unittest.TestCase):
 		):
 			mf._ = lambda s: s
 			self.assertIsNone(
-				build_pdc_journal_entry_data(
-					doc, WORKFLOW_REGISTERED, WORKFLOW_SENT_TO_BANK, POSTING
-				)
+				build_pdc_journal_entry_data(doc, WORKFLOW_REGISTERED, WORKFLOW_SENT_TO_BANK, POSTING)
 			)
 
 	def test_receivable_sent_bank_to_cleared_journal_uses_clearing(self) -> None:
@@ -462,9 +433,7 @@ class TestPDCJournalEntryPayloadBuilder(unittest.TestCase):
 			patch.object(pdc, "frappe") as mf,
 		):
 			mf._ = lambda s: s
-			je = build_pdc_journal_entry_data(
-				doc, WORKFLOW_SENT_TO_BANK, WORKFLOW_CLEARED, POSTING
-			)
+			je = build_pdc_journal_entry_data(doc, WORKFLOW_SENT_TO_BANK, WORKFLOW_CLEARED, POSTING)
 		assert je is not None
 		self.assertEqual(je["voucher_type"], "Bank Entry")
 		self.assertEqual(je["accounts"][0]["account"], "ACC-BANK-GL")
@@ -480,9 +449,7 @@ class TestPDCJournalEntryPayloadBuilder(unittest.TestCase):
 			patch.object(pdc, "frappe") as mf,
 		):
 			mf._ = lambda s: s
-			je = build_pdc_journal_entry_data(
-				doc, WORKFLOW_UNDER_LEGAL_ACTION, WORKFLOW_CLEARED, POSTING
-			)
+			je = build_pdc_journal_entry_data(doc, WORKFLOW_UNDER_LEGAL_ACTION, WORKFLOW_CLEARED, POSTING)
 		assert je is not None
 		self.assertEqual(je["voucher_type"], "Bank Entry")
 		self.assertEqual(je["accounts"][1]["account"], "ACC-PROTEST-SET")
@@ -496,9 +463,7 @@ class TestPDCJournalEntryPayloadBuilder(unittest.TestCase):
 			patch.object(pdc, "frappe") as mf,
 		):
 			mf._ = lambda s: s
-			je2 = build_pdc_journal_entry_data(
-				doc, WORKFLOW_UNDER_LEGAL_ACTION, WORKFLOW_CLEARED, POSTING
-			)
+			je2 = build_pdc_journal_entry_data(doc, WORKFLOW_UNDER_LEGAL_ACTION, WORKFLOW_CLEARED, POSTING)
 		assert je2 is not None
 		self.assertEqual(je2["voucher_type"], "Bank Entry")
 		self.assertEqual(je2["accounts"][1]["account"], "ACC-CLEAR-SET")
@@ -531,11 +496,7 @@ class TestPDCJournalEntryPayloadBuilder(unittest.TestCase):
 			patch.object(pdc, "frappe") as mf,
 		):
 			mf._ = lambda s: s
-			self.assertIsNone(
-				build_pdc_journal_entry_data(
-					doc, WORKFLOW_ISSUED, WORKFLOW_CLEARED, POSTING
-				)
-			)
+			self.assertIsNone(build_pdc_journal_entry_data(doc, WORKFLOW_ISSUED, WORKFLOW_CLEARED, POSTING))
 
 	def test_payable_clear_journal_returns_none_without_amount(self) -> None:
 		doc = _doc(cheque_direction=CHEQUE_DIRECTION_PAYABLE, cheque_amount=0)
@@ -545,11 +506,7 @@ class TestPDCJournalEntryPayloadBuilder(unittest.TestCase):
 			patch.object(pdc, "frappe") as mf,
 		):
 			mf._ = lambda s: s
-			self.assertIsNone(
-				build_pdc_journal_entry_data(
-					doc, WORKFLOW_ISSUED, WORKFLOW_CLEARED, POSTING
-				)
-			)
+			self.assertIsNone(build_pdc_journal_entry_data(doc, WORKFLOW_ISSUED, WORKFLOW_CLEARED, POSTING))
 
 
 class TestPDCClearingBankLedgerValidation(unittest.TestCase):
@@ -653,9 +610,7 @@ class TestPDCClearingBankLedgerValidation(unittest.TestCase):
 			patch.object(pdc, "_pdc_bank_gl_account", return_value="ACC-BANK-GL"),
 			patch.object(pdc, "frappe", fake),
 		):
-			je = build_pdc_journal_entry_data(
-				doc, WORKFLOW_SENT_TO_BANK, WORKFLOW_CLEARED, POSTING
-			)
+			je = build_pdc_journal_entry_data(doc, WORKFLOW_SENT_TO_BANK, WORKFLOW_CLEARED, POSTING)
 		self.assertIsNotNone(je)
 		cr = [r for r in je["accounts"] if r.get("credit_in_account_currency")][0]
 		dr = [r for r in je["accounts"] if r.get("debit_in_account_currency")][0]

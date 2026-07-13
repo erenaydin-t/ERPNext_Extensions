@@ -26,9 +26,7 @@ _EPS = 1e-6
 
 MSG_CLOSE_DRAFT_PE = _("Cannot close while draft Payment Entries exist.")
 
-MSG_CLOSED_FROZEN = _(
-	"This PM Request is closed. Funding is frozen; clearance uses available balance only."
-)
+MSG_CLOSED_FROZEN = _("This PM Request is closed. Funding is frozen; clearance uses available balance only.")
 MSG_SUBMIT_FIRST = _("Submit the PM Request first.")
 
 
@@ -65,11 +63,7 @@ def build_pm_request_ui_messages(
 	ws = workflow_state_title(doc)
 	if not can_close and close_block_reason:
 		parts.append(str(close_block_reason))
-	if (
-		not can_create
-		and create_block_reason
-		and ws == "Approved"
-	):
+	if not can_create and create_block_reason and ws == "Approved":
 		parts.append(str(create_block_reason))
 	if not can_reject_wf and reject_block_reason and ws == "Approved":
 		parts.append(str(reject_block_reason))
@@ -82,12 +76,16 @@ def validate_pm_request_workflow_action(doc: Document, action: str) -> None:
 		return
 	if count_payment_entries_for_pm_request(doc.name)["submitted_payment_entry_count"] > 0:
 		frappe.throw(
-			_("Cannot reject PM Request while submitted Payment Entries exist. Cancel submitted Payment Entries first."),
+			_(
+				"Cannot reject PM Request while submitted Payment Entries exist. Cancel submitted Payment Entries first."
+			),
 			title=_("Reject not allowed"),
 		)
 	if sum_submitted_pe_amount(doc.name) > _EPS:
 		frappe.throw(
-			_("Cannot reject PM Request while submitted Payment Entries exist. Cancel submitted Payment Entries first."),
+			_(
+				"Cannot reject PM Request while submitted Payment Entries exist. Cancel submitted Payment Entries first."
+			),
 			title=_("Reject not allowed"),
 		)
 
@@ -102,7 +100,9 @@ def pm_request_has_submitted_funding(pm_request: str) -> bool:
 def compute_pm_request_action_flags(doc: Document) -> dict:
 	"""All toolbar / workflow visibility rules for PM Request."""
 	if doc.name and doc.docstatus == 1:
-		from erpnext_extensions.petty_management.services.funding_service import sync_pm_request_funding_fields
+		from erpnext_extensions.petty_management.services.funding_service import (
+			sync_pm_request_funding_fields,
+		)
 
 		sync_pm_request_funding_fields(doc)
 
@@ -124,8 +124,11 @@ def compute_pm_request_action_flags(doc: Document) -> dict:
 		and flt(getattr(doc, "total_paid_amount", 0)) <= _EPS
 	)
 	reject_block_reason = ""
-	if "PM Reject" in actions and not can_reject_wf and not is_closed and (
-		submitted_pe_count > 0 or flt(getattr(doc, "total_paid_amount", 0)) > _EPS
+	if (
+		"PM Reject" in actions
+		and not can_reject_wf
+		and not is_closed
+		and (submitted_pe_count > 0 or flt(getattr(doc, "total_paid_amount", 0)) > _EPS)
 	):
 		reject_block_reason = _(
 			"Reject is not allowed while submitted Payment Entries exist. Cancel submitted Payment Entries first."
@@ -173,4 +176,3 @@ def compute_pm_request_action_flags(doc: Document) -> dict:
 		"allowed_workflow_actions": actions,
 		"payment_entries": list_payment_entries_for_pm_request(doc.name),
 	}
-

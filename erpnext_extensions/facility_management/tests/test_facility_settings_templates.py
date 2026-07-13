@@ -30,6 +30,7 @@ class TestFacilitySettingsTemplates(unittest.TestCase):
 
 	def test_preserve_custom_templates(self):
 		custom = "CUSTOM-BANK-TEMPLATE"
+
 		class Doc:
 			def __init__(self):
 				self._data = dict.fromkeys(FACILITY_SETTINGS_TEMPLATE_DEFAULTS, "")

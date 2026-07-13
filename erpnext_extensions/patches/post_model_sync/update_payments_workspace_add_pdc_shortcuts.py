@@ -4,7 +4,6 @@ import json
 
 import frappe
 
-
 """LEGACY PATCH (workspace shortcuts) — kept for migration history.
 
 Current Cheque Management navigation strategy is **sidebar-first** via `Workspace Sidebar`
@@ -110,4 +109,3 @@ def execute():
 	if changed:
 		ws.save(ignore_permissions=True)
 		frappe.db.commit()
-

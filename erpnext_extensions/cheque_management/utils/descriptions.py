@@ -28,12 +28,7 @@ def render_description_template(template: str | None, context: dict[str, Any]) -
 	if not tpl:
 		return ""
 
-	safe_ctx = _SafeFormatDict(
-		{
-			k: ("" if v is None else v)
-			for k, v in (context or {}).items()
-		}
-	)
+	safe_ctx = _SafeFormatDict({k: ("" if v is None else v) for k, v in (context or {}).items()})
 	try:
 		return tpl.format_map(safe_ctx)
 	except Exception:
@@ -118,4 +113,3 @@ def render_pdc_je_text(
 		if not tpl or "{cheque_no}" not in tpl:
 			out = f"{out} — {context.cheque_no}"
 	return out
-

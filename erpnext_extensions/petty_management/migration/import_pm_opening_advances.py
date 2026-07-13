@@ -16,7 +16,6 @@ from typing import Any
 import frappe
 from frappe.utils import flt, getdate
 
-
 REQUIRED_COLUMNS = (
 	"holder",
 	"opening_date",

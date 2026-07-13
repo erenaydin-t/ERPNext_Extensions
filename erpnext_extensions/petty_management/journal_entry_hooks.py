@@ -49,7 +49,6 @@ def on_journal_entry_before_cancel(doc, method=None):
 	cleared before cancel completes (``check_no_back_links_exist``).
 	"""
 	from erpnext_extensions.petty_management import petty_audit
-
 	from erpnext_extensions.petty_management.services.clearance_action_policy import sync_clearance_lifecycle
 
 	for row_name in frappe.get_all(

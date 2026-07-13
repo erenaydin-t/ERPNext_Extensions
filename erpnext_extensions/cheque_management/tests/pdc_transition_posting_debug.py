@@ -80,7 +80,9 @@ def _debug_transition(
 		"pdc_settings": settings.as_dict() if settings else None,
 		"get_pdc_accounting_decision": decision,
 		"get_accounting_action": (
-			PDC_ACCOUNTING_NO_DOCUMENT if action == PDC_ACCOUNTING_NO_DOCUMENT else PDC_ACCOUNTING_JOURNAL_ENTRY
+			PDC_ACCOUNTING_NO_DOCUMENT
+			if action == PDC_ACCOUNTING_NO_DOCUMENT
+			else PDC_ACCOUNTING_JOURNAL_ENTRY
 		),
 		"build_pdc_journal_entry_data": payload,
 		"existing_je_for_transition": existing_je,
@@ -98,9 +100,12 @@ def _debug_transition(
 
 	# Simulate post-save path (what on_update_after_submit would do after workflow save)
 	je_name = post_pdc_transition_journal_entry(
-		doc, before_ws, to_state, posting_date=getattr(doc, "cleared_date", None)
+		doc,
+		before_ws,
+		to_state,
+		posting_date=getattr(doc, "cleared_date", None)
 		or getattr(doc, "sent_to_bank_date", None)
-		or date.today()
+		or date.today(),
 	)
 	doc.reload()
 	refs_after = _refs(pdc_name)
@@ -117,7 +122,9 @@ def debug_payable_issued_to_cleared():
 		PostDatedCheque,
 		get_accounting_action,
 	)
-	from erpnext_extensions.cheque_management.tests import test_pdc_workflow_rollback_lifecycle_integration as life
+	from erpnext_extensions.cheque_management.tests import (
+		test_pdc_workflow_rollback_lifecycle_integration as life,
+	)
 
 	post_save_logs = []
 	_orig = PostDatedCheque._pdc_post_save_accounting_sequence
@@ -162,9 +169,7 @@ def debug_payable_issued_to_cleared():
 
 	def _log_post(pdc, from_state, to_state, **kwargs):
 		out = _orig_post(pdc, from_state, to_state, **kwargs)
-		post_calls.append(
-			{"from": from_state, "to": to_state, "return": out, "kwargs": kwargs}
-		)
+		post_calls.append({"from": from_state, "to": to_state, "return": out, "kwargs": kwargs})
 		return out
 
 	je_svc.post_pdc_transition_journal_entry = _log_post
@@ -220,7 +225,9 @@ def debug_payable_issued_to_cleared():
 
 
 def debug_receivable_registered_to_sent_to_bank():
-	from erpnext_extensions.cheque_management.tests import test_pdc_workflow_rollback_lifecycle_integration as life
+	from erpnext_extensions.cheque_management.tests import (
+		test_pdc_workflow_rollback_lifecycle_integration as life,
+	)
 
 	frappe.set_user("Administrator")
 	company = life._get_company()
@@ -248,6 +255,11 @@ def debug_receivable_registered_to_sent_to_bank():
 		"refs_after_send_to_bank": refs_stb,
 		"workflow_state": doc.workflow_state,
 		"manual_post_debug": _debug_transition(
-			pdc_name, "Registered", "Sent to Bank", extra_save=lambda d: setattr(d, "sent_to_bank_date", date.today()) if not d.sent_to_bank_date else None
+			pdc_name,
+			"Registered",
+			"Sent to Bank",
+			extra_save=lambda d: setattr(d, "sent_to_bank_date", date.today())
+			if not d.sent_to_bank_date
+			else None,
 		),
 	}

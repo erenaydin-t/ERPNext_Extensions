@@ -211,7 +211,9 @@ def repayment_je_row_dimensions(
 	"""Finance Excel — repayment JE row dimensions (independent from receipt rules)."""
 	if row_role == "bank":
 		out: dict[str, Any] = {}
-		bank_dim = resolve_dimension("bank_dimension", repayment=repayment, facility=facility, settings=settings)
+		bank_dim = resolve_dimension(
+			"bank_dimension", repayment=repayment, facility=facility, settings=settings
+		)
 		if bank_dim and _je_account_has_field("bank_dimension"):
 			out["bank_dimension"] = bank_dim
 		return out

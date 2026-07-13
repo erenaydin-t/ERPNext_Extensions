@@ -23,7 +23,11 @@ function pdc_trace(...args) {
 
 /** Unsaved new document: `__islocal` is the reliable signal on first paint (`is_new()` can lag in some load orders). */
 function pdc_is_new_unsaved(frm) {
-	return !!(frm && frm.doc && (frm.doc.__islocal || (typeof frm.is_new === "function" && frm.is_new())));
+	return !!(
+		frm &&
+		frm.doc &&
+		(frm.doc.__islocal || (typeof frm.is_new === "function" && frm.is_new()))
+	);
 }
 
 /**
@@ -178,8 +182,7 @@ function pdc_autofill_allocations_from_parent_source(frm) {
 	}
 	const ch = pdc_safe_flt(frm.doc.cheque_amount);
 	(frm.doc.allocations || []).forEach(function (row) {
-		const hasRef =
-			(row.reference_doctype || "").trim() && (row.reference_name || "").trim();
+		const hasRef = (row.reference_doctype || "").trim() && (row.reference_name || "").trim();
 		if (hasRef) {
 			return;
 		}
@@ -261,11 +264,17 @@ frappe.ui.form.on("Post Dated Cheque", {
 		frm._pdc_prev_party_type_str = (frm.doc.party_type || "").trim();
 		frm._pdc_prev_bank_account = (frm.doc.bank_account || "").trim();
 		pdc_normalize_prefilled_allocations(frm);
-		pdc_trace("setup", { company: frm.doc && frm.doc.company, __islocal: frm.doc && frm.doc.__islocal });
+		pdc_trace("setup", {
+			company: frm.doc && frm.doc.company,
+			__islocal: frm.doc && frm.doc.__islocal,
+		});
 	},
 
 	onload_post_render(frm) {
-		pdc_trace("onload_post_render", { company: frm.doc.company, __islocal: frm.doc.__islocal });
+		pdc_trace("onload_post_render", {
+			company: frm.doc.company,
+			__islocal: frm.doc.__islocal,
+		});
 		pdc_normalize_prefilled_allocations(frm);
 		pdc_autofill_allocations_from_parent_source(frm);
 		pdc_schedule_initial_receivable_accounts(frm);
@@ -284,7 +293,11 @@ frappe.ui.form.on("Post Dated Cheque", {
 	},
 
 	refresh(frm) {
-		pdc_trace("refresh", { company: frm.doc.company, cheque_direction: frm.doc.cheque_direction, __islocal: frm.doc.__islocal });
+		pdc_trace("refresh", {
+			company: frm.doc.company,
+			cheque_direction: frm.doc.cheque_direction,
+			__islocal: frm.doc.__islocal,
+		});
 		pdc_apply_direction_dependent_ui(frm);
 		pdc_apply_cheque_direction_lock_ui(frm);
 		pdc_apply_payable_bank_account_lock_ui(frm);
@@ -488,7 +501,10 @@ function pdc_validate_lifecycle_dates(frm) {
 			indicator: "red",
 		});
 	}
-	if (d.cheque_direction === "Payable" && pdc_date_out_of_order(d.cleared_date, d.handover_date)) {
+	if (
+		d.cheque_direction === "Payable" &&
+		pdc_date_out_of_order(d.cleared_date, d.handover_date)
+	) {
 		frappe.msgprint({
 			title: __("Invalid Date Sequence"),
 			message: __(
@@ -575,12 +591,14 @@ function pdc_apply_accounts_for_payable_direction(frm) {
 			set_default_party_accounts(frm);
 			return;
 		}
-		return frappe.db.get_value("PDC Settings", docname, "default_payable_cheque_account").then((r) => {
-			const pool = r && r.message && r.message.default_payable_cheque_account;
-			frm.set_value("account_paid_from", pool || "");
-			pdc_refresh_account_like_fields(frm);
-			set_default_party_accounts(frm);
-		});
+		return frappe.db
+			.get_value("PDC Settings", docname, "default_payable_cheque_account")
+			.then((r) => {
+				const pool = r && r.message && r.message.default_payable_cheque_account;
+				frm.set_value("account_paid_from", pool || "");
+				pdc_refresh_account_like_fields(frm);
+				set_default_party_accounts(frm);
+			});
 	});
 }
 
@@ -601,28 +619,32 @@ function pdc_apply_accounts_for_receivable_direction(frm, opts) {
 		return Promise.resolve();
 	}
 	return pdc_fetch_pdc_settings_receivable_accounts(frm.doc.company).then((m) => {
-			m = m || {};
-			pdc_trace("pdc_apply_accounts_for_receivable_direction resolved", { soft, keys: Object.keys(m), m });
-			frm.set_value("account_paid_from", "");
-			const setLink = (fieldname, key) => {
-				const v = m[key];
-				if (!v) {
-					if (!soft) {
-						frm.set_value(fieldname, "");
-					}
-					return;
-				}
-				if (soft && (frm.doc[fieldname] || "").trim()) {
-					return;
-				}
-				frm.set_value(fieldname, v);
-			};
-			setLink("account_paid_to", "default_cheques_in_hand_account");
-			setLink("cheques_in_clearing_account", "default_cheques_in_clearing_account");
-			setLink("endorsement_settlement_account", "default_endorsement_account");
-			pdc_refresh_account_like_fields(frm);
-			set_default_party_accounts(frm);
+		m = m || {};
+		pdc_trace("pdc_apply_accounts_for_receivable_direction resolved", {
+			soft,
+			keys: Object.keys(m),
+			m,
 		});
+		frm.set_value("account_paid_from", "");
+		const setLink = (fieldname, key) => {
+			const v = m[key];
+			if (!v) {
+				if (!soft) {
+					frm.set_value(fieldname, "");
+				}
+				return;
+			}
+			if (soft && (frm.doc[fieldname] || "").trim()) {
+				return;
+			}
+			frm.set_value(fieldname, v);
+		};
+		setLink("account_paid_to", "default_cheques_in_hand_account");
+		setLink("cheques_in_clearing_account", "default_cheques_in_clearing_account");
+		setLink("endorsement_settlement_account", "default_endorsement_account");
+		pdc_refresh_account_like_fields(frm);
+		set_default_party_accounts(frm);
+	});
 }
 
 function pdc_fetch_pdc_settings_receivable_accounts(company) {
@@ -641,13 +663,16 @@ function pdc_fetch_pdc_settings_receivable_accounts(company) {
 }
 
 function pdc_refresh_account_like_fields(frm) {
-	["account_paid_from", "account_paid_to", "cheques_in_clearing_account", "endorsement_settlement_account"].forEach(
-		(fn) => {
-			if (frm.fields_dict[fn]) {
-				frm.refresh_field(fn);
-			}
+	[
+		"account_paid_from",
+		"account_paid_to",
+		"cheques_in_clearing_account",
+		"endorsement_settlement_account",
+	].forEach((fn) => {
+		if (frm.fields_dict[fn]) {
+			frm.refresh_field(fn);
 		}
-	);
+	});
 }
 
 /**
@@ -704,8 +729,18 @@ function pdc_receivable_sent_to_bank_or_later(doc) {
 	const ws = (doc.workflow_state || "").trim();
 	const cheque_status = (doc.cheque_status || "").trim();
 
-	const ws_locked = ["Sent to Bank", "In Clearing", "Cleared", "Bounced", "Returned", "Cancelled", "Replaced"].includes(ws);
-	const status_locked = ["In Clearing", "Cleared", "Bounced", "Returned"].includes(cheque_status);
+	const ws_locked = [
+		"Sent to Bank",
+		"In Clearing",
+		"Cleared",
+		"Bounced",
+		"Returned",
+		"Cancelled",
+		"Replaced",
+	].includes(ws);
+	const status_locked = ["In Clearing", "Cleared", "Bounced", "Returned"].includes(
+		cheque_status
+	);
 
 	// Registered is NOT sent-to-bank-or-later from sent_to_bank_date alone (it may be prefilled early).
 	const sent_to_bank_date_set = !!doc.sent_to_bank_date;
@@ -728,7 +763,8 @@ function pdc_apply_payable_bank_account_lock_ui(frm) {
 
 	// Receivable: lock bank_account only after true sent-to-bank-or-later (not merely Registered).
 	// IMPORTANT: if bank_account is still empty, keep it editable so user can set it (it becomes required).
-	const receivable_locked = dir === "Receivable" && bank_account && pdc_receivable_sent_to_bank_or_later(frm.doc);
+	const receivable_locked =
+		dir === "Receivable" && bank_account && pdc_receivable_sent_to_bank_or_later(frm.doc);
 
 	if (payable_locked || receivable_locked) {
 		frm.set_df_property("bank_account", "read_only", 1);
@@ -820,8 +856,7 @@ function pdc_apply_cheque_leaf_ui(frm) {
 		}
 		// Server-side query: dropdown **description** = cheque_number | status | bank_account | cheque_book (sorted by cheque_number).
 		return {
-			query:
-				"erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque.pdc_cheque_leaf_link_query",
+			query: "erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque.pdc_cheque_leaf_link_query",
 			filters: {
 				company: company,
 				bank_account: bank_account,
@@ -865,24 +900,37 @@ function pdc_apply_cheque_leaf_behaviour(frm) {
 
 	// If leaf is set, fetch cheque_number and sync cheque_no.
 	if (leaf) {
-		frappe.db.get_value("Cheque Leaf", leaf, ["cheque_number", "sayad_number", "company", "bank_account", "status"]).then((r) => {
-			const m = (r && r.message) || {};
-			// If company/bank mismatch (or missing), clear leaf to avoid bad link.
-			if (
-				(m.company && frm.doc.company && m.company !== frm.doc.company) ||
-				(m.bank_account && frm.doc.bank_account && m.bank_account !== frm.doc.bank_account)
-			) {
-				frm.set_value("cheque_leaf", "");
-				return;
-			}
-			if (m.cheque_number && frm.doc.cheque_no !== m.cheque_number) {
-				frm.set_value("cheque_no", m.cheque_number);
-			}
-			// Optional convenience: copy Sayad Number into PDC Sayad Code if present.
-			if (Object.prototype.hasOwnProperty.call(frm.doc || {}, "sayad_code") && (m.sayad_number || "").trim()) {
-				frm.set_value("sayad_code", m.sayad_number);
-			}
-		});
+		frappe.db
+			.get_value("Cheque Leaf", leaf, [
+				"cheque_number",
+				"sayad_number",
+				"company",
+				"bank_account",
+				"status",
+			])
+			.then((r) => {
+				const m = (r && r.message) || {};
+				// If company/bank mismatch (or missing), clear leaf to avoid bad link.
+				if (
+					(m.company && frm.doc.company && m.company !== frm.doc.company) ||
+					(m.bank_account &&
+						frm.doc.bank_account &&
+						m.bank_account !== frm.doc.bank_account)
+				) {
+					frm.set_value("cheque_leaf", "");
+					return;
+				}
+				if (m.cheque_number && frm.doc.cheque_no !== m.cheque_number) {
+					frm.set_value("cheque_no", m.cheque_number);
+				}
+				// Optional convenience: copy Sayad Number into PDC Sayad Code if present.
+				if (
+					Object.prototype.hasOwnProperty.call(frm.doc || {}, "sayad_code") &&
+					(m.sayad_number || "").trim()
+				) {
+					frm.set_value("sayad_code", m.sayad_number);
+				}
+			});
 		return;
 	}
 
@@ -934,7 +982,9 @@ function pdc_sync_holder_to_party_for_direction(frm, prev_direction, new_directi
 
 function pdc_handle_bank_account_change_for_cheque_leaf(frm) {
 	if (!frm || !frm.doc || frm.doc.cheque_direction !== "Payable") {
-		frm._pdc_prev_bank_account = (frm && frm.doc && frm.doc.bank_account ? frm.doc.bank_account : "").trim();
+		frm._pdc_prev_bank_account = (
+			frm && frm.doc && frm.doc.bank_account ? frm.doc.bank_account : ""
+		).trim();
 		return;
 	}
 	const prev_bank = (frm._pdc_prev_bank_account || "").trim();
@@ -986,7 +1036,8 @@ function pdc_schedule_cheque_leaf_ui_enforcement(frm) {
 				const payable = frm.doc.cheque_direction === "Payable";
 				const has_company = !!(frm.doc.company || "").trim();
 				const has_bank = !!(frm.doc.bank_account || "").trim();
-				const leaf_editable = payable && has_company && has_bank && (frm.doc.docstatus || 0) === 0;
+				const leaf_editable =
+					payable && has_company && has_bank && (frm.doc.docstatus || 0) === 0;
 				pdc_force_cheque_leaf_widget_state(frm, leaf_editable);
 				pdc_debug_cheque_leaf_state(frm, leaf_editable);
 			}, ms);
@@ -998,9 +1049,12 @@ function pdc_debug_cheque_leaf_state(frm, should_be_editable) {
 	try {
 		const fld = frm && frm.fields_dict ? frm.fields_dict.cheque_leaf : null;
 		const df = frm && frm.get_docfield ? frm.get_docfield("cheque_leaf") : null;
-		const inputDisabled =
-			!!(fld && fld.$wrapper && fld.$wrapper.find("input:disabled, .awesomplete input:disabled").length);
-		if (should_be_editable && (df && df.read_only || inputDisabled)) {
+		const inputDisabled = !!(
+			fld &&
+			fld.$wrapper &&
+			fld.$wrapper.find("input:disabled, .awesomplete input:disabled").length
+		);
+		if (should_be_editable && ((df && df.read_only) || inputDisabled)) {
 			// temporary runtime diagnostic
 			// eslint-disable-next-line no-console
 			console.warn("[PDC cheque_leaf disabled unexpectedly]", {
@@ -1175,7 +1229,9 @@ function pdc_apply_bank_account_ui(frm) {
 	frm.set_df_property(
 		"bank_account",
 		"description",
-		is_receivable ? "Only company bank accounts are allowed" : _pdc_meta.bank_account_description
+		is_receivable
+			? "Only company bank accounts are allowed"
+			: _pdc_meta.bank_account_description
 	);
 }
 
@@ -1196,7 +1252,10 @@ function pdc_apply_receivable_only_fields_ui(frm) {
 	const show = frm.doc.cheque_direction === "Receivable";
 	frm.toggle_display(["cheques_in_clearing_account", "endorsement_settlement_account"], show);
 	if (!show) {
-		frm.toggle_enable(["cheques_in_clearing_account", "endorsement_settlement_account"], false);
+		frm.toggle_enable(
+			["cheques_in_clearing_account", "endorsement_settlement_account"],
+			false
+		);
 	} else {
 		frm.toggle_enable(["cheques_in_clearing_account", "endorsement_settlement_account"], true);
 	}
@@ -1208,10 +1267,12 @@ function pdc_apply_sayad_code_ui(frm) {
 		frm.toggle_reqd("sayad_code", false);
 		return;
 	}
-	frappe.db.get_value("PDC Settings", { company: company }, "require_sayad_registration").then((r) => {
-		const v = !!(r && r.message && r.message.require_sayad_registration);
-		frm.toggle_reqd("sayad_code", v);
-	});
+	frappe.db
+		.get_value("PDC Settings", { company: company }, "require_sayad_registration")
+		.then((r) => {
+			const v = !!(r && r.message && r.message.require_sayad_registration);
+			frm.toggle_reqd("sayad_code", v);
+		});
 }
 
 function pdc_apply_party_type_ui(frm) {
@@ -1237,7 +1298,8 @@ function pdc_apply_account_fields_ui(frm) {
 		"description",
 		payable
 			? "Payable: typically the notes-payable / cheque pool account from PDC Settings when empty."
-			: "Receivable: party receivable (e.g. customer AR). " + (_pdc_meta.account_paid_from_description || "")
+			: "Receivable: party receivable (e.g. customer AR). " +
+					(_pdc_meta.account_paid_from_description || "")
 	);
 	frm.set_df_property(
 		"account_paid_to",
@@ -1245,7 +1307,8 @@ function pdc_apply_account_fields_ui(frm) {
 		rec
 			? "Receivable: Cheques in Hand (from PDC Settings) or as defaulted. " +
 					(_pdc_meta.account_paid_to_description || "")
-			: "Payable: party payable (e.g. supplier AP). " + (_pdc_meta.account_paid_to_description || "")
+			: "Payable: party payable (e.g. supplier AP). " +
+					(_pdc_meta.account_paid_to_description || "")
 	);
 
 	const company = frm.doc.company;
@@ -1300,15 +1363,19 @@ function pdc_format_workflow_rollback_preview(prev) {
 		html += `<div class="alert alert-info">${esc(prev.opening_import_notice)}</div>`;
 	}
 	html += `<h6>${__("Workflow")}</h6>`;
-	html += `<p><strong>${esc(prev.current_state || wf.from_workflow_state || "")}</strong> → <strong>${esc(
-		prev.target_state || wf.to_workflow_state || ""
-	)}</strong></p>`;
+	html += `<p><strong>${esc(
+		prev.current_state || wf.from_workflow_state || ""
+	)}</strong> → <strong>${esc(prev.target_state || wf.to_workflow_state || "")}</strong></p>`;
 	if (wf.to_cheque_status) {
 		html += `<p>${__("Cheque status")}: ${esc(wf.from_cheque_status || "—")} → ${esc(
 			wf.to_cheque_status
 		)}</p>`;
 	}
-	if (wf.docstatus_after != null && wf.docstatus_before != null && wf.docstatus_after !== wf.docstatus_before) {
+	if (
+		wf.docstatus_after != null &&
+		wf.docstatus_before != null &&
+		wf.docstatus_after !== wf.docstatus_before
+	) {
 		html += `<p>${__("Docstatus")}: ${wf.docstatus_before} → ${wf.docstatus_after}</p>`;
 	}
 	if (leaf.cheque_leaf) {
@@ -1329,9 +1396,7 @@ function pdc_format_workflow_rollback_preview(prev) {
 		const impact = step.impact || {};
 		const je = step.journal_entry;
 		const transition =
-			step.from_state && step.to_state
-				? `${step.from_state} → ${step.to_state}`
-				: "";
+			step.from_state && step.to_state ? `${step.from_state} → ${step.to_state}` : "";
 		if (!je && !step.has_accounting) {
 			html += `<div class="mb-2"><em>${esc(transition)}</em> — ${__(
 				"No Journal Entry on PDC journal references."
@@ -1420,12 +1485,16 @@ function pdc_add_delete_imported_pdc_button(frm) {
 	}
 	const run = () => {
 		const fn =
-			window.erpnext_extensions?.cheque_opening_import?.setup_delete_imported_pdc_on_pdc_form;
+			window.erpnext_extensions?.cheque_opening_import
+				?.setup_delete_imported_pdc_on_pdc_form;
 		if (typeof fn === "function") {
 			fn(frm);
 		}
 	};
-	if (typeof window.erpnext_extensions?.cheque_opening_import?.setup_delete_imported_pdc_on_pdc_form === "function") {
+	if (
+		typeof window.erpnext_extensions?.cheque_opening_import
+			?.setup_delete_imported_pdc_on_pdc_form === "function"
+	) {
 		run();
 		return;
 	}
@@ -1437,16 +1506,14 @@ function pdc_add_workflow_rollback_button(frm) {
 		return;
 	}
 	frappe.call({
-		method:
-			"erpnext_extensions.cheque_management.pdc_workflow_rollback.check_user_may_rollback_pdc_workflow",
+		method: "erpnext_extensions.cheque_management.pdc_workflow_rollback.check_user_may_rollback_pdc_workflow",
 		args: { pdc_name: frm.doc.name },
 		callback(perm) {
 			if (!perm.message) {
 				return;
 			}
 			frappe.call({
-				method:
-					"erpnext_extensions.cheque_management.pdc_workflow_rollback.get_pdc_rollback_target_states",
+				method: "erpnext_extensions.cheque_management.pdc_workflow_rollback.get_pdc_rollback_target_states",
 				args: { pdc_name: frm.doc.name },
 				callback(r) {
 					const targets = r.message || [];
@@ -1500,8 +1567,7 @@ function pdc_show_workflow_rollback_dialog(frm, targets) {
 				return;
 			}
 			frappe.call({
-				method:
-					"erpnext_extensions.cheque_management.pdc_workflow_rollback.rollback_workflow_state",
+				method: "erpnext_extensions.cheque_management.pdc_workflow_rollback.rollback_workflow_state",
 				args: {
 					pdc_name: frm.doc.name,
 					target_state: values.target_state,
@@ -1528,12 +1594,13 @@ function pdc_show_workflow_rollback_dialog(frm, targets) {
 			return;
 		}
 		frappe.call({
-			method:
-				"erpnext_extensions.cheque_management.pdc_workflow_rollback.get_pdc_workflow_rollback_preview",
+			method: "erpnext_extensions.cheque_management.pdc_workflow_rollback.get_pdc_workflow_rollback_preview",
 			args: { pdc_name: frm.doc.name, target_state: target },
 			callback(r) {
 				const prev = r.message || {};
-				d.fields_dict.preview_html.$wrapper.html(pdc_format_workflow_rollback_preview(prev));
+				d.fields_dict.preview_html.$wrapper.html(
+					pdc_format_workflow_rollback_preview(prev)
+				);
 			},
 		});
 	}

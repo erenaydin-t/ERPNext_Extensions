@@ -4,7 +4,6 @@ import json
 
 import frappe
 
-
 """LEGACY PATCH (workspace-first navigation) — kept for migration history.
 
 Current Cheque Management navigation strategy is **sidebar-first** via `Workspace Sidebar`

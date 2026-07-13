@@ -81,8 +81,21 @@ def _normalize_irr_stock_entry(voucher_no: str) -> list[str]:
 def _sync_bins_from_voucher_sles(voucher_no: str, company: str) -> None:
 	rows = frappe.get_all(
 		"Stock Ledger Entry",
-		filters={"voucher_type": "Stock Entry", "voucher_no": voucher_no, "is_cancelled": 0, "company": company},
-		fields=["name", "item_code", "warehouse", "qty_after_transaction", "stock_value", "valuation_rate", "creation"],
+		filters={
+			"voucher_type": "Stock Entry",
+			"voucher_no": voucher_no,
+			"is_cancelled": 0,
+			"company": company,
+		},
+		fields=[
+			"name",
+			"item_code",
+			"warehouse",
+			"qty_after_transaction",
+			"stock_value",
+			"valuation_rate",
+			"creation",
+		],
 		order_by="item_code, warehouse, creation",
 	)
 	last: dict[tuple[str, str], dict] = {}
@@ -90,9 +103,7 @@ def _sync_bins_from_voucher_sles(voucher_no: str, company: str) -> None:
 		last[(row.item_code, row.warehouse)] = row
 	for (item_code, warehouse), sle in last.items():
 		full = frappe.get_doc("Stock Ledger Entry", sle.name)
-		if _has_later_sle(
-			company, item_code, warehouse, full.posting_date, full.posting_time, full.creation
-		):
+		if _has_later_sle(company, item_code, warehouse, full.posting_date, full.posting_time, full.creation):
 			continue
 		bin_name = frappe.db.get_value("Bin", {"item_code": item_code, "warehouse": warehouse}, "name")
 		if not bin_name:
@@ -131,14 +142,20 @@ def check_voucher(doctype: str, voucher_no: str, *, include_print: bool = False)
 	doc = frappe.get_doc(doctype, voucher_no)
 	company = doc.company
 	gl_rows = fetch_gl_rows(doctype, voucher_no)
-	sle_rows = fetch_sle_rows(doctype, voucher_no) if frappe.get_meta(doctype).has_field("update_stock") or doctype in (
-		"Stock Entry",
-		"Purchase Receipt",
-		"Delivery Note",
-		"Purchase Invoice",
-		"Sales Invoice",
-		"Stock Reconciliation",
-	) else []
+	sle_rows = (
+		fetch_sle_rows(doctype, voucher_no)
+		if frappe.get_meta(doctype).has_field("update_stock")
+		or doctype
+		in (
+			"Stock Entry",
+			"Purchase Receipt",
+			"Delivery Note",
+			"Purchase Invoice",
+			"Sales Invoice",
+			"Stock Reconciliation",
+		)
+		else []
+	)
 
 	if doctype == "Stock Entry" and not sle_rows:
 		sle_rows = fetch_sle_rows(doctype, voucher_no)
@@ -249,7 +266,10 @@ def classify_company_fractional_irr(
 	fail_new_vouchers: set[tuple[str, str]] = set()
 	fc_account_fields = ("debit_in_account_currency", "credit_in_account_currency")
 
-	gl_fields_sql = ", ".join(f"`{f}`" for f in GL_ROW_FIELDS if f != "name") + ", name, posting_date, voucher_type, voucher_no"
+	gl_fields_sql = (
+		", ".join(f"`{f}`" for f in GL_ROW_FIELDS if f != "name")
+		+ ", name, posting_date, voucher_type, voucher_no"
+	)
 	gl_rows = frappe.db.sql(
 		f"""
 		select {gl_fields_sql}
@@ -393,9 +413,7 @@ def repair_company_fractional_irr(company=None, legacy_before=None, max_passes: 
 	legacy_before = legacy_before or "2026-06-20"
 	repair_log: list[dict] = []
 	for _pass in range(int(max_passes or 4)):
-		scan = classify_company_fractional_irr(
-			company=company, legacy_before=legacy_before, limit=25
-		)
+		scan = classify_company_fractional_irr(company=company, legacy_before=legacy_before, limit=25)
 		if not (scan.get("counts") or {}).get("fail_new_irr_fractional"):
 			scan["repair_log"] = repair_log
 			return scan
@@ -411,9 +429,7 @@ def repair_company_fractional_irr(company=None, legacy_before=None, max_passes: 
 					actions.append("repost_and_check_stock_entry")
 				except Exception as exc:
 					actions.append(f"repost_failed:{exc!s}")
-			repair_log.append(
-				{"voucher_type": voucher_type, "voucher_no": voucher_no, "actions": actions}
-			)
+			repair_log.append({"voucher_type": voucher_type, "voucher_no": voucher_no, "actions": actions})
 		frappe.db.commit()
 	scan = classify_company_fractional_irr(company=company, legacy_before=legacy_before, limit=25)
 	scan["repair_log"] = repair_log
@@ -556,7 +572,12 @@ def run_repost_for_voucher_impl(doctype: str, voucher_no: str, normalize_after: 
 
 	if frappe.db.exists("DocType", "Repost Accounting Ledger"):
 		allowed = set(frappe.get_hooks("repost_allowed_doctypes") or [])
-		if doctype in allowed or doctype in ("Stock Entry", "Purchase Receipt", "Sales Invoice", "Purchase Invoice"):
+		if doctype in allowed or doctype in (
+			"Stock Entry",
+			"Purchase Receipt",
+			"Sales Invoice",
+			"Purchase Invoice",
+		):
 			try:
 				ral = frappe.new_doc("Repost Accounting Ledger")
 				ral.company = company
@@ -645,7 +666,12 @@ def assert_print_no_fractional_irr(voucher_type, voucher_no):
 	out = check_print_output(_voucher_no_arg(voucher_no), doctype=voucher_type)
 	if out.get("status") == "PASS":
 		return {**out, "manual_required": False}
-	return {**out, "status": "MANUAL_REQUIRED", "manual_required": True, "reason": "valuation_rate or ambiguous HTML decimals"}
+	return {
+		**out,
+		"status": "MANUAL_REQUIRED",
+		"manual_required": True,
+		"reason": "valuation_rate or ambiguous HTML decimals",
+	}
 
 
 @frappe.whitelist()
@@ -663,9 +689,9 @@ def check_print_output(voucher_no, doctype="Stock Entry"):
 @frappe.whitelist()
 def debug_mtfm(company=None):
 	"""Create MTfM path and dump SQL/preview diagnostics."""
-	import erpnext_extensions.iran_accounting  # noqa: F401
 	from erpnext.manufacturing.doctype.work_order.work_order import make_stock_entry as wo_make_stock_entry
 
+	import erpnext_extensions.iran_accounting  # noqa: F401
 	from erpnext_extensions.iran_accounting import e2e_bootstrap as b
 	from erpnext_extensions.iran_accounting.acceptance_scenarios import AcceptanceContext, _make_bom_wo
 	from erpnext_extensions.iran_accounting.preview_validation import validate_accounting_ledger_preview
@@ -789,7 +815,9 @@ def check_stock_ledger_report(
 	apply_monkey_patches()
 	frappe.set_user("Administrator")
 	company = company or frappe.db.get_value("Company", {"default_currency": "IRR"}, "name")
-	filters = default_stock_ledger_filters(company, voucher_no=voucher_no, from_date=from_date, to_date=to_date)
+	filters = default_stock_ledger_filters(
+		company, voucher_no=voucher_no, from_date=from_date, to_date=to_date
+	)
 	columns, data = run_stock_ledger_report(filters)
 	monetary_fields = tuple(stock_ledger_report_monetary_fields(columns, filters))
 	qty_fields = tuple(quantity_fieldnames_from_columns(columns))
@@ -868,10 +896,10 @@ def _previous_sle_for_row(sle: dict) -> dict | None:
 
 
 def _import_integrity_snapshot() -> dict:
-	import os
-	import sys
 	import hashlib
 	import importlib
+	import os
+	import sys
 
 	import erpnext_extensions.iran_accounting.rounding as rounding
 	from erpnext_extensions.iran_accounting.monkey_patches import apply_monkey_patches
@@ -1012,7 +1040,9 @@ def _gl_residual_for_stock_entry(voucher_no: str, company: str) -> dict:
 	}
 
 
-def _has_later_sle(company: str, item_code: str, warehouse: str, posting_date, posting_time, creation) -> bool:
+def _has_later_sle(
+	company: str, item_code: str, warehouse: str, posting_date, posting_time, creation
+) -> bool:
 	posting_datetime = f"{posting_date} {posting_time}"
 	return bool(
 		frappe.db.sql(
@@ -1158,9 +1188,7 @@ def check_stock_value_residual(voucher_no: str, company: str | None = None) -> d
 
 	overall = "PASS" if lines and not any_fail else "FAIL"
 	voucher_gl_ok = (
-		gl_info["gl_balanced"]
-		and gl_info["gl_matches_incoming"]
-		and gl_info["gl_matches_outgoing"]
+		gl_info["gl_balanced"] and gl_info["gl_matches_incoming"] and gl_info["gl_matches_outgoing"]
 	)
 	if overall == "PASS" and not voucher_gl_ok:
 		overall = "FAIL"
@@ -1209,11 +1237,11 @@ def inspect_stock_reconciliation_voucher(voucher_no, company=None):
 	"""SQL + Stock Ledger report row for one Stock Reconciliation voucher."""
 	import erpnext_extensions.iran_accounting  # noqa: F401
 	from erpnext_extensions.iran_accounting.monkey_patches import apply_monkey_patches
+	from erpnext_extensions.iran_accounting.reports import run_stock_ledger_report
 	from erpnext_extensions.iran_accounting.stock_ledger_report import (
 		run_stock_ledger_report_raw,
 		stock_ledger_report_runtime_info,
 	)
-	from erpnext_extensions.iran_accounting.reports import run_stock_ledger_report
 	from erpnext_extensions.iran_accounting.stock_reconciliation_debug import _report_row_for_voucher
 
 	apply_monkey_patches()

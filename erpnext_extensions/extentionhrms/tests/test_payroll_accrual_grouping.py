@@ -335,13 +335,17 @@ def _loan_slips():
 	# two employees in the SAME department + cost centre, each with a Loan
 	return [
 		slip(
-			"SS-L1", "Finance", [("CC-ADMIN", 100)],
+			"SS-L1",
+			"Finance",
+			[("CC-ADMIN", 100)],
 			earnings=[("Basic Salary", 5_000_000)],
 			deductions=[("Loan", 1_000_000), ("Income Tax", 400_000)],
 			employee="EMP-1",
 		),
 		slip(
-			"SS-L2", "Finance", [("CC-ADMIN", 100)],
+			"SS-L2",
+			"Finance",
+			[("CC-ADMIN", 100)],
 			earnings=[("Basic Salary", 6_000_000)],
 			deductions=[("Loan", 1_500_000), ("Income Tax", 500_000)],
 			employee="EMP-2",
@@ -384,9 +388,14 @@ def test_per_employee_pl_component_keeps_department_and_party():
 	# flag a P&L component: row is per-employee AND still carries the department
 	config = make_config(per_employee=["Absence"])
 	slips = [
-		slip("SS-P", "Maintenance", [("CC-PROD", 100)],
+		slip(
+			"SS-P",
+			"Maintenance",
+			[("CC-PROD", 100)],
 			earnings=[("Basic Salary", 4_000_000)],
-			deductions=[("Absence", 250_000)], employee="EMP-9"),
+			deductions=[("Absence", 250_000)],
+			employee="EMP-9",
+		),
 	]
 	result = build_accrual_journal_accounts(slips, config)
 	row = result.rows_for(PENALTY_EXP)[0]
@@ -404,12 +413,22 @@ def test_per_employee_pl_component_keeps_department_and_party():
 def test_account_party_is_stamped_on_matching_rows():
 	config = make_config(account_parties={TAX_PAYABLE: ("Supplier", "SUP-TAX")})
 	slips = [
-		slip("SS-T1", "Finance", [("CC-ADMIN", 100)],
+		slip(
+			"SS-T1",
+			"Finance",
+			[("CC-ADMIN", 100)],
 			earnings=[("Basic Salary", 5_000_000)],
-			deductions=[("Income Tax", 400_000)], employee="E1"),
-		slip("SS-T2", "Micro Lab", [("CC-PROD", 100)],
+			deductions=[("Income Tax", 400_000)],
+			employee="E1",
+		),
+		slip(
+			"SS-T2",
+			"Micro Lab",
+			[("CC-PROD", 100)],
 			earnings=[("Basic Salary", 6_000_000)],
-			deductions=[("Income Tax", 500_000)], employee="E2"),
+			deductions=[("Income Tax", 500_000)],
+			employee="E2",
+		),
 	]
 	result = build_accrual_journal_accounts(slips, config)
 
@@ -431,9 +450,14 @@ def test_account_party_does_not_override_employee_party():
 		account_parties={LOAN: ("Supplier", "SHOULD-NOT-WIN")},
 	)
 	slips = [
-		slip("SS-L", "Finance", [("CC-ADMIN", 100)],
+		slip(
+			"SS-L",
+			"Finance",
+			[("CC-ADMIN", 100)],
 			earnings=[("Basic Salary", 5_000_000)],
-			deductions=[("Loan", 1_000_000)], employee="EMP-7"),
+			deductions=[("Loan", 1_000_000)],
+			employee="EMP-7",
+		),
 	]
 	result = build_accrual_journal_accounts(slips, config)
 	loan = result.rows_for(LOAN)[0]
@@ -528,9 +552,9 @@ def test_randomised_entries_always_balance_and_are_dimension_complete(seed):
 
 	# 3) round-off residue is tiny relative to the entry (a few currency units)
 	total = result.total_debit
-	assert abs(result.round_off_amount) <= len(slips) * 5, (
-		f"seed={seed} residue too large: {result.round_off_amount} on total {total}"
-	)
+	assert (
+		abs(result.round_off_amount) <= len(slips) * 5
+	), f"seed={seed} residue too large: {result.round_off_amount} on total {total}"
 
 	# 4) no row has both a debit and a credit
 	for r in result.rows:

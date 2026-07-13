@@ -211,7 +211,8 @@ def get_pm_clearance_action_flags(pm_clearance: str | Document) -> dict:
 		submitted_doc
 		and not locked
 		and not has_active_settlement_je(doc)
-		and lifecycle not in (LIFECYCLE_SETTLED, LIFECYCLE_PENDING_JE, LIFECYCLE_REJECTED, LIFECYCLE_CANCELLED)
+		and lifecycle
+		not in (LIFECYCLE_SETTLED, LIFECYCLE_PENDING_JE, LIFECYCLE_REJECTED, LIFECYCLE_CANCELLED)
 	)
 	from erpnext_extensions.petty_management.services.workflow_utils import get_allowed_workflow_actions
 
@@ -275,7 +276,9 @@ def validate_pm_clearance_workflow_change(doc: Document) -> None:
 
 	if new_title == "Rejected" and has_active_settlement_je(doc):
 		frappe.throw(
-			_("Cannot reject PM Clearance while a settlement Journal Entry exists. Cancel the Journal Entry first."),
+			_(
+				"Cannot reject PM Clearance while a settlement Journal Entry exists. Cancel the Journal Entry first."
+			),
 			title=_("Reject not allowed"),
 		)
 
@@ -290,6 +293,8 @@ def validate_apply_workflow_action(doc: Document, action: str) -> None:
 			)
 		if has_active_settlement_je(doc):
 			frappe.throw(
-				_("Cannot reject while a settlement Journal Entry is linked. Cancel the Journal Entry first."),
+				_(
+					"Cannot reject while a settlement Journal Entry is linked. Cancel the Journal Entry first."
+				),
 				title=_("Reject not allowed"),
 			)

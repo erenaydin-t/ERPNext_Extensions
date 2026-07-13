@@ -17,7 +17,6 @@ from erpnext_extensions.facility_management.desk_workspace_config import (
 	WORKSPACE_TRANSACTION_LINKS,
 )
 
-
 MODULE_NAME = "Facility Management"
 APP_NAME = "erpnext_extensions"
 

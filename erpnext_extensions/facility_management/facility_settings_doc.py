@@ -145,7 +145,7 @@ def get_facility_settings_defaults_payload(company: str) -> dict[str, Any]:
 	if not settings:
 		return {
 			"found": False,
-		 "defaults": {},
+			"defaults": {},
 			"company": company,
 			"message": _(
 				"Facility Settings not found for this company. Please configure defaults or fill accounts manually."
@@ -347,9 +347,9 @@ def validate_repayment_je_prerequisites(
 			val = resolve_dimension(fn, repayment=repayment, facility=facility, settings=settings)
 			if not val:
 				frappe.throw(
-					_("Accounting dimension {0} is required for repayment expense rows. Set it on Facility or Repayment.").format(
-						row.label or fn
-					)
+					_(
+						"Accounting dimension {0} is required for repayment expense rows. Set it on Facility or Repayment."
+					).format(row.label or fn)
 				)
 
 

@@ -12,8 +12,8 @@ from erpnext_extensions.facility_management.e2e.facility_repayment_draft_overrid
 	build_repayment_override_values,
 	run_repayment_override_integration,
 )
-from erpnext_extensions.facility_management.facility_accounting import preview_repayment_journal_entry
 from erpnext_extensions.facility_management.e2e.facility_repayment_je_prep import prepare_active_facility
+from erpnext_extensions.facility_management.facility_accounting import preview_repayment_journal_entry
 
 
 class TestFacilityRepaymentFieldMeta(unittest.TestCase):

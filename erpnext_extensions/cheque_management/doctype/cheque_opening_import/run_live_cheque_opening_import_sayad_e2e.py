@@ -255,7 +255,6 @@ def _assert_case(case: dict, *, expect_code: str | None, expect_reg: int) -> lis
 
 def _template_headers_test() -> dict:
 	import openpyxl
-
 	from frappe.utils import cstr
 
 	from erpnext_extensions.cheque_management.doctype.cheque_opening_import import (

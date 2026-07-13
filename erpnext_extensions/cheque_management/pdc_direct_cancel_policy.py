@@ -9,7 +9,7 @@ pipeline and can leave ``workflow_state``, cheque leaf, and journals inconsisten
 
 Three layers (defense in depth; only ``before_cancel`` is authoritative):
 
-1. **``can_cancel_document`` (whitelisted override via ``hooks.py``)**  
+1. **``can_cancel_document`` (whitelisted override via ``hooks.py``)**
    Frappe's workflow toolbar (``frappe/public/js/frappe/form/toolbar.js``) calls
    ``frappe.model.workflow.can_cancel_document(doctype)`` for every
    workflow-enabled DocType. Frappe provides **no per-doctype hook** for this API.
@@ -20,13 +20,13 @@ Three layers (defense in depth; only ``before_cancel`` is authoritative):
    implementation imported from the module, not via ``frappe.call``, so no
    recursion).
 
-2. **``PostDatedCheque.before_cancel``**  
+2. **``PostDatedCheque.before_cancel``**
    Enforces the business rule on **all** server paths: desk, ``frappe.client.cancel``,
    REST, bench console, background jobs. Internal utilities may set an approved
    ``frappe.flags`` bypass (see below) inside a tight ``pdc_internal_direct_cancel``
    context.
 
-3. **``hide_standard_cancel_for_pdc`` in ``post_dated_cheque.js``**  
+3. **``hide_standard_cancel_for_pdc`` in ``post_dated_cheque.js``**
    UX only: hides the secondary **Cancel** button if the toolbar paints it before
    the async ``can_cancel_document`` response or after a rebuild. **Not** a security
    control; server ``before_cancel`` remains authoritative.

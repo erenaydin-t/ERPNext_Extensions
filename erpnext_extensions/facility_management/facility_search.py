@@ -18,7 +18,11 @@ def facility_names_for_report_filters(filters) -> list[str]:
 		if filters.get("facility_name"):
 			match = frappe.db.get_value(
 				"Facility",
-				{"name": name, "company": filters.company, "facility_name": ("like", f"%{filters.facility_name.strip()}%")},
+				{
+					"name": name,
+					"company": filters.company,
+					"facility_name": ("like", f"%{filters.facility_name.strip()}%"),
+				},
 			)
 			if not match:
 				return []

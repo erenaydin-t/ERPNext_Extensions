@@ -11,19 +11,21 @@ from frappe.utils import flt
 from erpnext_extensions.facility_management.facility_accounting import (
 	cancel_journal_entry,
 	create_and_submit_repayment_je,
-	preview_repayment_journal_entry as build_repayment_je_preview,
 	refresh_facility_paid_fields,
 )
-from erpnext_extensions.facility_management.facility_balances import get_facility_balance_row
-from erpnext_extensions.facility_management.facility_settings_doc import (
-	get_facility_settings_doc,
-	resolve_account,
-	validate_repayment_je_prerequisites,
+from erpnext_extensions.facility_management.facility_accounting import (
+	preview_repayment_journal_entry as build_repayment_je_preview,
 )
+from erpnext_extensions.facility_management.facility_balances import get_facility_balance_row
 from erpnext_extensions.facility_management.facility_monetary import (
 	FACILITY_REPAYMENT_CURRENCY_FIELDS,
 	parse_facility_amount,
 	persist_exact_currency_fields,
+)
+from erpnext_extensions.facility_management.facility_settings_doc import (
+	get_facility_settings_doc,
+	resolve_account,
+	validate_repayment_je_prerequisites,
 )
 
 _REPAYMENT_ACCOUNT_FIELDS = (
@@ -37,10 +39,7 @@ _REPAYMENT_ACCOUNT_FIELDS = (
 
 class FacilityRepayment(Document):
 	def _repayment_amounts_decimal(self):
-		return {
-			fn: parse_facility_amount(self.get(fn))
-			for fn in FACILITY_REPAYMENT_CURRENCY_FIELDS
-		}
+		return {fn: parse_facility_amount(self.get(fn)) for fn in FACILITY_REPAYMENT_CURRENCY_FIELDS}
 
 	def _recalculate_total_payment(self) -> None:
 		amounts = self._repayment_amounts_decimal()
@@ -62,7 +61,9 @@ class FacilityRepayment(Document):
 		fields = dict(getattr(self, "_exact_currency", None) or {})
 		if not fields:
 			fields = {fn: self.get(fn) for fn in FACILITY_REPAYMENT_CURRENCY_FIELDS}
-		total = sum(parse_facility_amount(fields.get(fn, self.get(fn))) for fn in FACILITY_REPAYMENT_CURRENCY_FIELDS)
+		total = sum(
+			parse_facility_amount(fields.get(fn, self.get(fn))) for fn in FACILITY_REPAYMENT_CURRENCY_FIELDS
+		)
 		fields["total_payment_amount"] = format(total, "f")
 		return fields
 

@@ -27,17 +27,19 @@ class TestPDCAOpenAdvance(unittest.TestCase):
 		with ExitStack() as stack:
 			db = SimpleNamespace(
 				get_value=lambda *a, **k: {
-						"name": "PDC-A1",
-						"allocation_mode": "advance",
-						"cheque_amount": 1000.0,
-						"recognition_je_posted": 0,
-						"instrument_dead": 0,
-						"instrument_dead_reason": None,
-					},
+					"name": "PDC-A1",
+					"allocation_mode": "advance",
+					"cheque_amount": 1000.0,
+					"recognition_je_posted": 0,
+					"instrument_dead": 0,
+					"instrument_dead_reason": None,
+				},
 				sql=lambda *a, **k: [],
 				table_exists=lambda *a, **k: False,
 			)
-			stack.enter_context(patch("erpnext_extensions.cheque_management.pdc_open_advance.frappe", _fake_frappe(db=db)))
+			stack.enter_context(
+				patch("erpnext_extensions.cheque_management.pdc_open_advance.frappe", _fake_frappe(db=db))
+			)
 			stack.enter_context(patch("erpnext_extensions.cheque_management.pdc_open_advance._", lambda s: s))
 			out = get_pdc_open_advance_instrument("PDC-A1")
 			self.assertEqual(out["recognized_gross"], 0.0)
@@ -48,17 +50,19 @@ class TestPDCAOpenAdvance(unittest.TestCase):
 		with ExitStack() as stack:
 			db = SimpleNamespace(
 				get_value=lambda *a, **k: {
-						"name": "PDC-A2",
-						"allocation_mode": "advance",
-						"cheque_amount": 20000.0,
-						"recognition_je_posted": 1,
-						"instrument_dead": 0,
-						"instrument_dead_reason": None,
-					},
+					"name": "PDC-A2",
+					"allocation_mode": "advance",
+					"cheque_amount": 20000.0,
+					"recognition_je_posted": 1,
+					"instrument_dead": 0,
+					"instrument_dead_reason": None,
+				},
 				sql=lambda *a, **k: [],
 				table_exists=lambda *a, **k: False,
 			)
-			stack.enter_context(patch("erpnext_extensions.cheque_management.pdc_open_advance.frappe", _fake_frappe(db=db)))
+			stack.enter_context(
+				patch("erpnext_extensions.cheque_management.pdc_open_advance.frappe", _fake_frappe(db=db))
+			)
 			stack.enter_context(patch("erpnext_extensions.cheque_management.pdc_open_advance._", lambda s: s))
 			out = get_pdc_open_advance_instrument("PDC-A2")
 			self.assertEqual(out["recognized_gross"], 20000.0)
@@ -71,17 +75,19 @@ class TestPDCAOpenAdvance(unittest.TestCase):
 		with ExitStack() as stack:
 			db = SimpleNamespace(
 				get_value=lambda *a, **k: {
-						"name": "PDC-A3",
-						"allocation_mode": "advance",
-						"cheque_amount": 1000.0,
-						"recognition_je_posted": 1,
-						"instrument_dead": 1,
-						"instrument_dead_reason": "reversed",
-					},
+					"name": "PDC-A3",
+					"allocation_mode": "advance",
+					"cheque_amount": 1000.0,
+					"recognition_je_posted": 1,
+					"instrument_dead": 1,
+					"instrument_dead_reason": "reversed",
+				},
 				sql=lambda *a, **k: [],
 				table_exists=lambda *a, **k: False,
 			)
-			stack.enter_context(patch("erpnext_extensions.cheque_management.pdc_open_advance.frappe", _fake_frappe(db=db)))
+			stack.enter_context(
+				patch("erpnext_extensions.cheque_management.pdc_open_advance.frappe", _fake_frappe(db=db))
+			)
 			stack.enter_context(patch("erpnext_extensions.cheque_management.pdc_open_advance._", lambda s: s))
 			out = get_pdc_open_advance_instrument("PDC-A3")
 			self.assertEqual(out["open_amount"], 0.0)
@@ -89,22 +95,25 @@ class TestPDCAOpenAdvance(unittest.TestCase):
 
 	def test_multi_row_order_allocations_roll_up(self) -> None:
 		with ExitStack() as stack:
+
 			def _sql(query, params=None, as_dict=False):
 				return [{"amt": 15000.0}]
 
 			db = SimpleNamespace(
 				get_value=lambda *a, **k: {
-						"name": "PDC-A4",
-						"allocation_mode": "advance",
-						"cheque_amount": 20000.0,
-						"recognition_je_posted": 1,
-						"instrument_dead": 0,
-						"instrument_dead_reason": None,
-					},
+					"name": "PDC-A4",
+					"allocation_mode": "advance",
+					"cheque_amount": 20000.0,
+					"recognition_je_posted": 1,
+					"instrument_dead": 0,
+					"instrument_dead_reason": None,
+				},
 				sql=_sql,
 				table_exists=lambda *a, **k: False,
 			)
-			stack.enter_context(patch("erpnext_extensions.cheque_management.pdc_open_advance.frappe", _fake_frappe(db=db)))
+			stack.enter_context(
+				patch("erpnext_extensions.cheque_management.pdc_open_advance.frappe", _fake_frappe(db=db))
+			)
 			stack.enter_context(patch("erpnext_extensions.cheque_management.pdc_open_advance._", lambda s: s))
 			out = get_pdc_open_advance_by_order("PDC-A4", "Sales Order", "SO-1")
 			self.assertEqual(out["bucket_gross"], 15000.0)
@@ -114,17 +123,19 @@ class TestPDCAOpenAdvance(unittest.TestCase):
 		with ExitStack() as stack:
 			db = SimpleNamespace(
 				get_value=lambda *a, **k: {
-						"name": "PDC-N1",
-						"allocation_mode": "direct_settlement",
-						"cheque_amount": 1000.0,
-						"recognition_je_posted": 1,
-						"instrument_dead": 0,
-						"instrument_dead_reason": None,
-					},
+					"name": "PDC-N1",
+					"allocation_mode": "direct_settlement",
+					"cheque_amount": 1000.0,
+					"recognition_je_posted": 1,
+					"instrument_dead": 0,
+					"instrument_dead_reason": None,
+				},
 				sql=lambda *a, **k: [],
 				table_exists=lambda *a, **k: False,
 			)
-			stack.enter_context(patch("erpnext_extensions.cheque_management.pdc_open_advance.frappe", _fake_frappe(db=db)))
+			stack.enter_context(
+				patch("erpnext_extensions.cheque_management.pdc_open_advance.frappe", _fake_frappe(db=db))
+			)
 			stack.enter_context(patch("erpnext_extensions.cheque_management.pdc_open_advance._", lambda s: s))
 			with self.assertRaises(ValidationError):
 				is_pdc_advance_allocatable("PDC-N1")
@@ -133,9 +144,27 @@ class TestPDCAOpenAdvance(unittest.TestCase):
 		with ExitStack() as stack:
 			# 2 PDCs in advance mode with allocations; one is not recognized (ignored)
 			pdc_rows = [
-				{"pdc": "PDC-X1", "cheque_amount": 1000.0, "recognition_je_posted": 1, "instrument_dead": 0, "bucket_gross": 600.0},
-				{"pdc": "PDC-X2", "cheque_amount": 1000.0, "recognition_je_posted": 1, "instrument_dead": 0, "bucket_gross": 400.0},
-				{"pdc": "PDC-X3", "cheque_amount": 1000.0, "recognition_je_posted": 0, "instrument_dead": 0, "bucket_gross": 999.0},
+				{
+					"pdc": "PDC-X1",
+					"cheque_amount": 1000.0,
+					"recognition_je_posted": 1,
+					"instrument_dead": 0,
+					"bucket_gross": 600.0,
+				},
+				{
+					"pdc": "PDC-X2",
+					"cheque_amount": 1000.0,
+					"recognition_je_posted": 1,
+					"instrument_dead": 0,
+					"bucket_gross": 400.0,
+				},
+				{
+					"pdc": "PDC-X3",
+					"cheque_amount": 1000.0,
+					"recognition_je_posted": 0,
+					"instrument_dead": 0,
+					"bucket_gross": 999.0,
+				},
 			]
 
 			def _sql_side_effect(query, params=None, as_dict=False):
@@ -150,8 +179,12 @@ class TestPDCAOpenAdvance(unittest.TestCase):
 					]
 				return []
 
-			db = SimpleNamespace(get_value=lambda *a, **k: None, sql=_sql_side_effect, table_exists=lambda *a, **k: True)
-			stack.enter_context(patch("erpnext_extensions.cheque_management.pdc_open_advance.frappe", _fake_frappe(db=db)))
+			db = SimpleNamespace(
+				get_value=lambda *a, **k: None, sql=_sql_side_effect, table_exists=lambda *a, **k: True
+			)
+			stack.enter_context(
+				patch("erpnext_extensions.cheque_management.pdc_open_advance.frappe", _fake_frappe(db=db))
+			)
 			stack.enter_context(patch("erpnext_extensions.cheque_management.pdc_open_advance._", lambda s: s))
 			out = get_open_advance_for_order("Purchase Order", "PO-1")
 			# open = (600 - 100) + (400 - 0 + 25) = 925
@@ -160,6 +193,7 @@ class TestPDCAOpenAdvance(unittest.TestCase):
 
 	def test_posted_applications_reduce_instrument_open(self) -> None:
 		with ExitStack() as stack:
+
 			def _sql_side_effect(query, params=None, as_dict=False):
 				q = " ".join((query or "").split())
 				if "FROM `tabPDC Invoice Application`" in q and "WHERE post_dated_cheque = %s" in q:
@@ -168,17 +202,19 @@ class TestPDCAOpenAdvance(unittest.TestCase):
 
 			db = SimpleNamespace(
 				get_value=lambda *a, **k: {
-						"name": "PDC-R1",
-						"allocation_mode": "advance",
-						"cheque_amount": 1000.0,
-						"recognition_je_posted": 1,
-						"instrument_dead": 0,
-						"instrument_dead_reason": None,
-					},
+					"name": "PDC-R1",
+					"allocation_mode": "advance",
+					"cheque_amount": 1000.0,
+					"recognition_je_posted": 1,
+					"instrument_dead": 0,
+					"instrument_dead_reason": None,
+				},
 				sql=_sql_side_effect,
 				table_exists=lambda *a, **k: True,
 			)
-			stack.enter_context(patch("erpnext_extensions.cheque_management.pdc_open_advance.frappe", _fake_frappe(db=db)))
+			stack.enter_context(
+				patch("erpnext_extensions.cheque_management.pdc_open_advance.frappe", _fake_frappe(db=db))
+			)
 			stack.enter_context(patch("erpnext_extensions.cheque_management.pdc_open_advance._", lambda s: s))
 			out = get_pdc_open_advance_instrument("PDC-R1")
 			self.assertEqual(out["recognized_gross"], 1000.0)
@@ -187,6 +223,7 @@ class TestPDCAOpenAdvance(unittest.TestCase):
 
 	def test_posted_applications_reduce_order_bucket_open(self) -> None:
 		with ExitStack() as stack:
+
 			def _sql_side_effect(query, params=None, as_dict=False):
 				q = " ".join((query or "").split())
 				if "FROM `tabPDC Allocation`" in q:
@@ -200,17 +237,19 @@ class TestPDCAOpenAdvance(unittest.TestCase):
 
 			db = SimpleNamespace(
 				get_value=lambda *a, **k: {
-						"name": "PDC-R2",
-						"allocation_mode": "advance",
-						"cheque_amount": 1000.0,
-						"recognition_je_posted": 1,
-						"instrument_dead": 0,
-						"instrument_dead_reason": None,
-					},
+					"name": "PDC-R2",
+					"allocation_mode": "advance",
+					"cheque_amount": 1000.0,
+					"recognition_je_posted": 1,
+					"instrument_dead": 0,
+					"instrument_dead_reason": None,
+				},
 				sql=_sql_side_effect,
 				table_exists=lambda *a, **k: True,
 			)
-			stack.enter_context(patch("erpnext_extensions.cheque_management.pdc_open_advance.frappe", _fake_frappe(db=db)))
+			stack.enter_context(
+				patch("erpnext_extensions.cheque_management.pdc_open_advance.frappe", _fake_frappe(db=db))
+			)
 			stack.enter_context(patch("erpnext_extensions.cheque_management.pdc_open_advance._", lambda s: s))
 			out = get_pdc_open_advance_by_order("PDC-R2", "Purchase Order", "PO-1")
 			# open = 600 - 400 + 50 = 250
@@ -218,4 +257,3 @@ class TestPDCAOpenAdvance(unittest.TestCase):
 			self.assertEqual(out["applied_amount"], 400.0)
 			self.assertEqual(out["reversed_amount"], 50.0)
 			self.assertEqual(out["open_amount"], 250.0)
-

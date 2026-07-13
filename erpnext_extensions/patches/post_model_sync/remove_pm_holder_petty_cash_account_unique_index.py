@@ -31,4 +31,3 @@ def execute():
 		if "petty_cash_account" not in columns:
 			continue
 		drop_index_if_exists("tabPM Holder", idx_name)
-

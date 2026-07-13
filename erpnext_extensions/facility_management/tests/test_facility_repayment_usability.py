@@ -10,7 +10,10 @@ from erpnext_extensions.facility_management.facility_accounting import (
 	build_repayment_je_plan,
 	preview_repayment_journal_entry,
 )
-from erpnext_extensions.facility_management.facility_queries import facility_link_query, facility_names_matching
+from erpnext_extensions.facility_management.facility_queries import (
+	facility_link_query,
+	facility_names_matching,
+)
 from erpnext_extensions.facility_management.facility_report_filters import apply_facility_filters_to_sql
 from erpnext_extensions.facility_management.facility_settings_doc import resolve_account
 from erpnext_extensions.facility_management.report.facility_balance.facility_balance import get_data

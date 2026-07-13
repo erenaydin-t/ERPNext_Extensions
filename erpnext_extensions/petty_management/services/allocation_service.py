@@ -7,6 +7,10 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import cint, flt
 
+from erpnext_extensions.petty_management.services.clearance_reservation import (
+	clearance_reserves_pm_request_balance_sql,
+	pm_request_allocation_sql_filter,
+)
 from erpnext_extensions.petty_management.services.constants import (
 	FUNDING_SOURCE_OPENING_ADVANCE,
 	FUNDING_SOURCE_PM_REQUEST,
@@ -25,14 +29,8 @@ from erpnext_extensions.petty_management.services.opening_advance_service import
 	stamp_opening_advance_display_balances,
 	sum_prior_opening_allocations,
 )
-from erpnext_extensions.petty_management.utils import get_pm_holder_name
-
 from erpnext_extensions.petty_management.services.request_api_guard import get_pm_request_doc_for_read
-
-from erpnext_extensions.petty_management.services.clearance_reservation import (
-	clearance_reserves_pm_request_balance_sql,
-	pm_request_allocation_sql_filter,
-)
+from erpnext_extensions.petty_management.utils import get_pm_holder_name
 
 _EPS = 1e-6
 
@@ -102,9 +100,9 @@ def pm_request_passes_clearance_filters(
 		return False, _("PM Request petty cash account does not match this clearance holder")
 	paid = get_pm_request_paid_amount(pm_request_name)
 	if paid <= 0:
-		return False, _("PM Request {0} has no submitted Payment Entry. Please create/submit Payment Entry first.").format(
-			pm_request_name
-		)
+		return False, _(
+			"PM Request {0} has no submitted Payment Entry. Please create/submit Payment Entry first."
+		).format(pm_request_name)
 	available = get_pm_request_available_amount(pm_request_name, exclude_clearance_name)
 	if available <= _EPS:
 		return False, _("PM Request {0} has no available balance for clearance.").format(pm_request_name)
@@ -120,7 +118,10 @@ def validate_request_allocations(doc: Document) -> None:
 	legacy_rows = [r for r in doc.request_allocations if r.is_legacy_row]
 	non_legacy = [r for r in doc.request_allocations if not r.is_legacy_row]
 	if legacy_rows and non_legacy:
-		frappe.throw(_("Cannot mix legacy PM Request allocation rows with standard allocation rows."), title=_("PM Request allocation"))
+		frappe.throw(
+			_("Cannot mix legacy PM Request allocation rows with standard allocation rows."),
+			title=_("PM Request allocation"),
+		)
 	if legacy_rows:
 		validate_legacy_allocation_rows(doc, legacy_rows)
 		return
@@ -146,13 +147,17 @@ def validate_request_allocations(doc: Document) -> None:
 				continue
 			if has_opening != has_amt:
 				frappe.throw(
-					_("Row {0}: Select PM Opening Advance and Allocated Amount, or remove the row.").format(row.idx),
+					_("Row {0}: Select PM Opening Advance and Allocated Amount, or remove the row.").format(
+						row.idx
+					),
 					title=_("Funding allocation"),
 				)
 			row.funding_source_type = FUNDING_SOURCE_OPENING_ADVANCE
 			if row.pm_opening_advance in seen_opening:
 				frappe.throw(
-					_("PM Opening Advance {0} cannot appear on more than one line.").format(row.pm_opening_advance),
+					_("PM Opening Advance {0} cannot appear on more than one line.").format(
+						row.pm_opening_advance
+					),
 					title=_("Duplicate opening advance"),
 				)
 			seen_opening.add(row.pm_opening_advance)
@@ -171,11 +176,16 @@ def validate_request_allocations(doc: Document) -> None:
 			continue
 		if has_req != has_amt:
 			frappe.throw(
-				_("Row {0}: Please select PM Request and Allocated Amount, or remove the empty allocation row.").format(row.idx),
+				_(
+					"Row {0}: Please select PM Request and Allocated Amount, or remove the empty allocation row."
+				).format(row.idx),
 				title=_("PM Request allocation"),
 			)
 		if row.pm_request in seen_req:
-			frappe.throw(_("PM Request {0} cannot appear on more than one line.").format(row.pm_request), title=_("Duplicate PM Request"))
+			frappe.throw(
+				_("PM Request {0} cannot appear on more than one line.").format(row.pm_request),
+				title=_("Duplicate PM Request"),
+			)
 		seen_req.add(row.pm_request)
 
 		validate_pm_request_matches_clearance(row, doc, clr_petty)
@@ -205,14 +215,24 @@ def validate_legacy_allocation_rows(doc: Document, legacy_rows: list[Document]) 
 		(doc.name,),
 	)[0][0]
 	if not had_legacy_in_db:
-		frappe.throw(_("Legacy PM Request allocation rows are created only during data migration."), title=_("PM Request allocation"))
+		frappe.throw(
+			_("Legacy PM Request allocation rows are created only during data migration."),
+			title=_("PM Request allocation"),
+		)
 	if len(doc.request_allocations) != 1 or len(legacy_rows) != 1:
-		frappe.throw(_("Legacy clearance must have exactly one legacy PM Request allocation row."), title=_("PM Request allocation"))
+		frappe.throw(
+			_("Legacy clearance must have exactly one legacy PM Request allocation row."),
+			title=_("PM Request allocation"),
+		)
 	lr = legacy_rows[0]
 	if lr.pm_request:
 		frappe.throw(_("Legacy allocation row must not reference a PM Request."))
 	if abs(flt(lr.allocated_amount) - flt(doc.total_expense_amount)) > _EPS:
-		frappe.throw(_("Legacy allocated amount must equal total settlement amount ({0}).").format(doc.total_expense_amount))
+		frappe.throw(
+			_("Legacy allocated amount must equal total settlement amount ({0}).").format(
+				doc.total_expense_amount
+			)
+		)
 	lr.request_amount = 0.0
 	lr.paid_amount = 0.0
 	lr.previously_allocated_amount = 0.0
@@ -321,9 +341,9 @@ def stamp_allocation_snapshot(row: Document, doc: Document, clr_petty: str) -> N
 	row.paid_amount = flt(ctx.get("paid_amount"))
 	if row.paid_amount <= 0:
 		frappe.throw(
-			_("Row {0}: PM Request {1} has no submitted Payment Entry. Please create/submit Payment Entry first.").format(
-				row.idx, row.pm_request
-			)
+			_(
+				"Row {0}: PM Request {1} has no submitted Payment Entry. Please create/submit Payment Entry first."
+			).format(row.idx, row.pm_request)
 		)
 	row.previously_allocated_amount = flt(ctx.get("previously_allocated_amount"))
 	row.available_amount = flt(ctx.get("available_amount"))
@@ -354,7 +374,9 @@ def get_pm_request_allocation_context(
 	if not pm_request:
 		return {}
 
-	exclude_clearance = pm_clearance if pm_clearance and frappe.db.exists("PM Clearance", pm_clearance) else None
+	exclude_clearance = (
+		pm_clearance if pm_clearance and frappe.db.exists("PM Clearance", pm_clearance) else None
+	)
 	if exclude_clearance:
 		cl = frappe.get_doc("PM Clearance", pm_clearance)
 		if not frappe.has_permission("PM Clearance", "read", doc=cl):
@@ -375,7 +397,10 @@ def get_pm_request_allocation_context(
 	if holder and req_holder != holder:
 		frappe.throw(_("PM Request belongs to another PM Holder"), title=_("Invalid PM Request"))
 	if petty_cash_account and req_petty != (petty_cash_account or "").strip():
-		frappe.throw(_("PM Request petty cash account does not match this clearance holder"), title=_("Invalid PM Request"))
+		frappe.throw(
+			_("PM Request petty cash account does not match this clearance holder"),
+			title=_("Invalid PM Request"),
+		)
 
 	ok, msg = pm_request_passes_clearance_filters(
 		pm_request,
@@ -464,4 +489,3 @@ def pm_request_query_for_pm_clearance(doctype, txt, searchfield, start, page_len
 		if get_pm_request_available_amount(name, filters.get("pm_clearance") or None) > _EPS:
 			out.append([name])
 	return out
-

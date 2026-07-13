@@ -8,4 +8,3 @@ from erpnext_extensions.petty_management.services.report_service import (
 
 def execute(filters=None):
 	return get_pm_request_availability_report_data(filters)
-

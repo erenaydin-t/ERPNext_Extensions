@@ -173,9 +173,7 @@ def enforce_stock_entry_ledger_contract(
 	}
 	if failures and raise_on_fail:
 		frappe.throw(
-			_("Stock Entry ledger contract violation ({0}): {1}").format(
-				voucher_no, "; ".join(failures[:5])
-			),
+			_("Stock Entry ledger contract violation ({0}): {1}").format(voucher_no, "; ".join(failures[:5])),
 			title=_("IRR Ledger Determinism"),
 		)
 	return out

@@ -262,7 +262,11 @@ def _make_holder(employee: str) -> str:
 		if "duplicate entry" not in str(exc).lower():
 			raise
 		row = frappe.db.sql("select name from `tabPM Holder` where name=%s", (pk,))
-		name = row[0][0] if row else frappe.db.get_value("PM Holder", {"employee": employee, "company": COMPANY}, "name")
+		name = (
+			row[0][0]
+			if row
+			else frappe.db.get_value("PM Holder", {"employee": employee, "company": COMPANY}, "name")
+		)
 		if not name:
 			raise
 		_sync_holder_petty_and_balance(name)
@@ -315,7 +319,9 @@ def _make_pi_outstanding(amount: float):
 
 	expense_account = _default_expense_account_for_item(item_code) or _company_fallback_expense_account()
 	if not expense_account:
-		raise unittest.SkipTest("No expense account resolved for item/company; cannot create Purchase Invoice.")
+		raise unittest.SkipTest(
+			"No expense account resolved for item/company; cannot create Purchase Invoice."
+		)
 
 	cc = _default_cost_center()
 	item_doc = frappe.get_cached_doc("Item", item_code)
@@ -395,7 +401,9 @@ def _default_warehouse_for_company() -> str | None:
 
 def _purchase_item_code() -> str:
 	"""Pick an Item that can appear on Purchase Order / Purchase Invoice."""
-	if frappe.db.exists("Item", "_Test Item") and cint(frappe.db.get_value("Item", "_Test Item", "is_purchase_item")):
+	if frappe.db.exists("Item", "_Test Item") and cint(
+		frappe.db.get_value("Item", "_Test Item", "is_purchase_item")
+	):
 		return "_Test Item"
 	items = frappe.get_all(
 		"Item",
@@ -823,7 +831,9 @@ class TestPMClearanceAllocation(unittest.TestCase):
 			pi.submit()
 		except TypeError as exc:
 			if "do_not_round_fields" in str(exc):
-				raise unittest.SkipTest("Purchase Invoice submit incompatible with this Frappe version") from exc
+				raise unittest.SkipTest(
+					"Purchase Invoice submit incompatible with this Frappe version"
+				) from exc
 			raise
 
 	def test_opening_advance_funding_clearance_saves(self):
@@ -1121,7 +1131,9 @@ class TestPMClearanceAllocation(unittest.TestCase):
 		for a, b in zip(direct, prev, strict=True):
 			self.assertEqual(a.get("account"), b.get("account"))
 			self.assertEqual(flt(a.get("debit_in_account_currency")), flt(b.get("debit_in_account_currency")))
-			self.assertEqual(flt(a.get("credit_in_account_currency")), flt(b.get("credit_in_account_currency")))
+			self.assertEqual(
+				flt(a.get("credit_in_account_currency")), flt(b.get("credit_in_account_currency"))
+			)
 
 	def test_settle_creates_je_and_sets_settled(self):
 		mod = _pm()
@@ -1203,7 +1215,9 @@ class TestPMClearanceAllocation(unittest.TestCase):
 		if not approved:
 			self.skipTest("Active PM Clearance workflow with Approved state not found.")
 
-		from erpnext_extensions.petty_management.services.allocation_service import sum_prior_pm_request_allocations
+		from erpnext_extensions.petty_management.services.allocation_service import (
+			sum_prior_pm_request_allocations,
+		)
 		from erpnext_extensions.petty_management.services.holder_service import get_holder_settled_amount
 
 		emp = _make_employee()
@@ -1509,7 +1523,9 @@ class TestPMClearanceAllocation(unittest.TestCase):
 		for a, b in zip(direct, prev, strict=True):
 			self.assertEqual(a.get("account"), b.get("account"))
 			self.assertEqual(flt(a.get("debit_in_account_currency")), flt(b.get("debit_in_account_currency")))
-			self.assertEqual(flt(a.get("credit_in_account_currency")), flt(b.get("credit_in_account_currency")))
+			self.assertEqual(
+				flt(a.get("credit_in_account_currency")), flt(b.get("credit_in_account_currency"))
+			)
 			self.assertEqual(a.get("reference_type"), b.get("reference_type"))
 			self.assertEqual(a.get("reference_name"), b.get("reference_name"))
 

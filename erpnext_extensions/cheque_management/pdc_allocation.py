@@ -31,8 +31,8 @@ from erpnext_extensions.cheque_management.pdc_settlement_capacity import (
 	_effective_exclude_pdc_name,
 	get_invoice_ledger_outstanding,
 	get_invoice_remaining_capacity,
-	get_receivable_sales_invoice_direct_settlement_remaining_capacity,
 	get_pr_remaining_capacity,
+	get_receivable_sales_invoice_direct_settlement_remaining_capacity,
 	sum_effective_pdc_direct_to_invoice,
 	sum_effective_pdc_via_pr_to_invoice,
 )
@@ -153,7 +153,9 @@ def _payable_skip_pdc_settlement_capacity_validation(doc) -> bool:
 	before = doc.get_doc_before_save() if hasattr(doc, "get_doc_before_save") else None
 	if before is None:
 		return False
-	prev_raw = before.get("workflow_state") if hasattr(before, "get") else getattr(before, "workflow_state", None)
+	prev_raw = (
+		before.get("workflow_state") if hasattr(before, "get") else getattr(before, "workflow_state", None)
+	)
 	prev = normalize_workflow_state_value(prev_raw)
 	curr = normalize_workflow_state_value(ws)
 	return prev == WORKFLOW_DRAFT and curr == WORKFLOW_REGISTERED
@@ -168,7 +170,11 @@ def _resolve_previous_pdc_workflow_state_raw(doc) -> tuple[str | None, str]:
 	"""
 	before = doc.get_doc_before_save() if hasattr(doc, "get_doc_before_save") else None
 	if before is not None:
-		raw = before.get("workflow_state") if hasattr(before, "get") else getattr(before, "workflow_state", None)
+		raw = (
+			before.get("workflow_state")
+			if hasattr(before, "get")
+			else getattr(before, "workflow_state", None)
+		)
 		if raw is not None and str(raw).strip() != "":
 			return (str(raw).strip(), "doc_before_save")
 	nm = getattr(doc, "name", None)
@@ -296,7 +302,9 @@ def sync_pdc_allocation_summary_amounts(doc) -> None:
 
 	if cheque_amt and total > cheque_amt + _EPS:
 		frappe.throw(
-			_("Allocated Amount ({0}) cannot exceed Cheque Amount ({1}).").format(doc.allocated_amount, doc.cheque_amount),
+			_("Allocated Amount ({0}) cannot exceed Cheque Amount ({1}).").format(
+				doc.allocated_amount, doc.cheque_amount
+			),
 			title=_("PDC Allocation"),
 		)
 
@@ -482,7 +490,9 @@ def _validate_pdc_allocation_source_trace(row, idx: int) -> None:
 	snm = (getattr(row, "source_name", None) or "").strip()
 	if bool(sdt) ^ bool(snm):
 		frappe.throw(
-			_("Allocation row {0}: Source DocType and Source Name must both be set or both empty.").format(idx),
+			_("Allocation row {0}: Source DocType and Source Name must both be set or both empty.").format(
+				idx
+			),
 			title=_("PDC Allocation"),
 		)
 	if not sdt and not snm:
@@ -574,7 +584,9 @@ def validate_pdc_allocation_rows(doc) -> None:
 		row_mode = (getattr(row, "allocation_mode", None) or "").strip()
 		if row_mode != header_mode:
 			frappe.throw(
-				_("Allocation row {0}: Allocation Mode must match Post Dated Cheque ({1}).").format(i, header_mode),
+				_("Allocation row {0}: Allocation Mode must match Post Dated Cheque ({1}).").format(
+					i, header_mode
+				),
 				title=_("PDC Allocation"),
 			)
 
@@ -597,7 +609,9 @@ def validate_pdc_allocation_rows(doc) -> None:
 		if header_mode == ALLOCATION_MODE_ADVANCE:
 			if ref_dt not in _ADVANCE_REF_DOCTYPES:
 				frappe.throw(
-					_("Allocation row {0}: Advance mode allows only Purchase Order or Sales Order references.").format(i),
+					_(
+						"Allocation row {0}: Advance mode allows only Purchase Order or Sales Order references."
+					).format(i),
 					title=_("PDC Allocation"),
 				)
 		else:
@@ -634,7 +648,9 @@ def validate_pdc_allocation_rows(doc) -> None:
 		cur_row = (getattr(row, "currency", None) or "").strip()
 		if cur_row and cur_row != pdc_currency:
 			frappe.throw(
-				_("Allocation row {0}: Row currency must match Post Dated Cheque currency ({1}).").format(i, pdc_currency),
+				_("Allocation row {0}: Row currency must match Post Dated Cheque currency ({1}).").format(
+					i, pdc_currency
+				),
 				title=_("PDC Allocation"),
 			)
 
@@ -649,7 +665,9 @@ def validate_pdc_allocation_rows(doc) -> None:
 	cheque_amt = float(getattr(doc, "cheque_amount", None) or 0)
 	if cheque_amt and total > cheque_amt + _EPS:
 		frappe.throw(
-			_("Total allocated amount ({0}) cannot exceed Cheque Amount ({1}).").format(total, doc.cheque_amount),
+			_("Total allocated amount ({0}) cannot exceed Cheque Amount ({1}).").format(
+				total, doc.cheque_amount
+			),
 			title=_("PDC Allocation"),
 		)
 
@@ -674,24 +692,30 @@ def validate_pdc_allocation_rows(doc) -> None:
 				)
 			if not _ref_submitted_not_cancelled(ref_dt, snap):
 				frappe.throw(
-					_("Allocation row {0}: {1} {2} must be submitted and not cancelled.").format(i, ref_dt, ref_nm),
+					_("Allocation row {0}: {1} {2} must be submitted and not cancelled.").format(
+						i, ref_dt, ref_nm
+					),
 					title=_("PDC Allocation"),
 				)
 			if (snap.get("company") or "").strip() != company:
 				frappe.throw(
-					_("Allocation row {0}: Company on {1} does not match this Post Dated Cheque.").format(i, ref_dt),
+					_("Allocation row {0}: Company on {1} does not match this Post Dated Cheque.").format(
+						i, ref_dt
+					),
 					title=_("PDC Allocation"),
 				)
 			if not _currency_matches(pdc_currency, snap.get("currency")):
 				frappe.throw(
-					_("Allocation row {0}: Currency on {1} must match the Post Dated Cheque currency ({2}).").format(
-						i, ref_dt, pdc_currency
-					),
+					_(
+						"Allocation row {0}: Currency on {1} must match the Post Dated Cheque currency ({2})."
+					).format(i, ref_dt, pdc_currency),
 					title=_("PDC Allocation"),
 				)
 			if not _party_matches_pdc_snapshot(direction, party_type, party, ref_dt, snap):
 				frappe.throw(
-					_("Allocation row {0}: Party on {1} does not match this Post Dated Cheque.").format(i, ref_dt),
+					_("Allocation row {0}: Party on {1} does not match this Post Dated Cheque.").format(
+						i, ref_dt
+					),
 					title=_("PDC Allocation"),
 				)
 			# v1 Advance ceiling: reserve order capacity across multiple PDCs (draft included).
@@ -726,7 +750,9 @@ def validate_pdc_allocation_rows(doc) -> None:
 			snap = _read_payment_request_for_pdc_allocation(ref_nm)
 		else:
 			frappe.throw(
-				_("Allocation row {0}: Unexpected reference DocType {1} for direct settlement.").format(i, ref_dt),
+				_("Allocation row {0}: Unexpected reference DocType {1} for direct settlement.").format(
+					i, ref_dt
+				),
 				title=_("PDC Allocation"),
 			)
 
@@ -762,21 +788,25 @@ def validate_pdc_allocation_rows(doc) -> None:
 
 		if (snap.get("company") or "").strip() != company:
 			frappe.throw(
-				_("Allocation row {0}: Company on {1} does not match this Post Dated Cheque.").format(i, ref_dt),
+				_("Allocation row {0}: Company on {1} does not match this Post Dated Cheque.").format(
+					i, ref_dt
+				),
 				title=_("PDC Allocation"),
 			)
 
 		if not _currency_matches(pdc_currency, snap.get("currency")):
 			frappe.throw(
-				_("Allocation row {0}: Currency on {1} must match the Post Dated Cheque currency ({2}).").format(
-					i, ref_dt, pdc_currency
-				),
+				_(
+					"Allocation row {0}: Currency on {1} must match the Post Dated Cheque currency ({2})."
+				).format(i, ref_dt, pdc_currency),
 				title=_("PDC Allocation"),
 			)
 
 		if not _party_matches_pdc_snapshot(direction, party_type, party, ref_dt, snap):
 			frappe.throw(
-				_("Allocation row {0}: Party on {1} does not match this Post Dated Cheque.").format(i, ref_dt),
+				_("Allocation row {0}: Party on {1} does not match this Post Dated Cheque.").format(
+					i, ref_dt
+				),
 				title=_("PDC Allocation"),
 			)
 
@@ -784,12 +814,16 @@ def validate_pdc_allocation_rows(doc) -> None:
 			pr_type = (snap.get("payment_request_type") or "").strip()
 			if direction == CHEQUE_DIRECTION_RECEIVABLE and pr_type != _PR_INWARD:
 				frappe.throw(
-					_("Allocation row {0}: Receivable PDC may only allocate to Inward Payment Requests.").format(i),
+					_(
+						"Allocation row {0}: Receivable PDC may only allocate to Inward Payment Requests."
+					).format(i),
 					title=_("PDC Allocation"),
 				)
 			if direction == CHEQUE_DIRECTION_PAYABLE and pr_type != _PR_OUTWARD:
 				frappe.throw(
-					_("Allocation row {0}: Payable PDC may only allocate to Outward Payment Requests.").format(i),
+					_(
+						"Allocation row {0}: Payable PDC may only allocate to Outward Payment Requests."
+					).format(i),
 					title=_("PDC Allocation"),
 				)
 
@@ -815,7 +849,9 @@ def validate_pdc_allocation_rows(doc) -> None:
 					},
 				)
 				continue
-			if direction == CHEQUE_DIRECTION_PAYABLE and _payable_skip_pdc_settlement_capacity_validation(doc):
+			if direction == CHEQUE_DIRECTION_PAYABLE and _payable_skip_pdc_settlement_capacity_validation(
+				doc
+			):
 				continue
 			# Receivable + Sales Invoice: use invoice snapshot outstanding (desk field), not Payment Ledger.
 			# Runtime: QueryPaymentLedger can be 0 before Register JE posts while tabSales Invoice.outstanding_amount is correct.
@@ -843,8 +879,12 @@ def validate_pdc_allocation_rows(doc) -> None:
 				snap_os = flt(snap.get("outstanding_amount"))
 				ledger_os = flt(get_invoice_ledger_outstanding(ref_dt, ref_nm))
 				excl_resolved = _effective_exclude_pdc_name(parent_name)
-				pending_direct = flt(sum_effective_pdc_direct_to_invoice(ref_dt, ref_nm, exclude_pdc=parent_name))
-				pending_via = flt(sum_effective_pdc_via_pr_to_invoice(ref_dt, ref_nm, exclude_pdc=parent_name))
+				pending_direct = flt(
+					sum_effective_pdc_direct_to_invoice(ref_dt, ref_nm, exclude_pdc=parent_name)
+				)
+				pending_via = flt(
+					sum_effective_pdc_via_pr_to_invoice(ref_dt, ref_nm, exclude_pdc=parent_name)
+				)
 				available = get_receivable_sales_invoice_direct_settlement_remaining_capacity(
 					ref_nm, invoice_outstanding_amount=snap_os, exclude_pdc=parent_name
 				)
@@ -960,15 +1000,19 @@ def validate_pdc_allocation_workflow_milestone(doc) -> None:
 	if not (doc.allocations or []):
 		return
 	ws = normalize_workflow_state_value(getattr(doc, "workflow_state", None))
-	if doc.cheque_direction == CHEQUE_DIRECTION_RECEIVABLE and ws == WORKFLOW_DRAFT and is_pdc_allocation_effective(
-		doc.cheque_direction, doc.workflow_state
+	if (
+		doc.cheque_direction == CHEQUE_DIRECTION_RECEIVABLE
+		and ws == WORKFLOW_DRAFT
+		and is_pdc_allocation_effective(doc.cheque_direction, doc.workflow_state)
 	):
 		frappe.throw(
 			_("Receivable cheque allocation cannot be effective before Registered."),
 			title=_("PDC Allocation"),
 		)
-	if doc.cheque_direction == CHEQUE_DIRECTION_PAYABLE and ws == WORKFLOW_DRAFT and is_pdc_allocation_effective(
-		doc.cheque_direction, doc.workflow_state
+	if (
+		doc.cheque_direction == CHEQUE_DIRECTION_PAYABLE
+		and ws == WORKFLOW_DRAFT
+		and is_pdc_allocation_effective(doc.cheque_direction, doc.workflow_state)
 	):
 		frappe.throw(
 			_("Payable cheque allocation cannot be effective before Registered."),

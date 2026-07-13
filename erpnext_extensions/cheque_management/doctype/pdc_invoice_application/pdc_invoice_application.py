@@ -11,4 +11,3 @@ class PDCInvoiceApplication(Document):
 	"""
 
 	pass
-

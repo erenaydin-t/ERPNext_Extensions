@@ -42,4 +42,3 @@ frappe.query_reports["PM Settlement Ledger"] = {
 		},
 	],
 };
-

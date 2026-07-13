@@ -34,11 +34,17 @@ def _ctx():
 	company = frappe.db.get_value("Company", {"name": ("!=", "")}, "name", order_by="creation asc")
 	bank = frappe.db.get_value("Bank", {}, "name", order_by="modified desc")
 	bank_gl = frappe.db.get_value(
-		"Account", {"company": company, "account_type": "Bank", "is_group": 0}, "name", order_by="modified desc"
+		"Account",
+		{"company": company, "account_type": "Bank", "is_group": 0},
+		"name",
+		order_by="modified desc",
 	)
 	loan_payable = None
 	interest = frappe.db.get_value(
-		"Account", {"company": company, "root_type": "Expense", "is_group": 0}, "name", order_by="modified desc"
+		"Account",
+		{"company": company, "root_type": "Expense", "is_group": 0},
+		"name",
+		order_by="modified desc",
 	)
 	penalty = frappe.db.get_value(
 		"Account",
@@ -238,7 +244,11 @@ def run():
 	}
 	results["tests"]["6_reports_after_test1"] = t6
 	_log("Test 6 reports after Test 1", t6)
-	if flt(bal1["paid_principal"]) != 2_000_000 or flt(bal1["paid_profit"]) != 1_500 or flt(bal1["paid_penalty"]) != 200:
+	if (
+		flt(bal1["paid_principal"]) != 2_000_000
+		or flt(bal1["paid_profit"]) != 1_500
+		or flt(bal1["paid_penalty"]) != 200
+	):
 		errors.append(f"Test 6: balance mismatch {bal1}")
 
 	# Test 2 — principal only (2M to match user scenario pattern)

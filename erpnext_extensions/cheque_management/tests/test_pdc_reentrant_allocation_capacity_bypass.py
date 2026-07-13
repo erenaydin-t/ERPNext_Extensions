@@ -57,7 +57,13 @@ class TestPDCReentrantAllocationCapacityBypass(unittest.TestCase):
 	def test_normal_save_still_enforces_capacity(self) -> None:
 		"""If invoice outstanding is 0, capacity validation must still block (no bypass flag)."""
 		p = _pdc()
-		snap = {"company": "_TC", "currency": "INR", "customer": "C-1", "docstatus": 1, "outstanding_amount": 0.0}
+		snap = {
+			"company": "_TC",
+			"currency": "INR",
+			"customer": "C-1",
+			"docstatus": 1,
+			"outstanding_amount": 0.0,
+		}
 
 		with ExitStack() as stack:
 			a, b = self._frappe_throw_as_exception()
@@ -70,9 +76,24 @@ class TestPDCReentrantAllocationCapacityBypass(unittest.TestCase):
 				)
 			)
 			# Avoid DB-backed helpers in bare unittest.
-			stack.enter_context(patch("erpnext_extensions.cheque_management.pdc_allocation.get_invoice_ledger_outstanding", return_value=0.0))
-			stack.enter_context(patch("erpnext_extensions.cheque_management.pdc_allocation.sum_effective_pdc_direct_to_invoice", return_value=0.0))
-			stack.enter_context(patch("erpnext_extensions.cheque_management.pdc_allocation.sum_effective_pdc_via_pr_to_invoice", return_value=0.0))
+			stack.enter_context(
+				patch(
+					"erpnext_extensions.cheque_management.pdc_allocation.get_invoice_ledger_outstanding",
+					return_value=0.0,
+				)
+			)
+			stack.enter_context(
+				patch(
+					"erpnext_extensions.cheque_management.pdc_allocation.sum_effective_pdc_direct_to_invoice",
+					return_value=0.0,
+				)
+			)
+			stack.enter_context(
+				patch(
+					"erpnext_extensions.cheque_management.pdc_allocation.sum_effective_pdc_via_pr_to_invoice",
+					return_value=0.0,
+				)
+			)
 			stack.enter_context(
 				patch(
 					"erpnext_extensions.cheque_management.pdc_allocation.get_receivable_sales_invoice_direct_settlement_remaining_capacity",
@@ -85,7 +106,13 @@ class TestPDCReentrantAllocationCapacityBypass(unittest.TestCase):
 	def test_internal_reentrant_save_bypasses_capacity_only_for_same_pdc(self) -> None:
 		"""Simulate the internal post-JE self-save: invoice is already settled => outstanding 0; must not re-block."""
 		p = _pdc()
-		snap = {"company": "_TC", "currency": "INR", "customer": "C-1", "docstatus": 1, "outstanding_amount": 0.0}
+		snap = {
+			"company": "_TC",
+			"currency": "INR",
+			"customer": "C-1",
+			"docstatus": 1,
+			"outstanding_amount": 0.0,
+		}
 
 		with ExitStack() as stack:
 			a, b = self._frappe_throw_as_exception()
@@ -98,9 +125,24 @@ class TestPDCReentrantAllocationCapacityBypass(unittest.TestCase):
 				)
 			)
 			# Even if helpers say 0, bypass must skip capacity check.
-			stack.enter_context(patch("erpnext_extensions.cheque_management.pdc_allocation.get_invoice_ledger_outstanding", return_value=0.0))
-			stack.enter_context(patch("erpnext_extensions.cheque_management.pdc_allocation.sum_effective_pdc_direct_to_invoice", return_value=0.0))
-			stack.enter_context(patch("erpnext_extensions.cheque_management.pdc_allocation.sum_effective_pdc_via_pr_to_invoice", return_value=0.0))
+			stack.enter_context(
+				patch(
+					"erpnext_extensions.cheque_management.pdc_allocation.get_invoice_ledger_outstanding",
+					return_value=0.0,
+				)
+			)
+			stack.enter_context(
+				patch(
+					"erpnext_extensions.cheque_management.pdc_allocation.sum_effective_pdc_direct_to_invoice",
+					return_value=0.0,
+				)
+			)
+			stack.enter_context(
+				patch(
+					"erpnext_extensions.cheque_management.pdc_allocation.sum_effective_pdc_via_pr_to_invoice",
+					return_value=0.0,
+				)
+			)
 			stack.enter_context(
 				patch(
 					"erpnext_extensions.cheque_management.pdc_allocation.get_receivable_sales_invoice_direct_settlement_remaining_capacity",
@@ -109,7 +151,8 @@ class TestPDCReentrantAllocationCapacityBypass(unittest.TestCase):
 			)
 			# Scoped bypass for this PDC only (matches production flag behavior).
 			# Bare unittest has no bound frappe.flags LocalProxy; patch it to a simple namespace.
-			with patch.object(frappe, "flags", SimpleNamespace(skip_pdc_allocation_capacity_validation_for_pdc=p.name)):
+			with patch.object(
+				frappe, "flags", SimpleNamespace(skip_pdc_allocation_capacity_validation_for_pdc=p.name)
+			):
 				# Should not raise even though outstanding/capacity are 0.
 				validate_pdc_allocation_rows(p)
-

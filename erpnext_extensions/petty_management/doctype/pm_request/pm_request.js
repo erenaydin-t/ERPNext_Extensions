@@ -84,7 +84,10 @@ frappe.ui.form.on("PM Request", {
 						})
 						.then((rows) => {
 							if (r.default_employee_bank_account) {
-								frm.set_value("employee_bank_account", r.default_employee_bank_account);
+								frm.set_value(
+									"employee_bank_account",
+									r.default_employee_bank_account
+								);
 							} else if (rows.length === 1) {
 								frm.set_value("employee_bank_account", rows[0].name);
 							}
@@ -118,7 +121,12 @@ frappe.ui.form.on("PM Request", {
 					log_pm_pe_list_error(r.exc);
 					return;
 				}
-				apply_pm_request_pe_list_payload(frm, field.$wrapper, r.message || {}, frm.doc.currency);
+				apply_pm_request_pe_list_payload(
+					frm,
+					field.$wrapper,
+					r.message || {},
+					frm.doc.currency
+				);
 			},
 			error(r) {
 				render_pm_request_payment_entry_table(field.$wrapper, [], frm.doc.currency, {
@@ -447,12 +455,14 @@ function render_pm_request_payment_entry_table($wrapper, rows, currency, opts) {
 	html += `<th>${__("Posting Date")}</th>`;
 	html += `</tr></thead><tbody>`;
 	if (!rows.length) {
-		html += `<tr><td colspan="4" class="text-muted">${__("No Payment Entries linked yet.")}</td></tr>`;
+		html += `<tr><td colspan="4" class="text-muted">${__(
+			"No Payment Entries linked yet."
+		)}</td></tr>`;
 	} else {
 		rows.forEach((row) => {
-			const link = `<a href="/app/payment-entry/${encodeURIComponent(row.payment_entry)}">${esc(
+			const link = `<a href="/app/payment-entry/${encodeURIComponent(
 				row.payment_entry
-			)}</a>`;
+			)}">${esc(row.payment_entry)}</a>`;
 			html += `<tr data-pe-status="${esc(row.status || "")}">`;
 			html += `<td>${link}</td>`;
 			html += `<td>${format_currency(row.amount, currency)}</td>`;
@@ -560,7 +570,9 @@ function parse_pm_request_server_error(r) {
 	if (r && r.exc && typeof r.exc === "string") {
 		const lockMatch = r.exc.match(/Lock wait timeout|QueryTimeoutError/i);
 		if (lockMatch) {
-			return __("This PM Request is currently being processed. Please refresh and try again.");
+			return __(
+				"This PM Request is currently being processed. Please refresh and try again."
+			);
 		}
 	}
 	if (r && r._server_messages) {

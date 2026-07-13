@@ -128,7 +128,9 @@ class TestIranAccountingBuyingSellingE2E(FrappeTestCase):
 			raise unittest.SkipTest(f"USD PI not configurable: {exc}") from exc
 		for row in check_purchase_invoice(pi.name)["gl_rows"]:
 			if row.get("account") == usd_account and flt(row.get("debit_in_account_currency")):
-				self.assertTrue(flt(row["debit_in_account_currency"]) % 1 != 0 or row["debit_in_account_currency"] == 11)
+				self.assertTrue(
+					flt(row["debit_in_account_currency"]) % 1 != 0 or row["debit_in_account_currency"] == 11
+				)
 
 	def test_sales_invoice_irr_update_stock_no_decimals(self):
 		item = ensure_test_item(self.company, "IRR-SI")

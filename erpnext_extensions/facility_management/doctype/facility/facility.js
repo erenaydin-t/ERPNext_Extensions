@@ -9,11 +9,12 @@ frappe.ui.form.on("Facility", {
 			return;
 		}
 		if (can_preview_or_create_receipt(frm)) {
-			frm.add_custom_button(__("Preview Receipt Journal Entry"), () => preview_receipt_je(frm));
+			frm.add_custom_button(__("Preview Receipt Journal Entry"), () =>
+				preview_receipt_je(frm)
+			);
 			frm.add_custom_button(__("Create Receipt Journal Entry"), () => {
 				frappe.call({
-					method:
-						"erpnext_extensions.facility_management.doctype.facility.facility.create_receipt_journal_entry",
+					method: "erpnext_extensions.facility_management.doctype.facility.facility.create_receipt_journal_entry",
 					args: { name: frm.doc.name },
 					freeze: true,
 					callback() {
@@ -48,8 +49,7 @@ function can_preview_or_create_receipt(frm) {
 
 function preview_receipt_je(frm) {
 	frappe.call({
-		method:
-			"erpnext_extensions.facility_management.doctype.facility.facility.preview_receipt_journal_entry",
+		method: "erpnext_extensions.facility_management.doctype.facility.facility.preview_receipt_journal_entry",
 		args: { name: frm.doc.name },
 		freeze: true,
 		callback(r) {

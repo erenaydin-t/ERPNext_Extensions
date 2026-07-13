@@ -74,7 +74,11 @@ def run_aggressive_release_gate(
 		run_repost=run_repost,
 	)
 
-	opening = debug_stock_reconciliation_opening(company=audit.get("acceptance", {}).get("company")) if run_opening_matrix else None
+	opening = (
+		debug_stock_reconciliation_opening(company=audit.get("acceptance", {}).get("company"))
+		if run_opening_matrix
+		else None
+	)
 
 	# Matrix scenarios 7–8: sub-unit IRR rate (documented FAIL)
 	opening_ok = True
@@ -101,7 +105,9 @@ def run_aggressive_release_gate(
 	report: dict[str, Any] = {
 		"PRODUCTION_READY": production_ready,
 		"release_ready": audit.get("release_ready"),
-		"automated_gate_pass": "YES" if not [b for b in blockers if b != "SCOPE: not all ERPNext reports patched — see coverage_gaps"] else "NO",
+		"automated_gate_pass": "YES"
+		if not [b for b in blockers if b != "SCOPE: not all ERPNext reports patched — see coverage_gaps"]
+		else "NO",
 		"blockers": blockers,
 		"release_audit": audit,
 		"opening_stock_matrix": opening,

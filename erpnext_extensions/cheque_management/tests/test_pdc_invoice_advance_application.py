@@ -53,11 +53,15 @@ class TestPDCInvoiceAdvanceApplication(unittest.TestCase):
 		)
 
 		fake_db = SimpleNamespace(
-			get_value=lambda dt, nm, field: "ACC-ADV-PAID" if field == "default_advance_paid_account" else None,
+			get_value=lambda dt, nm, field: "ACC-ADV-PAID"
+			if field == "default_advance_paid_account"
+			else None,
 			set_value=lambda *a, **k: None,
 			sql=lambda *a, **k: [],
 		)
-		fake_je = SimpleNamespace(flags=SimpleNamespace(), append=lambda *a, **k: None, submit=lambda: None, name="JV-1")
+		fake_je = SimpleNamespace(
+			flags=SimpleNamespace(), append=lambda *a, **k: None, submit=lambda: None, name="JV-1"
+		)
 		fake_frappe = SimpleNamespace(
 			db=fake_db,
 			new_doc=lambda dt: fake_je,
@@ -99,11 +103,15 @@ class TestPDCInvoiceAdvanceApplication(unittest.TestCase):
 		)
 
 		fake_db = SimpleNamespace(
-			get_value=lambda dt, nm, field: "ACC-ADV-REC" if field == "default_advance_received_account" else None,
+			get_value=lambda dt, nm, field: "ACC-ADV-REC"
+			if field == "default_advance_received_account"
+			else None,
 			set_value=lambda *a, **k: None,
 			sql=lambda *a, **k: [],
 		)
-		fake_je = SimpleNamespace(flags=SimpleNamespace(), append=lambda *a, **k: None, submit=lambda: None, name="JV-1")
+		fake_je = SimpleNamespace(
+			flags=SimpleNamespace(), append=lambda *a, **k: None, submit=lambda: None, name="JV-1"
+		)
 		fake_frappe = SimpleNamespace(
 			db=fake_db,
 			new_doc=lambda dt: fake_je,
@@ -143,11 +151,15 @@ class TestPDCInvoiceAdvanceApplication(unittest.TestCase):
 		)
 
 		fake_db = SimpleNamespace(
-			get_value=lambda dt, nm, field: "ACC-ADV-REC" if field == "default_advance_received_account" else None,
+			get_value=lambda dt, nm, field: "ACC-ADV-REC"
+			if field == "default_advance_received_account"
+			else None,
 			set_value=lambda *a, **k: None,
 			sql=lambda *a, **k: [],
 		)
-		fake_je = SimpleNamespace(flags=SimpleNamespace(), append=lambda *a, **k: None, submit=lambda: None, name="JV-REV")
+		fake_je = SimpleNamespace(
+			flags=SimpleNamespace(), append=lambda *a, **k: None, submit=lambda: None, name="JV-REV"
+		)
 		fake_frappe = SimpleNamespace(
 			db=fake_db,
 			new_doc=lambda dt: fake_je,
@@ -201,13 +213,17 @@ class TestPDCInvoiceAdvanceApplication(unittest.TestCase):
 			calls.append((doctype, name, values, update_modified))
 
 		fake_db = SimpleNamespace(
-			get_value=lambda dt, nm, field: "ACC-ADV-REC" if field == "default_advance_received_account" else None,
+			get_value=lambda dt, nm, field: "ACC-ADV-REC"
+			if field == "default_advance_received_account"
+			else None,
 			set_value=_set_value,
 			sql=_sql,
 		)
 		fake_frappe = SimpleNamespace(
 			db=fake_db,
-			new_doc=lambda dt: (_ for _ in ()).throw(AssertionError("Should not create new JE when existing reversal exists")),
+			new_doc=lambda dt: (_ for _ in ()).throw(
+				AssertionError("Should not create new JE when existing reversal exists")
+			),
 			utils=SimpleNamespace(today=lambda: "2026-04-01"),
 		)
 
@@ -249,11 +265,15 @@ class TestPDCInvoiceAdvanceApplication(unittest.TestCase):
 			calls.append((doctype, name, values, update_modified))
 
 		fake_db = SimpleNamespace(
-			get_value=lambda dt, nm, field: "ACC-ADV-PAID" if field == "default_advance_paid_account" else None,
+			get_value=lambda dt, nm, field: "ACC-ADV-PAID"
+			if field == "default_advance_paid_account"
+			else None,
 			set_value=_set_value,
 			sql=lambda *a, **k: [],
 		)
-		fake_je = SimpleNamespace(flags=SimpleNamespace(), append=lambda *a, **k: None, submit=lambda: None, name="JV-1")
+		fake_je = SimpleNamespace(
+			flags=SimpleNamespace(), append=lambda *a, **k: None, submit=lambda: None, name="JV-1"
+		)
 		fake_frappe = SimpleNamespace(
 			db=fake_db,
 			new_doc=lambda dt: fake_je,
@@ -307,13 +327,17 @@ class TestPDCInvoiceAdvanceApplication(unittest.TestCase):
 			calls.append((doctype, name, values, update_modified))
 
 		fake_db = SimpleNamespace(
-			get_value=lambda dt, nm, field: "ACC-ADV-PAID" if field == "default_advance_paid_account" else None,
+			get_value=lambda dt, nm, field: "ACC-ADV-PAID"
+			if field == "default_advance_paid_account"
+			else None,
 			set_value=_set_value,
 			sql=_sql,
 		)
 		fake_frappe = SimpleNamespace(
 			db=fake_db,
-			new_doc=lambda dt: (_ for _ in ()).throw(AssertionError("Should not create new JE when existing exists")),
+			new_doc=lambda dt: (_ for _ in ()).throw(
+				AssertionError("Should not create new JE when existing exists")
+			),
 			utils=SimpleNamespace(today=lambda: "2026-04-01"),
 		)
 
@@ -323,4 +347,3 @@ class TestPDCInvoiceAdvanceApplication(unittest.TestCase):
 		self.assertEqual(row.application_status, "posted")
 		self.assertEqual(row.posted_je, "JV-EXIST")
 		self.assertTrue(calls)
-

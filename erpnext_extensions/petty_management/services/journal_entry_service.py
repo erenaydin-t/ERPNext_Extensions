@@ -5,17 +5,17 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, getdate, today
 
-from erpnext_extensions.petty_management.services.clearance_service import (
-	clearance_is_approved,
-	validate_clearance,
-)
-from erpnext_extensions.petty_management.services.constants import SETTLEMENT_PI, SETTLEMENT_SA
 from erpnext_extensions.petty_management.services.accounting_party import (
 	journal_entry_party_for_petty_cash_credit,
 	journal_entry_party_for_supplier_line,
 	resolve_clearance_employee,
 	validate_petty_cash_credit_party,
 )
+from erpnext_extensions.petty_management.services.clearance_service import (
+	clearance_is_approved,
+	validate_clearance,
+)
+from erpnext_extensions.petty_management.services.constants import SETTLEMENT_PI, SETTLEMENT_SA
 from erpnext_extensions.petty_management.services.holder_service import clearance_petty_cash_account
 from erpnext_extensions.petty_management.utils import get_pm_settings
 
@@ -160,7 +160,9 @@ def settle_petty_cash(pm_clearance: str) -> dict[str, str]:
 		je = create_clearance_journal_entry(doc)
 		doc.db_set("journal_entry", je.name, update_modified=False)
 		je.reload()
-		from erpnext_extensions.petty_management.services.clearance_action_policy import sync_clearance_lifecycle
+		from erpnext_extensions.petty_management.services.clearance_action_policy import (
+			sync_clearance_lifecycle,
+		)
 
 		doc.reload()
 		next_status = sync_clearance_lifecycle(doc, persist=True)
@@ -191,4 +193,3 @@ def settle_petty_cash(pm_clearance: str) -> dict[str, str]:
 		frappe.throw(_("Could not create settlement Journal Entry: {0}").format(str(e)))
 
 	return {"journal_entry": je.name, "status": next_status}
-

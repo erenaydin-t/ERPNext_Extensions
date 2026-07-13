@@ -19,8 +19,7 @@ const FACILITY_DEFAULT_FIELDS = [
 
 erpnext_extensions.facility_management.defaults.init_form = function (frm) {
 	frm._facility_user_touched = frm._facility_user_touched || new Set();
-	frm._facility_defaults_wired_fields =
-		frm._facility_defaults_wired_fields || new Set();
+	frm._facility_defaults_wired_fields = frm._facility_defaults_wired_fields || new Set();
 	FACILITY_DEFAULT_FIELDS.forEach((fieldname) => {
 		if (frm._facility_defaults_wired_fields.has(fieldname)) {
 			return;
@@ -47,15 +46,17 @@ erpnext_extensions.facility_management.defaults.apply_from_company = function (f
 
 	const fetchDefaults = () => {
 		frappe.call({
-			method:
-				"erpnext_extensions.facility_management.doctype.facility.facility.get_facility_settings_defaults",
+			method: "erpnext_extensions.facility_management.doctype.facility.facility.get_facility_settings_defaults",
 			args: { company: frm.doc.company },
 			callback(r) {
 				const payload = r.message || {};
 				if (!payload.found) {
 					frm._facility_defaults_applied_for_company = frm.doc.company;
 					if (payload.message) {
-						frappe.show_alert({ message: __(payload.message), indicator: "orange" }, 6);
+						frappe.show_alert(
+							{ message: __(payload.message), indicator: "orange" },
+							6
+						);
 					}
 					return;
 				}

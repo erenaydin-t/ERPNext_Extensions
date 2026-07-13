@@ -44,10 +44,15 @@ class TestIranAccountingRounding(unittest.TestCase):
 			"debit_in_reporting_currency": 10596667255.68,
 			"credit_in_reporting_currency": 0,
 		}
-		with mock.patch(
-			"erpnext_extensions.iran_accounting.domain.ledger_rounding.get_company_currency", return_value="IRR"
-		), mock.patch(
-			"erpnext_extensions.iran_accounting.domain.ledger_rounding.frappe.get_cached_value", return_value="IRR"
+		with (
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.ledger_rounding.get_company_currency",
+				return_value="IRR",
+			),
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.ledger_rounding.frappe.get_cached_value",
+				return_value="IRR",
+			),
 		):
 			round_gl_entry_amounts(entry)
 		for field in (
@@ -75,7 +80,8 @@ class TestIranAccountingRounding(unittest.TestCase):
 			"credit_in_account_currency": 0,
 		}
 		with mock.patch(
-			"erpnext_extensions.iran_accounting.domain.ledger_rounding.get_company_currency", return_value="IRR"
+			"erpnext_extensions.iran_accounting.domain.ledger_rounding.get_company_currency",
+			return_value="IRR",
 		):
 			round_gl_entry_amounts(entry)
 		self.assertEqual(entry["debit"], 100)
@@ -90,7 +96,8 @@ class TestIranAccountingRounding(unittest.TestCase):
 			"incoming_rate": 18169.525,
 		}
 		with mock.patch(
-			"erpnext_extensions.iran_accounting.domain.ledger_rounding.get_company_currency", return_value="IRR"
+			"erpnext_extensions.iran_accounting.domain.ledger_rounding.get_company_currency",
+			return_value="IRR",
 		):
 			round_sle_monetary_fields(sle, company="Test IRR Company")
 		self.assertEqual(sle["stock_value"], 1001)
@@ -117,7 +124,8 @@ class TestIranAccountingRounding(unittest.TestCase):
 			"stock_value_difference": 0,
 		}
 		with mock.patch(
-			"erpnext_extensions.iran_accounting.domain.ledger_rounding.get_company_currency", return_value="IRR"
+			"erpnext_extensions.iran_accounting.domain.ledger_rounding.get_company_currency",
+			return_value="IRR",
 		):
 			round_sle_monetary_fields(sle, company="Test IRR Company")
 		self.assertEqual(sle["valuation_rate"], 1235)

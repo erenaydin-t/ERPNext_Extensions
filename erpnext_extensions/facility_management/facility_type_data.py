@@ -59,7 +59,9 @@ def migrate_facility_type_links() -> None:
 			continue
 		ensure_facility_type(val)
 	# Normalize Facility rows where name differs from facility_type_name
-	for fac in frappe.get_all("Facility", filters={"facility_type": ["is", "set"]}, fields=["name", "facility_type"]):
+	for fac in frappe.get_all(
+		"Facility", filters={"facility_type": ["is", "set"]}, fields=["name", "facility_type"]
+	):
 		val = (fac.facility_type or "").strip()
 		if not val:
 			continue

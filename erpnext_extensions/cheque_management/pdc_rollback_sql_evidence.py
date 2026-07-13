@@ -50,9 +50,7 @@ def accounting_snapshot_for_pdc(pdc_name: str) -> dict[str, Any]:
 	for je in je_names:
 		jea_count += frappe.db.count("Journal Entry Account", {"parent": je})
 		gl_count += frappe.db.count("GL Entry", {"voucher_no": je, "is_cancelled": 0})
-		ple_count += frappe.db.count(
-			"Payment Ledger Entry", {"voucher_no": je, "delinked": 0}
-		)
+		ple_count += frappe.db.count("Payment Ledger Entry", {"voucher_no": je, "delinked": 0})
 
 	outstanding: list[dict[str, Any]] = []
 	for row in frappe.get_all(
@@ -67,9 +65,7 @@ def accounting_snapshot_for_pdc(pdc_name: str) -> dict[str, Any]:
 				{
 					"voucher_type": ref_type,
 					"voucher_no": ref_name,
-					"outstanding_amount": flt(
-						frappe.db.get_value(ref_type, ref_name, "outstanding_amount")
-					),
+					"outstanding_amount": flt(frappe.db.get_value(ref_type, ref_name, "outstanding_amount")),
 					"allocated_amount": flt(row.amount),
 				}
 			)
@@ -83,9 +79,7 @@ def accounting_snapshot_for_pdc(pdc_name: str) -> dict[str, Any]:
 			as_dict=True,
 		)
 
-	rollback_log_count = frappe.db.count(
-		"PDC Workflow Rollback Log", {"parent": pdc_name}
-	)
+	rollback_log_count = frappe.db.count("PDC Workflow Rollback Log", {"parent": pdc_name})
 	comment_count = frappe.db.count(
 		"Comment",
 		{
@@ -109,9 +103,7 @@ def accounting_snapshot_for_pdc(pdc_name: str) -> dict[str, Any]:
 	}
 
 
-def snapshot_rollback_scenario(
-	pdc_name: str, target_state: str, reason: str
-) -> dict[str, Any]:
+def snapshot_rollback_scenario(pdc_name: str, target_state: str, reason: str) -> dict[str, Any]:
 	"""Before / after snapshot for one rollback (dry-run plan + execute)."""
 	from erpnext_extensions.cheque_management.accounting_rollback.pdc.plan import (
 		build_pdc_rollback_plan,
@@ -132,7 +124,8 @@ def snapshot_rollback_scenario(
 			"target_state": target_state,
 			"reason": reason,
 		},
-		"plan_transitions": preview.get("transitions_to_undo") or plan.to_api_dict().get("transitions_to_undo"),
+		"plan_transitions": preview.get("transitions_to_undo")
+		or plan.to_api_dict().get("transitions_to_undo"),
 		"before": before,
 		"after": after,
 		"result": result,

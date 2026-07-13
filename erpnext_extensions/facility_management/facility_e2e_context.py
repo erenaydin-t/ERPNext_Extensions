@@ -57,6 +57,7 @@ def ensure_company_bank_gl_account(company: str) -> str:
 
 def resolve_facility_gl_accounts(company: str) -> dict[str, str | None]:
 	bank_gl = ensure_company_bank_gl_account(company)
+
 	def _pick_liability(company: str, *, exclude: set[str] | None = None) -> str | None:
 		exclude = exclude or set()
 		for row in frappe.get_all(
@@ -84,17 +85,26 @@ def resolve_facility_gl_accounts(company: str) -> dict[str, str | None]:
 	deferred = _pick_liability(company, exclude={loan_payable} if loan_payable else set())
 	if not deferred:
 		deferred = frappe.db.get_value(
-			"Account", {"company": company, "root_type": "Expense", "is_group": 0}, "name", order_by="modified desc"
+			"Account",
+			{"company": company, "root_type": "Expense", "is_group": 0},
+			"name",
+			order_by="modified desc",
 		)
 	interest = frappe.db.get_value(
-		"Account", {"company": company, "root_type": "Expense", "is_group": 0}, "name", order_by="modified desc"
-	)
-	penalty = frappe.db.get_value(
 		"Account",
-		{"company": company, "root_type": "Expense", "is_group": 0, "name": ("!=", interest)},
+		{"company": company, "root_type": "Expense", "is_group": 0},
 		"name",
 		order_by="modified desc",
-	) or interest
+	)
+	penalty = (
+		frappe.db.get_value(
+			"Account",
+			{"company": company, "root_type": "Expense", "is_group": 0, "name": ("!=", interest)},
+			"name",
+			order_by="modified desc",
+		)
+		or interest
+	)
 	cost_center = frappe.db.get_value(
 		"Cost Center", {"company": company, "is_group": 0}, "name", order_by="modified desc"
 	)

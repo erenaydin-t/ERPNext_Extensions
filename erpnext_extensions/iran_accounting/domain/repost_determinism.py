@@ -35,6 +35,7 @@ from frappe.utils import flt
 
 from erpnext_extensions.iran_accounting.domain.currency import get_company_currency, is_irr_company
 from erpnext_extensions.iran_accounting.domain.qty_rate_amount import (
+	align_stock_entry_item_amounts,
 	override_difference_amount,
 	sum_stock_reconciliation_amount_difference,
 )
@@ -51,7 +52,6 @@ from erpnext_extensions.iran_accounting.domain.stock_reconciliation_sync import 
 	assert_stock_reconciliation_row_sle_mirror,
 	sync_irr_sle_from_stock_reconciliation_row,
 )
-from erpnext_extensions.iran_accounting.domain.qty_rate_amount import align_stock_entry_item_amounts
 from erpnext_extensions.iran_accounting.rounding import round_stock_entry_totals
 from erpnext_extensions.iran_accounting.validation import fetch_gl_rows, gl_debit_credit_totals
 
@@ -278,7 +278,9 @@ def validate_deterministic_state_after_repost(
 			failures.append(f"sle_residual={totals.get('difference_vs_sle_residual')}")
 
 	elif voucher_type == "Stock Entry":
-		from erpnext_extensions.iran_accounting.stock_gl_consistency import assert_stock_entry_ledger_determinism
+		from erpnext_extensions.iran_accounting.stock_gl_consistency import (
+			assert_stock_entry_ledger_determinism,
+		)
 
 		det = assert_stock_entry_ledger_determinism(voucher_no, company)
 		if det.get("status") != "PASS":

@@ -46,4 +46,3 @@ class TestSettlementCapacitySQLFilters(unittest.TestCase):
 		self.assertTrue(queries)
 		q = " ".join((queries[0] or "").split()).lower()
 		self.assertIn("coalesce(a.allocation_mode, 'direct_settlement') = 'direct_settlement'".lower(), q)
-

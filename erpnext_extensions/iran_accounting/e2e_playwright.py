@@ -59,11 +59,10 @@ def resolve_mtfm_stock_entry(company=None, stock_entry=None, create_if_missing=T
 def _create_mtfm_draft(company: str) -> dict:
 	from erpnext.manufacturing.doctype.work_order.work_order import make_stock_entry as wo_make_stock_entry
 
+	import erpnext_extensions.iran_accounting  # noqa: F401
 	from erpnext_extensions.iran_accounting import e2e_bootstrap as b
 	from erpnext_extensions.iran_accounting.acceptance_scenarios import AcceptanceContext, _make_bom_wo
 	from erpnext_extensions.iran_accounting.stock_entry import align_zero_value_transfer_totals
-
-	import erpnext_extensions.iran_accounting  # noqa: F401
 
 	b.enable_perpetual_inventory(company)
 	wh = b.get_warehouse(company)

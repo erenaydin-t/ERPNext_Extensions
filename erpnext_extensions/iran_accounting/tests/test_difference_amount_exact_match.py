@@ -44,7 +44,9 @@ class TestDifferenceAmountExactMatch(unittest.TestCase):
 	def test_batch_row_exact_match(self):
 		item = ensure_test_item(self.company, prefix="IA-SR-EXACT-B")
 		frappe.db.set_value("Item", item, "has_batch_no", 1, update_modified=False)
-		batch = frappe.get_doc({"doctype": "Batch", "item": item, "batch_id": f"IA-EX-{frappe.generate_hash(length=6)}"})
+		batch = frappe.get_doc(
+			{"doctype": "Batch", "item": item, "batch_id": f"IA-EX-{frappe.generate_hash(length=6)}"}
+		)
 		batch.insert(ignore_permissions=True)
 		sr = _create_opening_sr(
 			self.company, self.warehouse, item, 4, valuation_rate=1250.75, batch_no=batch.name

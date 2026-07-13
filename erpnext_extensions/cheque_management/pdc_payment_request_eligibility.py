@@ -66,7 +66,9 @@ def is_payment_request_settlement_eligible(doc) -> bool:
 	"""
 	if not doc:
 		return False
-	doctype = (getattr(doc, "doctype", None) or (doc.get("doctype") if isinstance(doc, dict) else None) or "").strip()
+	doctype = (
+		getattr(doc, "doctype", None) or (doc.get("doctype") if isinstance(doc, dict) else None) or ""
+	).strip()
 	if doctype and doctype != "Payment Request":
 		return False
 
@@ -99,7 +101,9 @@ def validate_payment_request_invoice_ceiling_on_save(doc, method=None) -> None:
 	if not is_payment_request_settlement_eligible(doc):
 		return
 	# Local import avoids circular import with pdc_settlement_capacity.
-	from erpnext_extensions.cheque_management.pdc_settlement_capacity import validate_invoice_pr_issuance_ceiling
+	from erpnext_extensions.cheque_management.pdc_settlement_capacity import (
+		validate_invoice_pr_issuance_ceiling,
+	)
 
 	validate_invoice_pr_issuance_ceiling(doc, method)
 

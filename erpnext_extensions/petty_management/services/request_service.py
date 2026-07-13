@@ -22,7 +22,9 @@ def workflow_state_title(doc: Document) -> str:
 	if not getattr(doc, "workflow_state", None):
 		return ""
 	return (
-		frappe.db.get_value("Workflow State", doc.workflow_state, "workflow_state_name") or doc.workflow_state or ""
+		frappe.db.get_value("Workflow State", doc.workflow_state, "workflow_state_name")
+		or doc.workflow_state
+		or ""
 	)
 
 
@@ -47,7 +49,9 @@ def reconcile_payment_entry_link(doc: Document) -> None:
 def derive_payment_status(doc: Document) -> None:
 	meta = frappe.get_meta("PM Request")
 	if meta.has_field("total_paid_amount"):
-		from erpnext_extensions.petty_management.services.funding_service import derive_payment_status_from_totals
+		from erpnext_extensions.petty_management.services.funding_service import (
+			derive_payment_status_from_totals,
+		)
 
 		if doc.total_paid_amount is None:
 			from erpnext_extensions.petty_management.services.funding_queries import sum_submitted_pe_amount
@@ -66,7 +70,9 @@ def validate_request(doc: Document) -> None:
 	reconcile_payment_entry_link(doc)
 	meta = frappe.get_meta("PM Request")
 	if meta.has_field("total_paid_amount"):
-		from erpnext_extensions.petty_management.services.funding_service import sync_pm_request_funding_fields
+		from erpnext_extensions.petty_management.services.funding_service import (
+			sync_pm_request_funding_fields,
+		)
 
 		sync_pm_request_funding_fields(doc)
 	else:
@@ -113,12 +119,16 @@ def enforce_request_state_machine(doc: Document) -> None:
 			pe_ds = cint(frappe.db.get_value("Payment Entry", doc.payment_entry, "docstatus"))
 			if pe_ds == 1:
 				frappe.throw(
-					_("Rejected PM Request cannot have a submitted Payment Entry. Cancel the Payment Entry first."),
+					_(
+						"Rejected PM Request cannot have a submitted Payment Entry. Cancel the Payment Entry first."
+					),
 					title=_("Invalid state"),
 				)
 			if pe_ds == 0:
 				frappe.throw(
-					_("Rejected PM Request cannot have a draft Payment Entry. Cancel the Payment Entry first."),
+					_(
+						"Rejected PM Request cannot have a draft Payment Entry. Cancel the Payment Entry first."
+					),
 					title=_("Invalid state"),
 				)
 
@@ -129,9 +139,14 @@ def enforce_request_state_machine(doc: Document) -> None:
 
 			paid = sum_submitted_pe_amount(doc.name)
 		if paid + 1e-6 < flt(doc.total_requested_amount):
-			frappe.throw(_("Payment Status Paid requires funded amount to cover the request."), title=_("Invalid state"))
+			frappe.throw(
+				_("Payment Status Paid requires funded amount to cover the request."),
+				title=_("Invalid state"),
+			)
 		if paid <= 0:
-			frappe.throw(_("Payment Status cannot be Paid without submitted funding."), title=_("Invalid state"))
+			frappe.throw(
+				_("Payment Status cannot be Paid without submitted funding."), title=_("Invalid state")
+			)
 	elif doc.payment_status == "Partially Paid":
 		if not meta.has_field("total_paid_amount"):
 			frappe.throw(_("Partially Paid is not supported on this site."), title=_("Invalid state"))
@@ -139,18 +154,24 @@ def enforce_request_state_machine(doc: Document) -> None:
 
 		paid = sum_submitted_pe_amount(doc.name)
 		if paid <= 1e-6 or paid + 1e-6 >= flt(doc.total_requested_amount):
-			frappe.throw(_("Payment Status Partially Paid does not match funded amount."), title=_("Invalid state"))
+			frappe.throw(
+				_("Payment Status Partially Paid does not match funded amount."), title=_("Invalid state")
+			)
 
 	if doc.payment_status in ("Paid", "Partially Paid") and not doc.payment_entry:
 		from erpnext_extensions.petty_management.services.funding_queries import count_linked_payment_entries
 
 		if count_linked_payment_entries(doc.name, docstatus=(1,)) <= 0:
-			frappe.throw(_("Payment Status requires at least one submitted Payment Entry."), title=_("Invalid state"))
+			frappe.throw(
+				_("Payment Status requires at least one submitted Payment Entry."), title=_("Invalid state")
+			)
 
 	if doc.payment_entry:
 		pe_ds = cint(frappe.db.get_value("Payment Entry", doc.payment_entry, "docstatus"))
 		if pe_ds == 1 and doc.payment_status == "Not Paid":
-			frappe.throw(_("Payment Status must reflect submitted Payment Entries."), title=_("Invalid state"))
+			frappe.throw(
+				_("Payment Status must reflect submitted Payment Entries."), title=_("Invalid state")
+			)
 
 
 def compute_totals(doc: Document) -> None:
@@ -216,7 +237,10 @@ def validate_payment_accounts(doc: Document) -> None:
 def validate_request_cancel(doc: Document) -> None:
 	if doc.payment_entry and frappe.db.get_value("Payment Entry", doc.payment_entry, "docstatus") == 1:
 		frappe.throw(_("Cancel the linked Payment Entry first"))
-	if getattr(doc, "journal_entry", None) and frappe.db.get_value("Journal Entry", doc.journal_entry, "docstatus") == 1:
+	if (
+		getattr(doc, "journal_entry", None)
+		and frappe.db.get_value("Journal Entry", doc.journal_entry, "docstatus") == 1
+	):
 		frappe.throw(_("Cancel the linked Journal Entry first"))
 	from erpnext_extensions.petty_management.services.allocation_service import (
 		clearance_reserves_pm_request_balance_sql,
@@ -236,7 +260,9 @@ def validate_request_cancel(doc: Document) -> None:
 	)[0][0]
 	if alloc_refs:
 		frappe.throw(
-			_("Cannot cancel: this PM Request is still referenced on submitted PM Clearance allocation lines.")
+			_(
+				"Cannot cancel: this PM Request is still referenced on submitted PM Clearance allocation lines."
+			)
 		)
 
 
@@ -263,9 +289,7 @@ def request_ready_for_payment_entry(doc: Document) -> tuple[bool, str]:
 		)
 
 		if has_draft_payment_entry(doc.name):
-			return False, _(
-				"A draft Payment Entry exists. Submit or cancel it before creating another."
-			)
+			return False, _("A draft Payment Entry exists. Submit or cancel it before creating another.")
 		submitted = sum_submitted_pe_amount(doc.name)
 		requested = flt(doc.total_requested_amount)
 		remaining = max(0.0, requested - submitted)
@@ -278,7 +302,9 @@ def request_ready_for_payment_entry(doc: Document) -> tuple[bool, str]:
 	if doc.payment_entry:
 		ds = cint(frappe.db.get_value("Payment Entry", doc.payment_entry, "docstatus"))
 		if ds == 0:
-			return False, _("A draft Payment Entry already exists. Submit or cancel it before creating another.")
+			return False, _(
+				"A draft Payment Entry already exists. Submit or cancel it before creating another."
+			)
 		if ds == 1:
 			return False, _("A submitted Payment Entry already exists.")
 	return True, ""
@@ -398,7 +424,10 @@ def create_payment_entry(pm_request: str, paid_amount: float | None = None) -> s
 
 		apply_funding_payment_entry_remarks(pe, doc_locked, amount)
 		pe.db_set(
-			{"remarks": pe.remarks, "custom_remarks": 1 if frappe.get_meta("Payment Entry").has_field("custom_remarks") else 0},
+			{
+				"remarks": pe.remarks,
+				"custom_remarks": 1 if frappe.get_meta("Payment Entry").has_field("custom_remarks") else 0,
+			},
 			update_modified=False,
 		)
 		dupes = find_active_payment_entries_for_pm_request(doc_locked.name, exclude_pe=pe.name)
@@ -408,7 +437,9 @@ def create_payment_entry(pm_request: str, paid_amount: float | None = None) -> s
 				title=_("Duplicate funding Payment Entry"),
 			)
 
-		from erpnext_extensions.petty_management.services.funding_service import sync_pm_request_funding_fields
+		from erpnext_extensions.petty_management.services.funding_service import (
+			sync_pm_request_funding_fields,
+		)
 
 		doc_locked.payment_entry = pe.name
 		sync_pm_request_funding_fields(doc_locked)
@@ -418,7 +449,9 @@ def create_payment_entry(pm_request: str, paid_amount: float | None = None) -> s
 		_throw_payment_entry_busy()
 	except Exception as e:
 		frappe.db.rollback()
-		frappe.throw(_("Payment Entry could not be created: {0}").format(str(e)), title=_("Payment Entry failed"))
+		frappe.throw(
+			_("Payment Entry could not be created: {0}").format(str(e)), title=_("Payment Entry failed")
+		)
 
 	if settings and settings.auto_submit_payment_entry:
 		try:
@@ -426,17 +459,23 @@ def create_payment_entry(pm_request: str, paid_amount: float | None = None) -> s
 			pe.db_set(
 				{
 					"remarks": pe.remarks,
-					"custom_remarks": 1 if frappe.get_meta("Payment Entry").has_field("custom_remarks") else 0,
+					"custom_remarks": 1
+					if frappe.get_meta("Payment Entry").has_field("custom_remarks")
+					else 0,
 				},
 				update_modified=False,
 			)
 			pe.submit()
-			from erpnext_extensions.petty_management.services.funding_service import sync_pm_request_funding_fields
+			from erpnext_extensions.petty_management.services.funding_service import (
+				sync_pm_request_funding_fields,
+			)
 
 			sync_pm_request_funding_fields(doc.name)
 		except Exception as e:
 			frappe.db.rollback()
-			frappe.throw(_("Payment Entry could not be submitted: {0}").format(str(e)), title=_("Payment Entry failed"))
+			frappe.throw(
+				_("Payment Entry could not be submitted: {0}").format(str(e)), title=_("Payment Entry failed")
+			)
 
 	try:
 		from erpnext_extensions.petty_management import petty_audit
@@ -498,7 +537,9 @@ def _build_payment_entry(doc: Document, paid_from: str, amount: float) -> Docume
 
 def get_pm_request_action_flags_for_doc(doc: Document) -> dict:
 	"""Desk UI flags for a PM Request document already loaded via request_api_guard."""
-	from erpnext_extensions.petty_management.services.request_action_policy import compute_pm_request_action_flags
+	from erpnext_extensions.petty_management.services.request_action_policy import (
+		compute_pm_request_action_flags,
+	)
 
 	flags = compute_pm_request_action_flags(doc)
 	flags["reason"] = flags.get("create_block_reason") or ""

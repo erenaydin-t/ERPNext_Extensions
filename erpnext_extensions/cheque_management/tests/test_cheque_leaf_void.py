@@ -30,12 +30,16 @@ class TestChequeLeafVoidUnit(FrappeTestCase):
 				"sequence_no": 1,
 			}
 		)
-		with patch.object(frappe, "get_doc", return_value=leaf), patch(
-			"erpnext_extensions.cheque_management.doctype.cheque_leaf.cheque_leaf.frappe.db.exists",
-			return_value=True,
-		), patch(
-			"erpnext_extensions.cheque_management.doctype.cheque_leaf.cheque_leaf.user_may_void_cheque_leaf",
-			return_value=True,
+		with (
+			patch.object(frappe, "get_doc", return_value=leaf),
+			patch(
+				"erpnext_extensions.cheque_management.doctype.cheque_leaf.cheque_leaf.frappe.db.exists",
+				return_value=True,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.doctype.cheque_leaf.cheque_leaf.user_may_void_cheque_leaf",
+				return_value=True,
+			),
 		):
 			with self.assertRaises(ValidationError):
 				void_cheque_leaf("CL-VOID-TEST-1", "  ")
@@ -53,12 +57,16 @@ class TestChequeLeafVoidUnit(FrappeTestCase):
 				"sequence_no": 2,
 			}
 		)
-		with patch.object(frappe, "get_doc", return_value=leaf), patch(
-			"erpnext_extensions.cheque_management.doctype.cheque_leaf.cheque_leaf.frappe.db.exists",
-			return_value=True,
-		), patch(
-			"erpnext_extensions.cheque_management.doctype.cheque_leaf.cheque_leaf.user_may_void_cheque_leaf",
-			return_value=True,
+		with (
+			patch.object(frappe, "get_doc", return_value=leaf),
+			patch(
+				"erpnext_extensions.cheque_management.doctype.cheque_leaf.cheque_leaf.frappe.db.exists",
+				return_value=True,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.doctype.cheque_leaf.cheque_leaf.user_may_void_cheque_leaf",
+				return_value=True,
+			),
 		):
 			with self.assertRaises(ValidationError) as ctx:
 				void_cheque_leaf("CL-USED", "Damaged")
@@ -77,12 +85,16 @@ class TestChequeLeafVoidUnit(FrappeTestCase):
 				"sequence_no": 2,
 			}
 		)
-		with patch.object(frappe, "get_doc", return_value=leaf), patch(
-			"erpnext_extensions.cheque_management.doctype.cheque_leaf.cheque_leaf.frappe.db.exists",
-			return_value=True,
-		), patch(
-			"erpnext_extensions.cheque_management.doctype.cheque_leaf.cheque_leaf.user_may_void_cheque_leaf",
-			return_value=True,
+		with (
+			patch.object(frappe, "get_doc", return_value=leaf),
+			patch(
+				"erpnext_extensions.cheque_management.doctype.cheque_leaf.cheque_leaf.frappe.db.exists",
+				return_value=True,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.doctype.cheque_leaf.cheque_leaf.user_may_void_cheque_leaf",
+				return_value=True,
+			),
 		):
 			with self.assertRaises(ValidationError) as ctx:
 				void_cheque_leaf("CL-RES", "Damaged")
@@ -102,12 +114,16 @@ class TestChequeLeafVoidUnit(FrappeTestCase):
 				"sequence_no": 2,
 			}
 		)
-		with patch.object(frappe, "get_doc", return_value=leaf), patch(
-			"erpnext_extensions.cheque_management.doctype.cheque_leaf.cheque_leaf.frappe.db.exists",
-			return_value=True,
-		), patch(
-			"erpnext_extensions.cheque_management.doctype.cheque_leaf.cheque_leaf.user_may_void_cheque_leaf",
-			return_value=True,
+		with (
+			patch.object(frappe, "get_doc", return_value=leaf),
+			patch(
+				"erpnext_extensions.cheque_management.doctype.cheque_leaf.cheque_leaf.frappe.db.exists",
+				return_value=True,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.doctype.cheque_leaf.cheque_leaf.user_may_void_cheque_leaf",
+				return_value=True,
+			),
 		):
 			with self.assertRaises(ValidationError) as ctx:
 				void_cheque_leaf("CL-VOID2", "Again")
@@ -127,12 +143,16 @@ class TestChequeLeafVoidUnit(FrappeTestCase):
 				"sequence_no": 2,
 			}
 		)
-		with patch.object(frappe, "get_doc", return_value=leaf), patch(
-			"erpnext_extensions.cheque_management.doctype.cheque_leaf.cheque_leaf.frappe.db.exists",
-			return_value=True,
-		), patch(
-			"erpnext_extensions.cheque_management.doctype.cheque_leaf.cheque_leaf.user_may_void_cheque_leaf",
-			return_value=True,
+		with (
+			patch.object(frappe, "get_doc", return_value=leaf),
+			patch(
+				"erpnext_extensions.cheque_management.doctype.cheque_leaf.cheque_leaf.frappe.db.exists",
+				return_value=True,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.doctype.cheque_leaf.cheque_leaf.user_may_void_cheque_leaf",
+				return_value=True,
+			),
 		):
 			with self.assertRaises(ValidationError):
 				void_cheque_leaf("CL-RES-PDC", "Damaged")
@@ -150,13 +170,18 @@ class TestChequeLeafVoidUnit(FrappeTestCase):
 				"sequence_no": 2,
 			}
 		)
-		with patch.object(frappe, "get_doc", return_value=leaf), patch(
-			"erpnext_extensions.cheque_management.doctype.cheque_leaf.cheque_leaf.frappe.db.exists",
-			return_value=True,
-		), patch(
-			"erpnext_extensions.cheque_management.doctype.cheque_leaf.cheque_leaf.user_may_void_cheque_leaf",
-			return_value=True,
-		), patch.object(leaf, "save") as save_mock:
+		with (
+			patch.object(frappe, "get_doc", return_value=leaf),
+			patch(
+				"erpnext_extensions.cheque_management.doctype.cheque_leaf.cheque_leaf.frappe.db.exists",
+				return_value=True,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.doctype.cheque_leaf.cheque_leaf.user_may_void_cheque_leaf",
+				return_value=True,
+			),
+			patch.object(leaf, "save") as save_mock,
+		):
 			out = void_cheque_leaf("CL-AVAIL", "Torn")
 			save_mock.assert_called_once()
 			self.assertEqual(out["status"], "Void")
@@ -177,12 +202,16 @@ class TestChequeLeafVoidUnit(FrappeTestCase):
 				"sequence_no": 3,
 			}
 		)
-		with patch.object(frappe, "get_doc", return_value=leaf), patch(
-			"erpnext_extensions.cheque_management.doctype.cheque_leaf.cheque_leaf.frappe.db.exists",
-			return_value=True,
-		), patch(
-			"erpnext_extensions.cheque_management.doctype.cheque_leaf.cheque_leaf.user_may_void_cheque_leaf",
-			return_value=True,
+		with (
+			patch.object(frappe, "get_doc", return_value=leaf),
+			patch(
+				"erpnext_extensions.cheque_management.doctype.cheque_leaf.cheque_leaf.frappe.db.exists",
+				return_value=True,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.doctype.cheque_leaf.cheque_leaf.user_may_void_cheque_leaf",
+				return_value=True,
+			),
 		):
 			with self.assertRaises(ValidationError):
 				void_cheque_leaf("CL-LINK", "Damaged")
@@ -206,8 +235,9 @@ class TestChequeLeafVoidUnit(FrappeTestCase):
 		before = frappe.get_doc(doc.as_dict())
 		before.status = "Void"
 		doc.status = "Available"
-		with patch.object(doc, "get_doc_before_save", return_value=before), patch.object(
-			doc, "is_new", return_value=False
+		with (
+			patch.object(doc, "get_doc_before_save", return_value=before),
+			patch.object(doc, "is_new", return_value=False),
 		):
 			with self.assertRaises(ValidationError):
 				doc._validate_status_safety()
@@ -241,7 +271,9 @@ class TestChequeLeafVoidUnit(FrappeTestCase):
 class TestChequeLeafVoidIntegration(FrappeTestCase):
 	def _provision_leaf(self) -> str:
 		company = frappe.db.get_value("Company", {}, "name", order_by="creation asc")
-		bank_account = frappe.db.get_value("Bank Account", {"company": company}, "name", order_by="creation asc")
+		bank_account = frappe.db.get_value(
+			"Bank Account", {"company": company}, "name", order_by="creation asc"
+		)
 		if not company or not bank_account:
 			self.skipTest("No Company / Bank Account for integration")
 		import random

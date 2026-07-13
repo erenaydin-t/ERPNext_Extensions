@@ -16,7 +16,11 @@ function _pdc_toast(message, indicator = "blue", duration_s = 6) {
 function _hide_pdc_advance_docfield_buttons(frm) {
 	// Do NOT use DocField Button controls for layout.
 	// Hide them aggressively because they otherwise render vertically.
-	["get_advance_pdcs", "recalculate_pdc_advance_suggestions", "clear_draft_pdc_advances"].forEach((fn) => {
+	[
+		"get_advance_pdcs",
+		"recalculate_pdc_advance_suggestions",
+		"clear_draft_pdc_advances",
+	].forEach((fn) => {
 		try {
 			frm.toggle_display(fn, false);
 		} catch (e) {
@@ -113,8 +117,12 @@ function _render_pdc_advance_actions_bar(frm) {
 
 	// Call existing handlers directly.
 	html.find('[data-pdc-action="get"]').on("click", () => frm.trigger("get_advance_pdcs"));
-	html.find('[data-pdc-action="recalc"]').on("click", () => frm.trigger("recalculate_pdc_advance_suggestions"));
-	html.find('[data-pdc-action="clear"]').on("click", () => frm.trigger("clear_draft_pdc_advances"));
+	html.find('[data-pdc-action="recalc"]').on("click", () =>
+		frm.trigger("recalculate_pdc_advance_suggestions")
+	);
+	html.find('[data-pdc-action="clear"]').on("click", () =>
+		frm.trigger("clear_draft_pdc_advances")
+	);
 
 	// Post-render safety: if duplicates somehow exist, keep first and remove the rest.
 	try {
@@ -199,11 +207,19 @@ function _recalc_pdc_advance_preview(frm) {
 		const odt = String((r && r.order_doctype) || "").trim();
 		const onm = String((r && r.order_name) || "").trim();
 		if (scope === "general" && (odt || onm)) {
-			_pdc_toast(__("General advance row has order fields filled (will be blocked on submit)."), "orange", 6);
+			_pdc_toast(
+				__("General advance row has order fields filled (will be blocked on submit)."),
+				"orange",
+				6
+			);
 			return true;
 		}
 		if (scope === "order_based" && (!odt || !onm)) {
-			_pdc_toast(__("Order-based advance row is missing order fields (will be blocked on submit)."), "orange", 6);
+			_pdc_toast(
+				__("Order-based advance row is missing order fields (will be blocked on submit)."),
+				"orange",
+				6
+			);
 			return true;
 		}
 		return false;
@@ -215,7 +231,9 @@ function _key_for_application_row(r) {
 	const scope = (r && r.advance_scope) || "";
 	const odt = (r && r.order_doctype) || "";
 	const onm = (r && r.order_name) || "";
-	return `${String(scope).trim()}|${String(pdc).trim()}|${String(odt).trim()}|${String(onm).trim()}`;
+	return `${String(scope).trim()}|${String(pdc).trim()}|${String(odt).trim()}|${String(
+		onm
+	).trim()}`;
 }
 
 function _remove_draft_pdc_advance_rows(frm) {
@@ -241,14 +259,16 @@ function _recalculate_suggested_amounts(frm) {
 	if ((parseInt(frm.doc.docstatus, 10) || 0) !== 0) return;
 
 	const rows = frm.doc.pdc_invoice_applications || [];
-	const drafts = (rows || []).filter((r) => String((r.application_status || "draft")).trim() === "draft");
+	const drafts = (rows || []).filter(
+		(r) => String(r.application_status || "draft").trim() === "draft"
+	);
 	const remaining0 = _pdc_flt(frm.doc.grand_total);
 	let remaining = remaining0;
 
 	// Process order_based first, then general, but do not reorder rows.
 	const ordered = []
-		.concat(drafts.filter((r) => String((r.advance_scope || "")).trim() === "order_based"))
-		.concat(drafts.filter((r) => String((r.advance_scope || "")).trim() === "general"));
+		.concat(drafts.filter((r) => String(r.advance_scope || "").trim() === "order_based"))
+		.concat(drafts.filter((r) => String(r.advance_scope || "").trim() === "general"));
 
 	(ordered || []).forEach((r) => {
 		const open_amt = _pdc_flt(r && r.open_amount);
@@ -284,7 +304,11 @@ function _recalculate_suggested_amounts(frm) {
 				return;
 			}
 			if ((parseInt(frm.doc.docstatus, 10) || 0) !== 0) {
-				_pdc_toast(__("Advance PDC rows can only be added while the invoice is in Draft."), "orange", 6);
+				_pdc_toast(
+					__("Advance PDC rows can only be added while the invoice is in Draft."),
+					"orange",
+					6
+				);
 				return;
 			}
 
@@ -293,10 +317,14 @@ function _recalculate_suggested_amounts(frm) {
 				try {
 					const items = (frm.doc && frm.doc.items) || [];
 					if (frm.doctype === "Purchase Invoice") {
-						return (items || []).some((it) => (it && it.purchase_order ? String(it.purchase_order).trim() : ""));
+						return (items || []).some((it) =>
+							it && it.purchase_order ? String(it.purchase_order).trim() : ""
+						);
 					}
 					if (frm.doctype === "Sales Invoice") {
-						return (items || []).some((it) => (it && it.sales_order ? String(it.sales_order).trim() : ""));
+						return (items || []).some((it) =>
+							it && it.sales_order ? String(it.sales_order).trim() : ""
+						);
 					}
 				} catch (e) {
 					// ignore
@@ -324,14 +352,20 @@ function _recalculate_suggested_amounts(frm) {
 						const msg = (payload && payload.message) || "";
 
 						// Only add candidates with suggested_apply_amount > 0
-						rows = (rows || []).filter((c) => _pdc_flt(c && c.suggested_apply_amount) > 1e-9);
+						rows = (rows || []).filter(
+							(c) => _pdc_flt(c && c.suggested_apply_amount) > 1e-9
+						);
 
 						if (!rows.length) {
 							_pdc_toast(
 								msg ||
 									(has_order_link
-										? __("No recognized Advance PDCs are available for this invoice.")
-										: __("No general PDC advances are available for this invoice.")),
+										? __(
+												"No recognized Advance PDCs are available for this invoice."
+										  )
+										: __(
+												"No general PDC advances are available for this invoice."
+										  )),
 								"blue",
 								6
 							);
@@ -339,25 +373,32 @@ function _recalculate_suggested_amounts(frm) {
 						}
 
 						const draft_rows = (frm.doc.pdc_invoice_applications || []).filter(
-							(x) => String((x.application_status || "draft")).trim() === "draft"
+							(x) => String(x.application_status || "draft").trim() === "draft"
 						);
-						const existing_map = new Map(draft_rows.map((x) => [_key_for_application_row(x), x]));
+						const existing_map = new Map(
+							draft_rows.map((x) => [_key_for_application_row(x), x])
+						);
 
 						let added = 0;
 						let updated = 0;
 						let skipped = 0;
 
 						(rows || []).forEach((c) => {
-							const scope = String((c && c.advance_scope) || "").trim() || "order_based";
+							const scope =
+								String((c && c.advance_scope) || "").trim() || "order_based";
 							const is_general = scope === "general";
 							const source_dt = is_general
 								? ""
-								: String((c && (c.source_doctype || c.order_doctype)) || "").trim();
+								: String(
+										(c && (c.source_doctype || c.order_doctype)) || ""
+								  ).trim();
 							const source_nm = is_general
 								? ""
 								: String((c && (c.source_name || c.order_name)) || "").trim();
 
-							const key = `${scope}|${String(c.post_dated_cheque || "").trim()}|${source_dt}|${source_nm}`;
+							const key = `${scope}|${String(
+								c.post_dated_cheque || ""
+							).trim()}|${source_dt}|${source_nm}`;
 							const existing = existing_map.get(key);
 							if (existing) {
 								// Duplicate policy: update open_amount and only set amount if empty/zero.
@@ -395,7 +436,9 @@ function _recalculate_suggested_amounts(frm) {
 							} else {
 								child.order_doctype = source_dt || "";
 								child.order_name = source_nm || "";
-								child.source_bucket_label = source_nm || (source_dt && source_nm ? `${source_dt} ${source_nm}` : null);
+								child.source_bucket_label =
+									source_nm ||
+									(source_dt && source_nm ? `${source_dt} ${source_nm}` : null);
 								child.source_doctype = "";
 								child.source_name = "";
 								child.pool_company = null;
@@ -411,7 +454,11 @@ function _recalculate_suggested_amounts(frm) {
 						frm.refresh_field("pdc_invoice_applications");
 						_recalc_pdc_advance_preview(frm);
 						_pdc_toast(
-							__("Advance PDCs: {0} added, {1} updated, {2} skipped.", [added, updated, skipped]),
+							__("Advance PDCs: {0} added, {1} updated, {2} skipped.", [
+								added,
+								updated,
+								skipped,
+							]),
 							"green",
 							6
 						);
@@ -421,7 +468,9 @@ function _recalculate_suggested_amounts(frm) {
 
 			if (draft_exists) {
 				frappe.confirm(
-					__("Draft PDC advance rows already exist. Replace them with fresh suggestions?"),
+					__(
+						"Draft PDC advance rows already exist. Replace them with fresh suggestions?"
+					),
 					() => {
 						_remove_draft_pdc_advance_rows(frm);
 						do_fetch();
@@ -446,7 +495,9 @@ function _recalculate_suggested_amounts(frm) {
 				_pdc_toast(__("No draft PDC advance rows to clear."), "blue", 6);
 				return;
 			}
-			frappe.confirm(__("Clear draft PDC advance rows?"), () => _remove_draft_pdc_advance_rows(frm));
+			frappe.confirm(__("Clear draft PDC advance rows?"), () =>
+				_remove_draft_pdc_advance_rows(frm)
+			);
 		},
 	});
 });
@@ -462,4 +513,3 @@ frappe.ui.form.on("PDC Invoice Application", {
 		_recalc_pdc_advance_preview(frm);
 	},
 });
-

@@ -26,4 +26,6 @@ class TestPDCWorkflowRollbackIntegration(FrappeTestCase):
 			self.skipTest("No submitted Cleared Payable PDC on site")
 		targets = get_rollback_target_states(name)
 		self.assertIn("Issued", targets)
-		self.assertEqual(sql_verify_no_orphan_gl_for_pdc(name, []), {"gl_entry": 0, "payment_ledger_entry": 0})
+		self.assertEqual(
+			sql_verify_no_orphan_gl_for_pdc(name, []), {"gl_entry": 0, "payment_ledger_entry": 0}
+		)

@@ -56,7 +56,11 @@ function pdc_cint(value, fallback = 0) {
 
 function pdc_debug_enabled() {
 	try {
-		return !!(window && window.localStorage && window.localStorage.getItem("pdc_debug") === "1");
+		return !!(
+			window &&
+			window.localStorage &&
+			window.localStorage.getItem("pdc_debug") === "1"
+		);
 	} catch (e) {
 		return false;
 	}
@@ -140,7 +144,9 @@ function pdc_payment_request_neutral_path_guidance_html() {
 }
 
 function pdc_settlement_path_guidance_html(is_pdc_mode) {
-	const immediate = __("Use <b>Create</b> → <b>Payment</b> to record an immediate bank payment (Payment Entry).");
+	const immediate = __(
+		"Use <b>Create</b> → <b>Payment</b> to record an immediate bank payment (Payment Entry)."
+	);
 	const deferred = __("Use <b>Create Post Dated Cheque</b> for deferred settlement by cheque.");
 	if (is_pdc_mode === true) {
 		return `<div class="alert alert-light border mt-2 mb-0 p-2 small pdc-path-guidance">
@@ -189,8 +195,14 @@ function pdc_settlement_render_dashboard(frm, data, path_options) {
 	const cur = data.currency || frm.doc.currency;
 	const rows = [
 		[__("Paid by Payment Entry"), pdc_settlement_format_money(data.payment_entry_amount, cur)],
-		[__("Covered by Direct Post Dated Cheque"), pdc_settlement_format_money(data.effective_pdc_amount, cur)],
-		[__("Applied from PDC Advances"), pdc_settlement_format_money(data.pdc_advance_applied_amount, cur)],
+		[
+			__("Covered by Direct Post Dated Cheque"),
+			pdc_settlement_format_money(data.effective_pdc_amount, cur),
+		],
+		[
+			__("Applied from PDC Advances"),
+			pdc_settlement_format_money(data.pdc_advance_applied_amount, cur),
+		],
 		[__("Remaining balance"), pdc_settlement_format_money(data.remaining_balance, cur)],
 	];
 	const inner = rows
@@ -211,19 +223,22 @@ function pdc_settlement_render_dashboard(frm, data, path_options) {
 	const path_html = fully_settled
 		? pdc_settlement_fully_covered_html()
 		: frm.doctype === "Payment Request"
-			? pdc_payment_request_neutral_path_guidance_html()
-			: pdc_settlement_path_guidance_html(null);
-	const cap_html = fully_settled ? "" : pdc_settlement_capacity_note_html(data.remaining_balance);
+		? pdc_payment_request_neutral_path_guidance_html()
+		: pdc_settlement_path_guidance_html(null);
+	const cap_html = fully_settled
+		? ""
+		: pdc_settlement_capacity_note_html(data.remaining_balance);
 	const html = `<div class="small pdc-settlement-summary">
-		<p class="text-muted mb-2" style="margin-bottom:8px">${__("Document total")}: <strong>${basis}</strong></p>
+		<p class="text-muted mb-2" style="margin-bottom:8px">${__(
+			"Document total"
+		)}: <strong>${basis}</strong></p>
 		<table class="table table-bordered" style="margin-bottom:0"><tbody>${inner}</tbody></table>
 		${path_html}
 		${cap_html}
 		<p class="text-muted mt-2" style="margin-top:8px;font-size:11px">${frappe.utils.escape_html(
-			`${__("Remaining balance is what is left after Post Dated Cheque coverage. Unpaid amount on this document in ERPNext:")} ${pdc_settlement_format_money(
-				data.document_outstanding,
-				cur
-			)}`
+			`${__(
+				"Remaining balance is what is left after Post Dated Cheque coverage. Unpaid amount on this document in ERPNext:"
+			)} ${pdc_settlement_format_money(data.document_outstanding, cur)}`
 		)}</p>
 	</div>`;
 	frm.dashboard.add_section(html, __("Settlement (Cheque & Payment)"), "custom");
@@ -349,7 +364,12 @@ function pdc_render_payment_request_path_ui(frm) {
 	strip_pr_pdc();
 	frm.dashboard.clear_headline();
 
-	if (frm.is_new() || !frm.doc || !frm.doc.name || !pdc_payment_request_settlement_eligible(frm)) {
+	if (
+		frm.is_new() ||
+		!frm.doc ||
+		!frm.doc.name ||
+		!pdc_payment_request_settlement_eligible(frm)
+	) {
 		pdc_debug_log("[PDC][PR] skip: not settlement-eligible", {
 			name: frm.doc && frm.doc.name,
 			inferred: pdc_infer_payment_request_settlement_eligible(frm),
@@ -407,7 +427,8 @@ function pdc_settlement_load(frm) {
 				pdc_debug_log("[PDC][PR] after_summary", {
 					name: frm.doc && frm.doc.name,
 					remaining_balance:
-						frm._pdc_settlement_summary && frm._pdc_settlement_summary.remaining_balance,
+						frm._pdc_settlement_summary &&
+						frm._pdc_settlement_summary.remaining_balance,
 				});
 				pdc_render_payment_request_path_ui(frm);
 				// ERPNext rebuilds inner toolbar after refresh / workflow load; re-apply PDC (PE styling unchanged).
@@ -417,14 +438,18 @@ function pdc_settlement_load(frm) {
 							pdc_render_payment_request_path_ui(frm);
 						} catch (e2) {
 							// eslint-disable-next-line no-console
-							console.error("[erpnext_extensions] PDC PR button re-render failed", e2);
+							console.error(
+								"[erpnext_extensions] PDC PR button re-render failed",
+								e2
+							);
 						}
 					}, ms);
 				});
 			}
 			if (
 				(frm.doctype === "Sales Invoice" || frm.doctype === "Purchase Invoice") &&
-				typeof erpnext_extensions.cheque_management.ensure_si_pi_pdc_create_button === "function"
+				typeof erpnext_extensions.cheque_management.ensure_si_pi_pdc_create_button ===
+					"function"
 			) {
 				erpnext_extensions.cheque_management.ensure_si_pi_pdc_create_button(frm);
 			}

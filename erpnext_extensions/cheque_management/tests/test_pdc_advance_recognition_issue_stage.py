@@ -8,7 +8,9 @@ import frappe
 from frappe.exceptions import ValidationError
 
 import erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque as pdc_mod
-from erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque import get_accounting_action
+from erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque import (
+	get_accounting_action,
+)
 from erpnext_extensions.cheque_management.pdc_allocation import ALLOCATION_MODE_ADVANCE
 from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
 	CHEQUE_DIRECTION_PAYABLE,
@@ -55,4 +57,3 @@ class TestAdvanceRecognitionIssueStage(unittest.TestCase):
 		)
 		with _ThrowCtx(), self.assertRaises(ValidationError):
 			pdc_mod.PostDatedCheque._validate_advance_recognition_effective_stage_supported(doc)  # type: ignore[attr-defined]
-

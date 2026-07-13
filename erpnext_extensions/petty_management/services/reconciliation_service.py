@@ -18,12 +18,12 @@ from erpnext_extensions.petty_management.services.allocation_service import get_
 from erpnext_extensions.petty_management.services.clearance_reservation import (
 	clearance_reserves_pm_request_balance_sql,
 )
+from erpnext_extensions.petty_management.services.holder_service import get_holder_balances
 from erpnext_extensions.petty_management.services.opening_advance_service import (
 	get_opening_advance_available_amount,
 	remaining_at_cutover_amount,
 	sum_prior_opening_allocations,
 )
-from erpnext_extensions.petty_management.services.holder_service import get_holder_balances
 
 
 @dataclass
@@ -130,9 +130,7 @@ def _check_pm_request_funding_amounts(res: ReconciliationResult, *, company: str
 			)
 
 
-def _check_pm_request_pe_semantics(
-	res: ReconciliationResult, *, company: str | None, fix: bool
-) -> None:
+def _check_pm_request_pe_semantics(res: ReconciliationResult, *, company: str | None, fix: bool) -> None:
 	filters = {}
 	if company:
 		filters["company"] = company
@@ -213,9 +211,7 @@ def _check_pm_request_pe_semantics(
 					res.fixes_applied.append(f"Reset funding fields on {pr} after cancelled PE")
 
 
-def _check_pm_clearance_je_semantics(
-	res: ReconciliationResult, *, company: str | None, fix: bool
-) -> None:
+def _check_pm_clearance_je_semantics(res: ReconciliationResult, *, company: str | None, fix: bool) -> None:
 	filters = {}
 	if company:
 		filters["company"] = company
@@ -265,7 +261,9 @@ def _check_pm_clearance_je_semantics(
 					)
 				)
 				if fix and _can_fix():
-					frappe.db.set_value("PM Clearance", cl_name, {"journal_entry": None}, update_modified=False)
+					frappe.db.set_value(
+						"PM Clearance", cl_name, {"journal_entry": None}, update_modified=False
+					)
 					res.fixes_applied.append(f"Cleared missing journal_entry on {cl_name}")
 			else:
 				jds = cint(frappe.db.get_value("Journal Entry", je, "docstatus"))

@@ -198,11 +198,7 @@ class AccrualResult:
 
 	def pl_rows_missing_department(self, config: AccrualConfig) -> list[AccountRow]:
 		"""Every Income/Expense row must carry a Department; return the offenders."""
-		return [
-			r
-			for r in self.rows
-			if config.is_pl_account(r.account) and not r.department
-		]
+		return [r for r in self.rows if config.is_pl_account(r.account) and not r.department]
 
 
 # ---------------------------------------------------------------------------
@@ -251,9 +247,7 @@ def _accumulate(bucket: dict[tuple, Decimal], key: tuple, amount: Decimal) -> No
 # ---------------------------------------------------------------------------
 
 
-def build_accrual_journal_accounts(
-	slips: Iterable[SalarySlip], config: AccrualConfig
-) -> AccrualResult:
+def build_accrual_journal_accounts(slips: Iterable[SalarySlip], config: AccrualConfig) -> AccrualResult:
 	"""Build the accrual ``Journal Entry.accounts`` rows, grouped by
 	``(account, cost_center, department)`` and balanced via the round-off line.
 
@@ -306,12 +300,8 @@ def build_accrual_journal_accounts(
 			# granularity (a distinct row per employee, with Party = Employee)
 			# instead of being aggregated by cost centre / department.
 			employee = slip.employee if config.is_per_employee(item.component) else None
-			for cost_center, part in split_amount_by_cost_centers(
-				item.amount, splits, precision
-			):
-				_accumulate(
-					debit_bucket, (account, cost_center, department, employee), part
-				)
+			for cost_center, part in split_amount_by_cost_centers(item.amount, splits, precision):
+				_accumulate(debit_bucket, (account, cost_center, department, employee), part)
 
 		# --- deductions -> credit --------------------------------------------
 		deductions_total = Decimal(0)
@@ -323,21 +313,13 @@ def build_accrual_journal_accounts(
 			deductions_total += _dec(item.amount)
 			department = slip_department if config.is_pl_account(account) else None
 			employee = slip.employee if config.is_per_employee(item.component) else None
-			for cost_center, part in split_amount_by_cost_centers(
-				item.amount, splits, precision
-			):
-				_accumulate(
-					credit_bucket, (account, cost_center, department, employee), part
-				)
+			for cost_center, part in split_amount_by_cost_centers(item.amount, splits, precision):
+				_accumulate(credit_bucket, (account, cost_center, department, employee), part)
 
 		# --- net payable -> credit (Balance-Sheet, no department) ------------
 		net_payable = earnings_total - deductions_total
-		for cost_center, part in split_amount_by_cost_centers(
-			net_payable, splits, precision
-		):
-			_accumulate(
-				payable_bucket, (config.payable_account, cost_center, None, None), part
-			)
+		for cost_center, part in split_amount_by_cost_centers(net_payable, splits, precision):
+			_accumulate(payable_bucket, (config.payable_account, cost_center, None, None), part)
 
 	result = AccrualResult()
 	result.skipped_components = sorted(skipped_components)
@@ -431,8 +413,7 @@ class UnmappedSalaryComponentError(PayrollAccrualError):
 	def __init__(self, components: list[str]):
 		self.components = components
 		super().__init__(
-			"Salary components have no account mapping for this company: "
-			+ ", ".join(components)
+			"Salary components have no account mapping for this company: " + ", ".join(components)
 		)
 
 

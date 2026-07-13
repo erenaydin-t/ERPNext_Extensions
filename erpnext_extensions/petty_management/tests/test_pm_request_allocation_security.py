@@ -122,10 +122,7 @@ class TestPmRequestAllocationSecurity(unittest.TestCase):
 		self.assertTrue(ok)
 
 	def test_allocation_does_not_check_is_closed(self):
-		text = (
-			frappe.get_app_path("erpnext_extensions")
-			+ "/petty_management/services/allocation_service.py"
-		)
+		text = frappe.get_app_path("erpnext_extensions") + "/petty_management/services/allocation_service.py"
 		with open(text, encoding="utf-8") as f:
 			body = f.read()
 		self.assertNotIn("is_closed", body)

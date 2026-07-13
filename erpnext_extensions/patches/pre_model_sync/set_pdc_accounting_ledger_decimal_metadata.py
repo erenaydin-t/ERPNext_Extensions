@@ -41,7 +41,9 @@ def _ensure_length_property_setter(doctype: str, fieldname: str, logger) -> None
 
 	if existing_name:
 		frappe.db.set_value("Property Setter", existing_name, "value", str(TARGET_LENGTH))
-		logger.info("Updated Property Setter %s: %s.%s length -> %s", existing_name, doctype, fieldname, TARGET_LENGTH)
+		logger.info(
+			"Updated Property Setter %s: %s.%s length -> %s", existing_name, doctype, fieldname, TARGET_LENGTH
+		)
 		return
 
 	make_property_setter(
@@ -75,7 +77,14 @@ def _ensure_je_words_varchar_length(logger) -> None:
 			continue
 		if existing_name:
 			frappe.db.set_value("Property Setter", existing_name, "value", str(JE_WORDS_MAX_LENGTH))
-			logger.info("Updated Property Setter %s: %s.%s %s -> %s", existing_name, doctype, fieldname, prop, JE_WORDS_MAX_LENGTH)
+			logger.info(
+				"Updated Property Setter %s: %s.%s %s -> %s",
+				existing_name,
+				doctype,
+				fieldname,
+				prop,
+				JE_WORDS_MAX_LENGTH,
+			)
 			continue
 		make_property_setter(
 			doctype,

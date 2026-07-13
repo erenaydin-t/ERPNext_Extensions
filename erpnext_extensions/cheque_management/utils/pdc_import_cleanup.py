@@ -68,15 +68,11 @@ def unlink_opening_import_and_delete_pdc(
 	report = audit_pdc_import_cleanup_safety(pdc_name)
 	if not report["safe_to_unlink_and_delete"]:
 		raise PDCImportCleanupError(
-			_("Cannot delete PDC {0}. Blockers:\n{1}").format(
-				pdc_name, "\n".join(report["blockers"])
-			)
+			_("Cannot delete PDC {0}. Blockers:\n{1}").format(pdc_name, "\n".join(report["blockers"]))
 		)
 
 	if not report["cheque_opening_import_items"]:
-		raise PDCImportCleanupError(
-			_("No Cheque Opening Import Item links this Post Dated Cheque.")
-		)
+		raise PDCImportCleanupError(_("No Cheque Opening Import Item links this Post Dated Cheque."))
 
 	unlinked_rows: list[dict[str, Any]] = []
 	for row in report["cheque_opening_import_items"]:
@@ -214,7 +210,9 @@ def _accounting_blockers(
 ) -> list[str]:
 	blockers: list[str] = []
 	if journal_refs:
-		blockers.append(_("PDC Journal Reference exists on this cheque ({0} row(s)).").format(len(journal_refs)))
+		blockers.append(
+			_("PDC Journal Reference exists on this cheque ({0} row(s)).").format(len(journal_refs))
+		)
 	if je_names:
 		blockers.append(_("Journal Entry linked ({0}).").format(", ".join(sorted(je_names))))
 	if gl_count:

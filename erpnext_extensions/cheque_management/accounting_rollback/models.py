@@ -57,7 +57,9 @@ class RollbackPlan:
 				"workflow": self.workflow_changes,
 				"cheque_leaf": self.leaf_changes,
 				"accounting_steps": len([s for s in self.steps if s.has_accounting or s.journal_entry]),
-				"operational_steps": len([s for s in self.steps if not s.journal_entry and not s.has_accounting]),
+				"operational_steps": len(
+					[s for s in self.steps if not s.journal_entry and not s.has_accounting]
+				),
 			},
 			"steps": [
 				{

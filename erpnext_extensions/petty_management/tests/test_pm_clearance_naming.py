@@ -10,8 +10,8 @@ import frappe
 from frappe.exceptions import QueryDeadlockError, QueryTimeoutError
 from frappe.utils import today
 
-from erpnext_extensions.petty_management.services.clearance_naming import assign_pm_clearance_name
 import erpnext_extensions.petty_management.tests.test_pm_clearance as pm_ct
+from erpnext_extensions.petty_management.services.clearance_naming import assign_pm_clearance_name
 
 
 class TestPMClearanceNaming(unittest.TestCase):

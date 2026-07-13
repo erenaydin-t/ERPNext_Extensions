@@ -8,10 +8,10 @@ from __future__ import annotations
 import json
 import time
 from datetime import date, timedelta
+from unittest.mock import patch
 
 import frappe
 from frappe.utils import getdate, today
-from unittest.mock import patch
 
 from erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque import (
 	_get_pdc_settings_for_company,
@@ -45,12 +45,17 @@ def _site_context():
 	customer = frappe.db.get_value("Customer", {"disabled": 0}, "name", order_by="modified desc")
 	supplier = frappe.db.get_value("Supplier", {"disabled": 0}, "name", order_by="modified desc")
 	bank_account = frappe.db.get_value(
-		"Bank Account", {"company": company, "disabled": 0, "is_company_account": 1}, "name", order_by="modified desc"
+		"Bank Account",
+		{"company": company, "disabled": 0, "is_company_account": 1},
+		"name",
+		order_by="modified desc",
 	)
 	if not bank_account:
 		bank_account = frappe.db.get_value("Bank Account", {"company": company, "disabled": 0}, "name")
 	if not (customer and supplier and bank_account):
-		frappe.throw(f"Missing master data company={company} customer={customer} supplier={supplier} bank={bank_account}")
+		frappe.throw(
+			f"Missing master data company={company} customer={customer} supplier={supplier} bank={bank_account}"
+		)
 	settings = _get_pdc_settings_for_company(company)
 	if not settings:
 		frappe.throw(f"PDC Settings missing for {company}")
@@ -200,7 +205,9 @@ def _je_report(je_name: str | None, ctx: dict) -> dict:
 	}
 
 
-def _assert_party_policy(report: dict, scenario: str, expect_both: bool, expect_clear_split: bool) -> list[str]:
+def _assert_party_policy(
+	report: dict, scenario: str, expect_both: bool, expect_clear_split: bool
+) -> list[str]:
 	errors = []
 	rows = report.get("accounts") or []
 	bank_gl = report.get("bank_gl")
@@ -239,15 +246,21 @@ def run():
 	tr = _transition(pdc_r1, WORKFLOW_REGISTERED, received_date=t0)
 	rep = _je_report(tr["je"], ctx)
 	results.append({"scenario": "1_receivable_register", "pdc": pdc_r1.name, "transition": tr, "report": rep})
-	errors.extend(_assert_party_policy(rep, "1_receivable_register", expect_both=True, expect_clear_split=False))
+	errors.extend(
+		_assert_party_policy(rep, "1_receivable_register", expect_both=True, expect_clear_split=False)
+	)
 
 	# 2 Receivable Send To Bank
 	pdc_r2 = _new_receivable_pdc(ctx, _unique_cheque_no("LIVE-R-STB"))
 	_transition(pdc_r2, WORKFLOW_REGISTERED, received_date=t0)
 	tr = _transition(pdc_r2, WORKFLOW_SENT_TO_BANK, sent_to_bank_date=t0)
 	rep = _je_report(tr["je"], ctx)
-	results.append({"scenario": "2_receivable_send_to_bank", "pdc": pdc_r2.name, "transition": tr, "report": rep})
-	errors.extend(_assert_party_policy(rep, "2_receivable_send_to_bank", expect_both=True, expect_clear_split=False))
+	results.append(
+		{"scenario": "2_receivable_send_to_bank", "pdc": pdc_r2.name, "transition": tr, "report": rep}
+	)
+	errors.extend(
+		_assert_party_policy(rep, "2_receivable_send_to_bank", expect_both=True, expect_clear_split=False)
+	)
 
 	# 3 Receivable Bounce
 	pdc_r3 = _new_receivable_pdc(ctx, _unique_cheque_no("LIVE-R-BOU"))
@@ -256,7 +269,9 @@ def run():
 	tr = _transition(pdc_r3, WORKFLOW_BOUNCED, bounced_date=t0)
 	rep = _je_report(tr["je"], ctx)
 	results.append({"scenario": "3_receivable_bounce", "pdc": pdc_r3.name, "transition": tr, "report": rep})
-	errors.extend(_assert_party_policy(rep, "3_receivable_bounce", expect_both=True, expect_clear_split=False))
+	errors.extend(
+		_assert_party_policy(rep, "3_receivable_bounce", expect_both=True, expect_clear_split=False)
+	)
 
 	# 4 Receivable Clear (Registered -> Cleared direct)
 	pdc_r4 = _new_receivable_pdc(ctx, _unique_cheque_no("LIVE-R-CLR"))

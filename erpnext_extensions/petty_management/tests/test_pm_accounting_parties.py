@@ -80,7 +80,9 @@ class TestPMAccountingParties(unittest.TestCase):
 		doc.holder = holder
 		doc.petty_cash_account = petty
 		line = build_petty_cash_credit_line(doc, 500)
-		self.assertEqual(line.get("party_type"), "Employee", msg=frappe.db.get_value("Account", petty, "account_type"))
+		self.assertEqual(
+			line.get("party_type"), "Employee", msg=frappe.db.get_value("Account", petty, "account_type")
+		)
 		self.assertEqual(line.get("party"), emp)
 
 	def test_cash_petty_on_pm_holder_includes_employee_party(self):

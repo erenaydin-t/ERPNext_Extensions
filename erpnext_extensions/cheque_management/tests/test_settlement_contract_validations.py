@@ -21,7 +21,9 @@ class _ThrowCtx:
 	"""Patch frappe.throw to raise ValidationError in bare unittest."""
 
 	def __enter__(self):
-		self._p = patch.object(frappe, "throw", side_effect=lambda msg, *a, **k: (_ for _ in ()).throw(ValidationError(msg)))
+		self._p = patch.object(
+			frappe, "throw", side_effect=lambda msg, *a, **k: (_ for _ in ()).throw(ValidationError(msg))
+		)
 		self._p.start()
 		return self
 
@@ -38,8 +40,18 @@ class TestSettlementContractValidations(unittest.TestCase):
 			docstatus=0,
 			payment_type="Receive",
 			references=[
-				SimpleNamespace(reference_doctype="Sales Invoice", reference_name="SINV-1", allocated_amount=50, payment_request="PR-1"),
-				SimpleNamespace(reference_doctype="Sales Invoice", reference_name="SINV-2", allocated_amount=60, payment_request="PR-1"),
+				SimpleNamespace(
+					reference_doctype="Sales Invoice",
+					reference_name="SINV-1",
+					allocated_amount=50,
+					payment_request="PR-1",
+				),
+				SimpleNamespace(
+					reference_doctype="Sales Invoice",
+					reference_name="SINV-2",
+					allocated_amount=60,
+					payment_request="PR-1",
+				),
 			],
 		)
 		with _ThrowCtx(), patch.object(pe_val, "get_pr_remaining_capacity", return_value=80.0):
@@ -53,7 +65,12 @@ class TestSettlementContractValidations(unittest.TestCase):
 			docstatus=0,
 			payment_type="Receive",
 			references=[
-				SimpleNamespace(reference_doctype="Sales Invoice", reference_name="SINV-1", allocated_amount=50, payment_request="PR-1"),
+				SimpleNamespace(
+					reference_doctype="Sales Invoice",
+					reference_name="SINV-1",
+					allocated_amount=50,
+					payment_request="PR-1",
+				),
 			],
 		)
 		with _ThrowCtx(), patch.object(pe_val, "get_pr_remaining_capacity", return_value=80.0):
@@ -68,19 +85,25 @@ class TestSettlementContractValidations(unittest.TestCase):
 			grand_total=20.0,
 			workflow_state="Approved",
 		)
-		with _ThrowCtx(), patch.object(
-			frappe.db,
-			"get_value",
-			return_value=0,  # is_return=0
-		), patch(
-			"erpnext_extensions.cheque_management.pdc_settlement_capacity.get_invoice_total_basis",
-			return_value=100.0,
-		), patch(
-			"erpnext_extensions.cheque_management.pdc_settlement_capacity.sum_submitted_pr_totals_for_invoice",
-			return_value=90.0,
-		), patch(
-			"erpnext_extensions.cheque_management.pdc_payment_request_eligibility.is_payment_request_settlement_eligible",
-			return_value=True,
+		with (
+			_ThrowCtx(),
+			patch.object(
+				frappe.db,
+				"get_value",
+				return_value=0,  # is_return=0
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_settlement_capacity.get_invoice_total_basis",
+				return_value=100.0,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_settlement_capacity.sum_submitted_pr_totals_for_invoice",
+				return_value=90.0,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_payment_request_eligibility.is_payment_request_settlement_eligible",
+				return_value=True,
+			),
 		):
 			with self.assertRaises(ValidationError):
 				validate_invoice_pr_issuance_ceiling(pr)
@@ -94,19 +117,25 @@ class TestSettlementContractValidations(unittest.TestCase):
 			grand_total=10.0,
 			workflow_state="Approved",
 		)
-		with _ThrowCtx(), patch.object(
-			frappe.db,
-			"get_value",
-			return_value=0,
-		), patch(
-			"erpnext_extensions.cheque_management.pdc_settlement_capacity.get_invoice_total_basis",
-			return_value=100.0,
-		), patch(
-			"erpnext_extensions.cheque_management.pdc_settlement_capacity.sum_submitted_pr_totals_for_invoice",
-			return_value=90.0,
-		), patch(
-			"erpnext_extensions.cheque_management.pdc_payment_request_eligibility.is_payment_request_settlement_eligible",
-			return_value=True,
+		with (
+			_ThrowCtx(),
+			patch.object(
+				frappe.db,
+				"get_value",
+				return_value=0,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_settlement_capacity.get_invoice_total_basis",
+				return_value=100.0,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_settlement_capacity.sum_submitted_pr_totals_for_invoice",
+				return_value=90.0,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_payment_request_eligibility.is_payment_request_settlement_eligible",
+				return_value=True,
+			),
 		):
 			validate_invoice_pr_issuance_ceiling(pr)
 
@@ -119,9 +148,13 @@ class TestSettlementContractValidations(unittest.TestCase):
 			grand_total=10.0,
 			workflow_state="Approved",
 		)
-		with _ThrowCtx(), patch.object(frappe.db, "get_value", return_value=1), patch(
-			"erpnext_extensions.cheque_management.pdc_payment_request_eligibility.is_payment_request_settlement_eligible",
-			return_value=True,
+		with (
+			_ThrowCtx(),
+			patch.object(frappe.db, "get_value", return_value=1),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_payment_request_eligibility.is_payment_request_settlement_eligible",
+				return_value=True,
+			),
 		):
 			with self.assertRaises(ValidationError):
 				validate_invoice_pr_issuance_ceiling(pr)
@@ -135,13 +168,15 @@ class TestSettlementContractValidations(unittest.TestCase):
 			grand_total=999.0,
 			workflow_state="Draft",
 		)
-		with _ThrowCtx(), patch(
-			"erpnext_extensions.cheque_management.pdc_settlement_capacity.validate_invoice_pr_issuance_ceiling",
-		) as m_ceiling:
+		with (
+			_ThrowCtx(),
+			patch(
+				"erpnext_extensions.cheque_management.pdc_settlement_capacity.validate_invoice_pr_issuance_ceiling",
+			) as m_ceiling,
+		):
 			with patch(
 				"erpnext_extensions.cheque_management.pdc_payment_request_eligibility.is_payment_request_settlement_eligible",
 				return_value=False,
 			):
 				validate_payment_request_invoice_ceiling_on_save(pr)
 		m_ceiling.assert_not_called()
-

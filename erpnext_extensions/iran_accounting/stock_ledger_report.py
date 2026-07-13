@@ -94,7 +94,9 @@ def is_stock_ledger_monetary_column(col: dict, valuation_field_type: str = "Curr
 	return False
 
 
-def monetary_fieldnames_from_columns(columns: list[dict], valuation_field_type: str = "Currency") -> list[str]:
+def monetary_fieldnames_from_columns(
+	columns: list[dict], valuation_field_type: str = "Currency"
+) -> list[str]:
 	out: list[str] = []
 	for col in columns or []:
 		fn = col.get("fieldname")
@@ -136,7 +138,9 @@ def sanitize_stock_ledger_row(
 	return row
 
 
-def sanitize_stock_ledger_report(columns: list, data: list, company: str, filters: dict | None = None) -> tuple[list, list]:
+def sanitize_stock_ledger_report(
+	columns: list, data: list, company: str, filters: dict | None = None
+) -> tuple[list, list]:
 	valuation_field_type = (filters or {}).get("valuation_field_type") or "Currency"
 	monetary = tuple(monetary_fieldnames_from_columns(columns, valuation_field_type))
 	irr = bool(company and is_irr_company(company))
@@ -279,7 +283,8 @@ def run_stock_ledger_report_raw(filters: dict):
 
 def export_stock_ledger_xlsx_rows(filters: dict) -> tuple[list[dict], list[list[Any]]]:
 	"""Same path as Desk export (query_report.run + build_xlsx_data)."""
-	from frappe.desk.query_report import build_xlsx_data, format_fields, run as query_report_run
+	from frappe.desk.query_report import build_xlsx_data, format_fields
+	from frappe.desk.query_report import run as query_report_run
 
 	filters = frappe.parse_json(filters) if isinstance(filters, str) else frappe._dict(filters)
 	report_data = frappe._dict(

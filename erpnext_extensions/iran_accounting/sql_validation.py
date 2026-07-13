@@ -160,7 +160,9 @@ def sql_find_fractional_stock_entry_totals(voucher_no: str, company: str) -> lis
 		for f in STE_ITEM_MONETARY:
 			val = item.get(f)
 			if val is not None and amount_is_fractional(val, cur):
-				out.append({"field": f, "value": val, "where": "tabStock Entry Detail", "row": item.get("name")})
+				out.append(
+					{"field": f, "value": val, "where": "tabStock Entry Detail", "row": item.get("name")}
+				)
 	return out
 
 
@@ -266,9 +268,7 @@ def comprehensive_voucher_sql_check(
 	frac_gl = sql_find_fractional_irr_gl(voucher_type, voucher_no, company)
 	frac_sle = sql_find_fractional_irr_sle(voucher_type, voucher_no, company)
 	frac_ste = (
-		sql_find_fractional_stock_entry_totals(voucher_no, company)
-		if voucher_type == "Stock Entry"
-		else []
+		sql_find_fractional_stock_entry_totals(voucher_no, company) if voucher_type == "Stock Entry" else []
 	)
 	zv = (
 		sql_assert_zero_value_transfer_gl_shape(voucher_no, company)
