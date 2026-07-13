@@ -240,6 +240,10 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		this.pagination = { page: 1, page_size: 50, total_rows: 0, has_next: false };
 		this.warnings = [];
 		this.voucher_header = null;
+		this.gl_dimensions = [];
+		this.gl_dimension_column_visibility = {};
+		this.last_gl_columns = [];
+		this.show_full_voucher_dimensions = false;
 		this.show_optional_full_voucher_columns = false;
 		this.filter_panel_open = false;
 		this.filter_controls = {};
@@ -1663,6 +1667,25 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		return !!(this.metadata && this.metadata.voucher_analysis_enabled);
 	}
 
+	is_party_analysis_enabled() {
+		return !!(this.metadata && this.metadata.party_analysis_enabled);
+	}
+
+	is_dimension_analysis_enabled() {
+		return !!(this.metadata && this.metadata.dimension_analysis_enabled);
+	}
+
+	is_dimension_field_navigable(fieldname) {
+		if (!fieldname || !this.is_dimension_analysis_enabled()) {
+			return false;
+		}
+		const dimension_axis = (this.metadata.axes || []).find((axis) => axis.id === "dimension");
+		if (!dimension_axis || !dimension_axis.enabled) {
+			return false;
+		}
+		return (dimension_axis.children || []).some((child) => child.fieldname === fieldname);
+	}
+
 	is_unified_party_enabled() {
 		return !!(this.metadata && this.metadata.unified_party_enabled);
 	}
@@ -1772,6 +1795,9 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 				this.pagination = data.pagination || this.pagination;
 				this.warnings = data.warnings || [];
 				this.voucher_header = data.voucher_header || null;
+				this.gl_dimensions = data.dimensions || this.gl_dimensions || [];
+				this.sync_gl_dimension_visibility();
+				this.last_gl_columns = data.columns || [];
 				this.render_detail_header();
 				this.render_grid(data.columns || []);
 				this.render_totals();
@@ -1786,11 +1812,83 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		});
 	}
 
+	get_gl_dimension_definitions() {
+		if (this.gl_dimensions?.length) {
+			return this.gl_dimensions;
+		}
+		return (this.metadata?.dimensions || []).map((row) => ({
+			fieldname: row.fieldname,
+			label: row.label,
+			label_fa: row.label_fa,
+			document_type: row.document_type,
+		}));
+	}
+
+	get_gl_dimension_expand_threshold() {
+		return cint(this.metadata?.gl_dimension_expand_threshold || 5);
+	}
+
+	sync_gl_dimension_visibility() {
+		this.get_gl_dimension_definitions().forEach((definition) => {
+			if (this.gl_dimension_column_visibility[definition.fieldname] === undefined) {
+				this.gl_dimension_column_visibility[definition.fieldname] = true;
+			}
+		});
+	}
+
+	is_fa_locale() {
+		return (frappe.boot?.lang || "").startsWith("fa");
+	}
+
+	get_gl_dimension_label(definition) {
+		if (this.is_fa_locale() && definition.label_fa) {
+			return definition.label_fa;
+		}
+		return definition.label || definition.fieldname;
+	}
+
+	get_gl_dimension_layout() {
+		const count = this.get_gl_dimension_definitions().length;
+		const threshold = this.get_gl_dimension_expand_threshold();
+		if (count > threshold) {
+			return "compact_with_selector";
+		}
+		if (this.show_full_voucher_dimensions && count <= threshold) {
+			return "expanded";
+		}
+		return "compact";
+	}
+
+	get_visible_gl_dimension_definitions() {
+		const definitions = this.get_gl_dimension_definitions();
+		if (this.get_gl_dimension_layout() !== "compact_with_selector") {
+			return definitions;
+		}
+		return definitions.filter(
+			(definition) => this.gl_dimension_column_visibility[definition.fieldname] !== false
+		);
+	}
+
 	get_default_visible_columns() {
 		if (this.analysis_context.detail_mode === "grouped_gl") {
-			const cols = ["account", "account_name", "party_type", "party_name", "debit", "credit", "against"];
-			if (this.analysis_context.dimension_scope.dimension_type) {
-				cols.splice(4, 0, "dimension_value");
+			const layout = this.get_gl_dimension_layout();
+			if (layout === "expanded") {
+				const cols = [
+					"posting_date",
+					"account",
+					"account_name",
+					"party_type",
+					"party_name",
+				];
+				this.get_gl_dimension_definitions().forEach((dimension) => {
+					cols.push(`dim:${dimension.fieldname}`);
+				});
+				cols.push("debit", "credit", "currency", "remarks");
+				return cols;
+			}
+			const cols = ["account_name", "party_name", "debit", "credit"];
+			if (this.get_visible_gl_dimension_definitions().length) {
+				cols.splice(2, 0, "dimensions");
 			}
 			return cols;
 		}
@@ -1839,23 +1937,226 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 	}
 
 	render_detail_header() {
-		this.$detail_header.empty();
+		this.$detail_header.empty().removeClass("ae-gl-detail-header");
 		if (this.analysis_context.detail_mode !== "grouped_gl") {
 			this.$detail_header.hide();
 			return;
 		}
-		this.$detail_header.show();
-		const header = this.voucher_header || this.analysis_context.voucher_scope || {};
-		const title = header.voucher_title || header.voucher_no || "";
-		this.$detail_header.append(
+		this.$detail_header.show().addClass("ae-gl-detail-header");
+		const header = this.voucher_header || {};
+		const voucher_scope = this.analysis_context.voucher_scope || {};
+		const voucher_type = header.voucher_type || voucher_scope.voucher_type || "";
+		const voucher_no = header.voucher_no || voucher_scope.voucher_no || "";
+		const posting_date = header.posting_date || "";
+		const company = this.document_scope.company || this.company_field?.get_value() || "";
+		const currency_label = this.currency_code || frappe.defaults.get_default("currency") || "";
+		const total_debit = this.totals?.debit ?? header.total_debit ?? 0;
+		const total_credit = this.totals?.credit ?? header.total_credit ?? 0;
+
+		const $toolbar = $('<div class="ae-gl-header-toolbar"></div>').appendTo(this.$detail_header);
+		$toolbar.append(
 			$('<button class="btn btn-default btn-sm ae-back-vouchers">')
 				.text(__("Back to Vouchers"))
 				.on("click", () => this.back_to_voucher_summary()),
-			" ",
-			$("<span>").text(
-				`${header.voucher_type || ""} ${header.voucher_no || ""}${title ? ` — ${title}` : ""}`
+			$('<span class="ae-gl-detail-title">').text(__("GL Detail"))
+		);
+		$toolbar.append(this.render_gl_dimension_header_controls());
+
+		const $facts = $('<div class="ae-gl-voucher-facts"></div>').appendTo(this.$detail_header);
+		[
+			[__("Voucher Type"), voucher_type],
+			[__("Voucher Number"), voucher_no],
+			[__("Posting Date"), posting_date],
+			[__("Company"), company],
+			[__("Currency"), currency_label],
+		].forEach(([label, value]) => {
+			if (!value) {
+				return;
+			}
+			$facts.append(
+				$('<div class="ae-gl-fact-item">').append(
+					$('<span class="ae-gl-fact-label">').text(label),
+					$('<span class="ae-gl-fact-value">').text(value)
+				)
+			);
+		});
+
+		const $kpi = $('<div class="ae-gl-voucher-kpi"></div>').appendTo(this.$detail_header);
+		[
+			[total_debit, __("Debit Total")],
+			[total_credit, __("Credit Total")],
+		].forEach(([amount, label]) => {
+			const { compact, full } = this.format_display_amount(amount || 0);
+			const $value = $('<span class="ae-gl-kpi-value amount ae-amount-compact">')
+				.text(compact)
+				.attr("title", full)
+				.attr("aria-label", full);
+			if (compact !== full) {
+				$value.addClass("ae-amount-compact--abbreviated");
+			}
+			$kpi.append(
+				$('<div class="ae-gl-kpi-item">').append(
+					$('<span class="ae-gl-kpi-label">').text(label),
+					$value
+				)
+			);
+		});
+
+		const $actions = $('<div class="ae-gl-voucher-actions ae-voucher-actions"></div>').appendTo(
+			this.$detail_header
+		);
+		this.render_voucher_action_bar($actions, this.get_gl_detail_voucher_row(), { include_gl: true, include_copy_link: true });
+	}
+
+	render_gl_dimension_header_controls() {
+		const $controls = $('<div class="ae-gl-header-controls"></div>');
+		const layout = this.get_gl_dimension_layout();
+		const dimension_count = this.get_gl_dimension_definitions().length;
+		const threshold = this.get_gl_dimension_expand_threshold();
+
+		if (dimension_count > threshold) {
+			const visible_count = this.get_visible_gl_dimension_definitions().length;
+			const $dropdown = $('<div class="dropdown ae-gl-dimension-selector"></div>').appendTo($controls);
+			$dropdown.append(
+				$('<button type="button" class="btn btn-default btn-sm dropdown-toggle" data-toggle="dropdown">')
+					.text(__("Dimension Columns ({0}/{1})", [visible_count, dimension_count]))
+					.attr("title", __("Choose visible accounting dimensions"))
+			);
+			const $menu = $('<ul class="dropdown-menu ae-gl-dimension-menu"></ul>').appendTo($dropdown);
+			this.get_gl_dimension_definitions().forEach((definition) => {
+				const label = this.get_gl_dimension_label(definition);
+				const checked = this.gl_dimension_column_visibility[definition.fieldname] !== false;
+				const $item = $('<li></li>').appendTo($menu);
+				$item.append(
+					$('<label class="ae-gl-dimension-menu-item">').append(
+						$("<input type='checkbox'>")
+							.prop("checked", checked)
+							.on("change", (e) => {
+								this.gl_dimension_column_visibility[definition.fieldname] = e.target.checked;
+								if (!this.get_visible_gl_dimension_definitions().length) {
+									this.gl_dimension_column_visibility[definition.fieldname] = true;
+									e.target.checked = true;
+									frappe.show_alert({
+										message: __("At least one dimension must remain visible."),
+										indicator: "orange",
+									});
+									return;
+								}
+								this.render_detail_header();
+								this.render_gl_detail_view(this.last_gl_columns || []);
+							}),
+						$("<span>").text(label)
+					)
+				);
+			});
+			return $controls;
+		}
+
+		if (!dimension_count) {
+			return $controls;
+		}
+
+		$controls.append(
+			$('<label class="ae-gl-full-dimensions-toggle btn btn-default btn-sm">').append(
+				$("<input type='checkbox' class='ae-gl-full-dimensions-input'>")
+					.prop("checked", !!this.show_full_voucher_dimensions)
+					.on("change", (e) => {
+						this.show_full_voucher_dimensions = e.target.checked;
+						this.render_detail_header();
+						this.render_gl_detail_view(this.last_gl_columns || []);
+					}),
+				$("<span>").text(__("Full Dimensions"))
 			)
 		);
+		return $controls;
+	}
+
+	get_gl_detail_voucher_row() {
+		const header = this.voucher_header || {};
+		const voucher_scope = this.analysis_context.voucher_scope || {};
+		return {
+			voucher_type: header.voucher_type || voucher_scope.voucher_type,
+			voucher_no: header.voucher_no || voucher_scope.voucher_no,
+		};
+	}
+
+	render_voucher_action_bar($container, row, options = {}) {
+		const { include_gl = false, include_copy_link = false } = options;
+		const action_specs = [];
+		if (include_gl) {
+			action_specs.push({
+				key: "gl",
+				label: __("GL"),
+				title: __("GL detail (current view)"),
+				disabled: true,
+			});
+		} else {
+			action_specs.push({
+				key: "gl",
+				label: __("GL"),
+				title: __("Grouped GL detail in Account Explorer"),
+				handler: () => this.open_grouped_gl_detail(row),
+			});
+		}
+		action_specs.push(
+			{
+				key: "list",
+				label: __("List"),
+				title: __("General Ledger report for this voucher"),
+				handler: () => this.navigate_gl_list(row),
+			},
+			{
+				key: "open",
+				label: __("Open"),
+				title: __("Open source ERPNext document"),
+				handler: () => this.navigate_source_voucher(row),
+			}
+		);
+		if (this.metadata?.voucher_print_format) {
+			action_specs.push({
+				key: "print",
+				label: __("Print"),
+				title: __("Print voucher using configured format"),
+				handler: () => this.navigate_print_voucher(row),
+			});
+		}
+		if (include_copy_link) {
+			action_specs.push({
+				key: "copy",
+				label: __("Copy Link"),
+				title: __("Copy voucher link to clipboard"),
+				handler: () => this.copy_gl_detail_link(row),
+			});
+		}
+		action_specs.forEach((spec, index) => {
+			if (index > 0) {
+				$container.append($('<span class="ae-voucher-action-sep" aria-hidden="true">|</span>'));
+			}
+			const $btn = $('<button type="button" class="btn btn-xs btn-default ae-voucher-action">')
+				.addClass(`ae-voucher-action--${spec.key}`)
+				.text(spec.label)
+				.attr("title", spec.title);
+			if (spec.disabled) {
+				$btn.prop("disabled", true).addClass("active");
+			} else {
+				$btn.on("click", (e) => {
+					e.stopPropagation();
+					spec.handler();
+				});
+			}
+			$btn.appendTo($container);
+		});
+	}
+
+	copy_gl_detail_link(row) {
+		if (!row?.voucher_type || !row?.voucher_no) {
+			frappe.msgprint(__("Voucher link is not available."));
+			return;
+		}
+		const slug = frappe.router.slug(row.voucher_type);
+		const url = `${window.location.origin}/app/${slug}/${encodeURIComponent(row.voucher_no)}`;
+		frappe.utils.copy_to_clipboard(url);
+		frappe.show_alert({ message: __("Link copied"), indicator: "green" });
 	}
 
 	back_to_voucher_summary() {
@@ -1872,6 +2173,10 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 	}
 
 	render_grid(columns) {
+		if (this.analysis_context.detail_mode === "grouped_gl") {
+			this.render_gl_detail_view(columns);
+			return;
+		}
 		if (!this.rows.length) {
 			this.render_prompt(__("No rows match the current scope."));
 			return;
@@ -1944,48 +2249,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			});
 			if (show_voucher_actions) {
 				const $actions = $('<td class="ae-row-actions ae-voucher-actions">').appendTo($tr);
-				const action_specs = [
-					{
-						key: "gl",
-						label: __("GL"),
-						title: __("Grouped GL detail in Account Explorer"),
-						handler: () => this.open_grouped_gl_detail(row),
-					},
-					{
-						key: "list",
-						label: __("List"),
-						title: __("General Ledger report for this voucher"),
-						handler: () => this.navigate_gl_list(row),
-					},
-					{
-						key: "open",
-						label: __("Open"),
-						title: __("Open source ERPNext document"),
-						handler: () => this.navigate_source_voucher(row),
-					},
-				];
-				if (this.metadata?.voucher_print_format) {
-					action_specs.push({
-						key: "print",
-						label: __("Print"),
-						title: __("Print voucher using configured format"),
-						handler: () => this.navigate_print_voucher(row),
-					});
-				}
-				action_specs.forEach((spec, index) => {
-					if (index > 0) {
-						$actions.append($('<span class="ae-voucher-action-sep" aria-hidden="true">|</span>'));
-					}
-					$('<button type="button" class="btn btn-xs btn-default ae-voucher-action">')
-						.addClass(`ae-voucher-action--${spec.key}`)
-						.text(spec.label)
-						.attr("title", spec.title)
-						.on("click", (e) => {
-							e.stopPropagation();
-							spec.handler();
-						})
-						.appendTo($actions);
-				});
+				this.render_voucher_action_bar($actions, row);
 			}
 			$tr.on("dblclick", () => this.drill_row(row));
 			$tr.on("click", () => {
@@ -2045,11 +2309,308 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		};
 		this.analysis_context.detail_mode = "grouped_gl";
 		this.analysis_context.view_axis = "voucher";
+		this.analysis_context.page = 1;
+		this.analysis_context.sort_field = "posting_date";
+		this.analysis_context.sort_order = "asc";
 		this.render_breadcrumbs();
 		this.render_navigator();
 		this.render_detail_header();
 		this.refresh_summary();
 		this.update_context_actions();
+	}
+
+	render_gl_detail_view(columns) {
+		if (!this.rows.length) {
+			this.render_prompt(__("No GL entries match the current scope."));
+			return;
+		}
+		const allowed = new Set(this.get_default_visible_columns());
+		const visible = columns.filter((col) => allowed.has(col.id));
+		const currency_label = this.currency_code || frappe.defaults.get_default("currency");
+		const layout = this.get_gl_dimension_layout();
+
+		const $wrap = $('<div class="ae-gl-detail"></div>');
+		if (layout === "expanded") {
+			$wrap.addClass("ae-gl-detail--full-dimensions");
+		}
+		if (layout === "compact_with_selector") {
+			$wrap.addClass("ae-gl-detail--selector-mode");
+		}
+		$wrap.append(
+			$('<div class="ae-grid-meta ae-gl-grid-meta"></div>')
+				.append($('<span class="ae-grid-meta-item">').text(__("Rows on page: {0}", [this.rows.length])))
+				.append(
+					$('<span class="ae-grid-meta-item ae-currency-badge" title="' + __("Presentation currency") + '">').text(
+						currency_label
+					)
+				)
+		);
+		$wrap.append(this.build_gl_detail_section(__("GL Lines"), visible, this.rows));
+		this.$grid.empty().append($wrap);
+	}
+
+	build_gl_detail_section(title, visible_columns, rows) {
+		const $section = $('<div class="ae-gl-detail-section"></div>');
+		$section.append($('<div class="ae-gl-detail-section-title">').text(title));
+		if (!rows.length) {
+			$section.append($('<div class="ae-empty ae-gl-section-empty small">').text(__("No rows on this page.")));
+			return $section;
+		}
+		const $table = $('<table class="ae-grid ae-gl-grid"><thead></thead><tbody></tbody></table>');
+		const $head = $("<tr></tr>").appendTo($table.find("thead"));
+		visible_columns.forEach((col) => {
+			const cls = col.fieldtype === "Currency" ? "amount" : "";
+			const is_sorted = this.analysis_context.sort_field === col.id;
+			const sort_cls = is_sorted ? ` ae-sort-active ae-sort-${this.analysis_context.sort_order}` : "";
+			const sortable = this.is_gl_detail_column_sortable(col);
+			const $th = $("<th>")
+				.addClass(`${cls}${sortable ? ` ae-sortable${sort_cls}` : ""}`)
+				.append(
+					$('<span class="ae-th-label">').text(
+						col.column_kind === "dimensions_compact"
+							? ""
+							: col.label_fa && this.is_fa_locale()
+								? col.label_fa
+								: __(col.label)
+					)
+				);
+			if (col.column_kind === "dimensions_compact") {
+				$th.addClass("ae-gl-dimensions-col").attr("aria-label", __(col.label_key || "Accounting Dimension Details"));
+			}
+			if (sortable) {
+				$th.attr("aria-sort", is_sorted ? this.analysis_context.sort_order + "ending" : "none");
+				$th.append($('<span class="ae-sort-indicator">'));
+				$th.on("click", () => this.toggle_sort(col.id));
+			}
+			$th.appendTo($head);
+		});
+		const $body = $table.find("tbody");
+		rows.forEach((row) => {
+			const $tr = $("<tr>").data("row", row).appendTo($body);
+			if (row.side === "debit") {
+				$tr.addClass("ae-gl-row--debit");
+			} else if (row.side === "credit") {
+				$tr.addClass("ae-gl-row--credit");
+			}
+			visible_columns.forEach((col) => {
+				const cls = col.fieldtype === "Currency" ? "amount" : "";
+				const $cell = $("<td>").addClass(cls);
+				if (col.column_kind === "dimensions_compact") {
+					this.render_gl_dimensions_cell($cell, row);
+					$cell.appendTo($tr);
+					return;
+				}
+				const value = row[col.id];
+				if (this.render_gl_detail_link_cell($cell, col, row, value)) {
+					$cell.appendTo($tr);
+					return;
+				}
+				if (col.fieldtype === "Currency") {
+					this.render_amount_cell($cell, value);
+				} else {
+					$cell.text(value ?? "");
+				}
+				$cell.appendTo($tr);
+			});
+		});
+		$section.append($('<div class="ae-grid-scroll"></div>').append($table));
+		return $section;
+	}
+
+	is_gl_detail_column_sortable(col) {
+		// FUTURE ENHANCEMENT: enable dim:* sorting once QuerySpec validation accepts dynamic fields.
+		if (col.column_kind === "dimensions_compact" || col.column_kind === "dimension") {
+			return false;
+		}
+		return true;
+	}
+
+	render_gl_dimensions_cell($cell, row) {
+		$cell.addClass("ae-gl-dimensions-cell");
+		const dimensions = row.dimensions || {};
+		const $list = $('<div class="ae-gl-dimensions-compact"></div>');
+		this.get_visible_gl_dimension_definitions().forEach((definition) => {
+			const info = dimensions[definition.fieldname] || {
+				label: definition.label,
+				label_fa: definition.label_fa,
+				value: "",
+				title: "",
+			};
+			const dimension_label = this.get_gl_dimension_label({
+				label: info.label || definition.label,
+				label_fa: info.label_fa || definition.label_fa,
+				fieldname: definition.fieldname,
+			});
+			const $item = $('<div class="ae-gl-dimension-item"></div>');
+			$item.append($('<span class="ae-gl-dimension-label">').text(`${dimension_label}:`));
+			const display = info.title || info.value || "";
+			if (info.value && this.is_dimension_field_navigable(definition.fieldname)) {
+				$item.append(this.build_gl_dimension_link(definition.fieldname, display, info.value));
+			} else if (display) {
+				$item.append($('<span class="ae-gl-dimension-value">').text(display));
+			} else {
+				$item.append($('<span class="ae-gl-dimension-value ae-gl-dimension-value--empty">').text("—"));
+			}
+			$list.append($item);
+		});
+		$cell.append($list);
+	}
+
+	build_gl_dimension_link(fieldname, label, value) {
+		return $('<button type="button" class="btn btn-link btn-xs ae-gl-link-btn ae-gl-dimension-value">')
+			.text(label)
+			.attr("title", __("Open {0} analysis", [label]))
+			.on("click", (e) => {
+				e.stopPropagation();
+				this.navigate_gl_dimension(fieldname, value);
+			});
+	}
+
+	render_gl_detail_link_cell($cell, col, row, value) {
+		const column_id = col.id;
+		if (column_id === "account" || column_id === "account_name") {
+			const label = value || row.account_name || row.account;
+			if (!label) {
+				return false;
+			}
+			$cell.addClass("ae-gl-link ae-gl-link--account").append(
+				$('<button type="button" class="btn btn-link btn-xs ae-gl-link-btn">')
+					.text(label)
+					.attr("title", __("Open account in Account Explorer"))
+					.on("click", (e) => {
+						e.stopPropagation();
+						this.navigate_gl_account(row);
+					})
+			);
+			return true;
+		}
+		if ((column_id === "party" || column_id === "party_name") && row.party_type && row.party) {
+			if (!this.is_party_analysis_enabled()) {
+				return false;
+			}
+			$cell.addClass("ae-gl-link ae-gl-link--party").append(
+				$('<button type="button" class="btn btn-link btn-xs ae-gl-link-btn">')
+					.text(value)
+					.attr("title", __("Open party analysis"))
+					.on("click", (e) => {
+						e.stopPropagation();
+						this.navigate_gl_party(row);
+					})
+			);
+			return true;
+		}
+		if (col.column_kind === "dimension") {
+			const fieldname = col.dimension_fieldname || column_id.slice(4);
+			const info = row.dimensions?.[fieldname] || {};
+			const link_value = info.value || value;
+			const link_label = info.title || info.value || value || "";
+			const column_label = this.get_gl_dimension_label({
+				label: col.label,
+				label_fa: col.label_fa,
+				fieldname,
+			});
+			if (!link_value) {
+				$cell.addClass("ae-gl-dimension-value--empty").text("—");
+				return true;
+			}
+			if (!this.is_dimension_field_navigable(fieldname)) {
+				$cell.text(link_label);
+				return true;
+			}
+			$cell.addClass("ae-gl-link ae-gl-link--dimension").append(
+				this.build_gl_dimension_link(fieldname, link_label, link_value).attr(
+					"title",
+					__("Open {0} analysis", [column_label])
+				)
+			);
+			return true;
+		}
+		return false;
+	}
+
+	leave_gl_detail_for_analysis() {
+		this.analysis_context.detail_mode = "summary";
+		this.analysis_context.voucher_scope = { voucher_type: null, voucher_no: null };
+		this.analysis_context.page = 1;
+		this.voucher_header = null;
+		this.render_detail_header();
+		this.update_context_actions();
+	}
+
+	navigate_gl_account(row) {
+		if (!row?.account) {
+			return;
+		}
+		this.leave_gl_detail_for_analysis();
+		this.analysis_context.view_axis = "account_level";
+		this.analysis_context.account_scope = {
+			mode: "account",
+			selected_account: row.account,
+			virtual_row_key: null,
+			is_virtual_group: 0,
+			level_sequence: null,
+			tree_root_account: row.account,
+		};
+		this.push_breadcrumb({
+			label: row.account_name || row.account,
+			axis: "account_level",
+			selected_account: row.account,
+			virtual_row_key: null,
+			level_sequence: null,
+		});
+		this.render_navigator();
+		this.render_breadcrumbs();
+		this.refresh_summary();
+	}
+
+	navigate_gl_party(row) {
+		if (!row?.party_type || !row?.party) {
+			return;
+		}
+		if (!this.is_party_analysis_enabled()) {
+			frappe.msgprint(__("Party analysis is not enabled."));
+			return;
+		}
+		this.leave_gl_detail_for_analysis();
+		this.analysis_context.view_axis = "party";
+		this.analysis_context.party_scope = {
+			party_type: row.party_type,
+			selected_party: row.party,
+		};
+		this.push_breadcrumb({
+			label: row.party_name || row.party,
+			axis: "party",
+			party_type: row.party_type,
+			selected_party: row.party,
+		});
+		this.render_navigator();
+		this.render_breadcrumbs();
+		this.refresh_summary();
+	}
+
+	navigate_gl_dimension(dimension_type, dimension_value) {
+		if (!dimension_type || !dimension_value) {
+			return;
+		}
+		if (!this.is_dimension_field_navigable(dimension_type)) {
+			frappe.msgprint(__("Dimension analysis is not enabled."));
+			return;
+		}
+		this.leave_gl_detail_for_analysis();
+		this.analysis_context.view_axis = "dimension";
+		this.analysis_context.dimension_scope = {
+			dimension_type,
+			selected_dimension_value: dimension_value,
+		};
+		this.push_breadcrumb({
+			label: dimension_value,
+			axis: "dimension",
+			dimension_type,
+			selected_dimension_value: dimension_value,
+		});
+		this.render_navigator();
+		this.render_breadcrumbs();
+		this.refresh_summary();
 	}
 
 	navigate_with_target(row, route_key) {

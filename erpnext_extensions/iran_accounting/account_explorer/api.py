@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import frappe
 
+from erpnext_extensions.iran_accounting.account_explorer.constants import GL_DIMENSION_EXPAND_THRESHOLD
 from erpnext_extensions.iran_accounting.account_explorer.currency_discovery import discover_company_currencies
 from erpnext_extensions.iran_accounting.account_explorer.dimension_discovery import (
 	get_default_dimension_field,
@@ -82,16 +83,46 @@ VOUCHER_COLUMNS = [
 	{"id": "full_voucher_credit", "label": "Full Voucher Credit", "fieldtype": "Currency", "width": 130},
 ]
 
-GL_GROUP_COLUMNS = [
-	{"id": "account", "label": "Account", "fieldtype": "Link", "width": 180},
+GL_GROUP_BASE_COLUMNS = [
+	{"id": "posting_date", "label": "Posting Date", "fieldtype": "Date", "width": 110},
+	{"id": "account", "label": "Account", "fieldtype": "Link", "width": 140},
 	{"id": "account_name", "label": "Account Name", "fieldtype": "Data", "width": 180},
 	{"id": "party_type", "label": "Party Type", "fieldtype": "Data", "width": 110},
 	{"id": "party_name", "label": "Party", "fieldtype": "Data", "width": 160},
-	{"id": "dimension_value", "label": "Dimension", "fieldtype": "Data", "width": 140},
+]
+
+GL_GROUP_COMPACT_COLUMN = {
+	"id": "dimensions",
+	"label": "",
+	"label_key": "Accounting Dimension Details",
+	"fieldtype": "Data",
+	"width": 260,
+	"column_kind": "dimensions_compact",
+}
+
+GL_GROUP_TAIL_COLUMNS = [
 	{"id": "debit", "label": "Debit", "fieldtype": "Currency", "width": 120},
 	{"id": "credit", "label": "Credit", "fieldtype": "Currency", "width": 120},
-	{"id": "against", "label": "Against", "fieldtype": "Data", "width": 220},
+	{"id": "currency", "label": "Currency", "fieldtype": "Data", "width": 90},
+	{"id": "remarks", "label": "Remarks", "fieldtype": "Data", "width": 220},
 ]
+
+
+def build_gl_detail_columns(dimensions: list[dict] | None = None) -> list[dict]:
+	dimensions = dimensions if dimensions is not None else get_discovered_dimensions()
+	dimension_columns = [
+		{
+			"id": f"dim:{row['fieldname']}",
+			"label": row["label"],
+			"label_fa": row.get("label_fa"),
+			"fieldtype": "Link",
+			"width": 140,
+			"dimension_fieldname": row["fieldname"],
+			"column_kind": "dimension",
+		}
+		for row in dimensions
+	]
+	return [*GL_GROUP_BASE_COLUMNS, GL_GROUP_COMPACT_COLUMN, *dimension_columns, *GL_GROUP_TAIL_COLUMNS]
 
 CURRENCY_COLUMNS = [
 	{"id": "currency", "label": "Currency", "fieldtype": "Data", "width": 100},
@@ -251,7 +282,8 @@ def get_metadata() -> dict:
 		"dimension_columns": DIMENSION_COLUMNS,
 		"currency_columns": CURRENCY_COLUMNS,
 		"voucher_columns": VOUCHER_COLUMNS,
-		"gl_group_columns": GL_GROUP_COLUMNS,
+		"gl_group_columns": build_gl_detail_columns(dimensions),
+		"gl_dimension_expand_threshold": GL_DIMENSION_EXPAND_THRESHOLD,
 		"metadata_cache_version": int(settings.metadata_cache_version or 1),
 		"default_level_sequence": get_default_level_sequence(),
 	}
@@ -371,7 +403,8 @@ def get_grouped_gl_entries(payload) -> dict:
 	from erpnext_extensions.iran_accounting.account_explorer.voucher_gl import build_grouped_gl_entries
 
 	result = build_grouped_gl_entries(spec)
-	return _grouped_gl_response(spec, GL_GROUP_COLUMNS, result)
+	columns = build_gl_detail_columns(result.get("dimensions"))
+	return _grouped_gl_response(spec, columns, result)
 
 
 def get_voucher_navigation_target(payload) -> dict:

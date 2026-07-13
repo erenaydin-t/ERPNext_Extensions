@@ -585,6 +585,237 @@
 	border-radius: var(--border-radius);
 }
 
+.account-explorer-page .ae-gl-detail-header {
+	flex-direction: column;
+	align-items: stretch;
+	gap: 8px;
+}
+
+.account-explorer-page .ae-gl-header-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.account-explorer-page .ae-gl-detail-title {
+	font-size: 13px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	color: var(--text-muted);
+}
+
+.account-explorer-page .ae-gl-header-controls {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	margin-inline-start: auto;
+}
+
+.account-explorer-page .ae-gl-full-dimensions-toggle {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	margin: 0;
+	cursor: pointer;
+}
+
+.account-explorer-page .ae-gl-full-dimensions-input {
+	margin: 0;
+}
+
+.account-explorer-page .ae-gl-dimension-menu {
+	min-width: 220px;
+	max-height: 280px;
+	overflow: auto;
+	padding: 6px 0;
+}
+
+.account-explorer-page .ae-gl-dimension-menu-item {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 4px 12px;
+	margin: 0;
+	cursor: pointer;
+	unicode-bidi: plaintext;
+}
+
+.account-explorer-page .ae-gl-voucher-facts {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+	gap: 8px 12px;
+}
+
+.account-explorer-page .ae-gl-fact-item {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+
+.account-explorer-page .ae-gl-fact-label {
+	font-size: 11px;
+	color: var(--text-muted);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.account-explorer-page .ae-gl-fact-value {
+	font-weight: 600;
+	unicode-bidi: plaintext;
+}
+
+.account-explorer-page .ae-gl-dimensions-col .ae-th-label {
+	display: none;
+}
+
+.account-explorer-page .ae-gl-voucher-summary {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	align-items: center;
+}
+
+.account-explorer-page .ae-gl-voucher-title {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 4px;
+	min-width: 0;
+	unicode-bidi: plaintext;
+}
+
+.account-explorer-page .ae-gl-voucher-meta {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 2px;
+	min-width: 0;
+	unicode-bidi: plaintext;
+}
+
+.account-explorer-page .ae-gl-voucher-kpi {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12px;
+}
+
+.account-explorer-page .ae-gl-kpi-item {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 6px;
+}
+
+.account-explorer-page .ae-gl-kpi-label {
+	font-size: 11px;
+	color: var(--text-muted);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.account-explorer-page .ae-gl-voucher-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 2px;
+}
+
+.account-explorer-page .ae-gl-detail {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.account-explorer-page .ae-gl-detail-section-title {
+	font-size: 12px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	color: var(--text-muted);
+	margin: 4px 0 6px;
+}
+
+.account-explorer-page .ae-gl-section-empty {
+	padding: 8px 10px;
+	border: 1px dashed var(--border-color);
+	border-radius: var(--border-radius);
+	background: var(--control-bg);
+}
+
+.account-explorer-page .ae-gl-link-btn {
+	padding: 0;
+	min-height: 0;
+	height: auto;
+	line-height: inherit;
+	text-align: inherit;
+	unicode-bidi: plaintext;
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.account-explorer-page .ae-gl-link .ae-gl-link-btn {
+	color: var(--primary, #2490ef);
+}
+
+.account-explorer-page .ae-voucher-action.active,
+.account-explorer-page .ae-voucher-action:disabled {
+	opacity: 0.72;
+	cursor: default;
+}
+
+.account-explorer-page .ae-gl-dimensions-cell {
+	min-width: 180px;
+	max-width: 320px;
+	vertical-align: top;
+}
+
+.account-explorer-page .ae-gl-dimensions-compact {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+}
+
+.account-explorer-page .ae-gl-dimension-item {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 4px;
+	unicode-bidi: plaintext;
+}
+
+.account-explorer-page .ae-gl-dimension-label {
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--text-muted);
+	white-space: nowrap;
+}
+
+.account-explorer-page .ae-gl-dimension-value {
+	min-width: 0;
+	unicode-bidi: plaintext;
+}
+
+.account-explorer-page .ae-gl-dimension-value--empty {
+	color: var(--text-muted);
+	opacity: 0.65;
+}
+
+.account-explorer-page .ae-gl-grid-options {
+	padding: 0 2px;
+}
+
+@media (min-width: 1200px) {
+	.account-explorer-page .ae-gl-detail--full-dimensions .ae-gl-dimensions-cell {
+		display: none;
+	}
+}
+
 /* ── Currency badges ── */
 .account-explorer-page .ae-currency-badge {
 	display: inline-flex;
@@ -1034,6 +1265,44 @@ html[dir="rtl"] .account-explorer-page .ae-toolbar,
 html[dir="rtl"] .account-explorer-page .ae-breadcrumb-bar,
 html[dir="rtl"] .account-explorer-page .ae-detail-header {
 	flex-direction: row-reverse;
+}
+
+html[dir="rtl"] .account-explorer-page .ae-gl-header-toolbar,
+html[dir="rtl"] .account-explorer-page .ae-gl-header-controls,
+html[dir="rtl"] .account-explorer-page .ae-gl-voucher-facts {
+	direction: rtl;
+}
+
+html[dir="rtl"] .account-explorer-page .ae-gl-header-controls {
+	margin-inline-start: 0;
+	margin-inline-end: auto;
+}
+
+html[dir="rtl"] .account-explorer-page .ae-gl-fact-item {
+	text-align: right;
+}
+
+html[dir="rtl"] .account-explorer-page .ae-gl-dimension-menu-item {
+	flex-direction: row-reverse;
+	justify-content: flex-end;
+}
+html[dir="rtl"] .account-explorer-page .ae-gl-voucher-meta,
+html[dir="rtl"] .account-explorer-page .ae-gl-voucher-kpi,
+html[dir="rtl"] .account-explorer-page .ae-gl-voucher-actions {
+	flex-direction: row-reverse;
+}
+
+html[dir="rtl"] .account-explorer-page .ae-gl-link-btn {
+	text-align: inherit;
+}
+
+html[dir="rtl"] .account-explorer-page .ae-gl-dimension-item {
+	flex-direction: row-reverse;
+	justify-content: flex-end;
+}
+
+html[dir="rtl"] .account-explorer-page .ae-gl-dimensions-compact {
+	align-items: flex-end;
 }
 
 html[dir="rtl"] .account-explorer-page .ae-toolbar .form-group {

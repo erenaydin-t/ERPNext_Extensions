@@ -12,8 +12,20 @@ from erpnext_extensions.iran_accounting.account_explorer.constants import (
 
 
 NATIVE_DIMENSIONS = (
-	{"fieldname": "cost_center", "label": "Cost Center", "document_type": "Cost Center", "is_native": 1},
-	{"fieldname": "project", "label": "Project", "document_type": "Project", "is_native": 1},
+	{
+		"fieldname": "cost_center",
+		"label": "Cost Center",
+		"label_fa": "مرکز هزینه",
+		"document_type": "Cost Center",
+		"is_native": 1,
+	},
+	{
+		"fieldname": "project",
+		"label": "Project",
+		"label_fa": "پروژه",
+		"document_type": "Project",
+		"is_native": 1,
+	},
 )
 
 
@@ -27,9 +39,10 @@ def get_discovered_dimensions() -> list[dict]:
 	seen = set()
 
 	for native in NATIVE_DIMENSIONS:
-		if gl_meta.has_field(native["fieldname"]):
-			dimensions.append(dict(native))
-			seen.add(native["fieldname"])
+		if not gl_meta.has_field(native["fieldname"]):
+			continue
+		dimensions.append(dict(native))
+		seen.add(native["fieldname"])
 
 	for row in get_accounting_dimensions(as_list=False) or []:
 		fieldname = row.fieldname
@@ -41,6 +54,7 @@ def get_discovered_dimensions() -> list[dict]:
 			{
 				"fieldname": fieldname,
 				"label": row.label or fieldname,
+				"label_fa": getattr(row, "label", None) or fieldname,
 				"document_type": row.document_type,
 				"is_native": 0,
 			}
