@@ -307,6 +307,17 @@ def _append_balanced_transfer_item_gl(self, gl_list, item_row, inventory_account
 
 
 def get_gl_entries(self, inventory_account_map=None, default_expense_account=None, default_cost_center=None):
+	"""Stock Entry / Stock Reconciliation only. Other stock vouchers use ERPNext SLE-based GL."""
+	if self.doctype not in ("Stock Entry", "Stock Reconciliation"):
+		from erpnext.controllers.stock_controller import StockController
+
+		orig = getattr(StockController, "_iran_original_get_gl_entries", None)
+		if orig:
+			return orig(self, inventory_account_map, default_expense_account, default_cost_center)
+		return StockController.get_gl_entries(
+			self, inventory_account_map, default_expense_account, default_cost_center
+		)
+
 	if self.doctype == "Stock Reconciliation":
 		from erpnext_extensions.iran_accounting.domain.stock_reconciliation_gl import (
 			get_stock_reconciliation_gl_entries,
@@ -355,7 +366,10 @@ def get_gl_entries(self, inventory_account_map=None, default_expense_account=Non
 			_inv_dict = self.get_inventory_account_dict(sle, inventory_account_map)
 
 			if _inv_dict.get("account"):
-				mov = gl_movement_from_row_only(item_row, sle, self.company)
+				if self.doctype == "Stock Entry":
+					mov = gl_movement_from_row_only(item_row, sle, self.company)
+				else:
+					mov = flt(sle.stock_value_difference, precision)
 				sle_rounding_diff += mov
 				self.check_expense_account(item_row)
 
@@ -389,7 +403,10 @@ def get_gl_entries(self, inventory_account_map=None, default_expense_account=Non
 				expense_account = _get_transfer_expense_account(
 					self, item_row, inventory_account_map, sle=sle
 				)
-				mov = gl_movement_from_row_only(item_row, sle, self.company)
+				if self.doctype == "Stock Entry":
+					mov = gl_movement_from_row_only(item_row, sle, self.company)
+				else:
+					mov = flt(sle.stock_value_difference, precision)
 
 				gl_list.append(
 					self.get_gl_dict(
