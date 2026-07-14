@@ -62,14 +62,28 @@ VOUCHER_SORTABLE_FIELDS = frozenset(
 
 GL_GROUP_SORTABLE_FIELDS = frozenset(
 	{
+		"posting_date",
 		"account",
 		"account_name",
 		"party_type",
 		"party",
+		"party_name",
 		"debit",
 		"credit",
+		"currency",
+		"remarks",
 	}
 )
+
+GL_DIMENSION_EXPAND_THRESHOLD = 5
+
+
+def gl_dimension_layout_mode(dimension_count: int, full_dimensions_requested: bool = False) -> str:
+	if dimension_count > GL_DIMENSION_EXPAND_THRESHOLD:
+		return "compact_with_selector"
+	if full_dimensions_requested and dimension_count <= GL_DIMENSION_EXPAND_THRESHOLD:
+		return "expanded"
+	return "compact"
 
 VIEW_AXES = frozenset({"account_level", "party", "unified_party", "dimension", "currency", "voucher"})
 

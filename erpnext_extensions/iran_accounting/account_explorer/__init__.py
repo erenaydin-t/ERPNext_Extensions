@@ -98,3 +98,56 @@ def get_account_scope_preview(payload=None):
 	from erpnext_extensions.iran_accounting.account_explorer.api import get_account_scope_preview as _preview
 
 	return _preview(payload)
+
+
+@frappe.whitelist()
+def list_account_explorer_saved_views(company=None):
+	from erpnext_extensions.iran_accounting.account_explorer.saved_views import list_saved_views
+
+	return list_saved_views(company=company)
+
+
+@frappe.whitelist()
+def get_account_explorer_saved_view(name=None):
+	from erpnext_extensions.iran_accounting.account_explorer.saved_views import get_saved_view
+
+	return get_saved_view(name)
+
+
+@frappe.whitelist()
+def save_account_explorer_saved_view(payload=None):
+	from erpnext_extensions.iran_accounting.account_explorer.saved_views import save_saved_view
+
+	return save_saved_view(payload)
+
+
+@frappe.whitelist()
+def delete_account_explorer_saved_view(name=None):
+	from erpnext_extensions.iran_accounting.account_explorer.saved_views import delete_saved_view
+
+	return delete_saved_view(name)
+
+
+@frappe.whitelist()
+def export_account_explorer(payload=None, file_format="csv"):
+	from erpnext_extensions.iran_accounting.account_explorer.export import export_account_explorer as _export
+
+	return _export(payload, file_format)
+
+
+@frappe.whitelist()
+def get_account_explorer_diagnostics(company=None):
+	from erpnext_extensions.iran_accounting.account_explorer.diagnostics import run_account_explorer_diagnostics
+
+	return run_account_explorer_diagnostics(company)
+
+
+@frappe.whitelist()
+def run_account_explorer_performance_benchmark(
+	company=None, fiscal_year=None, from_date=None, to_date=None
+):
+	from erpnext_extensions.iran_accounting.account_explorer.performance_benchmark import (
+		run_account_explorer_performance_benchmark as _benchmark,
+	)
+
+	return _benchmark(company, fiscal_year, from_date, to_date)

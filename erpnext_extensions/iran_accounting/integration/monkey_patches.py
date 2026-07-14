@@ -561,6 +561,9 @@ def _patch_stock_ledger_engine():
 
 	from erpnext_extensions.iran_accounting.domain.currency import is_irr_company
 	from erpnext_extensions.iran_accounting.domain.ledger_rounding import round_sle_monetary_fields
+	from erpnext_extensions.iran_accounting.domain.sle_persistence import (
+		persist_processed_sle_if_possible,
+	)
 	from erpnext_extensions.iran_accounting.domain.stock_entry_sync import (
 		sync_irr_sle_from_stock_entry_row,
 	)
@@ -589,7 +592,7 @@ def _patch_stock_ledger_engine():
 			sync_irr_sle_from_stock_entry_row(sle)
 			round_sle_monetary_fields(sle, company)
 			sync_irr_sle_from_stock_entry_row(sle)
-			frappe.get_doc(sle).db_update()
+			persist_processed_sle_if_possible(sle)
 
 	sl.update_entries_after.process_sle = process_sle
 	sl._iran_patched_update_entries_after = True

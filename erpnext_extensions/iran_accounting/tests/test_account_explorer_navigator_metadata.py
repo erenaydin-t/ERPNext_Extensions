@@ -53,6 +53,9 @@ class TestAccountExplorerNavigatorMetadata(unittest.TestCase):
 
 		self.assertFalse(level_sequences & dimension_fieldnames)
 
+	def test_metadata_exposes_voucher_print_format(self):
+		self.assertIn("voucher_print_format", self.metadata)
+
 	def test_no_dimension_type_in_account_level_navigator(self):
 		dimensions = get_discovered_dimensions()
 		dimension_fieldnames = {row["fieldname"] for row in dimensions}

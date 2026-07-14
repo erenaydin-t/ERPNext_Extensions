@@ -47,6 +47,16 @@ def resolve_voucher_navigation(payload) -> dict:
 	elif navigation_allowed:
 		messages.append(_("Source document {0} {1} was not found.").format(voucher_type, voucher_no))
 
+	print_format = frappe.get_single_value("Iran Accounting Settings", "account_explorer_voucher_print_format")
+	can_print = bool(print_format and can_open_source)
+	print_route = None
+	if can_print:
+		print_route = {
+			"doctype": voucher_type,
+			"name": voucher_no,
+			"format": print_format,
+		}
+
 	return {
 		"voucher_type": voucher_type,
 		"voucher_no": voucher_no,
@@ -54,8 +64,11 @@ def resolve_voucher_navigation(payload) -> dict:
 		"docname": voucher_no,
 		"can_open_source": can_open_source,
 		"can_open_gl_list": can_open_gl_list,
+		"can_print": can_print,
+		"print_format": print_format,
 		"source_route": source_route,
 		"gl_list_route": gl_list_route if can_open_gl_list else None,
+		"print_route": print_route,
 		"messages": messages,
 	}
 

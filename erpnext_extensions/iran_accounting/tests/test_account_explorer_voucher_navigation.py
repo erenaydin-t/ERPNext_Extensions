@@ -68,3 +68,25 @@ class TestAccountExplorerVoucherNavigation(unittest.TestCase):
 		result = api.get_voucher_navigation_target(self._payload())
 		self.assertFalse(result["can_open_gl_list"])
 		self.assertFalse(result["can_open_source"])
+		self.assertFalse(result["can_print"])
+
+	def test_print_navigation_requires_print_format(self):
+		result = api.get_voucher_navigation_target(self._payload())
+		self.assertIn("can_print", result)
+		self.assertIn("print_format", result)
+		self.assertFalse(result["can_print"])
+		self.assertIsNone(result.get("print_route"))
+
+		settings = frappe.get_single("Iran Accounting Settings")
+		settings.account_explorer_voucher_print_format = "Standard"
+		settings.flags.ignore_permissions = True
+		settings.save()
+		frappe.db.commit()
+
+		result = api.get_voucher_navigation_target(self._payload())
+		if result["can_open_source"]:
+			self.assertTrue(result["can_print"])
+			self.assertEqual(result["print_format"], "Standard")
+			self.assertEqual(result["print_route"]["format"], "Standard")
+			self.assertEqual(result["print_route"]["doctype"], self.sample.voucher_type)
+			self.assertEqual(result["print_route"]["name"], self.sample.voucher_no)
