@@ -59,4 +59,14 @@ erpnext_extensions.account_explorer.core.ExplorerEventBus = class ExplorerEventB
 			this._handlers.delete(event);
 		}
 	}
+
+	get_listener_counts() {
+		const by_event = {};
+		let total = 0;
+		this._handlers.forEach((handlers, event) => {
+			by_event[event] = handlers.size;
+			total += handlers.size;
+		});
+		return { total, by_event };
+	}
 };

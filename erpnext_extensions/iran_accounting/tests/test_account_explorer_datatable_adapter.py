@@ -259,3 +259,14 @@ class TestAccountExplorerDataTableAdapter(unittest.TestCase):
 			"on_page_show",
 		):
 			self.assertIn(fragment, content)
+
+	def test_adapter_wave_3b15_ux_surface(self):
+		adapter = self._read(self.adapter_js)
+		for fragment in (
+			"resolve_column_width",
+			"set_density",
+			"copy_checked_rows_tsv",
+			"ae-datatable-skeleton",
+			"ae-dt-col--nosort",
+		):
+			self.assertIn(fragment, adapter)

@@ -114,6 +114,10 @@ erpnext_extensions.account_explorer.core.ExplorerStore = class ExplorerStore {
 		return () => this._subscribers.delete(handler);
 	}
 
+	get_subscriber_count() {
+		return this._subscribers.size;
+	}
+
 	_notify(meta) {
 		const payload = { state: this._state, ...meta };
 		this._subscribers.forEach((handler) => handler(payload));
