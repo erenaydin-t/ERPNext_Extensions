@@ -116,6 +116,7 @@ erpnext_extensions.account_explorer.adapters.AEDataTableAdapter = class AEDataTa
 		this._resize_debounce_timer = null;
 		this._last_refresh_signature = null;
 		this._perf_stats = {};
+		this._resize_listener_bound = false;
 	}
 
 	is_mounted() {
@@ -227,9 +228,10 @@ erpnext_extensions.account_explorer.adapters.AEDataTableAdapter = class AEDataTa
 		return AE_DT_WIDTH_PROFILES.default;
 	}
 
-	resolve_column_width(col) {
+	resolve_column_width(col, options = {}) {
 		const profile = this.resolve_column_width_profile(col);
-		const requested = parseInt(col?.width, 10);
+		const persisted = options.column_widths?.[col.id];
+		const requested = parseInt(persisted ?? col?.width, 10);
 		const base = Number.isFinite(requested) && requested > 0 ? requested : profile.preferred;
 		return Math.max(profile.min, Math.min(profile.max, base));
 	}
@@ -261,7 +263,7 @@ erpnext_extensions.account_explorer.adapters.AEDataTableAdapter = class AEDataTa
 			const mapped = {
 				id: col.id,
 				name: options.translate ? options.translate(col.label) : col.label,
-				width: this.resolve_column_width(col),
+				width: this.resolve_column_width(col, options),
 				editable: false,
 				focusable: false,
 				sortOrder: sortable && sort_field === col.id ? sort_order : "none",
@@ -369,6 +371,7 @@ erpnext_extensions.account_explorer.adapters.AEDataTableAdapter = class AEDataTa
 		AE_DT_LIFECYCLE_MOUNT_COUNT += 1;
 		this._last_refresh_signature = this._build_refresh_signature(dt_columns, dt_rows);
 		this._bind_resize_observer();
+		this._bind_column_resize_listener();
 		this._apply_sticky_first_column();
 		this._sync_loading_state();
 		await this._finalize_mount(generation);
@@ -814,27 +817,72 @@ erpnext_extensions.account_explorer.adapters.AEDataTableAdapter = class AEDataTa
 		}));
 	}
 
-	apply_column_state(state) {
+	apply_column_state(state, { silent = false } = {}) {
 		if (!this._datatable || !state?.length) {
-			return;
+			return false;
 		}
 		const current_columns = this._datatable.getColumns?.() || [];
 		const current_data = this._datatable.getData?.() || [];
 		const state_by_id = new Map(state.map((col) => [col.id, col]));
-		const next_columns = current_columns.map((col) => {
-			const patch = state_by_id.get(col.id);
-			if (!patch) {
-				return col;
+		const ordered_ids = state.map((col) => col.id).filter(Boolean);
+		const next_columns = [];
+		ordered_ids.forEach((column_id) => {
+			const col = current_columns.find((item) => item.id === column_id);
+			if (!col) {
+				return;
 			}
-			return {
+			const patch = state_by_id.get(column_id);
+			next_columns.push({
 				...col,
-				width: patch.width || col.width,
-				sortOrder: patch.sortOrder || col.sortOrder,
-			};
+				width: patch?.width || col.width,
+				sortOrder: patch?.sortOrder || col.sortOrder,
+			});
 		});
+		current_columns.forEach((col) => {
+			if (!ordered_ids.includes(col.id)) {
+				next_columns.push(col);
+			}
+		});
+		const before = JSON.stringify(
+			current_columns.map((col) => [col.id, col.width, col.sortOrder])
+		);
+		const after = JSON.stringify(next_columns.map((col) => [col.id, col.width, col.sortOrder]));
+		if (before === after) {
+			return false;
+		}
 		this._datatable.refresh(current_data, next_columns);
 		this._apply_sticky_first_column();
-		this.events?.emit("grid:column_state_changed", { columns: this.get_column_state() });
+		if (!silent) {
+			this.events?.emit("grid:column_state_changed", {
+				columns: this.get_column_state(),
+				silent: false,
+			});
+		}
+		return true;
+	}
+
+	_bind_column_resize_listener() {
+		if (!this._host || this._resize_listener_bound) {
+			return;
+		}
+		this._resize_listener_bound = true;
+		const emit_resize = () => {
+			window.setTimeout(() => {
+				if (!this._mounted) {
+					return;
+				}
+				const columns = this.get_column_state();
+				this._options?.on_column_resized?.(columns);
+				this.events?.emit("grid:column_state_changed", {
+					columns,
+					reason: "resize",
+				});
+			}, 0);
+		};
+		// Mouse may leave the handle during drag; bind a one-shot document mouseup after handle mousedown.
+		$(this._host).on("mousedown.aeDtColumnResize", ".dt-cell__resize-handle", () => {
+			$(document).off("mouseup.aeDtColumnResizeDoc").one("mouseup.aeDtColumnResizeDoc", emit_resize);
+		});
 	}
 
 	set_density(mode) {
@@ -849,11 +897,10 @@ erpnext_extensions.account_explorer.adapters.AEDataTableAdapter = class AEDataTa
 		}
 		this._host?.classList.toggle("ae-datatable-host--compact", next === "compact");
 		this._host?.classList.toggle("ae-datatable-host--comfortable", next !== "compact");
-		if (this._mounted && this._datatable) {
-			this._last_refresh_signature = null;
-			this._datatable.refresh(this._datatable.getData(), this._datatable.getColumns());
+		if (this._mounted && this._datatable?.options) {
+			this._datatable.options.cellHeight = this._resolve_cell_height();
 			this._apply_sticky_first_column();
-			this._sync_row_dom_keys();
+			this._sync_active_row_dom();
 		}
 	}
 
@@ -952,7 +999,9 @@ erpnext_extensions.account_explorer.adapters.AEDataTableAdapter = class AEDataTa
 		}
 		if (this._host) {
 			ae_dt_untrack_host(this._host);
+			$(this._host).off(".aeDtColumnResize");
 		}
+		$(document).off("mouseup.aeDtColumnResizeDoc");
 		this._datatable = null;
 		this._mounted = false;
 		if (was_mounted && AE_DT_ACTIVE_MOUNT_COUNT > 0) {
@@ -969,6 +1018,7 @@ erpnext_extensions.account_explorer.adapters.AEDataTableAdapter = class AEDataTa
 			this._container.innerHTML = "";
 		}
 		this._host = null;
+		this._resize_listener_bound = false;
 	}
 
 	destroy() {

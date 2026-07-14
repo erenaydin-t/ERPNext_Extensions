@@ -2,6 +2,7 @@
 {% include "erpnext_extensions/erpnext_extensions/page/account_explorer/core/explorer_store.js" %}
 {% include "erpnext_extensions/erpnext_extensions/page/account_explorer/core/explorer_plugins.js" %}
 {% include "erpnext_extensions/erpnext_extensions/page/account_explorer/core/explorer_workspace_state.js" %}
+{% include "erpnext_extensions/erpnext_extensions/page/account_explorer/core/ae_user_preferences.js" %}
 {% include "erpnext_extensions/erpnext_extensions/page/account_explorer/adapters/ae_datatable_adapter.js" %}
 
 frappe.provide("erpnext_extensions.account_explorer");
@@ -133,29 +134,35 @@ function ae_trim_compact_decimals(value) {
 	return str.replace(/(\.\d*?[1-9])0+$/, "$1").replace(/\.0+$/, "").replace(/\.$/, "");
 }
 
-function ae_format_compact_amount(value, currency_code) {
+function ae_format_amount_with_mode(value, currency_code, mode = "auto") {
 	const num = flt(value);
 	const full = format_currency(num, currency_code);
+	const normalized_mode = String(mode || "auto").toLowerCase();
+	if (normalized_mode === "raw") {
+		return { compact: full, full };
+	}
 	const abs = Math.abs(num);
-	if (abs >= 1000000000) {
-		return {
-			compact: `${ae_trim_compact_decimals((num / 1000000000).toFixed(1))} B`,
-			full,
-		};
+	const format_scaled = (divisor, suffix) => ({
+		compact: `${ae_trim_compact_decimals((num / divisor).toFixed(divisor >= 1000000000 ? 1 : divisor >= 1000000 ? 1 : 2))} ${suffix}`,
+		full,
+	});
+	if (normalized_mode === "trillions" || (normalized_mode === "auto" && abs >= 1e12)) {
+		return format_scaled(1e12, "T");
 	}
-	if (abs >= 1000000) {
-		return {
-			compact: `${ae_trim_compact_decimals((num / 1000000).toFixed(1))} M`,
-			full,
-		};
+	if (normalized_mode === "billions" || (normalized_mode === "auto" && abs >= 1e9)) {
+		return format_scaled(1e9, "B");
 	}
-	if (abs >= 1000) {
-		return {
-			compact: `${ae_trim_compact_decimals((num / 1000).toFixed(2))} K`,
-			full,
-		};
+	if (normalized_mode === "millions" || (normalized_mode === "auto" && abs >= 1e6)) {
+		return format_scaled(1e6, "M");
+	}
+	if (normalized_mode === "thousands" || (normalized_mode === "auto" && abs >= 1e3)) {
+		return format_scaled(1e3, "K");
 	}
 	return { compact: full, full };
+}
+
+function ae_format_compact_amount(value, currency_code) {
+	return ae_format_amount_with_mode(value, currency_code, "auto");
 }
 
 function ae_scope_value_to_control(value) {
@@ -250,7 +257,13 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		this.show_full_voucher_dimensions = false;
 		this.show_optional_full_voucher_columns = false;
 		this.grid_hidden_columns = [];
+		this.grid_column_order = [];
+		this.grid_column_widths = {};
+		this.grid_sticky_column = null;
+		this.number_format_mode = "auto";
 		this.grid_density = "comfortable";
+		this._presentation_signature = null;
+		this._$grid_prefs_controls = null;
 		this.summary_load_error = null;
 		this._grid_keyboard_bound = false;
 		this.grid_perf_report = { refresh_history: [] };
@@ -319,8 +332,10 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		this.store = new core.ExplorerStore(this.events);
 		this.plugins = new core.ExplorerPluginRegistry(this.events, this.store);
 		this.workspace_state = new core.ExplorerWorkspaceState(this.store, this.events);
+		this.user_preferences = new core.AEUserPreferences(this);
 		this.datatable_adapter = new adapters.AEDataTableAdapter(this.events);
 		this._page_shown = false;
+		this.user_preferences.bind_controller_events();
 
 		this.store.replace(
 			{
@@ -385,6 +400,9 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 	}
 
 	on_page_hide() {
+		// Desk navigation away: flush pending debounce without waiting for 600ms.
+		// Uses async path; pagehide/beforeunload uses sync path for hard reload.
+		this.user_preferences?.flush_save?.({ sync: false });
 		this.datatable_adapter?.cancel_pending_mount?.();
 		$("body").find(".ae-grid-copy-menu").remove();
 		$(document).off("click.aeGridCopyMenu");
@@ -499,15 +517,21 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 					);
 					return;
 				}
-				this.$disabled.hide();
-				this.setup_toolbar();
-				this.render_navigator();
-				this.render_breadcrumbs();
-				if (this.metadata.saved_views_enabled) {
-					this.refresh_saved_views_list();
-				}
+				void this._initialize_after_metadata();
 			},
 		});
+	}
+
+	async _initialize_after_metadata() {
+		await this.user_preferences.load();
+		this.user_preferences.apply_axis_to_controller();
+		this.$disabled.hide();
+		this.setup_toolbar();
+		this.render_navigator();
+		this.render_breadcrumbs();
+		if (this.metadata.saved_views_enabled) {
+			this.refresh_saved_views_list();
+		}
 	}
 
 	show_disabled(message) {
@@ -602,7 +626,9 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		}
 
 		this.analysis_context.level_sequence = this.metadata.default_level_sequence;
-		this.analysis_context.page_size = defaults.page_size || 50;
+		if (!this.analysis_context.page_size) {
+			this.analysis_context.page_size = defaults.page_size || 50;
+		}
 		const defaultDimensionType =
 			this.metadata.default_dimension_type || this.metadata.default_dimension_field || null;
 		if (defaultDimensionType) {
@@ -716,6 +742,23 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		this.refresh_summary();
 	}
 
+	_patch_presentation({ schedule_save = true } = {}) {
+		const presentation = this.build_presentation_state();
+		const signature = JSON.stringify(presentation);
+		if (this._presentation_signature === signature) {
+			return false;
+		}
+		this._presentation_signature = signature;
+		this.store.patch({ presentation });
+		if (schedule_save && !this.user_preferences?.is_hydrating?.()) {
+			if (this.user_preferences) {
+				this.user_preferences._applied_axis_signature = null;
+			}
+			this.user_preferences?.schedule_save?.();
+		}
+		return true;
+	}
+
 	handle_datatable_server_sort(column_id, column) {
 		if (this._suppress_datatable_sort_events || !column_id) {
 			return;
@@ -731,6 +774,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		this.analysis_context.sort_order = next_order;
 		this.analysis_context.page = 1;
 		this._pending_grid_perf_operation = "sort";
+		this._patch_presentation({ schedule_save: true });
 		this.refresh_summary();
 	}
 
@@ -1063,11 +1107,19 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			schema_version: 1,
 			visible_columns: this.get_effective_visible_column_ids(),
 			hidden_columns: [...this.get_summary_hidden_columns()],
+			column_order: [...(this.grid_column_order || [])],
+			column_widths: { ...(this.grid_column_widths || {}) },
+			sticky_column: this.grid_sticky_column || this.get_required_summary_column_id(),
 			density: this.grid_density || "comfortable",
 			sort_field: this.analysis_context.sort_field,
 			sort_order: this.analysis_context.sort_order,
 			page_size: this.analysis_context.page_size,
+			number_format: this.number_format_mode || "auto",
 			show_optional_full_voucher_columns: this.show_optional_full_voucher_columns ? 1 : 0,
+			dimension_layout: this.show_full_voucher_dimensions ? "full" : "compact",
+			visible_dimension_fields: Object.entries(this.gl_dimension_column_visibility || {})
+				.filter(([, visible]) => visible !== false)
+				.map(([fieldname]) => fieldname),
 		};
 	}
 
@@ -1081,9 +1133,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 
 	set_summary_hidden_columns(hidden_ids = []) {
 		this.grid_hidden_columns = [...new Set((hidden_ids || []).filter(Boolean))];
-		this.store.patch({
-			presentation: this.build_presentation_state(),
-		});
+		this._patch_presentation({ schedule_save: true });
 	}
 
 	get_required_summary_column_id() {
@@ -1127,13 +1177,66 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 	}
 
 	set_grid_density(mode) {
-		this.grid_density = mode === "compact" ? "compact" : "comfortable";
-		this.datatable_adapter?.set_density?.(this.grid_density);
-		this.store.patch({ presentation: this.build_presentation_state() });
+		const next = mode === "compact" ? "compact" : "comfortable";
+		if (this.grid_density === next) {
+			return;
+		}
+		this.grid_density = next;
+		if (this.datatable_adapter?.is_mounted?.()) {
+			this.datatable_adapter?.set_density?.(this.grid_density);
+		}
+		this._patch_presentation({ schedule_save: true });
 		this.update_grid_toolbar_state();
 		this.announce_grid_status(
 			this.grid_density === "compact" ? __("Compact grid density") : __("Comfortable grid density")
 		);
+	}
+
+	set_page_size(page_size) {
+		const normalized = erpnext_extensions.account_explorer.core.AE_GRID_PAGE_SIZE_OPTIONS.includes(
+			cint(page_size)
+		)
+			? cint(page_size)
+			: 50;
+		if (this.analysis_context.page_size === normalized) {
+			return;
+		}
+		this.analysis_context.page_size = normalized;
+		this.analysis_context.page = 1;
+		this.clear_grid_selection();
+		this._patch_presentation({ schedule_save: true });
+		this.update_grid_toolbar_state();
+		this.refresh_summary();
+	}
+
+	set_number_format_mode(mode) {
+		const allowed = erpnext_extensions.account_explorer.core.AE_NUMBER_FORMAT_MODES;
+		const next = allowed.includes(mode) ? mode : "auto";
+		if (this.number_format_mode === next) {
+			return;
+		}
+		this.number_format_mode = next;
+		this._patch_presentation({ schedule_save: true });
+		this.update_grid_toolbar_state();
+		if (this.is_datatable_summary_enabled() && this.datatable_adapter?.is_mounted?.()) {
+			void this.render_grid(this.last_summary_columns || []);
+		}
+	}
+
+	prompt_reset_grid_preferences(reset_all = false) {
+		const confirm_message = reset_all
+			? __("Reset grid preferences for all axes?")
+			: __("Reset grid preferences for the current axis?");
+		frappe.confirm(confirm_message, () => {
+			if (reset_all) {
+				this.user_preferences.reset_all_axes();
+			} else {
+				this.user_preferences.reset_current_axis();
+			}
+			this.clear_grid_selection();
+			this.refresh_summary();
+			frappe.show_alert({ message: __("Grid preferences reset."), indicator: "green" });
+		});
 	}
 
 	build_saved_view_payload(view_name) {
@@ -1384,9 +1487,10 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 	}
 
 	format_display_amount(value) {
-		return ae_format_compact_amount(
+		return ae_format_amount_with_mode(
 			value ?? 0,
-			this.currency_code || frappe.defaults.get_default("currency")
+			this.currency_code || frappe.defaults.get_default("currency"),
+			this.number_format_mode || "auto"
 		);
 	}
 
@@ -2183,7 +2287,6 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		this.analysis_context.detail_mode = "summary";
 		this.analysis_context.page = 1;
 		this.clear_grid_selection();
-		this.grid_hidden_columns = [];
 		this._reset_breadcrumbs([]);
 		this._pending_grid_perf_operation = "axis_switch";
 		if (view_axis !== "voucher") {
@@ -2222,6 +2325,15 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			this.analysis_context.sort_order = "desc";
 		} else {
 			this.analysis_context.sort_field = "display_code";
+		}
+		if (this.user_preferences?._loaded) {
+			const dimension_type =
+				view_axis === "dimension"
+					? this.analysis_context.dimension_scope.dimension_type
+					: null;
+			this.user_preferences.apply_axis_to_controller(
+				this.user_preferences.get_axis_key(view_axis, dimension_type)
+			);
 		}
 		this.render_navigator();
 		this.render_detail_header();
@@ -2383,9 +2495,89 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		const hidden = new Set(this.get_summary_hidden_columns());
 		const required = this.get_required_summary_column_id();
 		const allowed = new Set(this.get_default_visible_columns());
-		return (columns || []).filter(
-			(col) => allowed.has(col.id) && (!hidden.has(col.id) || col.id === required)
+		const ordered_ids = this.get_ordered_summary_column_ids(columns);
+		const by_id = new Map((columns || []).map((col) => [col.id, col]));
+		return ordered_ids
+			.map((id) => by_id.get(id))
+			.filter(
+				(col) =>
+					col &&
+					allowed.has(col.id) &&
+					(!hidden.has(col.id) || col.id === required)
+			);
+	}
+
+	get_ordered_summary_column_ids(columns = this.last_summary_columns) {
+		const allowed = this.get_default_visible_columns();
+		const saved_order = (this.grid_column_order || []).filter((id) => allowed.includes(id));
+		const ordered = [];
+		saved_order.forEach((id) => {
+			if (!ordered.includes(id)) {
+				ordered.push(id);
+			}
+		});
+		allowed.forEach((id) => {
+			if (!ordered.includes(id)) {
+				ordered.push(id);
+			}
+		});
+		(columns || []).forEach((col) => {
+			if (col?.id && allowed.includes(col.id) && !ordered.includes(col.id)) {
+				ordered.push(col.id);
+			}
+		});
+		return ordered;
+	}
+
+	build_datatable_column_state(visible_columns) {
+		const sticky = this.grid_sticky_column || this.get_required_summary_column_id();
+		return (visible_columns || []).map((col) => ({
+			id: col.id,
+			width: this.grid_column_widths?.[col.id] || null,
+			sortOrder:
+				this.analysis_context.sort_field === col.id
+					? this.analysis_context.sort_order
+					: "none",
+			sticky: col.id === sticky,
+		}));
+	}
+
+	handle_datatable_column_state_changed() {
+		const state = (this.datatable_adapter?.get_column_state?.() || []).filter(
+			(col) => col?.id && !String(col.id).startsWith("_")
 		);
+		if (!state.length) {
+			return;
+		}
+		const visible_ids = new Set(state.map((col) => col.id).filter(Boolean));
+		const allowed = this.get_default_visible_columns();
+		const required = this.get_required_summary_column_id();
+		this.grid_column_order = state.map((col) => col.id).filter(Boolean);
+		const has_checkbox_column = (this.datatable_adapter?.get_column_state?.() || []).some((col) =>
+			String(col?.id || "").startsWith("_")
+		);
+		// When checkbox/internal columns are present, adapter "visibility" is not a reliable hide signal
+		// after programmatic apply_column_state. Preserve explicit controller hides in that case unless
+		// the user removed a business column through DataTable chrome.
+		const removed_business_columns = allowed.filter(
+			(id) => !visible_ids.has(id) && id !== required && !(this.grid_hidden_columns || []).includes(id)
+		);
+		if (!has_checkbox_column || removed_business_columns.length) {
+			this.grid_hidden_columns = allowed.filter((id) => !visible_ids.has(id) && id !== required);
+		}
+		const widths = { ...(this.grid_column_widths || {}) };
+		state.forEach((col) => {
+			if (col?.id && col.width) {
+				widths[col.id] = col.width;
+			}
+		});
+		Object.keys(widths).forEach((column_id) => {
+			if (String(column_id).startsWith("_")) {
+				delete widths[column_id];
+			}
+		});
+		this.grid_column_widths = widths;
+		this._patch_presentation({ schedule_save: true });
 	}
 
 	build_summary_grid_meta_html() {
@@ -2417,6 +2609,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 							.prop("checked", this.show_optional_full_voucher_columns)
 							.on("change", (e) => {
 								this.show_optional_full_voucher_columns = e.target.checked;
+								this._patch_presentation({ schedule_save: true });
 								void this.render_grid(this.last_summary_columns || []);
 							}),
 						" " + __("Show full voucher debit/credit columns")
@@ -2535,10 +2728,86 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			actions_column: show_voucher_actions ? { width: 220 } : null,
 			format_amount: (value) => this.format_display_amount(value),
 			render_actions_html: (row) => this.build_voucher_actions_html(row),
+			column_widths: { ...(this.grid_column_widths || {}) },
 			on_server_sort: (column_id, column) => this.handle_datatable_server_sort(column_id, column),
 			on_selection_change: (checked_rows) => this.handle_datatable_selection_change(checked_rows),
+			on_column_removed: () => this.handle_datatable_column_state_changed(),
+			on_column_switched: () => this.handle_datatable_column_state_changed(),
+			on_column_resized: () => this.handle_datatable_column_state_changed(),
 			empty_message: __("No rows match the current scope."),
 		};
+	}
+
+	build_page_size_control() {
+		const $wrap = $('<label class="ae-grid-toolbar-control ae-grid-toolbar-control--page-size"></label>');
+		$wrap.append($('<span class="ae-grid-toolbar-control-label">').text(__("Page Size")));
+		const $select = $('<select class="form-control input-xs ae-grid-page-size-select"></select>');
+		erpnext_extensions.account_explorer.core.AE_GRID_PAGE_SIZE_OPTIONS.forEach((size) => {
+			$select.append(
+				$("<option>")
+					.val(String(size))
+					.text(String(size))
+					.prop("selected", cint(this.analysis_context.page_size) === size)
+			);
+		});
+		$select.on("change", (event) => {
+			this.set_page_size($(event.currentTarget).val());
+		});
+		return $wrap.append($select);
+	}
+
+	build_number_format_control() {
+		const labels = {
+			raw: __("Raw"),
+			auto: __("Auto"),
+			thousands: __("Thousands"),
+			millions: __("Millions"),
+			billions: __("Billions"),
+			trillions: __("Trillions"),
+		};
+		const $wrap = $('<label class="ae-grid-toolbar-control ae-grid-toolbar-control--number-format"></label>');
+		$wrap.append($('<span class="ae-grid-toolbar-control-label">').text(__("Numbers")));
+		const $select = $('<select class="form-control input-xs ae-grid-number-format-select"></select>');
+		erpnext_extensions.account_explorer.core.AE_NUMBER_FORMAT_MODES.forEach((mode) => {
+			$select.append(
+				$("<option>")
+					.val(mode)
+					.text(labels[mode] || mode)
+					.prop("selected", (this.number_format_mode || "auto") === mode)
+			);
+		});
+		$select.on("change", (event) => {
+			this.set_number_format_mode($(event.currentTarget).val());
+		});
+		return $wrap.append($select);
+	}
+
+	ensure_summary_grid_prefs_controls() {
+		if (this._$grid_prefs_controls?.length && this._$grid_prefs_controls.data("ae-bound")) {
+			return this._$grid_prefs_controls;
+		}
+		const $prefs = $('<div class="ae-grid-toolbar-prefs"></div>');
+		$prefs.append(
+			this.build_page_size_control(),
+			this.build_number_format_control(),
+			$('<button type="button" class="btn btn-default btn-xs ae-grid-toolbar-btn ae-grid-toolbar-btn--reset-prefs">')
+				.text(__("Reset Grid Preferences"))
+				.attr("aria-label", __("Reset grid preferences for current axis"))
+				.on("click", (event) => {
+					event.stopPropagation();
+					this.prompt_reset_grid_preferences(false);
+				}),
+			$('<button type="button" class="btn btn-default btn-xs ae-grid-toolbar-btn ae-grid-toolbar-btn--reset-prefs-all">')
+				.text(__("Reset All Axes"))
+				.attr("aria-label", __("Reset grid preferences for all axes"))
+				.on("click", (event) => {
+					event.stopPropagation();
+					this.prompt_reset_grid_preferences(true);
+				})
+		);
+		$prefs.data("ae-bound", 1);
+		this._$grid_prefs_controls = $prefs;
+		return $prefs;
 	}
 
 	build_summary_grid_toolbar() {
@@ -2589,7 +2858,8 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 								? __("Switch to comfortable density")
 								: __("Switch to compact density")
 						);
-				})
+				}),
+			this.ensure_summary_grid_prefs_controls()
 		);
 		const $meta = $('<div class="ae-grid-toolbar-meta"></div>').appendTo($toolbar);
 		$meta.append(
@@ -2612,6 +2882,8 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		const selected_count = this.get_checked_row_count();
 		$toolbar.find(".ae-grid-meta-item--selected").text(__("Selected: {0}", [selected_count]));
 		$toolbar.find(".ae-grid-toolbar-btn--clear").prop("disabled", !selected_count);
+		$toolbar.find(".ae-grid-page-size-select").val(String(this.analysis_context.page_size || 50));
+		$toolbar.find(".ae-grid-number-format-select").val(this.number_format_mode || "auto");
 	}
 
 	show_column_chooser() {
@@ -2907,10 +3179,16 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		if (this._is_stale_grid_render(generation)) {
 			return;
 		}
+		if (!this.grid_column_order?.length) {
+			this.grid_column_order = visible.map((col) => col.id);
+		}
 		this.datatable_adapter.set_loading(false);
-		this.store.patch({
-			presentation: this.build_presentation_state(),
-		});
+		const presentation = this.build_presentation_state();
+		const presentation_signature = JSON.stringify(presentation);
+		if (this._presentation_signature !== presentation_signature) {
+			this._presentation_signature = presentation_signature;
+			this.store.patch({ presentation }, { silent: true });
+		}
 		this.announce_grid_status(__("Summary grid ready"));
 	}
 

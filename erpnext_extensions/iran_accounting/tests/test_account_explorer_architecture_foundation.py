@@ -33,6 +33,7 @@ class TestAccountExplorerArchitectureFoundation(unittest.TestCase):
 			"core/explorer_store.js",
 			"core/explorer_plugins.js",
 			"core/explorer_workspace_state.js",
+			"core/ae_user_preferences.js",
 			"adapters/ae_datatable_adapter.js",
 		):
 			path = os.path.join(base, rel)
@@ -50,6 +51,7 @@ class TestAccountExplorerArchitectureFoundation(unittest.TestCase):
 			content = handle.read()
 		for fragment in (
 			'{% include "erpnext_extensions/erpnext_extensions/page/account_explorer/core/explorer_events.js" %}',
+			'{% include "erpnext_extensions/erpnext_extensions/page/account_explorer/core/ae_user_preferences.js" %}',
 			'{% include "erpnext_extensions/erpnext_extensions/page/account_explorer/adapters/ae_datatable_adapter.js" %}',
 			'$(wrapper).bind("show"',
 			"_init_explorer_architecture",

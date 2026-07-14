@@ -15,6 +15,13 @@ frappe.provide("erpnext_extensions.account_explorer.core");
  * - grid:selection_changed — checkbox / row selection changed
  * - grid:column_state_changed — column reorder/remove
  * - grid:destroyed           — summary DataTable destroyed
+ * - preferences:loading      — user grid preferences load started (3B-2)
+ * - preferences:loaded       — user grid preferences hydrated
+ * - preferences:changed      — presentation preferences changed
+ * - preferences:saving       — debounced save started
+ * - preferences:saved        — preferences persisted to User Settings
+ * - preferences:error        — load/save failure
+ * - preferences:reset        — axis/all preferences reset
  * - plugin:registered      — axis plugin registered ({ plugin })
  * - plugin:unregistered    — axis plugin removed ({ id })
  *

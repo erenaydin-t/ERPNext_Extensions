@@ -1625,6 +1625,37 @@ html[dir="rtl"] .account-explorer-page .ae-nav-pill--level {
 	align-items: flex-end;
 }
 
+.account-explorer-page .ae-grid-toolbar-prefs {
+	display: inline-flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-inline-start: 8px;
+}
+
+.account-explorer-page .ae-grid-toolbar-control {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	margin-inline-start: 8px;
+}
+
+.account-explorer-page .ae-grid-toolbar-control-label {
+	font-size: 11px;
+	color: var(--text-muted);
+	white-space: nowrap;
+}
+
+.account-explorer-page .ae-grid-toolbar-control select {
+	min-width: 88px;
+	height: 24px;
+	padding: 0 6px;
+}
+
+.account-explorer-page .ae-grid-toolbar-btn--reset-prefs-all {
+	margin-inline-start: 4px;
+}
+
 /* Dark theme contrast safeguards */
 [data-theme="dark"] .account-explorer-page .ae-nav-tab.active,
 .dark .account-explorer-page .ae-nav-tab.active {
