@@ -67,14 +67,17 @@ def assert_stock_entry_ledger_determinism(voucher_no: str, company: str) -> dict
 
 	from erpnext_extensions.iran_accounting.zero_value_transfer import (
 		ZERO_VALUE_TRANSFER_STOCK_ENTRY_PURPOSES,
+		expected_balanced_transfer_gl_magnitude,
 	)
 
 	if doc.purpose in ZERO_VALUE_TRANSFER_STOCK_ENTRY_PURPOSES and flt(doc.value_difference) == 0:
-		expected_gl = flt(doc.total_incoming_value)
-		if sle_pos != expected_gl:
-			failures.append(f"transfer incoming SLE {sle_pos} != row total incoming {expected_gl}")
+		expected_gl = expected_balanced_transfer_gl_magnitude(doc)
+		if sle_pos != flt(doc.total_incoming_value):
+			failures.append(
+				f"transfer incoming SLE {sle_pos} != row total incoming {flt(doc.total_incoming_value)}"
+			)
 		if gl_mag != expected_gl:
-			failures.append(f"GL magnitude {gl_mag} != incoming total {expected_gl}")
+			failures.append(f"GL magnitude {gl_mag} != expected transfer GL {expected_gl}")
 	else:
 		if abs(sle_sum) != row_gross and doc.purpose in ("Material Receipt", "Material Issue"):
 			failures.append(f"|Σ SLE| {abs(sle_sum)} != Σ row.amount {row_gross}")

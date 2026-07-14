@@ -7,7 +7,7 @@ from collections import defaultdict
 
 import frappe
 from erpnext.accounts.doctype.accounting_dimension.accounting_dimension import get_accounting_dimensions
-from erpnext.accounts.general_ledger import process_gl_map
+from erpnext.accounts.general_ledger import get_merge_key, get_merge_properties, process_gl_map
 from erpnext.stock.doctype.inventory_dimension.inventory_dimension import get_inventory_dimensions
 from frappe import _
 from frappe.utils import flt
@@ -258,6 +258,22 @@ def get_debit_field_precision_for_company(self):
 	return self._iran_original_get_debit_field_precision()
 
 
+def _erpnext_gl_merge_key(entry) -> tuple:
+	"""Same merge semantics as ERPNext merge_similar_entries (pre-submit GL dict)."""
+	return get_merge_key(entry, get_merge_properties(get_accounting_dimensions()))
+
+
+def _should_skip_balanced_transfer_gl_pair(self, credit_entry, debit_entry, precision) -> bool:
+	"""Skip both legs when merge would net to a single non-empty GL row (FINAL_GL_COUNT == 1)."""
+	if _erpnext_gl_merge_key(credit_entry) != _erpnext_gl_merge_key(debit_entry):
+		return False
+	credit_amt = flt(credit_entry.credit, precision)
+	debit_amt = flt(debit_entry.debit, precision)
+	if credit_amt != debit_amt:
+		return False
+	return True
+
+
 def _append_balanced_transfer_item_gl(self, gl_list, item_row, inventory_account_map, precision):
 	"""Post one credit (source) + one debit (target) from item amount — avoids duplicate SLE aggregation."""
 	from_wh = item_row.get("s_warehouse")
@@ -279,31 +295,51 @@ def _append_balanced_transfer_item_gl(self, gl_list, item_row, inventory_account
 		"remarks": self.get("remarks") or _("Accounting Entry for Stock"),
 		"is_opening": item_row.get("is_opening") or self.get("is_opening") or "No",
 	}
-	gl_list.append(
-		self.get_gl_dict(
-			{
-				**base,
-				"account": out_inv["account"],
-				"against": in_inv["account"],
-				"credit": amount,
-			},
-			out_inv["account_currency"],
-			item=item_row,
-		)
+	credit_entry = self.get_gl_dict(
+		{
+			**base,
+			"account": out_inv["account"],
+			"against": in_inv["account"],
+			"credit": amount,
+		},
+		out_inv["account_currency"],
+		item=item_row,
 	)
-	gl_list.append(
-		self.get_gl_dict(
-			{
-				**base,
-				"account": in_inv["account"],
-				"against": out_inv["account"],
-				"debit": amount,
-			},
-			in_inv["account_currency"],
-			item=item_row,
-		)
+	debit_entry = self.get_gl_dict(
+		{
+			**base,
+			"account": in_inv["account"],
+			"against": out_inv["account"],
+			"debit": amount,
+		},
+		in_inv["account_currency"],
+		item=item_row,
 	)
+	if _should_skip_balanced_transfer_gl_pair(self, credit_entry, debit_entry, precision):
+		return True
+	gl_list.append(credit_entry)
+	gl_list.append(debit_entry)
 	return True
+
+
+def expected_balanced_transfer_gl_magnitude(doc, inventory_account_map=None) -> float:
+	"""Σ row.amount for items whose source/target warehouses use different stock accounts."""
+	if not inventory_account_map:
+		inventory_account_map = doc.get_inventory_account_map()
+	total = 0.0
+	for row in doc.get("items") or []:
+		if not (row.get("s_warehouse") and row.get("t_warehouse")):
+			continue
+		out_a = doc.get_inventory_account_dict(
+			row, inventory_account_map, warehouse_field="s_warehouse"
+		).get("account")
+		in_a = doc.get_inventory_account_dict(
+			row, inventory_account_map, warehouse_field="t_warehouse"
+		).get("account")
+		if out_a == in_a:
+			continue
+		total += flt(row.get("amount"))
+	return flt(total)
 
 
 def get_gl_entries(self, inventory_account_map=None, default_expense_account=None, default_cost_center=None):
