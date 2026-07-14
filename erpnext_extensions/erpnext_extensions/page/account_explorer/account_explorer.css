@@ -513,6 +513,36 @@
 	max-width: 100%;
 }
 
+.account-explorer-page .ae-breadcrumb-segment {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	max-width: 100%;
+	min-width: 0;
+}
+
+.account-explorer-page .ae-breadcrumb-remove {
+	appearance: none;
+	border: none;
+	background: transparent;
+	color: var(--text-muted);
+	cursor: pointer;
+	padding: 0 4px;
+	margin-inline-start: 1px;
+	line-height: 1.1;
+	font-size: 14px;
+	border-radius: var(--border-radius-sm, 4px);
+	flex-shrink: 0;
+}
+
+.account-explorer-page .ae-breadcrumb-remove:hover,
+.account-explorer-page .ae-breadcrumb-remove:focus-visible {
+	color: var(--red-500, #e03636);
+	background: var(--fg-hover-color);
+	outline: 2px solid var(--primary, #2490ef);
+	outline-offset: 1px;
+}
+
 .account-explorer-page .ae-breadcrumb-text,
 .account-explorer-page .ae-breadcrumb-link {
 	display: inline-block;

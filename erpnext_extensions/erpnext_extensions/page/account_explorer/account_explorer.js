@@ -337,6 +337,11 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		crumbs.length = 0;
 		(trail || []).forEach((chip) => crumbs.push(chip));
 		this.breadcrumbs = crumbs;
+		this._sync_store_context({ emit: false });
+	}
+
+	sync_scope_trail_from_store() {
+		this.breadcrumbs = [...(this.store.get("navigation")?.breadcrumbs || [])];
 	}
 
 	_sync_store_context({ emit = false } = {}) {
@@ -444,7 +449,11 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			(this.analysis_context.detail_mode === "grouped_gl" ||
 				this.analysis_context.voucher_scope?.voucher_no);
 		if (this.$back_btn) {
-			this.$back_btn.toggle(!!this.breadcrumbs?.length || has_voucher_drill);
+			this.$back_btn.toggle(
+				!!this.get_scope_trail().length ||
+					has_voucher_drill ||
+					this.analysis_context.detail_mode === "grouped_gl"
+			);
 		}
 	}
 
@@ -1421,41 +1430,55 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 				step: "company",
 				label: this.get_company_path_label(),
 				kind: "company",
-				clickable: true,
+				clickable: this.has_removable_analysis_state(),
+				removable: false,
 			},
 		];
-		const trail = this.get_normalized_breadcrumb_trail();
+		const scope_trail = this.get_scope_trail();
+		const path_source_axis = this.get_path_source_axis();
+		const view_axis = this.analysis_context.view_axis;
+		const voucher_scope = this.analysis_context.voucher_scope || {};
+		const has_type = !!voucher_scope.voucher_type;
+		const has_no = !!voucher_scope.voucher_no;
+		const is_gl = this.analysis_context.detail_mode === "grouped_gl";
+		const on_voucher_path = view_axis === "voucher" || is_gl;
 
-		trail.forEach((chip, index) => {
+		segments.push({
+			step: "axis",
+			view_axis: path_source_axis,
+			label: this.get_axis_path_label(path_source_axis),
+			kind: "axis",
+			clickable: scope_trail.length > 0 || on_voucher_path,
+			removable: false,
+		});
+
+		scope_trail.forEach((chip, index) => {
 			segments.push({
-				step: `crumb:${index}`,
+				step: `scope:${index}`,
 				label: chip.label,
-				kind: "crumb",
-				crumb_index: index,
+				kind: "scope",
+				scope_index: index,
 				is_virtual: !!chip.is_virtual_group,
-				clickable: true,
+				clickable: index < scope_trail.length - 1 || on_voucher_path,
+				removable: true,
 			});
 		});
 
-		if (this.analysis_context.view_axis === "voucher") {
-			const voucher_scope = this.analysis_context.voucher_scope || {};
-			const has_type = !!voucher_scope.voucher_type;
-			const has_no = !!voucher_scope.voucher_no;
-			const is_gl = this.analysis_context.detail_mode === "grouped_gl";
-
+		if (on_voucher_path) {
 			segments.push({
 				step: "voucher_axis",
-				label: __("Voucher"),
-				kind: "axis",
+				label: __("Vouchers"),
+				kind: "voucher_axis",
 				clickable: has_type || has_no || is_gl,
+				removable: false,
 			});
-
 			if (has_type) {
 				segments.push({
 					step: "voucher_type",
 					label: voucher_scope.voucher_type,
 					kind: "voucher_meta",
 					clickable: has_no || is_gl,
+					removable: false,
 				});
 			}
 			if (has_no) {
@@ -1464,6 +1487,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 					label: voucher_scope.voucher_no,
 					kind: "voucher_meta",
 					clickable: is_gl,
+					removable: false,
 				});
 			}
 			if (is_gl) {
@@ -1471,31 +1495,74 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 					step: "gl_detail",
 					label: __("GL Detail"),
 					kind: "detail",
-					active: true,
+					clickable: false,
+					removable: false,
 				});
-			} else {
-				segments[segments.length - 1].active = true;
 			}
-			return segments;
 		}
 
-		if (!trail.length) {
-			segments.push({
-				step: "view",
-				label: this.get_current_view_path_label(),
-				kind: "view",
-				active: true,
+		if (segments.length) {
+			segments.forEach((segment) => {
+				segment.active = false;
 			});
-			return segments;
+			segments[segments.length - 1].active = true;
 		}
-
-		segments.push({
-			step: "view",
-			label: this.get_axis_path_label(this.analysis_context.view_axis),
-			kind: "view",
-			active: true,
-		});
 		return segments;
+	}
+
+	has_removable_analysis_state() {
+		return (
+			this.get_scope_trail().length > 0 ||
+			this.analysis_context.view_axis === "voucher" ||
+			this.analysis_context.detail_mode === "grouped_gl" ||
+			this.has_active_non_default_scope()
+		);
+	}
+
+	has_active_non_default_scope() {
+		const account = this.analysis_context.account_scope || {};
+		if (account.selected_account || account.virtual_row_key) {
+			return true;
+		}
+		if (this.analysis_context.party_scope?.selected_party) {
+			return true;
+		}
+		if (this.analysis_context.unified_party_scope?.selected_unified_party) {
+			return true;
+		}
+		if (this.analysis_context.dimension_scope?.selected_dimension_value !== null &&
+			this.analysis_context.dimension_scope?.selected_dimension_value !== undefined) {
+			return true;
+		}
+		return false;
+	}
+
+	get_path_source_axis() {
+		const trail = this.get_normalized_breadcrumb_trail();
+		if (trail.length) {
+			return trail[0].axis || "account_level";
+		}
+		if (this.analysis_context.view_axis === "voucher" || this.analysis_context.detail_mode === "grouped_gl") {
+			if (this.analysis_context.account_scope?.selected_account || this.analysis_context.account_scope?.virtual_row_key) {
+				return "account_level";
+			}
+			if (this.analysis_context.party_scope?.selected_party) {
+				return "party";
+			}
+			if (this.analysis_context.unified_party_scope?.selected_unified_party) {
+				return "unified_party";
+			}
+			if (this.analysis_context.dimension_scope?.selected_dimension_value) {
+				return "dimension";
+			}
+			return "account_level";
+		}
+		return this.analysis_context.view_axis || "account_level";
+	}
+
+	get_scope_trail() {
+		const source_axis = this.get_path_source_axis();
+		return this.get_normalized_breadcrumb_trail().filter((chip) => (chip.axis || source_axis) === source_axis);
 	}
 
 	get_breadcrumb_chip_key(chip) {
@@ -1536,11 +1603,17 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		}
 		if (segment.step === "company") {
 			this.reset_analysis();
+			this.analysis_context.view_axis = "account_level";
+			this.render_navigator();
 			return;
 		}
-		if (segment.step && segment.step.startsWith("crumb:")) {
-			const trail = this.get_normalized_breadcrumb_trail();
-			this._reset_breadcrumbs(trail.slice(0, segment.crumb_index + 1));
+		if (segment.step === "axis") {
+			this.navigate_to_axis_root(segment.view_axis || this.get_path_source_axis());
+			return;
+		}
+		if (segment.step && segment.step.startsWith("scope:")) {
+			const scope_trail = this.get_scope_trail();
+			this._reset_breadcrumbs(scope_trail.slice(0, segment.scope_index + 1));
 			this.restore_context_from_breadcrumbs();
 			return;
 		}
@@ -1573,6 +1646,84 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			this.render_detail_header();
 			this.refresh_summary();
 		}
+	}
+
+	navigate_to_axis_root(view_axis) {
+		this._reset_breadcrumbs([]);
+		this.clear_axis_scopes(view_axis);
+		this.analysis_context.view_axis = view_axis;
+		this.analysis_context.detail_mode = "summary";
+		this.analysis_context.voucher_scope = { voucher_type: null, voucher_no: null };
+		this.analysis_context.page = 1;
+		this.voucher_header = null;
+		this.render_navigator();
+		this.render_breadcrumbs();
+		this.render_detail_header();
+		this._sync_store_context({ emit: true });
+		this.refresh_summary();
+	}
+
+	clear_axis_scopes(view_axis) {
+		if (view_axis === "account_level") {
+			this.analysis_context.account_scope = {
+				mode: "tree",
+				selected_account: null,
+				virtual_row_key: null,
+				is_virtual_group: 0,
+				level_sequence: this.metadata?.default_level_sequence ?? null,
+				tree_root_account: null,
+			};
+			this.analysis_context.level_sequence = this.metadata?.default_level_sequence ?? null;
+			return;
+		}
+		if (view_axis === "party") {
+			this.analysis_context.party_scope = { party_type: null, selected_party: null };
+			return;
+		}
+		if (view_axis === "unified_party") {
+			this.analysis_context.unified_party_scope = {
+				selected_unified_party: null,
+				include_unmapped: 0,
+			};
+			return;
+		}
+		if (view_axis === "dimension") {
+			this.analysis_context.dimension_scope.selected_dimension_value = null;
+			return;
+		}
+		if (view_axis === "currency") {
+			this.document_scope.currency = {
+				...this.document_scope.currency,
+				currency: null,
+			};
+		}
+	}
+
+	remove_scope_at(scope_index) {
+		const scope_trail = this.get_scope_trail();
+		if (scope_index < 0 || scope_index >= scope_trail.length) {
+			return;
+		}
+		this._reset_breadcrumbs(scope_trail.slice(0, scope_index));
+		if (!this.breadcrumbs.length) {
+			this.navigate_to_axis_root(this.get_path_source_axis());
+			return;
+		}
+		this.restore_context_from_breadcrumbs();
+	}
+
+	get_scope_remove_label(segment) {
+		const axis = this.get_path_source_axis();
+		if (axis === "account_level") {
+			return __("Remove account scope {0}", [segment.label]);
+		}
+		if (axis === "party") {
+			return __("Remove party scope {0}", [segment.label]);
+		}
+		if (axis === "dimension") {
+			return __("Remove dimension scope {0}", [segment.label]);
+		}
+		return __("Remove scope {0}", [segment.label]);
 	}
 
 	render_level_nav_pill($menu, level) {
@@ -1691,6 +1842,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		this.analysis_context.view_axis = view_axis;
 		this.analysis_context.detail_mode = "summary";
 		this.analysis_context.page = 1;
+		this._reset_breadcrumbs([]);
 		if (view_axis !== "voucher") {
 			this.analysis_context.voucher_scope = { voucher_type: null, voucher_no: null };
 		}
@@ -1730,6 +1882,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		}
 		this.render_navigator();
 		this.render_detail_header();
+		this.render_breadcrumbs();
 		this.destroy_summary_datatable();
 		this._sync_store_context({ emit: true });
 		if (this.document_scope.from_date && this.document_scope.to_date) {
@@ -2865,6 +3018,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			return;
 		}
 		this.leave_gl_detail_for_analysis();
+		this._reset_breadcrumbs([]);
 		this.analysis_context.view_axis = "account_level";
 		this.analysis_context.account_scope = {
 			mode: "account",
@@ -2895,6 +3049,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			return;
 		}
 		this.leave_gl_detail_for_analysis();
+		this._reset_breadcrumbs([]);
 		this.analysis_context.view_axis = "party";
 		this.analysis_context.party_scope = {
 			party_type: row.party_type,
@@ -2920,6 +3075,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			return;
 		}
 		this.leave_gl_detail_for_analysis();
+		this._reset_breadcrumbs([]);
 		this.analysis_context.view_axis = "dimension";
 		this.analysis_context.dimension_scope = {
 			dimension_type,
@@ -3259,14 +3415,43 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			return;
 		}
 		const key = this.get_breadcrumb_chip_key(chip);
-		const last = this.breadcrumbs[this.breadcrumbs.length - 1];
+		const trail = this.get_normalized_breadcrumb_trail();
+		const last = trail[trail.length - 1];
 		if (last && this.get_breadcrumb_chip_key(last) === key) {
 			return;
 		}
 		this.breadcrumbs.push(chip);
+		this._sync_store_context({ emit: false });
+	}
+
+	render_breadcrumb_segment($item, segment) {
+		const $segment = $('<span class="ae-breadcrumb-segment"></span>');
+		if (segment.clickable && !segment.active) {
+			$segment.append(
+				$('<button type="button" class="ae-breadcrumb-link">')
+					.text(segment.label)
+					.on("click", () => this.navigate_to_path_step(segment))
+			);
+		} else {
+			$segment.append($('<span class="ae-breadcrumb-text">').text(segment.label));
+		}
+		if (segment.removable) {
+			$segment.append(
+				$('<button type="button" class="ae-breadcrumb-remove" aria-hidden="true">')
+					.text("×")
+					.attr("aria-label", this.get_scope_remove_label(segment))
+					.on("click", (event) => {
+						event.preventDefault();
+						event.stopPropagation();
+						this.remove_scope_at(segment.scope_index);
+					})
+			);
+		}
+		$item.append($segment);
 	}
 
 	render_breadcrumbs() {
+		this.sync_scope_trail_from_store();
 		this.$context.empty().addClass("ae-breadcrumb-bar");
 		const segments = this.build_analysis_path_segments();
 		const $trail = $('<nav class="ae-breadcrumb" aria-label="' + __("Analysis Path") + '"></nav>');
@@ -3279,15 +3464,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			const $item = $('<li class="ae-breadcrumb-item"></li>')
 				.toggleClass("is-active", !!segment.active)
 				.toggleClass("is-virtual", !!segment.is_virtual);
-			if (segment.clickable && !segment.active) {
-				$item.append(
-					$('<button type="button" class="ae-breadcrumb-link">')
-						.text(segment.label)
-						.on("click", () => this.navigate_to_path_step(segment))
-				);
-			} else {
-				$item.append($('<span class="ae-breadcrumb-text">').text(segment.label));
-			}
+			this.render_breadcrumb_segment($item, segment);
 			$list.append($item);
 		});
 
@@ -3299,12 +3476,10 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 	}
 
 	restore_context_from_breadcrumbs() {
-		const trail = this.get_normalized_breadcrumb_trail();
-		this.reset_analysis(false);
+		const trail = this.get_scope_trail();
 		this._reset_breadcrumbs(trail);
 		if (!this.breadcrumbs.length) {
-			this.render_breadcrumbs();
-			this.render_detail_header();
+			this.navigate_to_axis_root(this.get_path_source_axis());
 			return;
 		}
 		const last = this.breadcrumbs[this.breadcrumbs.length - 1];
@@ -3334,7 +3509,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 				};
 			}
 		} else {
-			this.analysis_context.view_axis = "account_level";
+			this.analysis_context.view_axis = last.axis || "account_level";
 			this.analysis_context.account_scope = {
 				mode: last.selected_account ? "account" : "virtual_prefix",
 				selected_account: last.selected_account,
@@ -3374,13 +3549,18 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			return;
 		}
 		if (this.breadcrumbs.length) {
-			this.breadcrumbs.pop();
+			this._reset_breadcrumbs(this.get_scope_trail().slice(0, -1));
+			if (!this.breadcrumbs.length) {
+				this.navigate_to_axis_root(this.get_path_source_axis());
+				return;
+			}
 			this.restore_context_from_breadcrumbs();
 		}
 	}
 
 	reset_analysis(refresh = true) {
-		this._reset_breadcrumbs();
+		this._reset_breadcrumbs([]);
+		this.analysis_context.view_axis = "account_level";
 		this.analysis_context.account_scope = {
 			mode: "tree",
 			selected_account: null,
@@ -3407,8 +3587,10 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		this.analysis_context.page = 1;
 		this.voucher_header = null;
 		this.hide_member_panel();
+		this.render_navigator();
 		this.render_breadcrumbs();
 		this.render_detail_header();
+		this._sync_store_context({ emit: true });
 		if (refresh) {
 			this.refresh_summary();
 		}
