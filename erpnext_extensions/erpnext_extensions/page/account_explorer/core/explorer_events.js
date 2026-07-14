@@ -10,6 +10,11 @@ frappe.provide("erpnext_extensions.account_explorer.core");
  * - summary:loading        — summary request started (store.loading.summary = true)
  * - summary:loaded         — summary response applied ({ data })
  * - workspace:restored     — workspace state hydrated from URL/token (3B-5)
+ * - grid:mounted           — summary DataTable mounted
+ * - grid:updated           — summary DataTable refreshed
+ * - grid:selection_changed — checkbox / row selection changed
+ * - grid:column_state_changed — column reorder/remove
+ * - grid:destroyed           — summary DataTable destroyed
  * - plugin:registered      — axis plugin registered ({ plugin })
  * - plugin:unregistered    — axis plugin removed ({ id })
  *

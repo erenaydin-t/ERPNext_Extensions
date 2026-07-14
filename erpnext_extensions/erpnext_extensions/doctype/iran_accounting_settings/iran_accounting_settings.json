@@ -24,6 +24,7 @@
   "saved_views_enabled",
   "export_enabled",
   "diagnostics_enabled",
+  "account_explorer_datatable_enabled",
   "column_break_wave2a",
   "account_explorer_party_sources",
   "section_default_behavior",
@@ -134,6 +135,13 @@
    "fieldname": "diagnostics_enabled",
    "fieldtype": "Check",
    "label": "Diagnostics Enabled"
+  },
+  {
+   "default": "0",
+   "description": "Use Frappe DataTable for Account Explorer summary grids. GL Detail remains on the legacy grid until a later wave.",
+   "fieldname": "account_explorer_datatable_enabled",
+   "fieldtype": "Check",
+   "label": "Account Explorer DataTable Summary Grid"
   },
   {
    "fieldname": "column_break_wave2a",

@@ -208,6 +208,7 @@ def get_metadata() -> dict:
 		settings.export_background_threshold if settings.export_background_threshold is not None else 5000
 	)
 	diagnostics_enabled = int(settings.diagnostics_enabled or 0)
+	datatable_enabled = int(settings.account_explorer_datatable_enabled or 0)
 	axes = [
 		{
 			"id": "account_level",
@@ -242,6 +243,7 @@ def get_metadata() -> dict:
 		"export_enabled": export_enabled,
 		"export_background_threshold": export_background_threshold,
 		"diagnostics_enabled": diagnostics_enabled,
+		"account_explorer_datatable_enabled": datatable_enabled,
 		"allow_gl_entry_navigation": int(settings.allow_gl_entry_navigation or 0),
 		"voucher_print_format": settings.account_explorer_voucher_print_format or None,
 		"axes": axes,

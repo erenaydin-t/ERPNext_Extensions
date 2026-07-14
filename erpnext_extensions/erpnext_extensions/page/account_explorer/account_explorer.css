@@ -855,12 +855,76 @@
 	border-radius: 0;
 }
 
+.account-explorer-page .ae-grid-wrap--loading {
+	position: relative;
+}
+
+.account-explorer-page .ae-grid-wrap--loading::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background: color-mix(in srgb, var(--ae-surface, var(--card-bg, #fff)) 72%, transparent);
+	pointer-events: none;
+	z-index: 2;
+}
+
+.account-explorer-page .ae-grid-wrap--loading .ae-datatable-host,
+.account-explorer-page .ae-grid-wrap--loading table.ae-grid {
+	pointer-events: none;
+}
+
 .account-explorer-page .ae-grid-container {
-	border: 1px solid var(--border-color);
-	border-radius: var(--border-radius-lg, var(--border-radius));
+	border: 1px solid var(--ae-border, var(--border-color));
+	border-radius: var(--ae-radius, var(--border-radius-lg, var(--border-radius)));
 	overflow: hidden;
-	background: var(--card-bg, var(--bg-color));
-	box-shadow: var(--shadow-xs, none);
+	background: var(--ae-surface, var(--card-bg, var(--bg-color)));
+	box-shadow: var(--ae-shadow, var(--shadow-xs, none));
+}
+
+.account-explorer-page .ae-grid-container--datatable .ae-datatable-container {
+	max-height: min(58vh, 680px);
+	overflow: auto;
+}
+
+.account-explorer-page .ae-datatable-host {
+	min-height: 120px;
+}
+
+.account-explorer-page .ae-datatable-host--loading {
+	opacity: 0.65;
+}
+
+.account-explorer-page .ae-grid-container--datatable .dt-scrollable {
+	max-height: min(58vh, 680px);
+}
+
+.account-explorer-page .ae-grid-container--datatable .dt-row.ae-grid-row--drillable {
+	cursor: pointer;
+}
+
+.account-explorer-page .ae-grid-container--datatable .dt-row:hover .dt-cell {
+	background: var(--ae-grid-row-hover, var(--highlight-color));
+}
+
+.account-explorer-page .ae-grid-container--datatable .ae-drill-cell {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.account-explorer-page .ae-grid-container--datatable .ae-voucher-actions {
+	display: inline-flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px;
+}
+
+.account-explorer-page .ae-grid-container--datatable .ae-amount-compact {
+	font-variant-numeric: tabular-nums;
+}
+
+[data-theme="dark"] .account-explorer-page .ae-grid-container--datatable .dt-row:hover .dt-cell {
+	background: var(--ae-grid-row-hover, var(--highlight-color));
 }
 
 .account-explorer-page .ae-grid-meta {
