@@ -115,6 +115,73 @@ def _fetch_cost_center_allocation_hint(
 		return None
 
 
+def _warehouse_account_map(doc) -> list[dict]:
+	rows = []
+	seen = set()
+	for row in doc.get("items") or []:
+		for field in ("s_warehouse", "t_warehouse"):
+			wh = row.get(field)
+			if not wh or wh in seen:
+				continue
+			seen.add(wh)
+			rows.append(
+				{
+					"warehouse": wh,
+					"account": frappe.db.get_value("Warehouse", wh, "account"),
+					"company": frappe.db.get_value("Warehouse", wh, "company"),
+				}
+			)
+	return rows
+
+
+def compute_gl_submit_pipeline_counts(doc) -> dict[str, Any]:
+	"""Mirror ERPNext make_gl_entries → process_gl_map stages (read-only, no persist)."""
+	import copy
+
+	import erpnext.accounts.general_ledger as gl_mod
+
+	if doc.docstatus == 2:
+		return {}
+
+	inventory_account_map = doc.get_inventory_account_map()
+	raw = doc.get_gl_entries(inventory_account_map) or []
+	raw_count = len(raw)
+	if not raw_count:
+		return {
+			"RAW_GL_COUNT": 0,
+			"AFTER_DIMENSION_OFFSET_COUNT": 0,
+			"AFTER_COST_CENTER_ALLOCATION_COUNT": 0,
+			"AFTER_MERGE_COUNT": 0,
+			"FINAL_GL_COUNT": 0,
+			"WOULD_THROW_INCORRECT_GL_COUNT": False,
+		}
+
+	precision = doc.get_debit_field_precision()
+	gl_map = copy.deepcopy(raw)
+	try:
+		gl_mod.make_acc_dimensions_offsetting_entry(gl_map)
+	except Exception:
+		pass
+	after_offset = len(gl_map)
+
+	gl_map = gl_mod.distribute_gl_based_on_cost_center_allocation(gl_map, precision)
+	after_cca = len(gl_map)
+	gl_map = gl_mod.merge_similar_entries(gl_map, precision)
+	after_merge = len(gl_map)
+	final = gl_mod.toggle_debit_credit_if_negative(gl_map)
+	final_count = len(final)
+
+	return {
+		"RAW_GL_COUNT": raw_count,
+		"AFTER_DIMENSION_OFFSET_COUNT": after_offset,
+		"AFTER_COST_CENTER_ALLOCATION_COUNT": after_cca,
+		"AFTER_MERGE_COUNT": after_merge,
+		"FINAL_GL_COUNT": final_count,
+		"WOULD_THROW_INCORRECT_GL_COUNT": bool(final) and final_count <= 1,
+		"EXACT_THROW_LOCATION": "erpnext/accounts/general_ledger.py:make_gl_entries (len(gl_map)<=1 after process_gl_map)",
+	}
+
+
 def _preview_gl_stock_net(doc) -> tuple[list[dict], float]:
 	"""In-process GL map (not persisted) — same path as submit."""
 	from erpnext.accounts.general_ledger import process_gl_map
@@ -245,6 +312,20 @@ def analyze_stock_entry_ledger_drift(voucher_no: str) -> dict[str, Any]:
 	if row_total != sle_total or (gl_total and gl_total != sle_total):
 		status = "FAIL"
 
+	gl_pipeline = {}
+	pipeline_error = None
+	force_balanced = None
+	if is_irr_company(company) and doc.docstatus != 2:
+		try:
+			from erpnext_extensions.iran_accounting import zero_value_transfer as zvt
+
+			force_balanced = zvt._should_force_balanced_transfer_gl(doc, doc.get_debit_field_precision())
+			if doc.docstatus == 0:
+				doc.run_method("before_gl_preview")
+			gl_pipeline = compute_gl_submit_pipeline_counts(doc)
+		except Exception as exc:
+			pipeline_error = str(exc)
+
 	return {
 		"status": status,
 		"voucher_no": voucher_no,
@@ -253,6 +334,11 @@ def analyze_stock_entry_ledger_drift(voucher_no: str) -> dict[str, Any]:
 		"company": company,
 		"currency": ccy,
 		"posting_date": str(doc.posting_date),
+		"total_incoming_value": flt(doc.total_incoming_value),
+		"total_outgoing_value": flt(doc.total_outgoing_value),
+		"value_difference": flt(doc.value_difference),
+		"force_balanced_transfer_gl": force_balanced,
+		"warehouse_accounts": _warehouse_account_map(doc),
 		"row_total": row_total,
 		"sle_total": sle_total,
 		"gl_total": gl_total,
@@ -264,6 +350,8 @@ def analyze_stock_entry_ledger_drift(voucher_no: str) -> dict[str, Any]:
 		"gl_rows_persisted": gl_rows_db,
 		"gl_rows_preview": preview_rows,
 		"gl_preview_error": preview_error,
+		"gl_pipeline": gl_pipeline,
+		"gl_pipeline_error": pipeline_error,
 		"cost_center_allocation": cc_hint,
 		"cost_center_allocation_simulation": cc_sim,
 		"root_cause": root_cause,
@@ -494,3 +582,18 @@ def _api_only_report(
 		if data.get("docstatus") == 0 and not gls
 		else None,
 	}
+
+
+def investigate_stock_entry_from_env() -> dict[str, Any]:
+	"""Bench CLI helper: reads ERP_BASE_URL, ERP_API_KEY, ERP_API_SECRET, optional STE_VOUCHER."""
+	import os
+
+	voucher = os.environ.get("STE_VOUCHER", "MAT-STE-2026-03077")
+	base = (os.environ.get("ERP_BASE_URL") or "").rstrip("/")
+	key = os.environ.get("ERP_API_KEY") or ""
+	secret = os.environ.get("ERP_API_SECRET") or ""
+	if not base or not key or not secret:
+		return {"error": "missing_env", "required": ["ERP_BASE_URL", "ERP_API_KEY", "ERP_API_SECRET"]}
+
+	return debug_stock_entry_ledger_drift_api(base, key, secret, voucher)
+

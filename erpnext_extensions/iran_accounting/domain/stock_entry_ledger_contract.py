@@ -21,7 +21,10 @@ from erpnext_extensions.iran_accounting.validation import (
 	fractional_sle_fields,
 	gl_debit_credit_totals,
 )
-from erpnext_extensions.iran_accounting.zero_value_transfer import ZERO_VALUE_TRANSFER_STOCK_ENTRY_PURPOSES
+from erpnext_extensions.iran_accounting.zero_value_transfer import (
+	ZERO_VALUE_TRANSFER_STOCK_ENTRY_PURPOSES,
+	expected_balanced_transfer_gl_magnitude,
+)
 
 
 def signed_net_row_amount_sum(doc) -> float:
@@ -128,8 +131,11 @@ def collect_ledger_contract_failures(voucher_no: str, company: str) -> list[str]
 		gl_stock_net = _gl_stock_account_net(gl_rows, company)
 
 		if doc.purpose in ZERO_VALUE_TRANSFER_STOCK_ENTRY_PURPOSES and flt(doc.value_difference) == 0:
-			if max(debit, credit) != exp_inc:
-				failures.append(f"GL magnitude {max(debit, credit)} != incoming total {exp_inc}")
+			expected_gl_mag = expected_balanced_transfer_gl_magnitude(doc)
+			if max(debit, credit) != expected_gl_mag:
+				failures.append(
+					f"GL magnitude {max(debit, credit)} != expected transfer GL {expected_gl_mag}"
+				)
 		else:
 			if abs(gl_stock_net) != abs(sle_sum):
 				failures.append(f"|GL stock net| {abs(gl_stock_net)} != |Σ SLE| {abs(sle_sum)}")
