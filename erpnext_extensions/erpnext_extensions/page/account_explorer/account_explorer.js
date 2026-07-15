@@ -3,6 +3,7 @@
 {% include "erpnext_extensions/erpnext_extensions/page/account_explorer/core/explorer_plugins.js" %}
 {% include "erpnext_extensions/erpnext_extensions/page/account_explorer/core/explorer_workspace_state.js" %}
 {% include "erpnext_extensions/erpnext_extensions/page/account_explorer/core/ae_user_preferences.js" %}
+{% include "erpnext_extensions/erpnext_extensions/page/account_explorer/core/voucher_gl_print_client.js" %}
 {% include "erpnext_extensions/erpnext_extensions/page/account_explorer/adapters/ae_datatable_adapter.js" %}
 
 frappe.provide("erpnext_extensions.account_explorer");
@@ -4860,3 +4861,5 @@ $.extend(erpnext_extensions.account_explorer, {
 	ae_scope_value_to_control,
 	ae_clone_analysis_context,
 });
+
+{% include "erpnext_extensions/erpnext_extensions/page/account_explorer/core/voucher_gl_print_bridge.js" %}

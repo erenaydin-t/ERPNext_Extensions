@@ -246,6 +246,28 @@ def get_metadata() -> dict:
 		"account_explorer_datatable_enabled": datatable_enabled,
 		"allow_gl_entry_navigation": int(settings.allow_gl_entry_navigation or 0),
 		"voucher_print_format": settings.account_explorer_voucher_print_format or None,
+		"show_print_voucher": int(getattr(settings, "show_print_voucher", 1) or 0),
+		"show_print_gl": int(getattr(settings, "show_print_gl", 1) or 0),
+		"voucher_gl_print_format": getattr(settings, "voucher_gl_print_format", None) or None,
+		"voucher_gl_layout": getattr(settings, "voucher_gl_layout", None) or "Standard",
+		"voucher_gl_page_layout": getattr(settings, "voucher_gl_page_layout", None) or "Auto",
+		"voucher_gl_amount_scale": getattr(settings, "voucher_gl_amount_scale", None) or "Use Default",
+		"default_amount_display_scale": getattr(settings, "default_amount_display_scale", None) or "Auto",
+		"append_source_attachments": int(getattr(settings, "append_source_attachments", 0) or 0),
+		"voucher_gl_auto_orientation": int(getattr(settings, "voucher_gl_auto_orientation", 1) or 0),
+		"voucher_gl_show_logo": int(getattr(settings, "voucher_gl_show_logo", 1) or 0),
+		"voucher_gl_show_letterhead": int(getattr(settings, "voucher_gl_show_letterhead", 0) or 0),
+		"voucher_gl_show_amount_in_words": int(getattr(settings, "voucher_gl_show_amount_in_words", 1) or 0),
+		"voucher_gl_show_signature_block": int(getattr(settings, "voucher_gl_show_signature_block", 1) or 0),
+		"voucher_gl_hide_empty_columns": int(getattr(settings, "voucher_gl_hide_empty_columns", 1) or 0),
+		"voucher_gl_combine_dimensions": int(getattr(settings, "voucher_gl_combine_dimensions", 1) or 0),
+		"voucher_gl_show_account_hierarchy": int(getattr(settings, "voucher_gl_show_account_hierarchy", 1) or 0),
+		"voucher_gl_hierarchy_start_level": int(getattr(settings, "voucher_gl_hierarchy_start_level", 2) or 2),
+		"voucher_gl_show_party_breakdown": int(getattr(settings, "voucher_gl_show_party_breakdown", 1) or 0),
+		"voucher_gl_show_dimension_breakdown": int(getattr(settings, "voucher_gl_show_dimension_breakdown", 1) or 0),
+		"voucher_gl_show_group_subtotals": int(getattr(settings, "voucher_gl_show_group_subtotals", 1) or 0),
+		"show_amount_scale_label": int(getattr(settings, "show_amount_scale_label", 1) or 0),
+		"amount_scale_decimal_precision": int(getattr(settings, "amount_scale_decimal_precision", 2) or 2),
 		"axes": axes,
 		"levels": levels,
 		"party_sources": party_sources,
@@ -413,6 +435,29 @@ def get_voucher_navigation_target(payload) -> dict:
 	from erpnext_extensions.iran_accounting.account_explorer.voucher_navigation import resolve_voucher_navigation
 
 	return resolve_voucher_navigation(payload)
+
+
+def render_voucher_gl_print(company=None, voucher_type=None, voucher_no=None, filters=None) -> str:
+	"""Return full HTML for native print preview of voucher GL lines."""
+	import json
+
+	from erpnext_extensions.iran_accounting.account_explorer.voucher_gl_print import (
+		render_voucher_gl_print_html,
+	)
+
+	merged = {}
+	if filters:
+		if isinstance(filters, str):
+			merged.update(json.loads(filters))
+		elif isinstance(filters, dict):
+			merged.update(filters)
+	if company:
+		merged["company"] = company
+	if voucher_type:
+		merged["voucher_type"] = voucher_type
+	if voucher_no:
+		merged["voucher_no"] = voucher_no
+	return render_voucher_gl_print_html(merged)
 
 
 def get_account_scope_preview(payload) -> dict:

@@ -1,0 +1,643 @@
+{# Accounting Voucher Package — paper-first Iranian binder form (not a report) #}
+<!DOCTYPE html>
+<html lang="{{ print.lang }}" dir="{{ print.layout_direction }}">
+<head>
+	<meta charset="utf-8">
+	<title>{{ print.labels.accounting_voucher }} — {{ header.voucher_no|e }}</title>
+	<style>
+		:root {
+			--ink: #182029;
+			--muted: #5c6670;
+			--rule: #1a2430;
+			--hair: #c9d0d7;
+			--paper: #ffffff;
+			--tint: #f7f8fa;
+			--zebra: #fbfcfd;
+			--ok: #0a6b3c;
+			--ok-bg: #eef7f1;
+			--bad: #9f1a14;
+			--bad-bg: #fdf1f0;
+			--accent: #1a3f5c;
+		}
+		@page {
+			size: A4 {% if print.orientation == "Landscape" %}landscape{% else %}portrait{% endif %};
+			margin: 12mm 11mm 16mm 11mm;
+			@bottom-left {
+				content: "{{ print.labels.print_meta|e }}";
+				font-size: 7.5pt;
+				color: #5c6670;
+			}
+			@bottom-center {
+				content: "{{ header.print_timestamp|e }}";
+				font-size: 7.5pt;
+				color: #5c6670;
+			}
+			@bottom-right {
+				content: "{{ print.labels.page }} " counter(page) " / " counter(pages);
+				font-size: 7.5pt;
+				color: #5c6670;
+			}
+		}
+		* { box-sizing: border-box; }
+		html, body {
+			margin: 0;
+			padding: 0;
+			background: var(--paper);
+			-webkit-print-color-adjust: exact;
+			print-color-adjust: exact;
+		}
+		body {
+			color: var(--ink);
+			font-family: "Vazirmatn", "IRANSansX", "Tahoma", "DejaVu Sans", sans-serif;
+			font-size: 10pt;
+			line-height: 1.45;
+			direction: {{ print.layout_direction }};
+			padding: 10px 12px 24px;
+		}
+
+		.toolbar.no-print {
+			margin: 0 0 12px;
+			padding: 8px 12px;
+			background: #eef2f6;
+			border: 1px solid #c8d2dc;
+			display: flex;
+			gap: 8px;
+			align-items: center;
+			flex-wrap: wrap;
+			border-radius: 2px;
+		}
+		.toolbar button {
+			padding: 6px 16px;
+			cursor: pointer;
+			font: inherit;
+			border: 1px solid #8a97a5;
+			background: #fff;
+		}
+		.toolbar-meta { color: var(--muted); font-size: 9pt; }
+
+		.section {
+			margin: 0 0 14px;
+			page-break-inside: avoid;
+			break-inside: avoid;
+		}
+		.section-label {
+			font-size: 7.5pt;
+			font-weight: 700;
+			letter-spacing: 0.08em;
+			text-transform: uppercase;
+			color: var(--muted);
+			margin: 0 0 6px;
+			padding-bottom: 3px;
+			border-bottom: 1px solid var(--hair);
+		}
+
+		/* —— COVER —— */
+		.cover {
+			border: 2.5px solid var(--rule);
+			padding: 16px 18px 14px;
+			background: var(--paper);
+		}
+		.vgl-layout-modern .cover {
+			border: none;
+			border-top: 6px solid var(--accent);
+			background: linear-gradient(180deg, #f4f7fa 0%, #fff 42%);
+			padding-top: 18px;
+		}
+		.vgl-layout-compact .cover { border-width: 1.5px; padding: 10px 12px; }
+		.cover-hero { text-align: center; margin-bottom: 14px; }
+		.cover-hero .title {
+			font-size: 22pt;
+			font-weight: 800;
+			margin: 0;
+			letter-spacing: 0.04em;
+			line-height: 1.2;
+		}
+		.cover-hero .desc {
+			margin: 8px auto 0;
+			max-width: 34em;
+			font-size: 10.5pt;
+			unicode-bidi: plaintext;
+			direction: auto;
+			line-height: 1.5;
+		}
+		.cover-body {
+			display: grid;
+			grid-template-columns: {% if print.logo_url and print.options.show_logo %}minmax(0, 1.15fr) minmax(0, 1.35fr){% else %}1fr{% endif %};
+			gap: 16px 22px;
+			align-items: start;
+			{% if not (print.logo_url and print.options.show_logo) %}text-align: center;{% endif %}
+		}
+		.cover-company { text-align: {% if print.rtl %}right{% else %}left{% endif %}; }
+		.cover-company.solo { text-align: center; margin: 0 auto; }
+		.company-logo {
+			max-height: 56px;
+			max-width: 160px;
+			object-fit: contain;
+			display: block;
+			margin-bottom: 6px;
+		}
+		.company-name { font-size: 13.5pt; font-weight: 700; margin: 0 0 4px; }
+		.company-meta { font-size: 8.5pt; color: var(--muted); line-height: 1.4; }
+		.identity-grid {
+			display: grid;
+			grid-template-columns: 1fr 1fr;
+			gap: 5px 14px;
+			text-align: {% if print.rtl %}right{% else %}left{% endif %};
+			font-size: 9.5pt;
+		}
+		.identity-grid.solo {
+			max-width: 36em;
+			margin: 0 auto;
+			text-align: {% if print.rtl %}right{% else %}left{% endif %};
+		}
+		.id-row { display: flex; gap: 8px; page-break-inside: avoid; }
+		.id-label { color: var(--muted); font-weight: 600; min-width: 7.2em; white-space: nowrap; }
+		.id-value { font-weight: 700; unicode-bidi: plaintext; direction: auto; flex: 1; }
+		.cover-meta {
+			margin-top: 12px;
+			padding-top: 10px;
+			border-top: 1px solid var(--hair);
+			display: flex;
+			flex-wrap: wrap;
+			gap: 6px 18px;
+			font-size: 8.5pt;
+			color: var(--muted);
+			justify-content: space-between;
+		}
+		.cover-meta strong { color: var(--ink); font-weight: 600; }
+
+		/* —— ENTRIES —— */
+		.entries-wrap {
+			border: 2px solid var(--rule);
+			background: var(--paper);
+			overflow: hidden;
+		}
+		table.gl-table {
+			width: 100%;
+			border-collapse: collapse;
+			table-layout: fixed;
+			font-variant-numeric: tabular-nums;
+			font-size: 9pt;
+			border: none;
+		}
+		table.gl-table thead { display: table-header-group; }
+		table.gl-table th, table.gl-table td {
+			border: 1px solid var(--hair);
+			padding: 6px 7px;
+			vertical-align: top;
+		}
+		table.gl-table th {
+			background: #e9eef2;
+			font-weight: 800;
+			text-align: center;
+			font-size: 8.5pt;
+			border-bottom: 1.5px solid var(--rule);
+			-webkit-print-color-adjust: exact;
+			print-color-adjust: exact;
+		}
+		table.gl-table tbody tr { page-break-inside: avoid; break-inside: avoid; orphans: 3; widows: 3; }
+		table.gl-table tbody tr:nth-child(even) td {
+			background: var(--zebra);
+			-webkit-print-color-adjust: exact;
+			print-color-adjust: exact;
+		}
+		table.gl-table td:first-child,
+		table.gl-table th:first-child { border-{% if print.rtl %}right{% else %}left{% endif %}: none; }
+		table.gl-table td:last-child,
+		table.gl-table th:last-child { border-{% if print.rtl %}left{% else %}right{% endif %}: none; }
+		.text-end { text-align: {% if print.rtl %}left{% else %}right{% endif %}; white-space: nowrap; direction: ltr; }
+		.text-center { text-align: center; }
+		.col-idx { width: 2.6em; }
+		.col-account { width: 18%; }
+		.col-amt { width: 10%; }
+		.col-party { width: 12%; }
+		.col-dims { width: 14%; }
+		.col-remarks { width: auto; }
+		.acct-stack .acct-code {
+			font-family: "DejaVu Sans Mono", "Consolas", monospace;
+			font-size: 8.5pt;
+			font-weight: 800;
+			letter-spacing: 0.02em;
+			white-space: nowrap;
+			direction: ltr;
+			unicode-bidi: isolate;
+		}
+		.acct-stack .acct-name {
+			font-size: 9.5pt;
+			margin-top: 2px;
+			unicode-bidi: plaintext;
+			direction: auto;
+			word-break: normal;
+			overflow-wrap: anywhere;
+		}
+		.remarks-main {
+			word-break: normal;
+			overflow-wrap: anywhere;
+			unicode-bidi: plaintext;
+			direction: auto;
+			white-space: normal;
+			line-height: 1.45;
+			min-height: 1.2em;
+		}
+		.remarks-sub {
+			margin-top: 4px;
+			font-size: 7.5pt;
+			color: var(--muted);
+			line-height: 1.35;
+			unicode-bidi: plaintext;
+			direction: auto;
+		}
+		.dim-block { font-size: 8pt; line-height: 1.4; }
+		.dim-line { display: block; margin: 0 0 2px; unicode-bidi: isolate; }
+		.dim-k { color: var(--muted); font-weight: 600; }
+		.dim-v { font-weight: 600; unicode-bidi: isolate; direction: ltr; }
+		.vgl-layout-modern .entries-wrap { border-color: #9aa8b5; }
+		.vgl-layout-modern table.gl-table th { background: #f0f4f7; border-bottom-color: #7a8b99; }
+		.vgl-layout-compact .col-account { width: 26%; }
+		.vgl-layout-compact table.gl-table th,
+		.vgl-layout-compact table.gl-table td { padding: 4px 5px; }
+
+		.hier-level { margin: 0 0 3px; line-height: 1.4; }
+		.hier-level .acct-code {
+			font-family: "DejaVu Sans Mono", "Consolas", monospace;
+			font-weight: 800;
+			direction: ltr;
+			unicode-bidi: isolate;
+		}
+		.party-block { margin: 0 0 2px; font-size: 8.5pt; }
+		.subtotal-label { font-weight: 800; font-size: 9pt; }
+		tr[data-node="account_header"] td,
+		tr[data-node="party_header"] td,
+		tr[data-node="dimension_header"] td { background: #f4f6f8; }
+		tr[data-node="account_subtotal"] td,
+		tr[data-node="party_subtotal"] td,
+		tr[data-node="dimension_subtotal"] td {
+			background: #eef2f6;
+			font-weight: 700;
+			border-top: 1.5px solid var(--rule);
+		}
+
+		.repeat-banner th {
+			background: #fff !important;
+			border: none !important;
+			border-bottom: 2px solid var(--rule) !important;
+			text-align: {% if print.rtl %}right{% else %}left{% endif %} !important;
+			font-weight: 700;
+			font-size: 8.5pt;
+			padding: 5px 6px !important;
+		}
+
+		/* —— TOTALS —— */
+		.totals-panel {
+			border: 2.5px solid var(--rule);
+			background: var(--tint);
+			-webkit-print-color-adjust: exact;
+			print-color-adjust: exact;
+		}
+		.totals-grid {
+			display: grid;
+			grid-template-columns: repeat(4, 1fr);
+		}
+		.totals-cell {
+			padding: 10px 12px;
+			text-align: center;
+			border-{% if print.rtl %}left{% else %}right{% endif %}: 1px solid var(--hair);
+		}
+		.totals-cell:last-child { border: none; }
+		.totals-cell .k {
+			display: block;
+			font-size: 8pt;
+			color: var(--muted);
+			margin-bottom: 4px;
+			font-weight: 700;
+		}
+		.totals-cell .v {
+			font-size: 12.5pt;
+			font-weight: 800;
+			font-variant-numeric: tabular-nums;
+			direction: ltr;
+			unicode-bidi: isolate;
+		}
+		.totals-words {
+			border-top: 1px solid var(--hair);
+			padding: 9px 12px;
+			font-size: 10pt;
+			background: #fff;
+			unicode-bidi: plaintext;
+			direction: auto;
+		}
+		.balance-badge {
+			display: inline-block;
+			padding: 3px 12px;
+			border: 1.5px solid;
+			font-size: 9.5pt;
+			font-weight: 800;
+		}
+		.balance-badge.ok { border-color: var(--ok); color: var(--ok); background: var(--ok-bg); }
+		.balance-badge.bad { border-color: var(--bad); color: var(--bad); background: var(--bad-bg); }
+		.diff-alert { color: var(--bad) !important; }
+
+		/* —— APPROVAL —— */
+		.approval {
+			display: grid;
+			grid-template-columns: repeat(4, 1fr);
+			gap: 14px;
+		}
+		.sig-card {
+			border: 1.5px solid #5d6874;
+			padding: 12px 10px 14px;
+			min-height: 128px;
+			text-align: center;
+			background: #fff;
+			page-break-inside: avoid;
+			break-inside: avoid;
+		}
+		.sig-card .role {
+			font-weight: 800;
+			font-size: 10pt;
+			margin-bottom: 10px;
+			padding-bottom: 6px;
+			border-bottom: 1px solid var(--hair);
+		}
+		.sig-card .field {
+			display: flex;
+			justify-content: space-between;
+			gap: 6px;
+			font-size: 8.5pt;
+			margin-bottom: 6px;
+			color: var(--muted);
+			text-align: {% if print.rtl %}right{% else %}left{% endif %};
+		}
+		.sig-card .field .val {
+			color: var(--ink);
+			font-weight: 600;
+			flex: 1;
+			text-align: {% if print.rtl %}left{% else %}right{% endif %};
+			min-height: 1.1em;
+		}
+		.sig-space {
+			margin-top: 28px;
+			border-bottom: 1px solid #222;
+			height: 1px;
+		}
+		.sig-caption {
+			margin-top: 4px;
+			font-size: 7.5pt;
+			color: var(--muted);
+		}
+
+		.footer-screen {
+			margin-top: 16px;
+			font-size: 8.5pt;
+			color: var(--muted);
+			display: flex;
+			justify-content: space-between;
+			gap: 10px;
+		}
+		.attachment-page { page-break-before: always; padding-top: 10px; }
+		.attachment-page h3 { font-size: 11pt; margin: 0 0 8px; }
+		.attachment-page img { max-width: 100%; }
+
+		@media print {
+			.no-print { display: none !important; }
+			.footer-screen { display: none !important; }
+			body { padding: 0; background: #fff; }
+			.cover, .totals-panel, .approval, .section { page-break-inside: avoid; break-inside: avoid; }
+			.entries-wrap { page-break-inside: auto; }
+			tr { page-break-inside: avoid; break-inside: avoid; }
+			thead { display: table-header-group; }
+		}
+	</style>
+</head>
+<body class="{{ layout_class }}">
+	<div class="toolbar no-print">
+		<button type="button" onclick="window.print()">{{ print.labels.print }}</button>
+		<button type="button" onclick="window.close()">{{ print.labels.close }}</button>
+		<span class="toolbar-meta">
+			{{ print.labels.layout }}: {{ layout }}
+			· {{ print.labels.orientation }}: {% if print.orientation == "Landscape" %}{{ print.labels.landscape }}{% else %}{{ print.labels.portrait }}{% endif %}
+			· {{ print.labels.language }}: {% if print.rtl %}{{ print.labels.persian }}{% else %}{{ print.labels.english }}{% endif %}
+			{% if print.amount_scale_display %}
+			· {{ print.labels.display_scale }}: {{ print.amount_scale_display }}
+			{% endif %}
+		</span>
+	</div>
+
+	<section class="section cover-block" data-section="cover">
+		<div class="section-label">{{ print.labels.section_cover }}</div>
+		<div class="cover">
+			{% if letterhead_html and print.options.show_letterhead %}
+			<div class="letterhead-block">{{ letterhead_html|safe }}</div>
+			{% endif %}
+			<div class="cover-hero">
+				<h1 class="title">{{ print.labels.accounting_voucher }}</h1>
+				{% if print.voucher_description %}
+				<div class="desc">{{ print.voucher_description|e }}</div>
+				{% endif %}
+			</div>
+			<div class="cover-body {% if not (print.logo_url and print.options.show_logo) %}balanced{% endif %}">
+				<div class="cover-company {% if not (print.logo_url and print.options.show_logo) %}solo{% endif %}">
+					{% if print.logo_url and print.options.show_logo %}
+					<img class="company-logo" src="{{ print.logo_url|e }}" alt="{{ header.company_name|e }}" onerror="this.remove()">
+					{% endif %}
+					<div class="company-name">{{ header.company_name|e }}</div>
+					<div class="company-meta">
+						{% if print.company_address %}<div>{{ print.company_address|e }}</div>{% endif %}
+						{% if print.company_phone %}<div>{{ print.labels.phone }}: {{ print.company_phone|e }}</div>{% endif %}
+					</div>
+				</div>
+				{% if print.identity_rows %}
+				<div class="identity-grid {% if not (print.logo_url and print.options.show_logo) %}solo{% endif %}">
+					{% for item in print.identity_rows %}
+					<div class="id-row">
+						<span class="id-label">{{ item.label|e }}</span>
+						<span class="id-value">{{ item.value|e }}</span>
+					</div>
+					{% endfor %}
+				</div>
+				{% endif %}
+			</div>
+			<div class="cover-meta">
+				{% if header.prepared_by %}
+				<span>{{ print.labels.prepared_by }}: <strong>{{ header.prepared_by|e }}</strong></span>
+				{% endif %}
+				{% if header.printed_by %}
+				<span>{{ print.labels.printed_by }}: <strong>{{ header.printed_by|e }}</strong></span>
+				{% endif %}
+				{% if header.print_timestamp %}
+				<span>{{ print.labels.print_date }}: <strong>{{ header.print_timestamp|e }}</strong></span>
+				{% endif %}
+				{% if header.print_meta_source %}
+				<span>{{ print.labels.generated_from }}: <strong>{{ header.print_meta_source|e }}</strong></span>
+				{% endif %}
+			</div>
+		</div>
+	</section>
+
+	{% if summary.gl_row_count %}
+	<section class="section" data-section="voucher-summary">
+		<div class="section-label">{{ print.labels.section_info }}</div>
+		<div class="cover" style="padding: 8px 12px; border-width: 1.5px;">
+			<div class="identity-grid" style="grid-template-columns: repeat(auto-fit, minmax(9em, 1fr));">
+				<div class="id-row"><span class="id-label">{{ print.labels.gl_rows }}</span><span class="id-value">{{ summary.gl_row_count }}</span></div>
+				{% if summary.currency %}<div class="id-row"><span class="id-label">{{ print.labels.currency }}</span><span class="id-value">{{ summary.currency|e }}</span></div>{% endif %}
+				<div class="id-row">
+					<span class="id-label">{{ print.labels.balanced }}</span>
+					<span class="id-value">{% if summary.is_balanced %}<span class="balance-badge ok">{{ print.labels.balanced_ok }}</span>{% else %}<span class="balance-badge bad">{{ print.labels.balanced_bad }}</span>{% endif %}</span>
+				</div>
+				{% if summary.opening_entry %}<div class="id-row"><span class="id-label">{{ print.labels.opening_entry }}</span><span class="id-value">{{ print.labels.yes }}</span></div>{% endif %}
+				{% if summary.cancelled %}<div class="id-row"><span class="id-label">{{ print.labels.cancelled }}</span><span class="id-value">{{ print.labels.yes }}</span></div>{% endif %}
+			</div>
+		</div>
+	</section>
+	{% endif %}
+
+	<section class="section" data-section="gl-table" style="page-break-inside: auto;">
+		<div class="section-label">{{ print.labels.section_entries }}</div>
+		<div class="entries-wrap">
+			<table class="gl-table">
+				<thead>
+					<tr class="repeat-banner">
+						<th colspan="{{ print.columns|length }}">
+							{{ header.company_name|e }}
+							· {{ print.labels.voucher_number }} {{ header.voucher_no|e }}
+							· {{ print.labels.posting_date }} {{ header.posting_date|e }}
+							· {{ print.labels.continuing_header }}
+						</th>
+					</tr>
+					<tr>
+						{% for col in print.columns %}
+						<th class="{{ col.cls }}">{{ col.label|e }}</th>
+						{% endfor %}
+					</tr>
+				</thead>
+				<tbody>
+					{% for row in print.table_rows %}
+					<tr{% if row.node_type %} data-node="{{ row.node_type }}"{% endif %}>
+						{% for col in print.columns %}
+						<td class="{{ col.cls }}">{{ row.cells[col.id]|safe }}</td>
+						{% endfor %}
+					</tr>
+					{% endfor %}
+				</tbody>
+			</table>
+		</div>
+	</section>
+
+	<section class="section" data-section="footer-totals">
+		<div class="section-label">{{ print.labels.section_totals }}</div>
+		<div class="totals-panel">
+			<div class="totals-grid">
+				<div class="totals-cell">
+					<span class="k">{{ print.labels.debit_total }}</span>
+					<span class="v">{{ fmt_amount(totals.total_debit) }}</span>
+				</div>
+				<div class="totals-cell">
+					<span class="k">{{ print.labels.credit_total }}</span>
+					<span class="v">{{ fmt_amount(totals.total_credit) }}</span>
+				</div>
+				<div class="totals-cell">
+					<span class="k">{{ print.labels.difference_short }}</span>
+					<span class="v {% if not totals.is_balanced %}diff-alert{% endif %}">{{ fmt_amount(totals.difference) or "0" }}</span>
+				</div>
+				<div class="totals-cell">
+					<span class="k">{{ print.labels.balanced }}</span>
+					{% if totals.is_balanced %}
+					<span class="balance-badge ok">{{ print.labels.balanced_ok }}</span>
+					{% else %}
+					<span class="balance-badge bad">{{ print.labels.balanced_bad }}</span>
+					{% endif %}
+				</div>
+			</div>
+			{% if print.options.show_amount_in_words and totals.amount_in_words %}
+			<div class="totals-words">
+				<strong>{{ print.labels.amount_in_words }}:</strong>
+				{{ totals.amount_in_words|e }}
+			</div>
+			{% endif %}
+		</div>
+	</section>
+
+	{% if print.options.show_signature_block %}
+	<section class="section" data-section="signatures">
+		<div class="section-label">{{ print.labels.section_approval }}</div>
+		<div class="approval">
+			<div class="sig-card">
+				<div class="role">{{ print.labels.prepared_by }}</div>
+				<div class="field"><span>{{ print.labels.name_field }}</span><span class="val">{{ signatures.prepared_by|e }}</span></div>
+				<div class="field"><span>{{ print.labels.signature_date }}</span><span class="val">______________</span></div>
+				<div class="sig-space"></div>
+				<div class="sig-caption">{{ print.labels.signature_line }}</div>
+			</div>
+			<div class="sig-card">
+				<div class="role">{{ print.labels.checked_by }}</div>
+				<div class="field"><span>{{ print.labels.name_field }}</span><span class="val">&nbsp;</span></div>
+				<div class="field"><span>{{ print.labels.signature_date }}</span><span class="val">______________</span></div>
+				<div class="sig-space"></div>
+				<div class="sig-caption">{{ print.labels.signature_line }}</div>
+			</div>
+			<div class="sig-card">
+				<div class="role">{{ print.labels.accounting_manager }}</div>
+				<div class="field"><span>{{ print.labels.name_field }}</span><span class="val">&nbsp;</span></div>
+				<div class="field"><span>{{ print.labels.signature_date }}</span><span class="val">______________</span></div>
+				<div class="sig-space"></div>
+				<div class="sig-caption">{{ print.labels.signature_line }}</div>
+			</div>
+			<div class="sig-card">
+				<div class="role">{{ print.labels.financial_manager }}</div>
+				<div class="field"><span>{{ print.labels.name_field }}</span><span class="val">&nbsp;</span></div>
+				<div class="field"><span>{{ print.labels.signature_date }}</span><span class="val">______________</span></div>
+				<div class="sig-space"></div>
+				<div class="sig-caption">{{ print.labels.signature_line }}</div>
+			</div>
+		</div>
+	</section>
+	{% endif %}
+
+	<div class="footer-screen no-print">
+		<div>{{ print.labels.print_meta }}</div>
+		<div>{{ header.print_timestamp|e }}</div>
+	</div>
+
+	{% if attachments and print.options.show_attachments %}
+	{% for att in attachments %}
+	<section class="attachment-page" data-section="attachment">
+		<h3>{{ print.labels.attachment }} {{ loop.index }} — {{ att.file_name|e }}</h3>
+		{% if att.kind == "image" %}
+		<img src="{{ att.file_url|e }}" alt="{{ att.file_name|e }}" onerror="this.remove()">
+		{% else %}
+		<div><a href="{{ att.file_url|e }}">{{ att.file_name|e }}</a></div>
+		{% endif %}
+	</section>
+	{% endfor %}
+	{% endif %}
+
+	<script>
+		(function () {
+			function mark_ready() {
+				window.__voucher_gl_print_ready = true;
+				try { window.dispatchEvent(new Event("voucher-gl-print-ready")); } catch (e) {}
+			}
+			function wait_assets() {
+				var images = Array.prototype.slice.call(document.images || []);
+				var image_wait = Promise.all(images.map(function (img) {
+					if (img.complete) return Promise.resolve();
+					return new Promise(function (resolve) {
+						img.addEventListener("load", resolve, { once: true });
+						img.addEventListener("error", resolve, { once: true });
+					});
+				}));
+				var fonts_wait = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
+				return Promise.all([image_wait, fonts_wait]);
+			}
+			if (document.readyState === "complete") {
+				wait_assets().then(mark_ready).catch(mark_ready);
+			} else {
+				window.addEventListener("load", function () {
+					wait_assets().then(mark_ready).catch(mark_ready);
+				});
+			}
+		})();
+	</script>
+</body>
+</html>

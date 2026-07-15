@@ -4,10 +4,15 @@ from __future__ import annotations
 
 import frappe
 from frappe import _
+from frappe.utils import cint
 
 from erpnext_extensions.iran_accounting.account_explorer.permissions import assert_gl_navigation_allowed
 from erpnext_extensions.iran_accounting.account_explorer.query_spec import AccountExplorerQuerySpec_from_client
 from erpnext_extensions.iran_accounting.account_explorer.schemas import AccountExplorerQuerySpec
+from erpnext_extensions.iran_accounting.account_explorer.voucher_gl_print import (
+	DEFAULT_VOUCHER_GL_PRINT_FORMAT,
+	VOUCHER_GL_PRINT_REPORT,
+)
 
 
 def resolve_voucher_navigation(payload) -> dict:
@@ -47,14 +52,49 @@ def resolve_voucher_navigation(payload) -> dict:
 	elif navigation_allowed:
 		messages.append(_("Source document {0} {1} was not found.").format(voucher_type, voucher_no))
 
-	print_format = frappe.get_single_value("Iran Accounting Settings", "account_explorer_voucher_print_format")
-	can_print = bool(print_format and can_open_source)
+	settings = frappe.get_cached_doc("Iran Accounting Settings")
+	show_print_voucher = cint(settings.get("show_print_voucher", 1))
+	show_print_gl = cint(settings.get("show_print_gl", 1))
+	source_print_format = settings.account_explorer_voucher_print_format
+	gl_print_format = settings.get("voucher_gl_print_format") or DEFAULT_VOUCHER_GL_PRINT_FORMAT
+
+	can_print = bool(show_print_voucher and source_print_format and can_open_source)
 	print_route = None
 	if can_print:
 		print_route = {
 			"doctype": voucher_type,
 			"name": voucher_no,
-			"format": print_format,
+			"format": source_print_format,
+		}
+
+	can_print_gl = bool(
+		show_print_gl
+		and gl_print_format
+		and frappe.has_permission("GL Entry", "read")
+		and cint(settings.account_explorer_enabled)
+	)
+	print_gl_route = None
+	if can_print_gl:
+		layout = settings.get("voucher_gl_layout") or "Standard"
+		route_filters = {
+			"company": spec.company,
+			"voucher_type": voucher_type,
+			"voucher_no": voucher_no,
+			"include_opening_entries": cint(spec.include_opening_entries),
+			"include_cancelled_entries": cint(spec.include_cancelled_entries),
+			"finance_book": spec.finance_book,
+			"layout": layout,
+		}
+		from urllib.parse import urlencode
+
+		query = urlencode({k: v for k, v in route_filters.items() if v not in (None, "")})
+		print_gl_route = {
+			"report": VOUCHER_GL_PRINT_REPORT,
+			"format": gl_print_format,
+			"layout": layout,
+			"filters": route_filters,
+			# Stable Desk report URL — no HTML / GL rows in query string.
+			"url_path": f"/app/query-report/{VOUCHER_GL_PRINT_REPORT}?{query}",
 		}
 
 	return {
@@ -65,10 +105,15 @@ def resolve_voucher_navigation(payload) -> dict:
 		"can_open_source": can_open_source,
 		"can_open_gl_list": can_open_gl_list,
 		"can_print": can_print,
-		"print_format": print_format,
+		"can_print_gl": can_print_gl,
+		"print_format": source_print_format,
+		"voucher_gl_print_format": gl_print_format if can_print_gl else None,
+		"show_print_voucher": show_print_voucher,
+		"show_print_gl": show_print_gl,
 		"source_route": source_route,
 		"gl_list_route": gl_list_route if can_open_gl_list else None,
 		"print_route": print_route,
+		"print_gl_route": print_gl_route,
 		"messages": messages,
 	}
 
