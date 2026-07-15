@@ -17,8 +17,11 @@ from frappe.utils import cint, cstr
 from erpnext_extensions.iran_accounting.account_explorer.voucher_gl_renderer import LAYOUT_STANDARD
 
 # Bump when new defaulted print settings are introduced.
-SEED_VERSION = 3
+SEED_VERSION = 4
 VERSION_FIELD = "voucher_gl_print_defaults_version"
+
+VALID_PRINT_LANGUAGE = frozenset({"Persian", "English", "Follow User Language"})
+PRINT_LANGUAGE_DEFAULT = "Persian"
 
 ON_DEFAULTS = {
 	"show_print_gl": 1,
@@ -80,6 +83,24 @@ def _singles_value(fieldname: str):
 	return rows[0][0] if rows else None
 
 
+def _apply_print_language_default(settings, *, force: bool = False) -> bool:
+	"""Default Voucher GL Print Language to Persian without clobbering valid choices."""
+	if not settings.meta.has_field("voucher_gl_print_language"):
+		return False
+	current = cstr(_field_value(settings, "voucher_gl_print_language") or "").strip()
+	if current in VALID_PRINT_LANGUAGE and not force:
+		return False
+	if current and current not in VALID_PRINT_LANGUAGE:
+		frappe.logger("voucher_gl_print").warning(
+			"Invalid voucher_gl_print_language=%r on Iran Accounting Settings; resetting to Persian.",
+			current,
+		)
+	if settings.get("voucher_gl_print_language") != PRINT_LANGUAGE_DEFAULT:
+		settings.set("voucher_gl_print_language", PRINT_LANGUAGE_DEFAULT)
+		return True
+	return False
+
+
 def apply_voucher_gl_print_defaults(settings=None, *, force: bool = False) -> bool:
 	"""Apply defaults. Returns True when settings document was saved."""
 	if not frappe.db.exists("DocType", "Iran Accounting Settings"):
@@ -129,6 +150,9 @@ def apply_voucher_gl_print_defaults(settings=None, *, force: bool = False) -> bo
 			if cint(settings.get(fieldname)) != cint(default):
 				settings.set(fieldname, default)
 				changed = True
+
+	if _apply_print_language_default(settings, force=force):
+		changed = True
 
 	if needs_version_seed or force:
 		if settings.meta.has_field(VERSION_FIELD) and cint(settings.get(VERSION_FIELD)) != SEED_VERSION:

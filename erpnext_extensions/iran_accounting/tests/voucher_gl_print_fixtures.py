@@ -270,6 +270,99 @@ def direct_voucher_gl_totals(company, voucher_type, voucher_no, include_cancelle
 
 HIER_MARKER = "AE-VGL-HIER"
 HIER_CODES = ("12", "1201", "120123")
+DEPTH_HIER_CODES = ("2101", "210101", "2101010001")
+DEPTH_HIER_TITLES = {
+	"2101": "موجودی مواد و کالا",
+	"210101": "کنترل خرید",
+	"2101010001": "صندوق",
+}
+
+
+def _ensure_account_tree(company: str, currency: str, specs: list[tuple], root_type: str = "Asset") -> dict:
+	"""Create a numbered account chain under company root."""
+	root = frappe.db.get_value(
+		"Account",
+		{"company": company, "is_group": 1, "root_type": root_type},
+		"name",
+		order_by="lft",
+	)
+	if not root:
+		frappe.throw(f"No {root_type} group account for {company}")
+
+	created = {}
+	parent_name = root
+	for code, title, is_group, forced_parent in specs:
+		parent = forced_parent or parent_name
+		existing = frappe.db.get_value(
+			"Account",
+			{"company": company, "account_number": code},
+			"name",
+		)
+		if existing:
+			frappe.db.set_value(
+				"Account",
+				existing,
+				{"account_name": title, "account_number": code},
+				update_modified=False,
+			)
+			created[code] = existing
+			parent_name = existing
+			continue
+		doc = frappe.get_doc(
+			{
+				"doctype": "Account",
+				"account_name": title,
+				"account_number": code,
+				"company": company,
+				"parent_account": parent,
+				"is_group": is_group,
+				"account_currency": currency,
+				"account_type": "",
+			}
+		)
+		doc.flags.ignore_permissions = True
+		doc.insert()
+		created[code] = doc.name
+		parent_name = doc.name
+	frappe.db.commit()
+	return created
+
+
+def _ensure_numbered_account_tree(company: str, currency: str) -> dict:
+	"""Create 12 → 1201 → 120123 with Persian titles for hierarchy acceptance."""
+	root = frappe.db.get_value(
+		"Account",
+		{"company": company, "is_group": 1, "root_type": "Asset"},
+		"name",
+		order_by="lft",
+	)
+	if not root:
+		frappe.throw(f"No Asset group account for {company}")
+
+	specs = [
+		("12", "دارایی جاری پایه", 1, root),
+		("1201", "موجودی مواد و کالا", 1, None),
+		("120123", "کنترل خرید داخلی", 0, None),
+	]
+	return _ensure_account_tree(company, currency, specs)
+
+
+def _ensure_depth_account_tree(company: str, currency: str) -> dict:
+	"""Create 2101 → 210101 → 2101010001 for depth hierarchy acceptance."""
+	root = frappe.db.get_value(
+		"Account",
+		{"company": company, "is_group": 1, "root_type": "Asset"},
+		"name",
+		order_by="lft",
+	)
+	if not root:
+		frappe.throw(f"No Asset group account for {company}")
+	specs = [
+		("2101", DEPTH_HIER_TITLES["2101"], 1, root),
+		("210101", DEPTH_HIER_TITLES["210101"], 1, None),
+		("2101010001", DEPTH_HIER_TITLES["2101010001"], 0, None),
+	]
+	return _ensure_account_tree(company, currency, specs)
 
 
 def _ensure_cost_centers(company: str) -> tuple[str, str]:
@@ -303,63 +396,6 @@ def _ensure_cost_centers(company: str) -> tuple[str, str]:
 		names.append(doc.name)
 	frappe.db.commit()
 	return names[0], names[1]
-
-
-def _ensure_numbered_account_tree(company: str, currency: str) -> dict:
-	"""Create 12 → 1201 → 120123 with Persian titles for hierarchy acceptance."""
-	root = frappe.db.get_value(
-		"Account",
-		{"company": company, "is_group": 1, "root_type": "Asset"},
-		"name",
-		order_by="lft",
-	)
-	if not root:
-		frappe.throw(f"No Asset group account for {company}")
-
-	specs = [
-		("12", "دارایی جاری پایه", 1, root),
-		("1201", "موجودی مواد و کالا", 1, None),
-		("120123", "کنترل خرید داخلی", 0, None),
-	]
-	created = {}
-	parent_name = root
-	for code, title, is_group, forced_parent in specs:
-		existing = frappe.db.get_value(
-			"Account",
-			{"company": company, "account_number": code},
-			"name",
-		)
-		if existing:
-			# Keep titles aligned for assertion stability.
-			frappe.db.set_value(
-				"Account",
-				existing,
-				{"account_name": title, "account_number": code},
-				update_modified=False,
-			)
-			created[code] = existing
-			parent_name = existing
-			continue
-		parent = forced_parent or parent_name
-		doc = frappe.get_doc(
-			{
-				"doctype": "Account",
-				"account_name": title,
-				"account_number": code,
-				"company": company,
-				"parent_account": parent,
-				"is_group": is_group,
-				"account_currency": currency,
-				# Empty type avoids party constraints that block Supplier on inventory-like leaves.
-				"account_type": "",
-			}
-		)
-		doc.flags.ignore_permissions = True
-		doc.insert()
-		created[code] = doc.name
-		parent_name = doc.name
-	frappe.db.commit()
-	return created
 
 
 def ensure_hierarchy_business_fixture(ctx: dict) -> dict:
@@ -507,4 +543,168 @@ def ensure_hierarchy_business_fixture(ctx: dict) -> dict:
 		"hier_payable": payable,
 		"hier_expected_debit": flt(je.total_debit) or 1000.0,
 		"hier_expected_credit": flt(je.total_credit) or 1000.0,
+	}
+
+
+def ensure_depth_hierarchy_fixture(ctx: dict) -> dict:
+	"""Balanced JE on 2101010001 with two cost-center lines for hierarchy + language tests."""
+	company = ctx["company"]
+	currency = ctx.get("currency") or frappe.db.get_value("Company", company, "default_currency")
+	for name in frappe.get_all(
+		"Journal Entry",
+		filters={"company": company, "user_remark": ("like", "AE-VGL-DEPTH%"), "docstatus": 1},
+		pluck="name",
+	):
+		doc = frappe.get_doc("Journal Entry", name)
+		doc.flags.ignore_permissions = True
+		doc.cancel()
+	frappe.db.commit()
+
+	accounts = _ensure_depth_account_tree(company, currency)
+	leaf = accounts["2101010001"]
+	cc_a, cc_b = _ensure_cost_centers(company)
+	offset = frappe.db.get_value(
+		"Account",
+		{
+			"company": company,
+			"is_group": 0,
+			"disabled": 0,
+			"account_currency": currency,
+			"name": ("!=", leaf),
+		},
+		"name",
+		order_by="lft",
+	)
+	if not offset:
+		frappe.throw("Need offset account for depth hierarchy fixture")
+
+	je = frappe.new_doc("Journal Entry")
+	je.company = company
+	je.posting_date = ctx["posting_date"]
+	je.user_remark = "AE-VGL-DEPTH-MULTI"
+	je.append(
+		"accounts",
+		{
+			"account": leaf,
+			"debit_in_account_currency": 400,
+			"debit": 400,
+			"cost_center": cc_a,
+			"user_remark": "برداشت صندوق — مرکز الف",
+		},
+	)
+	je.append(
+		"accounts",
+		{
+			"account": leaf,
+			"debit_in_account_currency": 600,
+			"debit": 600,
+			"cost_center": cc_b,
+			"user_remark": "برداشت صندوق — مرکز ب",
+		},
+	)
+	je.append(
+		"accounts",
+		{
+			"account": offset,
+			"credit_in_account_currency": 400,
+			"credit": 400,
+			"cost_center": cc_a,
+		},
+	)
+	je.append(
+		"accounts",
+		{
+			"account": offset,
+			"credit_in_account_currency": 600,
+			"credit": 600,
+			"cost_center": cc_b,
+		},
+	)
+	je.flags.ignore_permissions = True
+	je.insert()
+	je.submit()
+	frappe.db.commit()
+	return {
+		**ctx,
+		"depth_accounts": accounts,
+		"depth_je": je.name,
+		"depth_leaf": leaf,
+		"depth_cc_a": cc_a,
+		"depth_cc_b": cc_b,
+	}
+
+
+def write_depth_hierarchy_gate_env(path: str = "/tmp/vgl_hierarchy_gate.json") -> dict:
+	"""Ensure depth hierarchy fixture and write Playwright gate target JSON."""
+	import json
+
+	from persian_calendar.utils.jalali import toshamshi
+
+	class _Gate:
+		@staticmethod
+		def skipTest(msg):
+			pass
+
+	frappe.set_user("Administrator")
+	ctx = ensure_depth_hierarchy_fixture(
+		ensure_hierarchy_business_fixture(ensure_print_company(_Gate()))
+	)
+	settings = frappe.get_single("Iran Accounting Settings")
+	settings.voucher_gl_show_account_hierarchy = 1
+	settings.voucher_gl_hierarchy_start_level = 2
+	settings.voucher_gl_show_party_breakdown = 1
+	settings.voucher_gl_show_dimension_breakdown = 1
+	settings.voucher_gl_print_language = "Persian"
+	settings.flags.ignore_permissions = True
+	settings.save()
+	frappe.db.commit()
+	posting = frappe.db.get_value("Journal Entry", ctx["depth_je"], "posting_date")
+	payload = {
+		"company": ctx["company"],
+		"voucher_type": "Journal Entry",
+		"voucher_no": ctx["depth_je"],
+		"posting_date_gregorian": str(posting) if posting else "",
+		"posting_date_jalali": toshamshi(posting, format="YYYY/MM/DD") if posting else "",
+		"hierarchy_codes": list(DEPTH_HIER_CODES),
+		"hierarchy_titles": dict(DEPTH_HIER_TITLES),
+	}
+	with open(path, "w", encoding="utf-8") as handle:
+		json.dump(payload, handle, ensure_ascii=False, indent=2)
+	return payload
+
+
+def write_jalali_hierarchy_screenshot(
+	html_path: str = "/tmp/voucher_gl_hierarchy_jalali_2101010001.html",
+) -> dict:
+	"""Render Persian print under English Desk and write HTML for QA screenshots."""
+	from erpnext_extensions.iran_accounting.account_explorer.voucher_gl_renderer import (
+		render_voucher_package,
+	)
+
+	gate = write_depth_hierarchy_gate_env()
+	frappe.local.lang = "en"
+	filters = {
+		"company": gate["company"],
+		"voucher_type": gate["voucher_type"],
+		"voucher_no": gate["voucher_no"],
+		"layout": "Standard",
+		"show_account_hierarchy": 1,
+		"user_amount_scale": "Raw",
+		"include_opening_entries": 1,
+	}
+	html = render_voucher_package(filters)
+	with open(html_path, "w", encoding="utf-8") as handle:
+		handle.write(html)
+	cover = html.split('data-section="gl-table"', 1)[0]
+	return {
+		"html_path": html_path,
+		"len": len(html),
+		"jalali": gate["posting_date_jalali"],
+		"jalali_in_html": gate["posting_date_jalali"] in html,
+		"gregorian_absent_cover": gate["posting_date_gregorian"] not in cover,
+		"codes_ok": all(c in html for c in DEPTH_HIER_CODES),
+		"titles_ok": all(t in html for t in DEPTH_HIER_TITLES.values()),
+		"lang_fa": 'lang="fa"' in html,
+		"dir_rtl": 'dir="rtl"' in html,
+		"gate": gate,
 	}

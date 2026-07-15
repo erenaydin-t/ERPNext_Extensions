@@ -107,7 +107,10 @@ def enrich_print_payload(payload: dict, filters: dict | None = None) -> dict:
 	from erpnext_extensions.iran_accounting.account_explorer.voucher_gl_layout import (
 		get_print_labels,
 		localize_currency_label,
-		resolve_print_language,
+	)
+	from erpnext_extensions.iran_accounting.account_explorer.voucher_gl_print_language import (
+		localize_voucher_presentation,
+		resolve_print_language_from_filters,
 	)
 	from erpnext_extensions.iran_accounting.domain.amount_scale import resolve_print_amount_scale
 
@@ -122,7 +125,7 @@ def enrich_print_payload(payload: dict, filters: dict | None = None) -> dict:
 
 	has_cancelled = any(cint(r.get("is_cancelled")) for r in rows)
 	has_opening = any((r.get("is_opening") or "No") == "Yes" for r in rows)
-	lang = resolve_print_language(filters)
+	lang = resolve_print_language_from_filters(filters)
 	labels = get_print_labels(lang)
 	is_balanced = totals["is_balanced"]
 
@@ -146,7 +149,9 @@ def enrich_print_payload(payload: dict, filters: dict | None = None) -> dict:
 		),
 		"currency": currency_label or currency,
 		"source_voucher": header.get("source_document"),
-		"voucher_state": header.get("voucher_status") or _("Submitted"),
+		"voucher_state": localize_voucher_presentation(
+			header.get("voucher_status") or _("Submitted"), "voucher_status", lang
+		),
 		"cancelled": has_cancelled,
 		"opening_entry": has_opening,
 		"finance_book": header.get("finance_book") or "",
@@ -275,7 +280,7 @@ def _render_builtin(payload: dict, filters: dict) -> str:
 	context = {
 		**payload,
 		"print": print_ctx,
-		"meta_rows": build_meta_rows(header, labels),
+		"meta_rows": build_meta_rows(header, labels, lang=print_ctx["lang"]),
 		"fmt_amount": fmt_amount_cb,
 		"letterhead_html": "",
 		"qr_data_url": None,

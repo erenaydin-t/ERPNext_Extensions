@@ -252,6 +252,7 @@ def get_metadata() -> dict:
 		"voucher_gl_layout": getattr(settings, "voucher_gl_layout", None) or "Standard",
 		"voucher_gl_page_layout": getattr(settings, "voucher_gl_page_layout", None) or "Auto",
 		"voucher_gl_amount_scale": getattr(settings, "voucher_gl_amount_scale", None) or "Use Default",
+		"voucher_gl_print_language": getattr(settings, "voucher_gl_print_language", None) or "Persian",
 		"default_amount_display_scale": getattr(settings, "default_amount_display_scale", None) or "Auto",
 		"append_source_attachments": int(getattr(settings, "append_source_attachments", 0) or 0),
 		"voucher_gl_auto_orientation": int(getattr(settings, "voucher_gl_auto_orientation", 1) or 0),

@@ -127,6 +127,88 @@ def build_account_number_index(accounts: list[dict]) -> dict[str, dict]:
 	return index
 
 
+def merge_account_hierarchy_nodes(*sources: list[dict], leaf_normalized: str = "") -> list[dict]:
+	"""Merge hierarchy node lists preserving first-seen order; prefer richer titles."""
+	merged: dict[str, dict] = {}
+	order: list[str] = []
+	leaf_norm = cstr(leaf_normalized or "").strip()
+	for source in sources:
+		for node in source or []:
+			num = cstr(node.get("account_number") or "").strip()
+			key = num or cstr(node.get("account") or "")
+			if not key:
+				continue
+			if leaf_norm and num and num != leaf_norm and not leaf_norm.startswith(num):
+				continue
+			if key not in merged:
+				order.append(key)
+				merged[key] = dict(node)
+				continue
+			existing = merged[key]
+			if not cstr(existing.get("account_name") or "").strip() and cstr(
+				node.get("account_name") or ""
+			).strip():
+				existing["account_name"] = node["account_name"]
+			if not cstr(existing.get("account") or "").strip() and cstr(node.get("account") or "").strip():
+				existing["account"] = node["account"]
+	return [merged[key] for key in order]
+
+
+def _level_sequence_for_account_number(normalized: str, levels: list[dict]) -> int | None:
+	if not normalized or not normalized.isdigit():
+		return None
+	length = len(normalized)
+	for row in levels:
+		if cint(row.get("code_length")) == length:
+			return cint(row.get("sequence"))
+	return None
+
+
+def resolve_account_hierarchy_from_parent_chain(
+	leaf_account: dict | None,
+	*,
+	by_name: dict[str, dict],
+	levels: list[dict],
+	start_level: int,
+) -> list[dict]:
+	"""Walk ERPNext parent_account chain; emit configured levels from start_level upward."""
+	if not leaf_account:
+		return []
+	path: list[dict] = []
+	seen: set[str] = set()
+	current: dict | None = leaf_account
+	while current and cstr(current.get("name") or "") not in seen:
+		name = cstr(current.get("name") or "")
+		seen.add(name)
+		path.append(current)
+		parent_name = cstr(current.get("parent_account") or "")
+		current = by_name.get(parent_name) if parent_name else None
+	path.reverse()
+
+	hierarchy: list[dict] = []
+	for acc in path:
+		normalized = normalize_account_number(acc.get("account_number"))
+		seq = _level_sequence_for_account_number(normalized, levels) if normalized else None
+		is_leaf = acc is path[-1]
+		if seq is None and is_leaf:
+			seq = max((cint(row.get("sequence")) for row in levels), default=0)
+		if seq is None or seq < start_level:
+			continue
+		display_number = normalized or cstr(acc.get("account_number") or "").strip()
+		if not display_number and is_leaf:
+			display_number = cstr(acc.get("name") or "")
+		hierarchy.append(
+			{
+				"level_sequence": seq,
+				"account": cstr(acc.get("name") or ""),
+				"account_number": display_number,
+				"account_name": cstr(acc.get("account_name") or acc.get("name") or display_number),
+			}
+		)
+	leaf_normalized = normalize_account_number(path[-1].get("account_number")) if path else ""
+	return merge_account_hierarchy_nodes(hierarchy, leaf_normalized=leaf_normalized)
+
+
 def resolve_account_hierarchy_for_number(
 	normalized: str,
 	*,
@@ -250,11 +332,20 @@ def batch_resolve_account_hierarchies(
 				}
 			]
 			continue
-		cache[name] = resolve_account_hierarchy_for_number(
-			normalized,
-			levels=levels,
-			number_index=number_index,
-			leaf_account=row,
+		cache[name] = merge_account_hierarchy_nodes(
+			resolve_account_hierarchy_for_number(
+				normalized,
+				levels=levels,
+				number_index=number_index,
+				leaf_account=row,
+			),
+			resolve_account_hierarchy_from_parent_chain(
+				row,
+				by_name=by_name,
+				levels=levels,
+				start_level=start_level,
+			),
+			leaf_normalized=normalized,
 		)
 	return cache
 

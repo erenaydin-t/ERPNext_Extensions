@@ -50,7 +50,7 @@ erpnext_extensions.account_explorer.VoucherGLPrint = {
 			voucher_no: opts.voucher_no || null,
 			layout: opts.layout || null,
 			letterhead: opts.letterhead || null,
-			language: opts.language || frappe.boot?.lang || null,
+			language: opts.language || null,
 			print_format: opts.print_format || null,
 			orientation: opts.orientation || null,
 			finance_book: opts.finance_book || null,
@@ -61,7 +61,7 @@ erpnext_extensions.account_explorer.VoucherGLPrint = {
 			auto_print: !!opts.auto_print && this.BEHAVIOR === "open_preview_and_print",
 			api_method: opts.api_method || this.API_METHOD,
 			report_name: opts.report_name || this.REPORT_NAME,
-			rtl: !!(opts.rtl ?? (frappe.boot?.lang_direction === "rtl" || document.dir === "rtl")),
+			rtl: false,
 		};
 	},
 

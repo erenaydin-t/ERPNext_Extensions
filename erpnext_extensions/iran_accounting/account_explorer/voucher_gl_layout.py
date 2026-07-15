@@ -33,10 +33,52 @@ PROFILE_FULL_AUDIT = "full_audit"
 
 JINJA_MARKER_RE = re.compile(r"(\{%|\{\{|\}\}|%\})")
 
+# Header date fields rendered in print (presentation-only; storage unchanged).
+PRINT_DATE_FIELDS: tuple[tuple[str, bool], ...] = (
+	("posting_date", False),
+	("voucher_date", False),
+	("reference_date", False),
+	("due_date", False),
+	("cheque_due_date", False),
+	("print_timestamp", True),
+)
+
+
+def format_voucher_gl_print_date(value: Any, lang: str, *, include_time: bool = False) -> str:
+	"""Presentation-only date formatting — Jalali for Persian print, Gregorian for English."""
+	text = cstr(value or "").strip()
+	if not text:
+		return ""
+	if lang not in ("fa", "ar"):
+		return text
+	try:
+		from persian_calendar.utils.jalali import toshamshi
+
+		return toshamshi(
+			text,
+			include_time=include_time,
+			format="YYYY/MM/DD",
+		)
+	except Exception:
+		return text
+
+
+def build_print_dates(header: dict, lang: str) -> dict[str, str]:
+	"""Resolved display dates for package.html — never mutates stored header values."""
+	out: dict[str, str] = {}
+	for field, include_time in PRINT_DATE_FIELDS:
+		out[field] = format_voucher_gl_print_date(header.get(field), lang, include_time=include_time)
+	return out
+
+
 LABELS_FA = {
 	"accounting_voucher": "سند حسابداری",
 	"voucher_number": "شماره سند",
 	"reference_number": "شماره عطف",
+	"reference_date": "تاریخ مرجع",
+	"due_date": "تاریخ سررسید",
+	"cheque_due_date": "تاریخ سررسید چک",
+	"voucher_date": "تاریخ سند",
 	"voucher_type": "نوع سند",
 	"posting_date": "تاریخ سند",
 	"posting_time": "زمان سند",
@@ -133,6 +175,10 @@ LABELS_EN = {
 	"accounting_voucher": "Accounting Voucher",
 	"voucher_number": "Voucher Number",
 	"reference_number": "Reference Number",
+	"reference_date": "Reference Date",
+	"due_date": "Due Date",
+	"cheque_due_date": "Cheque Due Date",
+	"voucher_date": "Voucher Date",
 	"voucher_type": "Voucher Type",
 	"posting_date": "Posting Date",
 	"posting_time": "Posting Time",
@@ -227,11 +273,12 @@ LABELS_EN = {
 
 
 def resolve_print_language(filters: dict | None = None) -> str:
-	filters = filters or {}
-	if filters.get("language"):
-		return cstr(filters["language"]).lower()
-	lang = (frappe.local.lang or "en").lower()
-	return "fa" if lang in ("fa", "ar") else "en"
+	"""Effective Voucher GL print language — settings-driven, not Desk UI."""
+	from erpnext_extensions.iran_accounting.account_explorer.voucher_gl_print_language import (
+		resolve_print_language_from_filters,
+	)
+
+	return resolve_print_language_from_filters(filters or {})
 
 
 def is_rtl_language(lang: str) -> bool:
@@ -422,8 +469,16 @@ def _party_type_label(party_type: str, labels: dict[str, str], *, kind: str = "p
 	return labels.get("party") or "Party"
 
 
-def build_hierarchy_code_html(hierarchy: list[dict] | None, *, leaf_fallback: str = "") -> str:
-	"""Stacked LTR account codes for the کد حساب column (Level-N → leaf)."""
+def build_hierarchy_code_html(
+	hierarchy: list[dict] | None,
+	*,
+	leaf_fallback: str = "",
+	allow_leaf_only: bool = False,
+) -> str:
+	"""Stacked LTR account codes for the کد حساب column (Level-N → leaf).
+
+	Never emit a lone leaf code unless ``allow_leaf_only`` (non-hierarchical mode).
+	"""
 	parts: list[str] = []
 	seen: set[str] = set()
 	for level in hierarchy or []:
@@ -432,7 +487,7 @@ def build_hierarchy_code_html(hierarchy: list[dict] | None, *, leaf_fallback: st
 			continue
 		seen.add(code)
 		parts.append(f'<div class="hier-code" dir="ltr"><span class="acct-code">{escape_text(code)}</span></div>')
-	if not parts and leaf_fallback:
+	if not parts and leaf_fallback and allow_leaf_only:
 		parts.append(
 			f'<div class="hier-code" dir="ltr"><span class="acct-code">{escape_text(leaf_fallback)}</span></div>'
 		)
@@ -457,9 +512,10 @@ def build_hierarchy_description_html(
 			if not name:
 				continue
 			indent = depth * 12
+			title_dir = "rtl" if rtl else "auto"
 			parts.append(
 				f'<div class="hier-level" style="padding-inline-start:{indent}px">'
-				f'<span class="acct-name" dir="auto" style="unicode-bidi:plaintext">{name}</span>'
+				f'<span class="acct-name" dir="{title_dir}" style="unicode-bidi:plaintext">{name}</span>'
 				f"</div>"
 			)
 		return "".join(parts) or escape_text(node.get("account_name") or "")
@@ -925,7 +981,7 @@ def prepare_table_rows(payload: dict, print_ctx: dict) -> list[dict]:
 			elif node_type == "account_header":
 				cells["account_code"] = build_hierarchy_code_html(
 					node.get("account_hierarchy"),
-					leaf_fallback=cstr(node.get("account_code") or ""),
+					allow_leaf_only=False,
 				)
 				cells["remarks"] = build_hierarchy_description_html(node, labels, rtl=rtl)
 				out.append({"idx": "", "cells": cells, "remarks_plain": "", "node_type": node_type})
@@ -1035,7 +1091,13 @@ def build_print_context(payload: dict, filters: dict | None = None) -> dict:
 	options = resolve_print_options(filters)
 	layout = filters.get("layout") or payload.get("layout") or LAYOUT_STANDARD
 	lang = resolve_print_language(filters)
-	rtl = is_rtl_language(lang)
+	from erpnext_extensions.iran_accounting.account_explorer.voucher_gl_print_language import (
+		localize_voucher_presentation,
+		print_html_attrs,
+	)
+
+	html_attrs = print_html_attrs(lang)
+	rtl = html_attrs["rtl"]
 	labels = get_print_labels(lang)
 	profile = resolve_column_profile(layout, filters)
 	full_audit = cint(filters.get("full_audit_columns")) or layout == LAYOUT_AUDIT
@@ -1101,8 +1163,14 @@ def build_print_context(payload: dict, filters: dict | None = None) -> dict:
 		logo_url = resolve_company_logo_url(company)
 	contact = resolve_company_contact(company) if company else {"address": "", "phone": ""}
 	header = payload.get("header") or {}
-	identity_rows = build_identity_rows(header, labels)
-	cover_meta_rows = build_cover_meta_rows(header, labels)
+	identity_rows = build_identity_rows(header, labels, lang=lang)
+	cover_meta_rows = build_cover_meta_rows(header, labels, lang=lang)
+	if lang == "fa":
+		for row in identity_rows:
+			if row.get("label") == labels.get("voucher_type"):
+				row["value"] = localize_voucher_presentation(row.get("value"), "voucher_type", lang)
+			elif row.get("label") == labels.get("status"):
+				row["value"] = localize_voucher_presentation(row.get("value"), "voucher_status", lang)
 	# Visible scale meta: effective scale after Auto resolution (omit Raw).
 	from erpnext_extensions.iran_accounting.domain.amount_scale import (
 		SCALE_RAW,
@@ -1138,10 +1206,16 @@ def build_print_context(payload: dict, filters: dict | None = None) -> dict:
 		LAYOUT_AUDIT: labels.get("layout_audit") or "Audit",
 	}.get(layout_name, layout_name)
 
+	print_dates = build_print_dates(header, lang)
+
 	return {
 		"lang": lang,
+		"print_language": html_attrs["print_language"],
+		"html_lang": html_attrs["html_lang"],
+		"html_dir": html_attrs["html_dir"],
 		"rtl": rtl,
 		"labels": labels,
+		"dates": print_dates,
 		"column_profile": profile,
 		"columns": columns,
 		"footer_label_colspan": max(debit_idx, 1),
@@ -1154,7 +1228,7 @@ def build_print_context(payload: dict, filters: dict | None = None) -> dict:
 		"logo_url": logo_url,
 		"company_address": contact.get("address") or "",
 		"company_phone": contact.get("phone") or "",
-		"layout_direction": "rtl" if rtl else "ltr",
+		"layout_direction": html_attrs["html_dir"],
 		"show_zero_amounts": cint(filters.get("show_zero_amounts")),
 		"options": options,
 		"identity_rows": identity_rows,
@@ -1185,11 +1259,16 @@ def localize_currency_label(currency: str, lang: str) -> str:
 	return code
 
 
-def build_identity_rows(header: dict, labels: dict[str, str]) -> list[dict[str, str]]:
+def build_identity_rows(header: dict, labels: dict[str, str], *, lang: str = "en") -> list[dict[str, str]]:
 	"""Right-side voucher identity — only non-empty fields."""
+	print_dates = build_print_dates(header, lang)
 	candidates = [
 		("voucher_number", header.get("voucher_no")),
-		("posting_date", header.get("posting_date")),
+		("posting_date", print_dates.get("posting_date")),
+		("voucher_date", print_dates.get("voucher_date")),
+		("reference_date", print_dates.get("reference_date")),
+		("due_date", print_dates.get("due_date")),
+		("cheque_due_date", print_dates.get("cheque_due_date")),
 		("reference_number", header.get("reference_number")),
 		("voucher_type", header.get("voucher_type")),
 		("status", header.get("voucher_status")),
@@ -1203,13 +1282,14 @@ def build_identity_rows(header: dict, labels: dict[str, str]) -> list[dict[str, 
 	return rows
 
 
-def build_cover_meta_rows(header: dict, labels: dict[str, str]) -> list[dict[str, str]]:
+def build_cover_meta_rows(header: dict, labels: dict[str, str], *, lang: str = "en") -> list[dict[str, str]]:
 	"""Left-side secondary metadata — fiscal / book / print provenance."""
+	print_dates = build_print_dates(header, lang)
 	candidates = [
 		("fiscal_year", header.get("fiscal_year")),
 		("finance_book", header.get("finance_book")),
 		("printed_by", header.get("printed_by")),
-		("print_date", header.get("print_timestamp")),
+		("print_date", print_dates.get("print_timestamp")),
 		("generated_from", header.get("print_meta_source")),
 	]
 	rows: list[dict[str, str]] = []
@@ -1221,6 +1301,6 @@ def build_cover_meta_rows(header: dict, labels: dict[str, str]) -> list[dict[str
 	return rows
 
 
-def build_meta_rows(header: dict, labels: dict[str, str]) -> list[dict[str, str]]:
+def build_meta_rows(header: dict, labels: dict[str, str], *, lang: str = "en") -> list[dict[str, str]]:
 	"""Combined cover identity + meta for tests/legacy callers."""
-	return build_identity_rows(header, labels) + build_cover_meta_rows(header, labels)
+	return build_identity_rows(header, labels, lang=lang) + build_cover_meta_rows(header, labels, lang=lang)

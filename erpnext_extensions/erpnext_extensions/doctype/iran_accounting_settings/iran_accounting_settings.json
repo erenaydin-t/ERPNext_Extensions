@@ -61,6 +61,7 @@
   "voucher_gl_hide_empty_columns",
   "voucher_gl_combine_dimensions",
   "voucher_gl_amount_scale",
+  "voucher_gl_print_language",
   "voucher_gl_show_account_hierarchy",
   "voucher_gl_hierarchy_start_level",
   "voucher_gl_show_party_breakdown",
@@ -390,6 +391,14 @@
    "fieldtype": "Select",
    "label": "Amount Scale",
    "options": "Use Default\nRaw\nAuto\nThousands\nMillions\nBillions\nTrillions"
+  },
+  {
+   "default": "Persian",
+   "description": "Language for Voucher GL Print only. Does not change Desk or Account Explorer UI language.",
+   "fieldname": "voucher_gl_print_language",
+   "fieldtype": "Select",
+   "label": "Voucher GL Print Language",
+   "options": "Persian\nEnglish\nFollow User Language"
   },
   {
    "default": "1",

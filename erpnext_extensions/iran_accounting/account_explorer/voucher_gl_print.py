@@ -338,6 +338,7 @@ def _build_header(*, company, voucher_type, voucher_no, raw_rows, party_names, f
 	voucher_status = _("GL Entry")
 	voucher_remarks = ""
 	reference_number = ""
+	voucher_dates: dict[str, str] = {}
 	if source_exists:
 		meta = frappe.get_meta(voucher_type)
 		fields = []
@@ -352,6 +353,11 @@ def _build_header(*, company, voucher_type, voucher_no, raw_rows, party_names, f
 			"cheque_no",
 			"bill_no",
 			"cheque_number",
+			"posting_date",
+			"voucher_date",
+			"reference_date",
+			"due_date",
+			"cheque_due_date",
 		):
 			if meta.has_field(candidate) or candidate == "docstatus":
 				fields.append(candidate)
@@ -378,7 +384,14 @@ def _build_header(*, company, voucher_type, voucher_no, raw_rows, party_names, f
 				break
 		if cint(values.get("docstatus")) == 2:
 			voucher_status = _("Cancelled")
+		for date_field in ("posting_date", "voucher_date", "reference_date", "due_date", "cheque_due_date"):
+			if meta.has_field(date_field) and values.get(date_field):
+				voucher_dates[date_field] = cstr(values.get(date_field))
 	currencies = sorted({row.account_currency for row in raw_rows if row.account_currency})
+
+	posting_date = str(first.posting_date) if first.posting_date else ""
+	if voucher_dates.get("posting_date"):
+		posting_date = voucher_dates["posting_date"]
 
 	return {
 		"company": company,
@@ -387,8 +400,12 @@ def _build_header(*, company, voucher_type, voucher_no, raw_rows, party_names, f
 		"voucher_type": voucher_type,
 		"voucher_no": voucher_no,
 		"voucher_status": voucher_status,
-		"posting_date": str(first.posting_date) if first.posting_date else "",
+		"posting_date": posting_date,
 		"posting_time": posting_time,
+		"voucher_date": voucher_dates.get("voucher_date") or "",
+		"reference_date": voucher_dates.get("reference_date") or "",
+		"due_date": voucher_dates.get("due_date") or "",
+		"cheque_due_date": voucher_dates.get("cheque_due_date") or "",
 		"fiscal_year": fiscal_year or "",
 		"finance_book": filters.get("finance_book") or first.finance_book or "",
 		"source_document": f"{voucher_type} {voucher_no}" if source_exists else "",

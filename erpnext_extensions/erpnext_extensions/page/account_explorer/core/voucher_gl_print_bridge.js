@@ -69,7 +69,6 @@ frappe.provide("erpnext_extensions.account_explorer");
 			voucher_no: row?.voucher_no,
 			layout: this.metadata?.voucher_gl_layout || null,
 			print_format: this.metadata?.voucher_gl_print_format || null,
-			language: frappe.boot?.lang || null,
 			finance_book: this.document_scope?.finance_book || null,
 			include_opening_entries: cint(this.document_scope?.status?.include_opening_entries ?? 1),
 			include_cancelled_entries: cint(this.document_scope?.status?.include_cancelled_entries ?? 0),

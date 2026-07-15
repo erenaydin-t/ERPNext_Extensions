@@ -21,6 +21,7 @@ from erpnext_extensions.iran_accounting.account_explorer.voucher_gl_print import
 )
 from erpnext_extensions.iran_accounting.account_explorer.voucher_gl_layout import (
 	JINJA_MARKER_RE,
+	LABELS_EN,
 	LABELS_FA,
 	PROFILE_COMPACT,
 	PROFILE_FULL_AUDIT,
@@ -222,13 +223,17 @@ class TestVoucherGLPrint(unittest.TestCase):
 
 	def test_html_render_contains_header_and_totals(self):
 		html = render_voucher_gl_print_html(self._filters())
-		self.assertIn("Accounting Voucher", html)
+		# Default print language is Persian (Iran Accounting Settings).
+		self.assertIn(LABELS_FA["accounting_voucher"], html)
 		self.assertIn(self.ctx["je_multi"], html)
-		self.assertIn("Total Debit", html)
-		self.assertIn("Difference", html)
-		self.assertIn("Amount in Words", html)
+		self.assertIn(LABELS_FA["debit_total"], html)
+		self.assertIn(LABELS_FA["difference"], html)
+		self.assertIn(LABELS_FA["amount_in_words"], html)
 		self.assertIn("signatures", html)
 		self.assertIsNone(JINJA_MARKER_RE.search(html))
+
+		html_en = render_voucher_gl_print_html(self._filters(language="en"))
+		self.assertIn(LABELS_EN["accounting_voucher"], html_en)
 
 	def test_one_click_api_and_navigation(self):
 		html = api.render_voucher_gl_print(

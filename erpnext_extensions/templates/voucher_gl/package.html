@@ -1,6 +1,6 @@
 {# Accounting Voucher Package — paper-first Iranian binder form (not a report) #}
 <!DOCTYPE html>
-<html lang="{{ print.lang }}" dir="{{ print.layout_direction }}">
+<html lang="{{ print.html_lang or print.lang }}" dir="{{ print.html_dir or print.layout_direction }}">
 <head>
 	<meta charset="utf-8">
 	<title>{{ print.labels.accounting_voucher }} — {{ header.voucher_no|e }}</title>
@@ -28,7 +28,7 @@
 				color: #5c6670;
 			}
 			@bottom-center {
-				content: "{{ header.print_timestamp|e }}";
+				content: "{{ print.dates.print_timestamp|e }}";
 				font-size: 7.5pt;
 				color: #5c6670;
 			}
@@ -38,7 +38,7 @@
 				color: #5c6670;
 			}
 			@top-center {
-				content: "{{ print.labels.continuing_header|e }} · {{ header.company_name|e }} · {{ print.labels.voucher_number|e }} {{ header.voucher_no|e }} · {{ print.labels.posting_date|e }} {{ header.posting_date|e }} · {{ print.labels.page }} " counter(page);
+				content: "{{ print.labels.continuing_header|e }} · {{ header.company_name|e }} · {{ print.labels.voucher_number|e }} {{ header.voucher_no|e }} · {{ print.labels.posting_date|e }} {{ print.dates.posting_date|e }} · {{ print.labels.page }} " counter(page);
 				font-size: 8pt;
 				color: #5c6670;
 			}
@@ -539,7 +539,7 @@
 						<th colspan="{{ print.columns|length }}">
 							{{ header.company_name|e }}
 							· {{ print.labels.voucher_number }} {{ header.voucher_no|e }}
-							· {{ print.labels.posting_date }} {{ header.posting_date|e }}
+							· {{ print.labels.posting_date }} {{ print.dates.posting_date|e }}
 						</th>
 					</tr>
 					<tr>
@@ -633,7 +633,7 @@
 
 	<div class="footer-screen no-print">
 		<div>{{ print.labels.print_meta }}</div>
-		<div>{{ header.print_timestamp|e }}</div>
+		<div>{{ print.dates.print_timestamp|e }}</div>
 	</div>
 
 	{% if attachments and print.options.show_attachments %}
