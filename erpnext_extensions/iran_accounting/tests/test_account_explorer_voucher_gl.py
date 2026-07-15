@@ -208,9 +208,13 @@ class TestGlDetailDynamicDimensions(unittest.TestCase):
 			self.assertIn("project", row["dimensions"])
 			self.assertIn("dim:cost_center", row)
 
+	@patch("erpnext_extensions.iran_accounting.account_explorer.constants.GL_DIMENSION_EXPAND_THRESHOLD", 1)
 	@patch("erpnext_extensions.iran_accounting.account_explorer.voucher_gl.get_discovered_dimensions")
 	def test_grouped_gl_many_dimensions_uses_selector_layout(self, mock_discovered):
-		mock_discovered.return_value = MANY_DIMENSIONS
+		# Only GL Entry–backed fieldnames may enter SELECT. Fake custom_dim_* mocks
+		# previously caused OperationalError 1054; threshold is lowered so two real
+		# native dimensions still exercise compact_with_selector.
+		mock_discovered.return_value = COST_CENTER_AND_PROJECT
 		company = require_site(self)
 		if not company:
 			self.skipTest("ERPNext _Test Company not available")
@@ -228,6 +232,9 @@ class TestGlDetailDynamicDimensions(unittest.TestCase):
 		)
 		if not sample:
 			self.skipTest("No GL Entry data")
+		for fieldname in ("cost_center", "project"):
+			if not frappe.get_meta("GL Entry").has_field(fieldname):
+				self.skipTest(f"GL Entry missing {fieldname}")
 		payload = build_payload(
 			company,
 			fiscal_year,
@@ -244,7 +251,56 @@ class TestGlDetailDynamicDimensions(unittest.TestCase):
 		)
 		result = api.get_grouped_gl_entries(payload)
 		self.assertEqual(result["gl_dimension_layout"], "compact_with_selector")
-		self.assertEqual(len(result["dimensions"]), len(MANY_DIMENSIONS))
+		self.assertEqual(len(result["dimensions"]), len(COST_CENTER_AND_PROJECT))
+
+	@patch("erpnext_extensions.iran_accounting.account_explorer.voucher_gl.get_discovered_dimensions")
+	def test_grouped_gl_skips_dimensions_missing_on_gl_entry(self, mock_discovered):
+		mock_discovered.return_value = [
+			*COST_CENTER_AND_PROJECT,
+			{
+				"fieldname": "custom_dim_1",
+				"label": "Missing Dim",
+				"document_type": "Cost Center",
+				"is_native": 0,
+			},
+		]
+		company = require_site(self)
+		if not company:
+			self.skipTest("ERPNext _Test Company not available")
+		enable_wave2b_voucher()
+		frappe.set_user("Administrator")
+		fy = current_fiscal_year(company)
+		if not fy:
+			self.skipTest("No fiscal year")
+		fiscal_year, from_date, to_date = fy
+		sample = frappe.db.get_value(
+			"GL Entry",
+			{"company": company, "is_cancelled": 0},
+			["voucher_type", "voucher_no"],
+			as_dict=True,
+		)
+		if not sample:
+			self.skipTest("No GL Entry data")
+		self.assertFalse(frappe.get_meta("GL Entry").has_field("custom_dim_1"))
+		payload = build_payload(
+			company,
+			fiscal_year,
+			from_date,
+			to_date,
+			analysis={
+				"view_axis": "voucher",
+				"detail_mode": "grouped_gl",
+				"voucher_scope": {
+					"voucher_type": sample.voucher_type,
+					"voucher_no": sample.voucher_no,
+				},
+			},
+		)
+		result = api.get_grouped_gl_entries(payload)
+		fieldnames = {row["fieldname"] for row in result["dimensions"]}
+		self.assertIn("cost_center", fieldnames)
+		self.assertIn("project", fieldnames)
+		self.assertNotIn("custom_dim_1", fieldnames)
 
 
 class TestAccountExplorerVoucherGl(unittest.TestCase):

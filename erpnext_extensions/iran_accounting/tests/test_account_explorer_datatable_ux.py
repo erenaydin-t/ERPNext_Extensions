@@ -79,10 +79,15 @@ class TestAccountExplorerDataTableUX(unittest.TestCase):
 		for fragment in (
 			"get_checked_row_count",
 			"clear_grid_selection",
-			"Selected: {0}",
+			'__("1 row selected")',
+			'__("{0} rows selected"',
 			"Clear Selection",
 		):
 			self.assertIn(fragment, self.page_content)
+		# Frozen UX contract — never revert to "Selected: {0}".
+		self.assertNotIn("Selected: {0}", self.page_content)
+		self.assertEqual(self.page_content.count('__("1 row selected")'), 3)
+		self.assertGreaterEqual(self.page_content.count('__("{0} rows selected"'), 3)
 
 	def test_selection_clears_on_axis_switch(self):
 		start = self.page_content.index("switch_axis(view_axis")

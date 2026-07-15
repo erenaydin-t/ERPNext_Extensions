@@ -64,7 +64,7 @@ class TestAccountExplorerBreadcrumbNavigation(unittest.TestCase):
 
 	def test_go_back_truncates_one_scope_level(self):
 		start = self.content.index("go_back() {")
-		block = self.content[start : start + 900]
+		block = self.content[start : start + 1400]
 		self.assertIn("get_scope_trail().slice(0, -1)", block)
 
 	def test_navigate_to_scope_truncates_children(self):

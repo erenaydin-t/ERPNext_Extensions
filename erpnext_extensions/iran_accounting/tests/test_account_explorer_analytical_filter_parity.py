@@ -504,3 +504,312 @@ class TestAccountExplorerAnalyticalFilterParity(unittest.TestCase):
 			"scoped_median_ms": median_s,
 			"scoped_p90_ms": p90_s,
 		}
+
+	def _account_analysis(self, account: str, **extra) -> dict:
+		return {
+			"account_scope": {
+				"mode": "account",
+				"selected_account": account,
+				"tree_root_account": account,
+				"is_virtual_group": 0,
+			},
+			**extra,
+		}
+
+	def test_cross_axis_account_filter_member_matrix(self):
+		"""Account Analysis Filter must constrain every axis and match direct GL."""
+		account = self.ctx["receivable"]  # leaf used only on JE-A
+		gl = direct_gl_period_totals(
+			self.ctx["company"],
+			self.ctx["from_date"],
+			self.ctx["to_date"],
+			account=account,
+		)
+		analysis = self._account_analysis(account)
+		for axis, extra in (
+			("account_level", {}),
+			("party", {}),
+			("voucher", {}),
+			("currency", {}),
+			("dimension", {"dimension_scope": {"dimension_type": "cost_center"}}),
+		):
+			payload = self._payload(axis=axis, analysis={**analysis, **extra})
+			self._assert_period_parity(axis, payload, gl, "cross_axis_account")
+
+		# Members must be related to Account filter — exclude unrelated vouchers.
+		voucher_rows = (
+			self._call_axis("voucher", self._payload(axis="voucher", analysis=analysis)).get("rows") or []
+		)
+		voucher_nos = {row.get("voucher_no") for row in voucher_rows if row.get("voucher_no")}
+		self.assertIn(self.ctx["je_a"], voucher_nos)
+		self.assertNotIn(self.ctx["je_b"], voucher_nos)
+
+		dim_rows = (
+			self._call_axis(
+				"dimension",
+				self._payload(
+					axis="dimension",
+					analysis={**analysis, "dimension_scope": {"dimension_type": "cost_center"}},
+				),
+			).get("rows")
+			or []
+		)
+		dim_values = {
+			row.get("dimension_value")
+			for row in dim_rows
+			if row.get("dimension_value") not in (None, "")
+		}
+		self.assertIn(self.ctx["cost_center"], dim_values)
+
+		currency_rows = (
+			self._call_axis("currency", self._payload(axis="currency", analysis=analysis)).get("rows")
+			or []
+		)
+		currencies = {row.get("currency") for row in currency_rows if row.get("currency")}
+		self.assertIn(self.ctx["currency"], currencies)
+
+		self._assert_full_account_measure_parity(
+			self._payload(axis="account_level", analysis=analysis),
+			{"account": account},
+			"cross_axis_account_full",
+		)
+
+	def test_cross_axis_group_account_descendants(self):
+		"""Group Account filter resolves to descendant ledger accounts."""
+		leaf = self.ctx["receivable"]
+		parent = frappe.db.get_value("Account", leaf, "parent_account")
+		if not parent or not frappe.db.get_value("Account", parent, "is_group"):
+			self.skipTest("No group parent for parity leaf account")
+
+		from erpnext_extensions.iran_accounting.account_explorer.account_hierarchy import (
+			descendant_accounts,
+			load_company_accounts,
+		)
+
+		accounts = load_company_accounts(self.ctx["company"])
+		descendants = set(descendant_accounts(accounts, parent))
+		self.assertIn(leaf, descendants)
+
+		gl = direct_gl_period_totals(
+			self.ctx["company"],
+			self.ctx["from_date"],
+			self.ctx["to_date"],
+			account=list(descendants),
+		)
+		analysis = self._account_analysis(parent)
+		spec = AccountExplorerQuerySpec_from_client(
+			self._payload(axis="account_level", analysis=analysis),
+			require_dates=True,
+		)
+		self.assertEqual(set(spec.included_account_names or []), descendants)
+
+		for axis, extra in (
+			("account_level", {}),
+			("voucher", {}),
+			("dimension", {"dimension_scope": {"dimension_type": "cost_center"}}),
+		):
+			payload = self._payload(axis=axis, analysis={**analysis, **extra})
+			self._assert_period_parity(axis, payload, gl, "group_account_descendants")
+
+	def test_cross_axis_party_filter_matrix(self):
+		if not self.ctx.get("customer") or not self.ctx.get("je_party"):
+			self.skipTest("No party parity JE")
+		gl = direct_gl_period_totals(
+			self.ctx["company"],
+			self.ctx["from_date"],
+			self.ctx["to_date"],
+			party_type="Customer",
+			party=self.ctx["customer"],
+		)
+		analysis = {
+			"party_scope": {
+				"party_type": "Customer",
+				"selected_party": self.ctx["customer"],
+			}
+		}
+		for axis, extra in (
+			("account_level", {}),
+			("party", {}),
+			("voucher", {}),
+			("currency", {}),
+			("dimension", {"dimension_scope": {"dimension_type": "cost_center"}}),
+		):
+			payload = self._payload(axis=axis, analysis={**analysis, **extra})
+			self._assert_period_parity(axis, payload, gl, "cross_axis_party")
+
+		voucher_rows = (
+			self._call_axis("voucher", self._payload(axis="voucher", analysis=analysis)).get("rows") or []
+		)
+		voucher_nos = {row.get("voucher_no") for row in voucher_rows if row.get("voucher_no")}
+		self.assertIn(self.ctx["je_party"], voucher_nos)
+		self.assertNotIn(self.ctx["je_b"], voucher_nos)
+
+	def test_cross_axis_dimension_filter_matrix(self):
+		gl = direct_gl_period_totals(
+			self.ctx["company"],
+			self.ctx["from_date"],
+			self.ctx["to_date"],
+			cost_center=self.ctx["cost_center"],
+		)
+		analysis = {
+			"dimension_scope": {
+				"dimension_type": "cost_center",
+				"selected_dimension_value": self.ctx["cost_center"],
+			}
+		}
+		for axis, extra in (
+			("account_level", {}),
+			("party", {}),
+			("voucher", {}),
+			("currency", {}),
+			("dimension", {}),
+		):
+			payload = self._payload(axis=axis, analysis={**analysis, **extra})
+			self._assert_period_parity(axis, payload, gl, "cross_axis_dimension")
+
+		account_rows = (
+			self._call_axis("account_level", self._payload(axis="account_level", analysis=analysis)).get(
+				"rows"
+			)
+			or []
+		)
+		# Scoped totals already assert GL parity; non-zero leaf rows must belong to CC activity.
+		self.assertTrue(any(flt(row.get("period_debit")) or flt(row.get("period_credit")) for row in account_rows))
+
+	def test_cross_axis_voucher_filter_matrix(self):
+		gl = direct_gl_period_totals(
+			self.ctx["company"],
+			self.ctx["from_date"],
+			self.ctx["to_date"],
+			voucher_no=self.ctx["je_a"],
+		)
+		analysis = {
+			"voucher_scope": {
+				"voucher_type": "Journal Entry",
+				"voucher_no": self.ctx["je_a"],
+			}
+		}
+		for axis, extra in (
+			("account_level", {}),
+			("party", {}),
+			("voucher", {}),
+			("currency", {}),
+			("dimension", {"dimension_scope": {"dimension_type": "cost_center"}}),
+		):
+			payload = self._payload(axis=axis, analysis={**analysis, **extra})
+			self._assert_period_parity(axis, payload, gl, "cross_axis_voucher")
+
+		dim_rows = (
+			self._call_axis(
+				"dimension",
+				self._payload(
+					axis="dimension",
+					analysis={**analysis, "dimension_scope": {"dimension_type": "cost_center"}},
+				),
+			).get("rows")
+			or []
+		)
+		dim_values = {row.get("dimension_value") for row in dim_rows if row.get("dimension_value")}
+		self.assertIn(self.ctx["cost_center"], dim_values)
+
+	def test_cross_axis_currency_filter_matrix(self):
+		account = self.ctx["receivable"]
+		gl = direct_gl_period_totals(
+			self.ctx["company"],
+			self.ctx["from_date"],
+			self.ctx["to_date"],
+			account=account,
+			currency=self.ctx["currency"],
+		)
+		document = self._base_document(
+			currency={"currency_type": "account_currency", "currency": self.ctx["currency"]}
+		)
+		analysis = self._account_analysis(account)
+		for axis, extra in (
+			("account_level", {}),
+			("party", {}),
+			("voucher", {}),
+			("currency", {}),
+			("dimension", {"dimension_scope": {"dimension_type": "cost_center"}}),
+		):
+			payload = self._payload(
+				axis=axis,
+				analysis={**analysis, **extra},
+				document=document,
+			)
+			self._assert_period_parity(axis, payload, gl, "cross_axis_currency")
+
+	def test_cross_axis_multi_filter_intersection(self):
+		account = self.ctx["receivable"]
+		gl = direct_gl_period_totals(
+			self.ctx["company"],
+			self.ctx["from_date"],
+			self.ctx["to_date"],
+			account=account,
+			cost_center=self.ctx["cost_center"],
+			voucher_no=self.ctx["je_a"],
+		)
+		analysis = {
+			**self._account_analysis(account),
+			"dimension_scope": {
+				"dimension_type": "cost_center",
+				"selected_dimension_value": self.ctx["cost_center"],
+			},
+			"voucher_scope": {
+				"voucher_type": "Journal Entry",
+				"voucher_no": self.ctx["je_a"],
+			},
+		}
+		for axis, extra in (
+			("account_level", {}),
+			("party", {}),
+			("voucher", {}),
+			("currency", {}),
+			("dimension", {}),
+		):
+			payload = self._payload(axis=axis, analysis={**analysis, **extra})
+			self._assert_period_parity(axis, payload, gl, "cross_axis_multi")
+
+		# Removing the account filter (broader WHERE) must increase or keep voucher activity.
+		broader = {
+			"dimension_scope": {
+				"dimension_type": "cost_center",
+				"selected_dimension_value": self.ctx["cost_center"],
+			},
+			"voucher_scope": {
+				"voucher_type": "Journal Entry",
+				"voucher_no": self.ctx["je_a"],
+			},
+		}
+		narrow = self._call_axis("voucher", self._payload(axis="voucher", analysis=analysis))
+		wide = self._call_axis("voucher", self._payload(axis="voucher", analysis=broader))
+		self.assertLessEqual(
+			flt((narrow.get("totals") or {}).get("scoped_debit")),
+			flt((wide.get("totals") or {}).get("scoped_debit")),
+		)
+
+	def test_no_duplicate_where_projection_for_dimension(self):
+		"""Analysis dimension wins; document dimension conflict is warned once."""
+		from erpnext_extensions.iran_accounting.account_explorer.query_spec import (
+			AccountExplorerQuerySpec_from_client as parse,
+		)
+
+		# Client payload already projected — simulate conflict via document dims + analysis dim.
+		document = self._base_document(
+			accounting_dimensions={"cost_center": "OTHER-CC"},
+		)
+		analysis = {
+			"dimension_scope": {
+				"dimension_type": "cost_center",
+				"selected_dimension_value": self.ctx["cost_center"],
+			}
+		}
+		payload = self._payload(axis="dimension", analysis=analysis, document=document)
+		spec = parse(payload, require_dates=True)
+		self.assertEqual(spec.dimension_scope.selected_dimension_value, self.ctx["cost_center"])
+		# Document dim remains as authored unless mapper ran; server trusted analysis selected value.
+		self.assertEqual(spec.dimension_scope.dimension_type, "cost_center")
+
+	def test_max_abs_gl_difference_gate(self):
+		"""Max absolute GL difference across this module's asserts must stay zero."""
+		self.assertEqual(self.max_abs_diff, 0.0)

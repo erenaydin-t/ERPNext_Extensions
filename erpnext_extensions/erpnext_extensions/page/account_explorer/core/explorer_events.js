@@ -9,7 +9,13 @@ frappe.provide("erpnext_extensions.account_explorer.core");
  * - context:change         — document_scope / analysis_context / presentation changed
  * - summary:loading        — summary request started (store.loading.summary = true)
  * - summary:loaded         — summary response applied ({ data })
- * - workspace:restored     — workspace state hydrated from URL/token (3B-5)
+ * - workspace:restored     — legacy store patch hydration event
+ * - workspace:hydrating    — URL/workspace restore started (3B-3)
+ * - workspace:hydrated     — controller hydrated from URL
+ * - workspace:changed      — workspace applied (init/popstate)
+ * - workspace:url_updated  — history URL rewritten
+ * - workspace:error        — invalid URL / token failure
+ * - workspace:token_loaded — compact token resolved
  * - grid:mounted           — summary DataTable mounted
  * - grid:updated           — summary DataTable refreshed
  * - grid:selection_changed — checkbox / row selection changed
@@ -24,6 +30,13 @@ frappe.provide("erpnext_extensions.account_explorer.core");
  * - preferences:reset        — axis/all preferences reset
  * - plugin:registered      — axis plugin registered ({ plugin })
  * - plugin:unregistered    — axis plugin removed ({ id })
+ * - analysis_filters:changed — analysis_filters bag replaced
+ * - analysis_filter:added    — one filter added/updated
+ * - analysis_filter:removed  — one filter removed
+ * - analysis_filters:cleared — analysis filters cleared
+ * - intent:resolved          — UI gesture resolved to intent + actions
+ * - drill_graph:transition   — drill graph action applied
+ * - filter_summary:rendered  — Filter Summary DOM updated
  *
  * Loading state is also available via store.get("loading"):
  * - loading.metadata

@@ -11,7 +11,10 @@ from erpnext_extensions.iran_accounting.account_explorer.constants import (
 	GL_GROUP_SORTABLE_FIELDS,
 	gl_dimension_layout_mode,
 )
-from erpnext_extensions.iran_accounting.account_explorer.dimension_discovery import get_discovered_dimensions
+from erpnext_extensions.iran_accounting.account_explorer.dimension_discovery import (
+	filter_usable_gl_dimensions,
+	get_discovered_dimensions,
+)
 from erpnext_extensions.iran_accounting.account_explorer.gle_filters import (
 	apply_opening_entry_filters,
 	apply_scoped_gle_filters,
@@ -27,7 +30,7 @@ def build_grouped_gl_entries(spec: AccountExplorerQuerySpec) -> dict:
 	if not spec.voucher_scope.voucher_type or not spec.voucher_scope.voucher_no:
 		frappe.throw(_("Voucher type and voucher number are required for grouped GL detail."))
 
-	dimensions = get_discovered_dimensions()
+	dimensions = filter_usable_gl_dimensions(get_discovered_dimensions())
 	gle = frappe.qb.DocType("GL Entry")
 	select_fields = [
 		gle.name,

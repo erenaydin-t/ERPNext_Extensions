@@ -29,6 +29,45 @@ NATIVE_DIMENSIONS = (
 )
 
 
+def filter_usable_gl_dimensions(
+	dimensions: list[dict] | None,
+	*,
+	warn: bool = True,
+) -> list[dict]:
+	"""Keep only dimensions whose fieldname exists on GL Entry.
+
+	Callers that build SELECT/WHERE/GROUP BY for GL Entry must use this (or
+	``get_discovered_dimensions``) so stale Accounting Dimension records or
+	mocked fixtures cannot invent SQL columns.
+	"""
+	gl_meta = frappe.get_meta("GL Entry")
+	usable: list[dict] = []
+	seen: set[str] = set()
+	skipped: list[str] = []
+	for row in dimensions or []:
+		fieldname = (row or {}).get("fieldname")
+		if not fieldname or fieldname in seen:
+			continue
+		if not gl_meta.has_field(fieldname):
+			skipped.append(fieldname)
+			continue
+		usable.append(row)
+		seen.add(fieldname)
+	if warn and skipped:
+		frappe.logger("erpnext_extensions.account_explorer").warning(
+			"Skipping accounting dimensions missing on GL Entry: {0}".format(", ".join(skipped))
+		)
+		# Desk-visible once per request is enough; avoid toast spam in API loops.
+		if getattr(frappe.flags, "ae_missing_dimension_warned", None) != tuple(skipped):
+			frappe.flags.ae_missing_dimension_warned = tuple(skipped)
+			frappe.msgprint(
+				_("Accounting dimensions skipped (no GL Entry field): {0}").format(", ".join(skipped)),
+				indicator="orange",
+				alert=True,
+			)
+	return usable
+
+
 def get_discovered_dimensions() -> list[dict]:
 	from erpnext.accounts.doctype.accounting_dimension.accounting_dimension import (
 		get_accounting_dimensions,
@@ -37,6 +76,7 @@ def get_discovered_dimensions() -> list[dict]:
 	gl_meta = frappe.get_meta("GL Entry")
 	dimensions: list[dict] = []
 	seen = set()
+	stale_custom: list[str] = []
 
 	for native in NATIVE_DIMENSIONS:
 		if not gl_meta.has_field(native["fieldname"]):
@@ -49,6 +89,7 @@ def get_discovered_dimensions() -> list[dict]:
 		if not fieldname or fieldname in seen:
 			continue
 		if not gl_meta.has_field(fieldname):
+			stale_custom.append(fieldname)
 			continue
 		dimensions.append(
 			{
@@ -60,6 +101,11 @@ def get_discovered_dimensions() -> list[dict]:
 			}
 		)
 		seen.add(fieldname)
+
+	if stale_custom:
+		frappe.logger("erpnext_extensions.account_explorer").warning(
+			"Accounting Dimension records without GL Entry fields: {0}".format(", ".join(stale_custom))
+		)
 
 	return dimensions
 

@@ -269,11 +269,11 @@ def direct_gl_period_totals(
 	from_date,
 	to_date,
 	*,
-	account: str | None = None,
+	account: str | list[str] | None = None,
 	party_type: str | None = None,
 	party: str | None = None,
 	voucher_type: str | None = None,
-	voucher_no: str | None = None,
+	voucher_no: str | list[str] | None = None,
 	cost_center: str | None = None,
 	project: str | None = None,
 	dimension_filters: dict | None = None,
@@ -303,8 +303,16 @@ def direct_gl_period_totals(
 	else:
 		conditions.append("is_opening='No'")
 	if account:
-		conditions.append("account=%(account)s")
-		values["account"] = account
+		if isinstance(account, (list, tuple, set)):
+			accounts = [str(item) for item in account if item not in (None, "")]
+			if not accounts:
+				conditions.append("1=0")
+			else:
+				conditions.append("account in %(account)s")
+				values["account"] = accounts
+		else:
+			conditions.append("account=%(account)s")
+			values["account"] = account
 	if party_type:
 		conditions.append("party_type=%(party_type)s")
 		values["party_type"] = party_type
@@ -315,8 +323,16 @@ def direct_gl_period_totals(
 		conditions.append("voucher_type=%(voucher_type)s")
 		values["voucher_type"] = voucher_type
 	if voucher_no:
-		conditions.append("voucher_no=%(voucher_no)s")
-		values["voucher_no"] = voucher_no
+		if isinstance(voucher_no, (list, tuple, set)):
+			vouchers = [str(item) for item in voucher_no if item not in (None, "")]
+			if not vouchers:
+				conditions.append("1=0")
+			else:
+				conditions.append("voucher_no in %(voucher_no)s")
+				values["voucher_no"] = vouchers
+		else:
+			conditions.append("voucher_no=%(voucher_no)s")
+			values["voucher_no"] = voucher_no
 	if cost_center:
 		conditions.append("cost_center=%(cost_center)s")
 		values["cost_center"] = cost_center
@@ -353,11 +369,11 @@ def direct_gl_opening_totals(
 	from_date,
 	to_date,
 	*,
-	account: str | None = None,
+	account: str | list[str] | None = None,
 	party_type: str | None = None,
 	party: str | None = None,
 	voucher_type: str | None = None,
-	voucher_no: str | None = None,
+	voucher_no: str | list[str] | None = None,
 	cost_center: str | None = None,
 	project: str | None = None,
 	dimension_filters: dict | None = None,
@@ -379,8 +395,16 @@ def direct_gl_opening_totals(
 	if not cint(include_period_closing_vouchers):
 		conditions.append("voucher_type != 'Period Closing Voucher'")
 	if account:
-		conditions.append("account=%(account)s")
-		values["account"] = account
+		if isinstance(account, (list, tuple, set)):
+			accounts = [str(item) for item in account if item not in (None, "")]
+			if not accounts:
+				conditions.append("1=0")
+			else:
+				conditions.append("account in %(account)s")
+				values["account"] = accounts
+		else:
+			conditions.append("account=%(account)s")
+			values["account"] = account
 	if party_type:
 		conditions.append("party_type=%(party_type)s")
 		values["party_type"] = party_type
@@ -391,8 +415,16 @@ def direct_gl_opening_totals(
 		conditions.append("voucher_type=%(voucher_type)s")
 		values["voucher_type"] = voucher_type
 	if voucher_no:
-		conditions.append("voucher_no=%(voucher_no)s")
-		values["voucher_no"] = voucher_no
+		if isinstance(voucher_no, (list, tuple, set)):
+			vouchers = [str(item) for item in voucher_no if item not in (None, "")]
+			if not vouchers:
+				conditions.append("1=0")
+			else:
+				conditions.append("voucher_no in %(voucher_no)s")
+				values["voucher_no"] = vouchers
+		else:
+			conditions.append("voucher_no=%(voucher_no)s")
+			values["voucher_no"] = voucher_no
 	if cost_center:
 		conditions.append("cost_center=%(cost_center)s")
 		values["cost_center"] = cost_center

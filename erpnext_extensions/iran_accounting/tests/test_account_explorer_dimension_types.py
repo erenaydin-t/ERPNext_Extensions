@@ -7,7 +7,10 @@ import unittest
 import frappe
 
 from erpnext_extensions.iran_accounting.account_explorer import api
-from erpnext_extensions.iran_accounting.account_explorer.dimension_discovery import get_discovered_dimensions
+from erpnext_extensions.iran_accounting.account_explorer.dimension_discovery import (
+	filter_usable_gl_dimensions,
+	get_discovered_dimensions,
+)
 from erpnext_extensions.iran_accounting.tests.test_account_explorer_fixtures import (
 	build_payload,
 	current_fiscal_year,
@@ -62,3 +65,22 @@ class TestAccountExplorerDimensionTypes(unittest.TestCase):
 		axis = next((row for row in meta.get("axes", []) if row.get("id") == "dimension"), None)
 		self.assertIsNotNone(axis)
 		self.assertTrue(axis.get("children"))
+
+	def test_filter_usable_gl_dimensions_drops_missing_fields(self):
+		usable = filter_usable_gl_dimensions(
+			[
+				{"fieldname": "cost_center", "label": "Cost Center", "is_native": 1},
+				{"fieldname": "custom_dim_1", "label": "Missing", "is_native": 0},
+				{"fieldname": "cost_center", "label": "Dup", "is_native": 1},
+			],
+			warn=False,
+		)
+		self.assertEqual([row["fieldname"] for row in usable], ["cost_center"])
+		self.assertFalse(frappe.get_meta("GL Entry").has_field("custom_dim_1"))
+
+	def test_discovered_dimensions_only_include_gl_fields(self):
+		for row in get_discovered_dimensions():
+			self.assertTrue(
+				frappe.get_meta("GL Entry").has_field(row["fieldname"]),
+				msg=f"discovered dimension missing on GL Entry: {row['fieldname']}",
+			)

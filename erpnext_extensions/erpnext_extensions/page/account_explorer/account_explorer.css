@@ -308,7 +308,95 @@
 }
 
 .account-explorer-page .ae-filter-summary {
-	display: none;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin: 8px 0 10px;
+	padding: 8px 10px;
+	border: 1px solid var(--border-color);
+	border-radius: var(--border-radius);
+	background: var(--subtle-fg, var(--control-bg));
+}
+
+.account-explorer-page .ae-filter-summary-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.account-explorer-page .ae-filter-summary-title {
+	font-size: var(--text-sm);
+	font-weight: 600;
+}
+
+.account-explorer-page .ae-filter-summary-warning {
+	font-size: var(--text-sm);
+	color: var(--text-muted);
+}
+
+.account-explorer-page .ae-filter-summary-group-title {
+	font-size: 11px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.02em;
+	color: var(--text-muted);
+	margin-bottom: 4px;
+}
+
+.account-explorer-page .ae-filter-summary-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.account-explorer-page .ae-filter-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	max-width: 100%;
+	padding: 3px 8px;
+	border: 1px solid var(--border-color);
+	border-radius: var(--border-radius);
+	background: var(--bg-color);
+	font-size: var(--text-sm);
+}
+
+.account-explorer-page .ae-filter-chip[data-group="analysis_filters"] {
+	border-color: var(--primary, #2490ef);
+}
+
+.account-explorer-page .ae-filter-chip-label {
+	font-weight: 600;
+	color: var(--text-muted);
+}
+
+.account-explorer-page .ae-filter-chip-value {
+	color: var(--text-color);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.account-explorer-page .ae-filter-chip-remove {
+	appearance: none;
+	border: 0;
+	background: transparent;
+	color: var(--text-muted);
+	cursor: pointer;
+	line-height: 1;
+	padding: 0 2px;
+	font-size: 14px;
+}
+
+.account-explorer-page .ae-filter-chip-remove:hover {
+	color: var(--danger-color, #e24c4c);
+}
+
+[dir="rtl"] .account-explorer-page .ae-filter-summary-header,
+[dir="rtl"] .account-explorer-page .ae-filter-summary-chips,
+[dir="rtl"] .account-explorer-page .ae-filter-chip {
+	direction: rtl;
 }
 
 /* ── Navigator ── */
