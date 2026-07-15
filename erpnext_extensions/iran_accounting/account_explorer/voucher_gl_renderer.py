@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import frappe
 from frappe import _
-from frappe.utils import cint, flt, money_in_words
+from frappe.utils import cint, cstr, flt, money_in_words
 
 from erpnext_extensions.iran_accounting.account_explorer.voucher_gl_layout import (
 	LAYOUT_AUDIT,
@@ -51,6 +51,54 @@ def resolve_append_attachments(filters: dict | None = None) -> bool:
 	return bool(cint(frappe.get_single_value("Iran Accounting Settings", "append_source_attachments")))
 
 
+def _looks_latin_money_words(text: str) -> bool:
+	"""True when amount-in-words is English (do not mix into Persian vouchers)."""
+	s = cstr(text or "").strip()
+	if not s:
+		return False
+	latin = sum(1 for ch in s if ("A" <= ch <= "Z") or ("a" <= ch <= "z"))
+	arabic = sum(1 for ch in s if "\u0600" <= ch <= "\u06FF")
+	return latin > 0 and arabic == 0
+
+
+def resolve_amount_in_words(amount, currency: str, lang: str) -> str:
+	"""Amount in words from raw total; Persian mode never shows English-only text."""
+	from erpnext_extensions.iran_accounting.account_explorer.voucher_gl_layout import (
+		localize_currency_label,
+	)
+
+	prev = getattr(frappe.local, "lang", None) or "en"
+	try:
+		frappe.local.lang = lang or "en"
+		words = money_in_words(flt(amount), currency) or ""
+	except Exception:
+		words = ""
+	finally:
+		frappe.local.lang = prev
+
+	words = cstr(words).strip()
+	if not words:
+		return ""
+
+	if lang in ("fa", "ar"):
+		# Prefer localized currency label over ISO code in Persian output.
+		safe = localize_currency_label(currency, lang) if currency else ""
+		if currency in ("IRR", "ریال") or safe == "ریال":
+			words = words.replace("IRR", "ریال").replace("﷼", "ریال")
+		elif currency:
+			# Keep ISO code but avoid lone Latin money phrases under FA voucher.
+			words = words.replace("﷼", currency)
+		# Hide if still Latin-only (English money words).
+		if _looks_latin_money_words(words):
+			return ""
+		# Hide mixed junk like "فقط INR هزار." when number-words failed meaningfully.
+		if currency and currency not in ("IRR", "ریال") and currency in words:
+			# Allow ISO code with Persian number words; reject if no Persian digits/letters for numbers
+			if not any("\u0600" <= ch <= "\u06FF" for ch in words):
+				return ""
+	return words
+
+
 def enrich_print_payload(payload: dict, filters: dict | None = None) -> dict:
 	"""Attach summary, amount-in-words, hierarchy groups, signatures, attachments."""
 	from erpnext_extensions.iran_accounting.account_explorer.voucher_gl_hierarchy import (
@@ -58,6 +106,7 @@ def enrich_print_payload(payload: dict, filters: dict | None = None) -> dict:
 	)
 	from erpnext_extensions.iran_accounting.account_explorer.voucher_gl_layout import (
 		get_print_labels,
+		localize_currency_label,
 		resolve_print_language,
 	)
 	from erpnext_extensions.iran_accounting.domain.amount_scale import resolve_print_amount_scale
@@ -73,8 +122,18 @@ def enrich_print_payload(payload: dict, filters: dict | None = None) -> dict:
 
 	has_cancelled = any(cint(r.get("is_cancelled")) for r in rows)
 	has_opening = any((r.get("is_opening") or "No") == "Yes" for r in rows)
-	labels = get_print_labels(resolve_print_language(filters))
+	lang = resolve_print_language(filters)
+	labels = get_print_labels(lang)
 	is_balanced = totals["is_balanced"]
+
+	# Localize print provenance for the selected print language (not session Desk lang).
+	print_origin = labels.get("print_origin_explorer") or "Account Explorer"
+	header["print_meta_source"] = print_origin
+
+	currency = header.get("currency") or company_currency
+	currency_label = localize_currency_label(
+		company_currency if "," not in cstr(currency) else company_currency, lang
+	)
 
 	payload["summary"] = {
 		"gl_row_count": len(rows),
@@ -85,20 +144,16 @@ def enrich_print_payload(payload: dict, filters: dict | None = None) -> dict:
 		"balanced_label": (
 			f"✔ {labels['balanced_ok']}" if is_balanced else f"✖ {labels['balanced_bad']}"
 		),
-		"currency": header.get("currency") or company_currency,
+		"currency": currency_label or currency,
 		"source_voucher": header.get("source_document"),
 		"voucher_state": header.get("voucher_status") or _("Submitted"),
 		"cancelled": has_cancelled,
 		"opening_entry": has_opening,
 		"finance_book": header.get("finance_book") or "",
-		"print_meta_source": header.get("print_meta_source") or "",
+		"print_meta_source": print_origin,
 	}
 	# Amount in words ALWAYS from raw accounting total (never scaled visual).
-	amount_words = ""
-	try:
-		amount_words = money_in_words(flt(totals["total_debit"]), company_currency) or ""
-	except Exception:
-		amount_words = ""
+	amount_words = resolve_amount_in_words(totals["total_debit"], company_currency, lang)
 	payload["totals"] = {
 		**totals,
 		"amount_in_words": amount_words,
@@ -123,7 +178,7 @@ def enrich_print_payload(payload: dict, filters: dict | None = None) -> dict:
 	# Shared amount-scale contract for this print request.
 	scale_filters = dict(filters)
 	scale_filters.setdefault("currency", company_currency)
-	scale_filters.setdefault("language", resolve_print_language(filters))
+	scale_filters.setdefault("language", lang)
 	# Print profile Amount Scale overrides Use Default → settings / user pref.
 	if not scale_filters.get("amount_scale"):
 		profile_scale = frappe.get_single_value("Iran Accounting Settings", "voucher_gl_amount_scale")
@@ -133,7 +188,6 @@ def enrich_print_payload(payload: dict, filters: dict | None = None) -> dict:
 	# Freeze Auto once against voucher totals so all lines/subtotals/totals share one scale.
 	from erpnext_extensions.iran_accounting.domain.amount_scale import (
 		SCALE_AUTO,
-		AmountScaleOptions,
 		effective_scale,
 	)
 	from dataclasses import replace

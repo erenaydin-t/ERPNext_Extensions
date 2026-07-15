@@ -132,6 +132,7 @@ class TestVoucherGLHierarchyBusinessFixture(unittest.TestCase):
 		self.assertIn("120123", html)
 		self.assertIn("کنترل خرید داخلی", html)
 		self.assertIn("hier-level", html)
+		self.assertIn("hier-code", html)
 		self.assertIn("تهیه‌کننده", html)
 		self.assertIn("رئیس حسابداری", html)
 		self.assertNotRegex(html, r"\b[KMBT]\b")

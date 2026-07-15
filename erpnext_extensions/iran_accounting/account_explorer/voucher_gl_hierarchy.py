@@ -24,6 +24,31 @@ from erpnext_extensions.iran_accounting.account_explorer.query_builder import ge
 
 PERSON_PARTY_TYPES = frozenset({"Employee", "Student", "Shareholder", "Member"})
 
+# Fallback Persian labels when discovery does not provide label_fa.
+DIMENSION_LABEL_FA = {
+	"cost_center": "مرکز هزینه",
+	"project": "پروژه",
+	"facility": "تسهیلات",
+}
+
+
+def _dimension_lines(row: dict, *, rtl: bool = False) -> list[dict]:
+	lines = []
+	dims = row.get("dimensions") or {}
+	for fieldname, info in dims.items():
+		value = cstr((info or {}).get("title") or (info or {}).get("value") or "").strip()
+		if not value:
+			continue
+		label = cstr((info or {}).get("label") or fieldname)
+		if rtl:
+			label = (
+				cstr((info or {}).get("label_fa") or "")
+				or DIMENSION_LABEL_FA.get(fieldname)
+				or label
+			)
+		lines.append({"fieldname": fieldname, "label": label, "value": value})
+	return lines
+
 
 def get_hierarchy_start_level(filters: dict | None = None) -> int:
 	filters = filters or {}
@@ -261,23 +286,6 @@ def _party_block(row: dict) -> dict | None:
 	return block
 
 
-def _dimension_lines(row: dict, *, rtl: bool = False) -> list[dict]:
-	lines = []
-	dims = row.get("dimensions") or {}
-	for fieldname, info in dims.items():
-		value = cstr((info or {}).get("title") or (info or {}).get("value") or "").strip()
-		if not value:
-			continue
-		label = cstr((info or {}).get("label_fa") if rtl else None) or cstr(
-			(info or {}).get("label") or fieldname
-		)
-		# Prefer label_fa from discovery if present on nested payload.
-		if rtl and (info or {}).get("label_fa"):
-			label = cstr(info.get("label_fa"))
-		lines.append({"fieldname": fieldname, "label": label, "value": value})
-	return lines
-
-
 def resolve_row_description(row: dict, header: dict | None = None) -> dict:
 	"""Description priority without unnecessary repetition."""
 	header = header or {}
@@ -302,6 +310,7 @@ def group_print_rows(
 	show_party: bool = True,
 	show_dimensions: bool = True,
 	show_subtotals: bool = True,
+	rtl: bool = False,
 ) -> list[dict]:
 	"""Build hierarchical display nodes from flat GL rows.
 
@@ -373,10 +382,10 @@ def group_print_rows(
 			party_credit = 0.0
 			for dkey in dim_order:
 				group_rows = dim_buckets[dkey]
-				dim_lines = _dimension_lines(group_rows[0]) if show_dimensions else []
-				# Emit dimension header only when more than one dim combo under party
-				# or when dims exist.
-				if show_dimensions and dim_lines and len(dim_order) > 1:
+				dim_lines = _dimension_lines(group_rows[0], rtl=rtl) if show_dimensions else []
+				# Emit dimension header when multiple dim combos under the same party.
+				emit_dim_header = bool(show_dimensions and dim_lines and len(dim_order) > 1)
+				if emit_dim_header:
 					nodes.append(
 						{
 							"node_type": "dimension_header",
@@ -397,10 +406,13 @@ def group_print_rows(
 					party_credit += credit
 					account_debit += debit
 					account_credit += credit
-					line_dims = dim_lines if show_dimensions else _dimension_lines(row)
-					# For single dim combo, attach dims on the line.
-					if show_dimensions and len(dim_order) == 1:
-						line_dims = _dimension_lines(row)
+					# When dim header already shows the combo, keep line clean.
+					if emit_dim_header:
+						line_dims: list[dict] = []
+					elif show_dimensions:
+						line_dims = _dimension_lines(row, rtl=rtl)
+					else:
+						line_dims = []
 					nodes.append(
 						{
 							"node_type": "gl_line",
@@ -408,7 +420,7 @@ def group_print_rows(
 							"account": account,
 							"account_hierarchy": hierarchy,
 							"party": party_block,
-							"dimensions": line_dims if show_dimensions else [],
+							"dimensions": line_dims,
 							"description": resolve_row_description(row),
 							"debit": debit,
 							"credit": credit,
@@ -489,16 +501,17 @@ def enrich_rows_with_hierarchy(
 			]
 
 	# Attach FA labels onto dimension payloads when discovery provided them.
-	for row in rows:
-		for fieldname, info in (row.get("dimensions") or {}).items():
-			if not isinstance(info, dict):
-				continue
-			# Preserve existing labels; layout may overlay FA.
+	from erpnext_extensions.iran_accounting.account_explorer.voucher_gl_layout import (
+		is_rtl_language,
+		resolve_print_language,
+	)
 
+	rtl = is_rtl_language(resolve_print_language(filters))
 	payload["display_nodes"] = group_print_rows(
 		rows,
 		show_party=should_show_party_breakdown(filters),
 		show_dimensions=should_show_dimension_breakdown(filters),
 		show_subtotals=should_show_group_subtotals(filters, layout=layout),
+		rtl=rtl,
 	)
 	return payload

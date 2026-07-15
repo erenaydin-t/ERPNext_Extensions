@@ -354,7 +354,7 @@
    "default": "1",
    "fieldname": "voucher_gl_show_amount_in_words",
    "fieldtype": "Check",
-   "label": "Show Amount In Words"
+   "label": "Show Amount in Words"
   },
   {
    "default": "1",
@@ -402,7 +402,7 @@
    "description": "Omit root/level 1 by default. Hierarchy starts at this Account Explorer level sequence.",
    "fieldname": "voucher_gl_hierarchy_start_level",
    "fieldtype": "Int",
-   "label": "Account Hierarchy Start Level"
+   "label": "Hierarchy Start Level"
   },
   {
    "default": "1",

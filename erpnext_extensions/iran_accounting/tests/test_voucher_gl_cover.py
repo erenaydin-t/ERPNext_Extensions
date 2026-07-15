@@ -351,7 +351,7 @@ class TestVoucherGLCover(unittest.TestCase):
 			self.assertNotIn('class="company-logo"', html)
 
 	def test_no_generated_from_in_header_html(self):
-		"""Cover may show Generated From (Account Explorer); payload must not invent a source-doc field."""
+		"""Cover secondary meta may show Generated From / محل چاپ; not a source-doc identity field."""
 		html = render_voucher_package(self._filters())
 		self.assertIn("Generated From", html)
 		self.assertIn("Account Explorer", html)
@@ -359,6 +359,21 @@ class TestVoucherGLCover(unittest.TestCase):
 		payload = enrich_print_payload(build_voucher_gl_print(self._filters()), self._filters())
 		self.assertNotIn("generated_from", payload["header"])
 		self.assertEqual(payload["summary"]["print_meta_source"], "Account Explorer")
+
+	def test_continuation_not_in_first_page_table_banner(self):
+		"""Continued / ادامه سند must not appear in thead repeat banner (page-1 leak)."""
+		html_en = render_voucher_package(self._filters())
+		html_fa = render_voucher_package(self._filters(language="fa"))
+		# Extract thead banner cell only
+		import re
+
+		for html, continued in ((html_en, "Continued"), (html_fa, "ادامه سند")):
+			m = re.search(r'class="repeat-banner"[^>]*>.*?</tr>', html, re.S)
+			self.assertTrue(m)
+			self.assertNotIn(continued, m.group(0))
+		# Page 2+ continuation is reserved for @page top (not first)
+		self.assertIn("@page :first", html_fa)
+		self.assertIn(LABELS_FA["continuing_header"], html_fa)
 
 	def test_amount_format_no_abbreviation(self):
 		formatted = format_amount(1_700_000, "INR", 2)

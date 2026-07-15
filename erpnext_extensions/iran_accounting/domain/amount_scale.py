@@ -220,15 +220,16 @@ def format_accounting_amount(value, options: AmountScaleOptions | dict | None = 
 		currency_word = "ریال" if currency in ("IRR", "ریال", "") else currency
 
 	if eff == SCALE_RAW:
-		if currency:
-			try:
-				display = frappe.format_value(
-					raw, {"fieldtype": "Currency", "options": currency, "precision": prec}
-				)
-			except Exception:
-				display = f"{number} {currency_word}".strip()
+		# Never emit currency glyphs (﷼ / ₹) — print fonts break them; use code or FA label.
+		if options.locale in ("fa", "ar") and currency in ("IRR", "ریال"):
+			currency_word = "ریال"
+		elif currency in ("IRR", "ریال"):
+			currency_word = "IRR"
+		elif currency:
+			currency_word = currency
 		else:
-			display = number
+			currency_word = ""
+		display = f"{number} {currency_word}".strip()
 		return {
 			"raw": raw,
 			"scaled": raw,

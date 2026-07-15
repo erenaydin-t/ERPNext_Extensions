@@ -42,7 +42,7 @@ LABELS_FA = {
 	"posting_time": "زمان سند",
 	"fiscal_year": "سال مالی",
 	"finance_book": "دفتر مالی",
-	"status": "وضعیت",
+	"status": "وضعیت سند",
 	"page": "صفحه",
 	"source_document": "سند مبدأ",
 	"voucher_description": "شرح سند",
@@ -52,13 +52,13 @@ LABELS_FA = {
 	"printed_by": "چاپ‌کننده",
 	"print_timestamp": "تاریخ و زمان چاپ",
 	"print_date": "تاریخ چاپ",
-	"gl_rows": "تعداد سطرها",
+	"gl_rows": "تعداد ردیف‌ها",
 	"debit_total": "جمع کل بدهکار",
 	"credit_total": "جمع کل بستانکار",
 	"difference": "اختلاف",
 	"balanced": "وضعیت تراز",
-	"balanced_ok": "تراز است",
-	"balanced_bad": "نامتعادل",
+	"balanced_ok": "تراز",
+	"balanced_bad": "عدم تراز",
 	"source_voucher": "سند مبدأ",
 	"voucher_state": "وضعیت سند",
 	"cancelled": "ابطال‌شده",
@@ -99,11 +99,12 @@ LABELS_FA = {
 	"phone": "تلفن",
 	"attachment": "پیوست",
 	"difference_short": "اختلاف",
-	"generated_from": "منبع چاپ",
+	"generated_from": "محل چاپ",
+	"print_origin_explorer": "مرور حساب",
 	"name_field": "نام",
 	"section_cover": "جلد سند",
 	"section_info": "اطلاعات سند",
-	"section_entries": "ردیف‌های حسابداری",
+	"section_entries": "ثبت‌های حسابداری",
 	"section_totals": "جمع کل",
 	"section_approval": "تأیید و امضا",
 	"line_amount": "مبلغ جزء",
@@ -119,6 +120,13 @@ LABELS_FA = {
 	"reference": "مرجع",
 	"description_label": "شرح",
 	"display_scale": "مقیاس نمایش",
+	"supplier": "تأمین‌کننده",
+	"customer": "مشتری",
+	"employee": "کارمند",
+	"layout_standard": "استاندارد",
+	"layout_modern": "مدرن",
+	"layout_compact": "فشرده",
+	"layout_audit": "حسابرسی",
 }
 
 LABELS_EN = {
@@ -188,6 +196,7 @@ LABELS_EN = {
 	"attachment": "Attachment",
 	"difference_short": "Difference",
 	"generated_from": "Generated From",
+	"print_origin_explorer": "Account Explorer",
 	"name_field": "Name",
 	"section_cover": "Cover",
 	"section_info": "Voucher Information",
@@ -207,6 +216,13 @@ LABELS_EN = {
 	"reference": "Reference",
 	"description_label": "Description",
 	"display_scale": "Display Scale",
+	"supplier": "Supplier",
+	"customer": "Customer",
+	"employee": "Employee",
+	"layout_standard": "Standard",
+	"layout_modern": "Modern",
+	"layout_compact": "Compact",
+	"layout_audit": "Audit",
 }
 
 
@@ -302,6 +318,10 @@ def format_amount(
 	if currency in ("IRR", "ریال") and prec <= 0:
 		prec = 0
 	formatted = frappe.format_value(amount, {"fieldtype": "Currency", "precision": prec})
+	# Strip unsafe currency glyphs — prefer bare number (CSV/legacy callers).
+	for glyph in ("﷼", "₹", "$", "€", "£"):
+		formatted = formatted.replace(glyph, "")
+	formatted = formatted.strip()
 	if currency == "IRR" and prec == 0 and formatted.endswith(".00"):
 		formatted = formatted[:-3]
 	return formatted
@@ -387,6 +407,38 @@ def format_remarks_secondary(
 	return "\n".join(parts)
 
 
+def _party_type_label(party_type: str, labels: dict[str, str], *, kind: str = "party") -> str:
+	"""Business Persian/English label for party type — never empty technical jargon."""
+	pt = cstr(party_type or "").strip()
+	mapping = {
+		"Supplier": labels.get("supplier") or labels.get("party"),
+		"Customer": labels.get("customer") or labels.get("party"),
+		"Employee": labels.get("employee") or labels.get("person"),
+	}
+	if pt in mapping and mapping[pt]:
+		return mapping[pt]
+	if kind == "person":
+		return labels.get("person") or labels.get("party")
+	return labels.get("party") or "Party"
+
+
+def build_hierarchy_code_html(hierarchy: list[dict] | None, *, leaf_fallback: str = "") -> str:
+	"""Stacked LTR account codes for the کد حساب column (Level-N → leaf)."""
+	parts: list[str] = []
+	seen: set[str] = set()
+	for level in hierarchy or []:
+		code = cstr(level.get("account_number") or "").strip()
+		if not code or code in seen:
+			continue
+		seen.add(code)
+		parts.append(f'<div class="hier-code" dir="ltr"><span class="acct-code">{escape_text(code)}</span></div>')
+	if not parts and leaf_fallback:
+		parts.append(
+			f'<div class="hier-code" dir="ltr"><span class="acct-code">{escape_text(leaf_fallback)}</span></div>'
+		)
+	return "".join(parts)
+
+
 def build_hierarchy_description_html(
 	node: dict,
 	labels: dict[str, str],
@@ -394,54 +446,63 @@ def build_hierarchy_description_html(
 	rtl: bool,
 	show_hierarchy_in_cell: bool = True,
 ) -> str:
-	"""Build nested شرح cell for hierarchy / party / dims / description."""
+	"""Build semantic شرح cell: titles / party / dims / remarks (no technical empty labels)."""
 	parts: list[str] = []
 	node_type = node.get("node_type")
 	if node_type == "account_header":
+		# Titles only — codes live in the code column.
 		hierarchy = node.get("account_hierarchy") or []
 		for depth, level in enumerate(hierarchy):
-			code = escape_text(level.get("account_number") or "")
 			name = escape_text(level.get("account_name") or "")
-			indent = depth * 14
+			if not name:
+				continue
+			indent = depth * 12
 			parts.append(
 				f'<div class="hier-level" style="padding-inline-start:{indent}px">'
-				f'<span class="acct-code" dir="ltr">{code}</span>'
-				f' <span class="acct-name" dir="auto" style="unicode-bidi:plaintext">{name}</span>'
+				f'<span class="acct-name" dir="auto" style="unicode-bidi:plaintext">{name}</span>'
 				f"</div>"
 			)
 		return "".join(parts) or escape_text(node.get("account_name") or "")
 
 	if node_type in ("party_header",):
 		party = node.get("party") or {}
+		party_name = cstr(party.get("party_name") or "").strip()
+		if not party_name:
+			return ""
 		if party.get("kind") == "person":
+			role = _party_type_label(party.get("party_type"), labels, kind="person")
 			parts.append(
-				f'<div class="party-block"><span class="dim-k">{escape_text(labels["person"])}:</span> '
-				f'<span dir="auto" style="unicode-bidi:plaintext">{escape_text(party.get("party_name"))}</span></div>'
+				f'<div class="party-block"><span class="dim-k">{escape_text(role)}:</span> '
+				f'<span dir="auto" style="unicode-bidi:plaintext">{escape_text(party_name)}</span></div>'
 			)
-			if party.get("party_type"):
+			rel = cstr(party.get("party_type") or "").strip()
+			# Show relation type only when it differs from the role label itself.
+			if rel and rel not in ("Employee",) and role == labels.get("person"):
 				parts.append(
 					f'<div class="party-block"><span class="dim-k">{escape_text(labels["person_relation"])}:</span> '
-					f'{escape_text(party.get("party_type"))}</div>'
+					f"{escape_text(rel)}</div>"
 				)
+			elif rel == "Employee" and labels.get("employee"):
+				pass  # role already says کارمند / Employee
 		else:
+			role = _party_type_label(party.get("party_type"), labels, kind="party")
 			parts.append(
-				f'<div class="party-block"><span class="dim-k">{escape_text(labels["party"])}:</span> '
-				f'<span dir="auto" style="unicode-bidi:plaintext">{escape_text(party.get("party_name"))}</span></div>'
+				f'<div class="party-block"><span class="dim-k">{escape_text(role)}:</span> '
+				f'<span dir="auto" style="unicode-bidi:plaintext">{escape_text(party_name)}</span></div>'
 			)
-			if party.get("party_type"):
-				parts.append(
-					f'<div class="party-block"><span class="dim-k">{escape_text(labels["party_type"])}:</span> '
-					f'{escape_text(party.get("party_type"))}</div>'
-				)
 		return "".join(parts)
 
 	if node_type == "dimension_header":
 		for dim in node.get("dimensions") or []:
+			label = cstr(dim.get("label") or "").strip()
+			value = cstr(dim.get("value") or "").strip()
+			if not label or not value:
+				continue
 			parts.append(
-				f'<div class="dim-line" dir="auto"><span class="dim-k">{escape_text(dim.get("label"))}:</span> '
-				f'<bdi class="dim-v">{escape_text(dim.get("value"))}</bdi></div>'
+				f'<div class="dim-line" dir="auto"><span class="dim-k">{escape_text(label)}:</span> '
+				f'<bdi class="dim-v">{escape_text(value)}</bdi></div>'
 			)
-		return '<div class="dim-block">' + "".join(parts) + "</div>"
+		return ('<div class="dim-block">' + "".join(parts) + "</div>") if parts else ""
 
 	if node_type in ("account_subtotal", "party_subtotal", "dimension_subtotal"):
 		label_key = {
@@ -451,15 +512,16 @@ def build_hierarchy_description_html(
 		}[node_type]
 		return f'<div class="subtotal-label">{escape_text(labels[label_key])}</div>'
 
-	# gl_line
-	row = node.get("row") or {}
-	if show_hierarchy_in_cell and not node.get("_hierarchy_shown_above"):
-		# Compact: embed leaf account + party/dims when headers not used separately.
-		pass
+	# gl_line — dims (if not already headed) then remarks; no "Description:" prefix.
+	_ = show_hierarchy_in_cell  # reserved for compact embeds
 	for dim in node.get("dimensions") or []:
+		label = cstr(dim.get("label") or "").strip()
+		value = cstr(dim.get("value") or "").strip()
+		if not label or not value:
+			continue
 		parts.append(
-			f'<div class="dim-line" dir="auto"><span class="dim-k">{escape_text(dim.get("label"))}:</span> '
-			f'<bdi class="dim-v">{escape_text(dim.get("value"))}</bdi></div>'
+			f'<div class="dim-line" dir="auto"><span class="dim-k">{escape_text(label)}:</span> '
+			f'<bdi class="dim-v">{escape_text(value)}</bdi></div>'
 		)
 	desc = node.get("description") or {}
 	main = cstr(desc.get("main") or "").strip()
@@ -467,15 +529,14 @@ def build_hierarchy_description_html(
 	if main:
 		parts.append(
 			f'<div class="remarks-main" dir="auto" style="unicode-bidi:plaintext">'
-			f'<span class="dim-k">{escape_text(labels["description_label"])}:</span> {escape_text(main)}</div>'
+			f"{escape_text(main)}</div>"
 		)
 	if ref and ref != main:
 		parts.append(
 			f'<div class="remarks-sub" dir="auto" style="unicode-bidi:plaintext">'
-			f'<span class="dim-k">{escape_text(labels["reference"])}:</span> {escape_text(ref)}</div>'
+			f'{escape_text(labels["reference"])}: {escape_text(ref)}</div>'
 		)
 	if not parts:
-		# Fallback empty but keep cell height.
 		parts.append('<div class="remarks-main"></div>')
 	return "".join(parts)
 
@@ -846,10 +907,8 @@ def prepare_table_rows(payload: dict, print_ctx: dict) -> list[dict]:
 				line_idx += 1
 				row = node.get("row") or {}
 				cells["idx"] = str(line_idx)
-				leaf = (node.get("account_hierarchy") or [{}])[-1]
-				cells["account_code"] = (
-					f'<span class="acct-code" dir="ltr">{escape_text(leaf.get("account_number") or row.get("account_code") or "")}</span>'
-				)
+				# Codes shown once on account_header — avoid repeating leaf code on every line.
+				cells["account_code"] = ""
 				cells["remarks"] = build_hierarchy_description_html(node, labels, rtl=rtl)
 				line_amt = flt(node.get("line_amount"))
 				cells["line_amount"] = _fmt(line_amt) if line_amt else ""
@@ -864,9 +923,9 @@ def prepare_table_rows(payload: dict, print_ctx: dict) -> list[dict]:
 					}
 				)
 			elif node_type == "account_header":
-				leaf = (node.get("account_hierarchy") or [{}])[-1]
-				cells["account_code"] = (
-					f'<span class="acct-code" dir="ltr">{escape_text(leaf.get("account_number") or node.get("account_code") or "")}</span>'
+				cells["account_code"] = build_hierarchy_code_html(
+					node.get("account_hierarchy"),
+					leaf_fallback=cstr(node.get("account_code") or ""),
 				)
 				cells["remarks"] = build_hierarchy_description_html(node, labels, rtl=rtl)
 				out.append({"idx": "", "cells": cells, "remarks_plain": "", "node_type": node_type})
@@ -877,7 +936,7 @@ def prepare_table_rows(payload: dict, print_ctx: dict) -> list[dict]:
 				cells["remarks"] = build_hierarchy_description_html(node, labels, rtl=rtl)
 				cells["debit"] = _fmt(node.get("debit"), show_zero=True)
 				cells["credit"] = _fmt(node.get("credit"), show_zero=True)
-				# مبلغ معین for account/party group subtotal
+				# مبلغ جزء group rollup: dominant side total for the subgroup
 				cells["line_amount"] = _fmt(
 					flt(node.get("debit")) or flt(node.get("credit")), show_zero=True
 				)
@@ -1041,7 +1100,9 @@ def build_print_context(payload: dict, filters: dict | None = None) -> dict:
 	if options["show_logo"] and company:
 		logo_url = resolve_company_logo_url(company)
 	contact = resolve_company_contact(company) if company else {"address": "", "phone": ""}
-	identity_rows = build_identity_rows(payload.get("header") or {}, labels)
+	header = payload.get("header") or {}
+	identity_rows = build_identity_rows(header, labels)
+	cover_meta_rows = build_cover_meta_rows(header, labels)
 	# Visible scale meta: effective scale after Auto resolution (omit Raw).
 	from erpnext_extensions.iran_accounting.domain.amount_scale import (
 		SCALE_RAW,
@@ -1060,9 +1121,7 @@ def build_print_context(payload: dict, filters: dict | None = None) -> dict:
 			or 0,
 		)
 	scale_lbl = amount_scale_label(effective, locale=lang)
-	currency_word = currency
-	if lang in ("fa", "ar") and currency in ("IRR", "ریال", ""):
-		currency_word = "ریال"
+	currency_word = localize_currency_label(currency, lang)
 	amount_scale_display = ""
 	if cstr(effective).lower() != SCALE_RAW:
 		# FA: "میلیون ریال" · EN: stable title "Millions" (never K/M/B/T)
@@ -1070,6 +1129,14 @@ def build_print_context(payload: dict, filters: dict | None = None) -> dict:
 			amount_scale_display = f"{scale_lbl} {currency_word}".strip()
 		else:
 			amount_scale_display = cstr(effective).replace("_", " ").title()
+
+	layout_name = filters.get("layout") or payload.get("layout") or LAYOUT_STANDARD
+	layout_label = {
+		LAYOUT_STANDARD: labels.get("layout_standard") or "Standard",
+		LAYOUT_MODERN: labels.get("layout_modern") or "Modern",
+		LAYOUT_COMPACT: labels.get("layout_compact") or "Compact",
+		LAYOUT_AUDIT: labels.get("layout_audit") or "Audit",
+	}.get(layout_name, layout_name)
 
 	return {
 		"lang": lang,
@@ -1082,6 +1149,7 @@ def build_print_context(payload: dict, filters: dict | None = None) -> dict:
 		"combine_dimensions": combine,
 		"orientation": orientation,
 		"currency": currency,
+		"currency_label": currency_word,
 		"precision": precision,
 		"logo_url": logo_url,
 		"company_address": contact.get("address") or "",
@@ -1090,23 +1158,59 @@ def build_print_context(payload: dict, filters: dict | None = None) -> dict:
 		"show_zero_amounts": cint(filters.get("show_zero_amounts")),
 		"options": options,
 		"identity_rows": identity_rows,
-		"voucher_description": cstr((payload.get("header") or {}).get("voucher_remarks") or "").strip(),
+		"cover_meta_rows": cover_meta_rows,
+		"voucher_description": cstr(header.get("voucher_remarks") or "").strip(),
 		"amount_scale": amount_scale,
 		"amount_scale_display": amount_scale_display,
 		"hierarchical": hierarchical,
+		"layout_label": layout_label,
 	}
+
+
+def localize_currency_label(currency: str, lang: str) -> str:
+	"""Safe currency label for print — never broken glyphs; FA IRR → ریال."""
+	code = cstr(currency or "").strip()
+	if not code:
+		return ""
+	if lang in ("fa", "ar") and code in ("IRR", "ریال"):
+		return "ریال"
+	# Prefer stable ISO code over symbol glyphs that break in print fonts.
+	if code in ("IRR", "USD", "EUR", "INR", "AED", "GBP"):
+		return "ریال" if (lang in ("fa", "ar") and code == "IRR") else code
+	# Strip common symbol-only forms
+	if code in ("﷼", "ریال", "Rs", "₹", "$", "€"):
+		if code in ("﷼", "ریال"):
+			return "ریال" if lang in ("fa", "ar") else "IRR"
+		return code
+	return code
 
 
 def build_identity_rows(header: dict, labels: dict[str, str]) -> list[dict[str, str]]:
 	"""Right-side voucher identity — only non-empty fields."""
 	candidates = [
 		("voucher_number", header.get("voucher_no")),
-		("voucher_type", header.get("voucher_type")),
 		("posting_date", header.get("posting_date")),
+		("reference_number", header.get("reference_number")),
+		("voucher_type", header.get("voucher_type")),
+		("status", header.get("voucher_status")),
+	]
+	rows: list[dict[str, str]] = []
+	for key, value in candidates:
+		text = cstr(value or "").strip()
+		if not text:
+			continue
+		rows.append({"label": labels[key], "value": text})
+	return rows
+
+
+def build_cover_meta_rows(header: dict, labels: dict[str, str]) -> list[dict[str, str]]:
+	"""Left-side secondary metadata — fiscal / book / print provenance."""
+	candidates = [
 		("fiscal_year", header.get("fiscal_year")),
 		("finance_book", header.get("finance_book")),
-		("status", header.get("voucher_status")),
-		("reference_number", header.get("reference_number")),
+		("printed_by", header.get("printed_by")),
+		("print_date", header.get("print_timestamp")),
+		("generated_from", header.get("print_meta_source")),
 	]
 	rows: list[dict[str, str]] = []
 	for key, value in candidates:
@@ -1118,5 +1222,5 @@ def build_identity_rows(header: dict, labels: dict[str, str]) -> list[dict[str, 
 
 
 def build_meta_rows(header: dict, labels: dict[str, str]) -> list[dict[str, str]]:
-	"""Legacy meta list — kept for tests; cover uses identity_rows + description."""
-	return build_identity_rows(header, labels)
+	"""Combined cover identity + meta for tests/legacy callers."""
+	return build_identity_rows(header, labels) + build_cover_meta_rows(header, labels)
