@@ -17,6 +17,7 @@ from erpnext_extensions.iran_accounting.account_explorer.voucher_gl_layout impor
 	LABELS_FA,
 	build_hierarchy_code_html,
 	build_hierarchy_description_html,
+	build_hierarchy_pair_html,
 	localize_currency_label,
 )
 from erpnext_extensions.iran_accounting.account_explorer.voucher_gl_print import build_voucher_gl_print
@@ -121,16 +122,25 @@ class TestVoucherGLPrintUXFinal(unittest.TestCase):
 		self.assertIn("120123", nums)
 		self.assertIn("موجودی مواد و کالا", html)
 		self.assertIn("کنترل خرید داخلی", html)
+		self.assertIn("account-hierarchy", html)
 		self.assertIn("hier-code", html)
-		# Codes paired in code column for the account header group
+		self.assertIn("hier-title", html)
+		# Codes + titles split: codes in account column, titles in شرح
 		account_headers = [n for n in payload["display_nodes"] if n.get("node_type") == "account_header"]
 		leaf_header = next(n for n in account_headers if n.get("account") == self.ctx["hier_leaf"])
 		code_html = build_hierarchy_code_html(leaf_header.get("account_hierarchy"))
 		self.assertIn("1201", code_html)
 		self.assertIn("120123", code_html)
+		self.assertIn("hier-code", code_html)
+		self.assertNotIn("موجودی مواد و کالا", code_html)
+		pair_html = build_hierarchy_pair_html(leaf_header.get("account_hierarchy"), rtl=True)
+		self.assertIn("موجودی مواد و کالا", pair_html)
+		self.assertIn("acct-code", pair_html)
+		self.assertIn("acct-name", pair_html)
+		# شرح carries titles for account headers (Standard split layout).
 		title_html = build_hierarchy_description_html(leaf_header, LABELS_FA, rtl=True)
 		self.assertIn("موجودی مواد و کالا", title_html)
-		self.assertNotIn('acct-code', title_html)  # titles only in شرح for headers
+		self.assertIn("hier-title", title_html)
 
 	def test_party_and_dimension_groups(self):
 		payload = enrich_print_payload(build_voucher_gl_print(self._filters()), self._filters())
@@ -175,12 +185,19 @@ class TestVoucherGLPrintUXFinal(unittest.TestCase):
 		if words:
 			self.assertFalse(re.search(r"\b(Twelve|Million|Only)\b", words, re.I))
 			self.assertIn("ریال", words)
+			self.assertRegex(words, r"میلیون\s+ریال")
+			self.assertNotIn("ریال یک میلیون", words)
+			self.assertNotIn("ریال دوازده میلیون", words)
+		million = resolve_amount_in_words(1_000_000, "IRR", "fa")
+		self.assertIn("یک میلیون ریال", million)
+		self.assertNotIn("ریال یک میلیون", million)
 		payload = enrich_print_payload(
 			build_voucher_gl_print(self._filters(language="fa")), self._filters(language="fa")
 		)
 		aiw = payload["totals"].get("amount_in_words") or ""
 		if aiw:
 			self.assertFalse(re.search(r"\b(Twelve|Million|Only)\b", aiw, re.I))
+			self.assertNotIn("ریال یک میلیون", aiw)
 
 	def test_currency_label_and_no_broken_glyph(self):
 		self.assertEqual(localize_currency_label("IRR", "fa"), "ریال")

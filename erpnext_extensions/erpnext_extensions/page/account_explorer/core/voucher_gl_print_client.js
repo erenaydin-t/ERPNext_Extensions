@@ -56,6 +56,8 @@ erpnext_extensions.account_explorer.VoucherGLPrint = {
 			finance_book: opts.finance_book || null,
 			include_opening_entries: cint(opts.include_opening_entries ?? 1),
 			include_cancelled_entries: cint(opts.include_cancelled_entries ?? 0),
+			show_account_hierarchy: opts.show_account_hierarchy,
+			account_hierarchy_start_level: opts.account_hierarchy_start_level,
 			user_amount_scale: scale,
 			amount_scale: profile_scale,
 			auto_print: !!opts.auto_print && this.BEHAVIOR === "open_preview_and_print",
@@ -130,6 +132,12 @@ erpnext_extensions.account_explorer.VoucherGLPrint = {
 		}
 		if (opts.amount_scale && opts.amount_scale !== "Use Default") {
 			filters.amount_scale = opts.amount_scale;
+		}
+		if (opts.show_account_hierarchy !== null && opts.show_account_hierarchy !== undefined) {
+			filters.show_account_hierarchy = cint(opts.show_account_hierarchy);
+		}
+		if (opts.account_hierarchy_start_level !== null && opts.account_hierarchy_start_level !== undefined) {
+			filters.account_hierarchy_start_level = cint(opts.account_hierarchy_start_level);
 		}
 		return filters;
 	},

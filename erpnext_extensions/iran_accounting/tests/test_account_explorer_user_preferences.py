@@ -82,7 +82,8 @@ class TestAccountExplorerUserPreferences(unittest.TestCase):
 
 	def test_unsupported_schema_version_fails_to_defaults(self):
 		self.assertIn("AE_GRID_PREFS_SCHEMA_VERSION", self.prefs_content)
-		self.assertIn("cint(source.schema_version) !== AE_GRID_PREFS_SCHEMA_VERSION", self.prefs_content)
+		self.assertIn("source_version > AE_GRID_PREFS_SCHEMA_VERSION", self.prefs_content)
+		self.assertIn("ae_prefs_clone(defaults)", self.prefs_content)
 
 	def test_initial_hydration_does_not_save_immediately(self):
 		self.assertIn("_hydrating", self.prefs_content)

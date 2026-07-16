@@ -109,6 +109,51 @@ class TestVoucherGLPrintHierarchy(unittest.TestCase):
 		by_num = {n["account_number"]: n["account_name"] for n in hier}
 		for code, title in DEPTH_HIER_TITLES.items():
 			self.assertEqual(by_num.get(code), title)
+		# Print contract keys
+		for node in hier:
+			self.assertIn("code", node)
+			self.assertIn("name", node)
+			self.assertIn("level", node)
+			self.assertEqual(node["code"], node["account_number"])
+			self.assertEqual(node["name"], node["account_name"])
+
+	def test_print_context_passes_hierarchy_on_table_rows(self):
+		from erpnext_extensions.iran_accounting.account_explorer.voucher_gl_layout import (
+			build_print_context,
+		)
+
+		filters = self._depth_filters()
+		payload = enrich_print_payload(build_voucher_gl_print(filters), filters)
+		# Payload contract before template
+		leaf_rows = [r for r in payload["rows"] if r.get("account") == self.ctx["depth_leaf"]]
+		self.assertTrue(leaf_rows)
+		payload_hier = leaf_rows[0]["account_hierarchy"]
+		self.assertEqual([n["code"] for n in payload_hier], list(DEPTH_HIER_CODES))
+		self.assertEqual([n["level"] for n in payload_hier], [2, 3, 4])
+
+		ctx = build_print_context(payload, filters)
+		headers = [r for r in ctx["table_rows"] if r.get("node_type") == "account_header"]
+		depth = next(
+			h
+			for h in headers
+			if h.get("account_hierarchy")
+			and any(
+				(n.get("code") or n.get("account_number")) == "2101010001"
+				for n in h.get("account_hierarchy") or []
+			)
+		)
+		codes = [n.get("code") or n.get("account_number") for n in depth["account_hierarchy"]]
+		self.assertEqual(codes[:3], ["2101", "210101", "2101010001"])
+		cell = depth["cells"].get("account_code") or ""
+		self.assertIn("account-hierarchy", cell)
+		self.assertIn("2101", cell)
+		self.assertIn("210101", cell)
+		self.assertIn("2101010001", cell)
+		# Titles live in شرح, not کد حساب.
+		self.assertNotIn("موجودی مواد و کالا", cell)
+		remarks = depth["cells"].get("remarks") or ""
+		self.assertIn("موجودی مواد و کالا", remarks)
+		self.assertIn("hier-title", remarks)
 
 	def test_same_account_shows_hierarchy_once(self):
 		payload = enrich_print_payload(build_voucher_gl_print(self._depth_filters()), self._depth_filters())
@@ -222,17 +267,16 @@ class TestVoucherGLPrintHierarchy(unittest.TestCase):
 	def test_no_leaf_only_hierarchy_in_html(self):
 		frappe.local.lang = "en"
 		html = render_voucher_package(self._depth_filters())
-		leaf = self.ctx["depth_leaf"]
-		# Require stacked hierarchy beside titles — not a lone leaf code block.
+		# Require stacked hierarchy with titles — not a lone leaf code block.
 		self.assertRegex(
 			html,
-			r'2101</span></div><div class="hier-code" dir="ltr"><span class="acct-code">210101',
+			r'acct-code">2101</span>[\s\S]*acct-code">210101</span>[\s\S]*acct-code">2101010001</span>',
 		)
-		self.assertIn("2101010001", html)
 		self.assertIn(DEPTH_HIER_TITLES["2101"], html)
-		# Leaf-only account groups (offset account) may have one code; depth leaf must not.
 		depth_block = html.split(DEPTH_HIER_TITLES["2101"], 1)[0]
-		self.assertGreaterEqual(depth_block.count("hier-code"), 3)
+		self.assertGreaterEqual(depth_block.count("hier-code"), 1)
+		self.assertGreaterEqual(html.count("hier-code"), 3)
+		self.assertGreaterEqual(html.count("hier-title"), 3)
 
 	def test_party_split(self):
 		filters = {

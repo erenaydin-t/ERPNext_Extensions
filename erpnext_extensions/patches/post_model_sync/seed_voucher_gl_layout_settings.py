@@ -17,7 +17,7 @@ from frappe.utils import cint, cstr
 from erpnext_extensions.iran_accounting.account_explorer.voucher_gl_renderer import LAYOUT_STANDARD
 
 # Bump when new defaulted print settings are introduced.
-SEED_VERSION = 4
+SEED_VERSION = 6
 VERSION_FIELD = "voucher_gl_print_defaults_version"
 
 VALID_PRINT_LANGUAGE = frozenset({"Persian", "English", "Follow User Language"})
@@ -46,8 +46,11 @@ OFF_DEFAULTS = {
 SELECT_DEFAULTS = {
 	"voucher_gl_layout": LAYOUT_STANDARD,
 	"voucher_gl_page_layout": "Auto",
-	"voucher_gl_amount_scale": "Use Default",
-	"default_amount_display_scale": "Auto",
+	# Voucher GL Print acceptance default: raw accounting values (not هزار/میلیون).
+	# Amount Scale feature remains available via explicit Thousands/Millions/…
+	"voucher_gl_amount_scale": "Raw",
+	# Shared Account Explorer + print fallback; Raw shows #,### with no Auto scaling words.
+	"default_amount_display_scale": "Raw",
 }
 
 INT_DEFAULTS = {
@@ -113,8 +116,18 @@ def apply_voucher_gl_print_defaults(settings=None, *, force: bool = False) -> bo
 	for fieldname, default in SELECT_DEFAULTS.items():
 		if not settings.meta.has_field(fieldname):
 			continue
-		if force or needs_version_seed or not settings.get(fieldname):
-			if settings.get(fieldname) != default:
+		current = settings.get(fieldname)
+		# Default Amount Display Scale: promote missing/invalid/legacy Auto → Raw once.
+		# Do not clobber explicit Thousands/Millions/… administrator choices.
+		if fieldname == "default_amount_display_scale":
+			current_norm = cstr(current or "").strip()
+			if force or not current_norm or current_norm.lower() in ("auto", "use default", "use_default"):
+				if current != default:
+					settings.set(fieldname, default)
+					changed = True
+			continue
+		if force or needs_version_seed or not current:
+			if current != default:
 				settings.set(fieldname, default)
 				changed = True
 

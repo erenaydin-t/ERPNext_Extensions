@@ -205,3 +205,10 @@ class TestAccountExplorerCubeNavigation(unittest.TestCase):
 		self.assertIn("source_axis_label", af)
 		self.assertIn("_lifetime_label", af)
 		self.assertIn("origin_label", af)
+
+	def test_auto_amount_mode_follows_settings_not_magnitude(self):
+		page = self.src["page"]
+		self.assertIn("ae_resolve_effective_number_format_mode", page)
+		self.assertIn("settings_scale", page)
+		# Magnitude auto-scale branches must not drive Auto mode.
+		self.assertNotIn("abs >= 1e12", page.split("ae_format_amount_with_mode")[1].split("function ae_format_compact_amount")[0])

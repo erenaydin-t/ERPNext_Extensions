@@ -139,10 +139,29 @@ function ae_trim_compact_decimals(value) {
 	return str.replace(/(\.\d*?[1-9])0+$/, "$1").replace(/\.0+$/, "").replace(/\.$/, "");
 }
 
+function ae_resolve_effective_number_format_mode(mode, settings_default = "raw") {
+	const normalized = String(mode || "auto")
+		.toLowerCase()
+		.replace(/[\s-]+/g, "_");
+	const allowed = ["raw", "thousands", "millions", "billions", "trillions"];
+	if (normalized && normalized !== "auto" && allowed.includes(normalized)) {
+		return normalized;
+	}
+	// Auto ⇒ Iran Accounting Settings default (never magnitude auto-scale).
+	const from_settings = String(settings_default || "raw")
+		.toLowerCase()
+		.replace(/[\s-]+/g, "_");
+	if (allowed.includes(from_settings)) {
+		return from_settings;
+	}
+	return "raw";
+}
+
 function ae_format_amount_with_mode(value, currency_code, mode = "auto", options = {}) {
 	const num = flt(value);
-	const full = format_currency(num, currency_code);
-	const normalized_mode = String(mode || "auto").toLowerCase();
+	const settings_default =
+		options.settings_scale || options.default_amount_display_scale || options.fallback_scale || "raw";
+	let normalized_mode = ae_resolve_effective_number_format_mode(mode, settings_default);
 	const show_label = options.show_scale_label !== false;
 	const locale = String(options.locale || frappe.boot?.lang || "en").toLowerCase();
 	const labels =
@@ -165,39 +184,70 @@ function ae_format_amount_with_mode(value, currency_code, mode = "auto", options
 		billions: 1e9,
 		trillions: 1e12,
 	};
-	if (normalized_mode === "raw") {
-		return { compact: full, full, scale: "raw", raw: num };
-	}
-	const abs = Math.abs(num);
-	const pick =
-		normalized_mode === "auto"
-			? abs >= 1e12
-				? "trillions"
-				: abs >= 1e9
-				? "billions"
-				: abs >= 1e6
-				? "millions"
-				: abs >= 1e3
-				? "thousands"
-				: "raw"
-			: normalized_mode;
-	if (pick === "raw" || !divisors[pick]) {
-		return { compact: full, full, scale: "raw", raw: num };
-	}
-	const divisor = divisors[pick];
-	const decimals = divisor >= 1e9 ? 3 : divisor >= 1e6 ? 2 : 2;
-	const scaled = ae_trim_compact_decimals((num / divisor).toFixed(decimals));
-	const suffix = show_label ? labels[pick] : pick === "thousands" ? "K" : pick === "millions" ? "M" : pick === "billions" ? "B" : "T";
 	const currency_word =
-		locale === "fa" && (!currency_code || currency_code === "IRR") ? "ریال" : currency_code || "";
+		locale === "fa" || locale === "ar"
+			? !currency_code || currency_code === "IRR"
+				? "ریال"
+				: currency_code
+			: currency_code || "";
+
+	function format_grouped_raw(n) {
+		// #,### grouping — never Auto scale labels.
+		const sign = n < 0 ? "-" : "";
+		const abs = Math.abs(n);
+		const whole = Math.round(abs);
+		if (Math.abs(abs - whole) < 1e-9) {
+			return `${sign}${whole.toLocaleString("en-US")}`;
+		}
+		return `${sign}${abs.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+	}
+
+	function raw_display(n) {
+		const number = format_grouped_raw(n);
+		if ((locale === "fa" || locale === "ar") && currency_word) {
+			return `${currency_word} ${number}`;
+		}
+		if (currency_word) {
+			return `${number} ${currency_word}`;
+		}
+		return number;
+	}
+
+	if (normalized_mode === "raw" || !divisors[normalized_mode]) {
+		const text = raw_display(num);
+		return { compact: text, full: text, scale: "raw", raw: num, display_number: format_grouped_raw(num) };
+	}
+	const divisor = divisors[normalized_mode];
+	const decimals = divisor >= 1e9 ? 3 : 2;
+	const scaled = ae_trim_compact_decimals((num / divisor).toFixed(decimals));
+	const suffix = show_label
+		? labels[normalized_mode]
+		: normalized_mode === "thousands"
+		? "K"
+		: normalized_mode === "millions"
+		? "M"
+		: normalized_mode === "billions"
+		? "B"
+		: "T";
 	const compact = show_label
 		? [scaled, suffix, currency_word].filter(Boolean).join(" ")
 		: `${scaled} ${suffix}`;
-	return { compact, full, scale: pick, raw: num, scaled: num / divisor };
+	const full = format_currency(num, currency_code);
+	return {
+		compact,
+		full,
+		scale: normalized_mode,
+		raw: num,
+		scaled: num / divisor,
+		display_number: format_grouped_raw(num / divisor),
+	};
 }
 
 function ae_format_compact_amount(value, currency_code) {
-	return ae_format_amount_with_mode(value, currency_code, "auto");
+	// Legacy helper: follow settings Raw default (not magnitude auto-scale).
+	return ae_format_amount_with_mode(value, currency_code, "auto", {
+		settings_scale: "raw",
+	});
 }
 
 function ae_scope_value_to_control(value) {
@@ -295,7 +345,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		this.grid_column_order = [];
 		this.grid_column_widths = {};
 		this.grid_sticky_column = null;
-		this.number_format_mode = "auto";
+		this.number_format_mode = "raw";
 		this.grid_density = "comfortable";
 		this._presentation_signature = null;
 		this._$grid_prefs_controls = null;
@@ -1366,15 +1416,30 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 
 	set_number_format_mode(mode) {
 		const allowed = erpnext_extensions.account_explorer.core.AE_NUMBER_FORMAT_MODES;
-		const next = allowed.includes(mode) ? mode : "auto";
+		const next = allowed.includes(String(mode || "").toLowerCase())
+			? String(mode).toLowerCase()
+			: "auto";
 		if (this.number_format_mode === next) {
+			// Still refresh paint so dropdown matches visible cells after preference races.
+			this.render_totals();
+			if (this.is_datatable_summary_enabled() && this.datatable_adapter?.is_mounted?.()) {
+				void this.render_grid(this.last_summary_columns || []);
+			} else if (typeof this.render_legacy_summary_grid === "function" && this.last_summary_columns) {
+				this.render_legacy_summary_grid(this.last_summary_columns);
+			}
 			return;
 		}
 		this.number_format_mode = next;
 		this._patch_presentation({ schedule_save: true });
 		this.update_grid_toolbar_state();
+		this.render_totals();
 		if (this.is_datatable_summary_enabled() && this.datatable_adapter?.is_mounted?.()) {
 			void this.render_grid(this.last_summary_columns || []);
+		} else if (typeof this.render_legacy_summary_grid === "function" && this.last_summary_columns) {
+			this.render_legacy_summary_grid(this.last_summary_columns);
+		} else {
+			// Force a summary refresh so Raw/Auto paint is never stale.
+			this.refresh_summary?.();
 		}
 	}
 
@@ -1648,7 +1713,11 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		return ae_format_amount_with_mode(
 			value ?? 0,
 			this.currency_code || frappe.defaults.get_default("currency"),
-			this.number_format_mode || "auto"
+			this.number_format_mode || "auto",
+			{
+				settings_scale: this.metadata?.default_amount_display_scale || "raw",
+				default_amount_display_scale: this.metadata?.default_amount_display_scale || "raw",
+			}
 		);
 	}
 

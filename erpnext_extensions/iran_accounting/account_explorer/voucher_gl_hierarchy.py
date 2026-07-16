@@ -164,6 +164,36 @@ def _level_sequence_for_account_number(normalized: str, levels: list[dict]) -> i
 	return None
 
 
+def normalize_hierarchy_nodes(hierarchy: list[dict] | None) -> list[dict]:
+	"""Print contract: every node exposes code / name / level (+ legacy aliases)."""
+	out: list[dict] = []
+	seen: set[str] = set()
+	for node in hierarchy or []:
+		code = cstr(node.get("code") or node.get("account_number") or "").strip()
+		name = cstr(node.get("name") or node.get("account_name") or "").strip()
+		level = cint(node.get("level") or node.get("level_sequence") or 0)
+		if not code and not name:
+			continue
+		key = code or name
+		if key in seen:
+			continue
+		seen.add(key)
+		if not name:
+			name = code
+		out.append(
+			{
+				"code": code,
+				"name": name,
+				"level": level,
+				"account_number": code,
+				"account_name": name,
+				"level_sequence": level,
+				"account": cstr(node.get("account") or ""),
+			}
+		)
+	return out
+
+
 def resolve_account_hierarchy_from_parent_chain(
 	leaf_account: dict | None,
 	*,
@@ -171,7 +201,12 @@ def resolve_account_hierarchy_from_parent_chain(
 	levels: list[dict],
 	start_level: int,
 ) -> list[dict]:
-	"""Walk ERPNext parent_account chain; emit configured levels from start_level upward."""
+	"""Walk ERPNext parent_account chain from start_level through leaf.
+
+	Prefer Account Explorer code-length → sequence mapping when account_number
+	matches a configured level. Otherwise use tree depth (root = level 1) so
+	intermediate parents are never dropped when lengths do not match.
+	"""
 	if not leaf_account:
 		return []
 	path: list[dict] = []
@@ -186,27 +221,49 @@ def resolve_account_hierarchy_from_parent_chain(
 	path.reverse()
 
 	hierarchy: list[dict] = []
-	for acc in path:
+	max_configured = max((cint(row.get("sequence")) for row in levels), default=start_level)
+	min_code_length = min((cint(row.get("code_length")) for row in levels), default=0)
+	leaf_normalized = normalize_account_number(path[-1].get("account_number")) if path else ""
+	for depth_idx, acc in enumerate(path):
+		depth_level = depth_idx + 1  # root = 1
 		normalized = normalize_account_number(acc.get("account_number"))
 		seq = _level_sequence_for_account_number(normalized, levels) if normalized else None
 		is_leaf = acc is path[-1]
-		if seq is None and is_leaf:
-			seq = max((cint(row.get("sequence")) for row in levels), default=0)
-		if seq is None or seq < start_level:
+		if seq is None:
+			seq = depth_level if not is_leaf else max(depth_level, max_configured)
+		# Never show root / levels below start (leaf always kept).
+		if not is_leaf and seq < start_level:
 			continue
+		if is_leaf and seq < start_level:
+			seq = max(start_level, depth_level, max_configured)
 		display_number = normalized or cstr(acc.get("account_number") or "").strip()
-		if not display_number and is_leaf:
-			display_number = cstr(acc.get("name") or "")
+		account_title = cstr(acc.get("account_name") or acc.get("name") or "").strip()
+		# Numbered leaves must stay on the account_number tree — skip name-only
+		# parents (Temporary Accounts, etc.) that pollute print hierarchy.
+		if leaf_normalized and not is_leaf and not display_number:
+			continue
+		if leaf_normalized and display_number and not is_leaf:
+			if not leaf_normalized.startswith(display_number):
+				continue
+			# Drop Level-1 codes (e.g. "11") when print start level begins at length 4+.
+			if min_code_length and len(display_number) < min_code_length:
+				continue
 		hierarchy.append(
 			{
 				"level_sequence": seq,
+				"level": seq,
 				"account": cstr(acc.get("name") or ""),
+				# Never invent a fake "code" from the English account title —
+				# that overflows the fixed account column and duplicates titles.
 				"account_number": display_number,
-				"account_name": cstr(acc.get("account_name") or acc.get("name") or display_number),
+				"code": display_number,
+				"account_name": account_title or display_number,
+				"name": account_title or display_number,
 			}
 		)
-	leaf_normalized = normalize_account_number(path[-1].get("account_number")) if path else ""
-	return merge_account_hierarchy_nodes(hierarchy, leaf_normalized=leaf_normalized)
+	return normalize_hierarchy_nodes(
+		merge_account_hierarchy_nodes(hierarchy, leaf_normalized=leaf_normalized)
+	)
 
 
 def resolve_account_hierarchy_for_number(
@@ -225,14 +282,19 @@ def resolve_account_hierarchy_for_number(
 	seen_numbers: set[str] = set()
 	if not normalized:
 		if leaf_account:
-			return [
-				{
-					"level_sequence": levels[-1]["sequence"] if levels else 0,
-					"account": leaf_account.get("name") or "",
-					"account_number": cstr(leaf_account.get("account_number") or ""),
-					"account_name": cstr(leaf_account.get("account_name") or leaf_account.get("name") or ""),
-				}
-			]
+			return normalize_hierarchy_nodes(
+				[
+					{
+						"level_sequence": levels[-1]["sequence"] if levels else 0,
+						"level": levels[-1]["sequence"] if levels else 0,
+						"account": leaf_account.get("name") or "",
+						"account_number": cstr(leaf_account.get("account_number") or ""),
+						"code": cstr(leaf_account.get("account_number") or ""),
+						"account_name": cstr(leaf_account.get("account_name") or leaf_account.get("name") or ""),
+						"name": cstr(leaf_account.get("account_name") or leaf_account.get("name") or ""),
+					}
+				]
+			)
 		return []
 
 	for level in levels:
@@ -268,9 +330,12 @@ def resolve_account_hierarchy_for_number(
 		hierarchy.append(
 			{
 				"level_sequence": cint(level["sequence"]),
+				"level": cint(level["sequence"]),
 				"account": account_name_key,
 				"account_number": prefix,
+				"code": prefix,
 				"account_name": account_name or prefix,
+				"name": account_name or prefix,
 			}
 		)
 
@@ -279,11 +344,20 @@ def resolve_account_hierarchy_for_number(
 		hierarchy.append(
 			{
 				"level_sequence": levels[-1]["sequence"] if levels else 0,
+				"level": levels[-1]["sequence"] if levels else 0,
 				"account": (leaf_account or {}).get("name") or "",
 				"account_number": normalized
 				if normalized.isdigit()
 				else cstr((leaf_account or {}).get("account_number") or ""),
+				"code": normalized
+				if normalized.isdigit()
+				else cstr((leaf_account or {}).get("account_number") or ""),
 				"account_name": cstr(
+					(leaf_account or {}).get("account_name")
+					or (leaf_account or {}).get("name")
+					or normalized
+				),
+				"name": cstr(
 					(leaf_account or {}).get("account_name")
 					or (leaf_account or {}).get("name")
 					or normalized
@@ -296,7 +370,7 @@ def resolve_account_hierarchy_for_number(
 		if deduped and deduped[-1]["account_number"] == node["account_number"]:
 			continue
 		deduped.append(node)
-	return deduped
+	return normalize_hierarchy_nodes(deduped)
 
 
 def batch_resolve_account_hierarchies(
@@ -321,32 +395,50 @@ def batch_resolve_account_hierarchies(
 			account_number = row.get("account_number") if hasattr(row, "get") else row.account_number
 			account_name = row.get("account_name") if hasattr(row, "get") else row.account_name
 		normalized = normalize_account_number(account_number) if row else ""
+		parent_chain = resolve_account_hierarchy_from_parent_chain(
+			row,
+			by_name=by_name,
+			levels=levels,
+			start_level=start_level,
+		)
 		if not normalized and row:
-			# Missing account_number fallback: single leaf node.
-			cache[name] = [
+			# No numeric number — still prefer parent-account depth hierarchy.
+			cache[name] = parent_chain or [
 				{
 					"level_sequence": levels[-1]["sequence"] if levels else 0,
+					"level": levels[-1]["sequence"] if levels else 0,
 					"account": name,
-					"account_number": "",
+					"account_number": cstr(account_number or ""),
+					"code": cstr(account_number or ""),
 					"account_name": cstr(account_name or name),
+					"name": cstr(account_name or name),
 				}
 			]
+			cache[name] = normalize_hierarchy_nodes(cache[name])
 			continue
-		cache[name] = merge_account_hierarchy_nodes(
+		merged = merge_account_hierarchy_nodes(
 			resolve_account_hierarchy_for_number(
 				normalized,
 				levels=levels,
 				number_index=number_index,
 				leaf_account=row,
 			),
-			resolve_account_hierarchy_from_parent_chain(
-				row,
-				by_name=by_name,
-				levels=levels,
-				start_level=start_level,
-			),
+			parent_chain,
 			leaf_normalized=normalized,
 		)
+		# Prefer depth parent-chain when prefix resolution collapsed to leaf-only
+		# but the Account tree has intermediate parents.
+		if len(merged) <= 1 and len(parent_chain) > 1:
+			merged = parent_chain
+		min_len = min((cint(level.get("code_length")) for level in levels), default=0)
+		if min_len and normalized:
+			merged = [
+				n
+				for n in merged
+				if len(cstr(n.get("code") or n.get("account_number") or "")) >= min_len
+				or cstr(n.get("code") or n.get("account_number") or "") == normalized
+			]
+		cache[name] = normalize_hierarchy_nodes(merged)
 	return cache
 
 
@@ -579,17 +671,28 @@ def enrich_rows_with_hierarchy(
 		names = {cstr(r.get("account")) for r in rows if r.get("account")}
 		cache = batch_resolve_account_hierarchies(company, names, start_level=start_level)
 		for row in rows:
-			row["account_hierarchy"] = cache.get(cstr(row.get("account")), [])
+			hier = normalize_hierarchy_nodes(cache.get(cstr(row.get("account")), []))
+			# Stable print levels: start_level + ordinal (e.g. 2,3,4) regardless of
+			# Account Explorer code_length sequence gaps.
+			for idx, node in enumerate(hier):
+				node["level"] = start_level + idx
+				node["level_sequence"] = node["level"]
+			row["account_hierarchy"] = hier
 	else:
 		for row in rows:
-			row["account_hierarchy"] = [
-				{
-					"level_sequence": 0,
-					"account": row.get("account") or "",
-					"account_number": cstr(row.get("account_code") or ""),
-					"account_name": cstr(row.get("account_name") or ""),
-				}
-			]
+			row["account_hierarchy"] = normalize_hierarchy_nodes(
+				[
+					{
+						"level_sequence": 0,
+						"level": 0,
+						"account": row.get("account") or "",
+						"account_number": cstr(row.get("account_code") or ""),
+						"code": cstr(row.get("account_code") or ""),
+						"account_name": cstr(row.get("account_name") or ""),
+						"name": cstr(row.get("account_name") or ""),
+					}
+				]
+			)
 
 	# Attach FA labels onto dimension payloads when discovery provided them.
 	from erpnext_extensions.iran_accounting.account_explorer.voucher_gl_layout import (

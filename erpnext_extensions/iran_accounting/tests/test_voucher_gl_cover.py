@@ -95,6 +95,8 @@ class TestVoucherGLCover(unittest.TestCase):
 			"layout": LAYOUT_STANDARD,
 			# Cover suite targets flat binder columns; hierarchy covered elsewhere.
 			"show_account_hierarchy": 0,
+			# English assertions (print_meta_source, section bars) — independent of site FA default.
+			"language": "en",
 		}
 		base.update(overrides)
 		return base

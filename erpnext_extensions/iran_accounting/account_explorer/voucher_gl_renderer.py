@@ -61,6 +61,29 @@ def _looks_latin_money_words(text: str) -> bool:
 	return latin > 0 and arabic == 0
 
 
+def _reorder_persian_amount_in_words(words: str, currency_labels: list[str]) -> str:
+	"""Frappe money_in_words emits «ریال یک میلیون»; accounting grammar wants «یک میلیون ریال»."""
+	import re
+
+	text = cstr(words).strip()
+	if not text:
+		return text
+	labels = [cstr(x).strip() for x in currency_labels if cstr(x).strip()]
+	# Prefer longer labels first (ریال before ر).
+	labels = sorted(set(labels), key=len, reverse=True)
+	for label in labels:
+		escaped = re.escape(label)
+		# فقط؟ + currency + number-words + optional trailing punctuation
+		pattern = rf"^(فقط\s+)?{escaped}\s+(.+?)([.۔]?)\s*$"
+		match = re.match(pattern, text, flags=re.DOTALL)
+		if match:
+			prefix, body, punct = match.group(1) or "", match.group(2).strip(), match.group(3) or ""
+			# Drop a trailing currency already duplicated at the end of body.
+			body = re.sub(rf"\s*{escaped}\s*$", "", body).strip()
+			return f"{prefix}{body} {label}{punct}".strip()
+	return text
+
+
 def resolve_amount_in_words(amount, currency: str, lang: str) -> str:
 	"""Amount in words from raw total; Persian mode never shows English-only text."""
 	from erpnext_extensions.iran_accounting.account_explorer.voucher_gl_layout import (
@@ -83,15 +106,19 @@ def resolve_amount_in_words(amount, currency: str, lang: str) -> str:
 	if lang in ("fa", "ar"):
 		# Prefer localized currency label over ISO code in Persian output.
 		safe = localize_currency_label(currency, lang) if currency else ""
+		currency_labels = []
 		if currency in ("IRR", "ریال") or safe == "ریال":
 			words = words.replace("IRR", "ریال").replace("﷼", "ریال")
+			currency_labels = ["ریال", "IRR", "﷼"]
 		elif currency:
 			# Keep ISO code but avoid lone Latin money phrases under FA voucher.
 			words = words.replace("﷼", currency)
+			currency_labels = [safe, currency, "﷼"] if safe else [currency, "﷼"]
+		words = _reorder_persian_amount_in_words(words, currency_labels)
 		# Hide if still Latin-only (English money words).
 		if _looks_latin_money_words(words):
 			return ""
-		# Hide mixed junk like "فقط INR هزار." when number-words failed meaningfully.
+		# Hide mixed junk like "فقط هزار INR." when number-words failed meaningfully.
 		if currency and currency not in ("IRR", "ریال") and currency in words:
 			# Allow ISO code with Persian number words; reject if no Persian digits/letters for numbers
 			if not any("\u0600" <= ch <= "\u06FF" for ch in words):
@@ -190,17 +217,22 @@ def enrich_print_payload(payload: dict, filters: dict | None = None) -> dict:
 		if profile_scale:
 			scale_filters["amount_scale"] = profile_scale
 	amount_opts = resolve_print_amount_scale(scale_filters)
-	# Freeze Auto once against voucher totals so all lines/subtotals/totals share one scale.
+	# Auto means settings default (Raw when settings default is Auto/missing) — never magnitude pick.
 	from erpnext_extensions.iran_accounting.domain.amount_scale import (
 		SCALE_AUTO,
-		effective_scale,
+		SCALE_RAW,
+		normalize_amount_scale,
+		resolve_auto_to_settings_scale,
 	)
 	from dataclasses import replace
 
-	if amount_opts.scale == SCALE_AUTO:
-		frozen = effective_scale(SCALE_AUTO, totals.get("total_debit") or 0)
-		amount_opts = replace(amount_opts, scale=frozen)
+	requested_scale = normalize_amount_scale(amount_opts.scale, SCALE_RAW)
+	if requested_scale == SCALE_AUTO:
+		amount_opts = replace(amount_opts, scale=resolve_auto_to_settings_scale(SCALE_AUTO))
+	else:
+		amount_opts = replace(amount_opts, scale=requested_scale)
 	payload["amount_scale"] = amount_opts
+	payload["resolved_amount_scale"] = normalize_amount_scale(amount_opts.scale, SCALE_RAW)
 
 	enrich_rows_with_hierarchy(payload, filters)
 	return payload
@@ -275,6 +307,7 @@ def _render_builtin(payload: dict, filters: dict) -> str:
 			print_ctx["precision"],
 			show_zero=print_ctx.get("show_zero_amounts"),
 			amount_scale=print_ctx.get("amount_scale"),
+			as_html=True,
 		)
 
 	context = {

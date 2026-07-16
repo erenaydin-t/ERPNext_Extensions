@@ -191,11 +191,17 @@
 			font-size: 9pt;
 			border: none;
 		}
+		table.gl-table col.col-idx { width: 45px; }
+		table.gl-table col.col-account { width: 260px; }
+		table.gl-table col.col-amt { width: 135px; }
+		table.gl-table col.col-remarks { width: auto; }
 		table.gl-table thead { display: table-header-group; }
 		table.gl-table th, table.gl-table td {
 			border: 1px solid var(--hair);
 			padding: 6px 7px;
 			vertical-align: top;
+			overflow-wrap: anywhere;
+			word-break: normal;
 		}
 		table.gl-table th {
 			background: #e9eef2;
@@ -218,17 +224,100 @@
 		table.gl-table th:last-child { border-{% if print.rtl %}left{% else %}right{% endif %}: none; }
 		.text-end { text-align: {% if print.rtl %}left{% else %}right{% endif %}; white-space: nowrap; direction: ltr; }
 		.text-center { text-align: center; }
-		.col-idx { width: 2.6em; }
-		.col-account { width: 18%; }
-		.col-amt { width: 10%; }
+		.col-idx,
+		th.col-idx,
+		td.col-idx {
+			width: 45px;
+			min-width: 45px;
+			max-width: 45px;
+			box-sizing: border-box;
+		}
+		.col-account,
+		th.col-account,
+		td.col-account {
+			width: 260px;
+			min-width: 240px;
+			max-width: 260px;
+			box-sizing: border-box;
+		}
+		.col-amt,
+		th.col-amt,
+		td.col-amt {
+			width: 135px;
+			min-width: 135px;
+			max-width: 135px;
+			box-sizing: border-box;
+		}
 		.col-party { width: 12%; }
 		.col-dims { width: 14%; }
-		.col-remarks { width: auto; }
+		.col-remarks,
+		th.col-remarks,
+		td.col-remarks {
+			width: auto;
+		}
+		.account-hierarchy { display: block; width: 100%; }
+		.hier-code {
+			display: block;
+			margin: 0 0 5px;
+			line-height: 1.35;
+			min-height: 1.35em;
+			white-space: nowrap;
+			overflow: hidden;
+		}
+		.hier-code:last-child { margin-bottom: 0; }
+		.hier-code .acct-code {
+			font-family: "DejaVu Sans Mono", "Consolas", monospace;
+			font-size: 8.5pt;
+			font-weight: 800;
+			letter-spacing: 0.01em;
+			white-space: nowrap;
+			direction: ltr;
+			unicode-bidi: isolate;
+		}
+		.account-titles { display: block; width: 100%; }
+		.hier-title {
+			display: block;
+			margin: 0 0 5px;
+			line-height: 1.35;
+			min-height: 1.35em;
+			font-size: 8.5pt;
+			font-weight: 600;
+			overflow-wrap: anywhere;
+			word-break: normal;
+			unicode-bidi: plaintext;
+		}
+		.hier-title:last-child { margin-bottom: 0; }
+		.hier-pair {
+			display: grid;
+			grid-template-columns: max-content minmax(0, 1fr);
+			column-gap: 8px;
+			align-items: start;
+			direction: ltr;
+			text-align: left;
+			margin: 0 0 5px;
+			line-height: 1.35;
+		}
+		.hier-pair.title-only { grid-template-columns: minmax(0, 1fr); }
+		.hier-pair:last-child { margin-bottom: 0; }
+		.hier-pair .acct-code {
+			font-family: "DejaVu Sans Mono", "Consolas", monospace;
+			font-size: 8pt;
+			font-weight: 800;
+			white-space: nowrap;
+			direction: ltr;
+			unicode-bidi: isolate;
+		}
+		.hier-pair .acct-name {
+			font-size: 8.5pt;
+			font-weight: 600;
+			unicode-bidi: plaintext;
+			overflow-wrap: anywhere;
+			min-width: 0;
+		}
 		.acct-stack .acct-code {
 			font-family: "DejaVu Sans Mono", "Consolas", monospace;
 			font-size: 8.5pt;
 			font-weight: 800;
-			letter-spacing: 0.02em;
 			white-space: nowrap;
 			direction: ltr;
 			unicode-bidi: isolate;
@@ -237,54 +326,60 @@
 			font-size: 9.5pt;
 			margin-top: 2px;
 			unicode-bidi: plaintext;
-			direction: auto;
-			word-break: normal;
 			overflow-wrap: anywhere;
+		}
+		.accounting-amount {
+			display: inline-flex;
+			flex-direction: row;
+			align-items: baseline;
+			gap: 0.35em;
+			direction: ltr;
+			unicode-bidi: isolate;
+			white-space: nowrap;
+		}
+		.accounting-amount .currency-label { font-weight: 600; unicode-bidi: isolate; }
+		.accounting-amount .accounting-number {
+			font-variant-numeric: tabular-nums;
+			font-weight: 700;
+			direction: ltr;
+			unicode-bidi: isolate;
 		}
 		.remarks-main {
 			word-break: normal;
 			overflow-wrap: anywhere;
 			unicode-bidi: plaintext;
 			direction: auto;
-			white-space: normal;
-			line-height: 1.45;
+			line-height: 1.4;
 			min-height: 1.2em;
+			margin-top: 4px;
 		}
 		.remarks-sub {
-			margin-top: 4px;
+			margin-top: 3px;
 			font-size: 7.5pt;
 			color: var(--muted);
 			line-height: 1.35;
 			unicode-bidi: plaintext;
-			direction: auto;
 		}
-		.dim-block { font-size: 8pt; line-height: 1.4; }
-		.dim-line { display: block; margin: 0 0 2px; unicode-bidi: isolate; }
+		.dim-block { font-size: 8.5pt; line-height: 1.35; }
+		.dim-line { display: block; margin: 0 0 3px; unicode-bidi: isolate; }
+		.dim-line:last-child { margin-bottom: 0; }
 		.dim-k { color: var(--muted); font-weight: 600; }
 		.dim-v { font-weight: 600; unicode-bidi: isolate; direction: ltr; }
 		.vgl-layout-modern .entries-wrap { border-color: #9aa8b5; }
 		.vgl-layout-modern table.gl-table th { background: #f0f4f7; border-bottom-color: #7a8b99; }
-		.vgl-layout-compact .col-account { width: 26%; }
+		.vgl-layout-compact .col-account,
+		.vgl-layout-compact th.col-account,
+		.vgl-layout-compact td.col-account {
+			width: 240px;
+			min-width: 240px;
+			max-width: 240px;
+		}
 		.vgl-layout-compact table.gl-table th,
 		.vgl-layout-compact table.gl-table td { padding: 4px 5px; }
 
 		.hier-level { margin: 0 0 3px; line-height: 1.4; }
-		.hier-level .acct-code {
-			font-family: "DejaVu Sans Mono", "Consolas", monospace;
-			font-weight: 800;
-			direction: ltr;
-			unicode-bidi: isolate;
-		}
-		.hier-code { margin: 0 0 2px; line-height: 1.25; }
-		.hier-code .acct-code {
-			font-family: "DejaVu Sans Mono", "Consolas", monospace;
-			font-weight: 800;
-			font-size: 8.5pt;
-			direction: ltr;
-			unicode-bidi: isolate;
-			white-space: nowrap;
-		}
-		.party-block { margin: 0 0 2px; font-size: 8.5pt; }
+		.party-block { margin: 0 0 3px; font-size: 8.5pt; line-height: 1.35; }
+		.party-block:last-child { margin-bottom: 0; }
 		.subtotal-label { font-weight: 800; font-size: 9pt; }
 		tr[data-node="account_header"] td,
 		tr[data-node="party_header"] td,
@@ -307,7 +402,34 @@
 			padding: 5px 6px !important;
 		}
 
-		/* —— TOTALS —— */
+		/* —— TOTALS (column-aligned) —— */
+		.totals-align-wrap {
+			border: 2px solid var(--rule);
+			border-top: 0;
+			background: var(--paper);
+			margin-top: -1px;
+		}
+		table.gl-table.totals-align-table { border: none; margin: 0; }
+		table.gl-table.totals-align-table td {
+			background: var(--tint);
+			font-weight: 700;
+			vertical-align: middle;
+			-webkit-print-color-adjust: exact;
+			print-color-adjust: exact;
+		}
+		table.gl-table.totals-align-table tr.totals-meta td {
+			font-weight: 600;
+			background: #fff;
+			border-top: 1.5px solid var(--rule);
+		}
+		.totals-col-label {
+			display: block;
+			font-size: 7.5pt;
+			font-weight: 700;
+			color: var(--muted);
+			margin-bottom: 2px;
+			white-space: nowrap;
+		}
 		.totals-panel {
 			border: 2.5px solid var(--rule);
 			background: var(--tint);
@@ -534,6 +656,21 @@
 		<div class="section-label">{{ print.labels.section_entries }}</div>
 		<div class="entries-wrap">
 			<table class="gl-table">
+				<colgroup>
+					{% for col in print.columns %}
+					{% if col.id == "idx" %}
+					<col class="col-idx" style="width:45px">
+					{% elif col.id in ("account_code", "account_stacked") %}
+					<col class="col-account" style="width:260px">
+					{% elif col.id in ("line_amount", "debit", "credit", "debit_ac", "credit_ac") %}
+					<col class="col-amt" style="width:135px">
+					{% elif col.id == "remarks" %}
+					<col class="col-remarks">
+					{% else %}
+					<col class="{{ col.cls.split()[0] if col.cls else '' }}">
+					{% endif %}
+					{% endfor %}
+				</colgroup>
 				<thead>
 					<tr class="repeat-banner">
 						<th colspan="{{ print.columns|length }}">
@@ -552,7 +689,51 @@
 					{% for row in print.table_rows %}
 					<tr{% if row.node_type %} data-node="{{ row.node_type }}"{% endif %}>
 						{% for col in print.columns %}
-						<td class="{{ col.cls }}">{{ row.cells[col.id]|safe }}</td>
+						<td class="{{ col.cls }}">
+							{% if col.id == "account_code" and row.node_type == "account_header" %}
+								{# Codes only — titles live in شرح. #}
+								{% if row.cells.account_code %}
+								{{ row.cells.account_code|safe }}
+								{% elif row.account_hierarchy %}
+								<div class="account-hierarchy">
+								{% for level in row.account_hierarchy %}
+								{% set code = level.code or level.account_number %}
+								{% if code %}
+								<div class="hier-code" dir="ltr"><span class="acct-code">{{ code|e }}</span></div>
+								{% endif %}
+								{% endfor %}
+								</div>
+								{% endif %}
+							{% elif col.id == "account_stacked" and row.node_type == "account_header" %}
+								{% if row.cells.account_stacked %}
+								{{ row.cells.account_stacked|safe }}
+								{% elif row.account_hierarchy %}
+								<div class="account-hierarchy">
+								{% for level in row.account_hierarchy %}
+								{% set code = level.code or level.account_number %}
+								{% if code %}
+								<div class="hier-code" dir="ltr"><span class="acct-code">{{ code|e }}</span></div>
+								{% endif %}
+								{% endfor %}
+								</div>
+								{% endif %}
+							{% elif col.id == "remarks" and row.node_type == "account_header" %}
+								{% if row.cells.remarks %}
+								{{ row.cells.remarks|safe }}
+								{% elif row.account_hierarchy %}
+								<div class="account-titles">
+								{% for level in row.account_hierarchy %}
+								{% set title = level.name or level.account_name %}
+								{% if title %}
+								<div class="hier-title" dir="{% if print.rtl %}rtl{% else %}ltr{% endif %}" style="unicode-bidi:plaintext">{{ title|e }}</div>
+								{% endif %}
+								{% endfor %}
+								</div>
+								{% endif %}
+							{% else %}
+								{{ row.cells[col.id]|safe }}
+							{% endif %}
+						</td>
 						{% endfor %}
 					</tr>
 					{% endfor %}
@@ -563,7 +744,69 @@
 
 	<section class="section" data-section="footer-totals">
 		<div class="section-label">{{ print.labels.section_totals }}</div>
-		<div class="totals-panel">
+		{% set has_hier_cols = print.columns | selectattr("id", "equalto", "account_code") | list | length > 0 %}
+		{% set has_debit_credit = print.columns | selectattr("id", "equalto", "debit") | list | length > 0 %}
+		{% if has_hier_cols and has_debit_credit %}
+		<div class="totals-align-wrap">
+			<table class="gl-table totals-align-table" data-totals-footer="debit-credit">
+				<colgroup>
+					{% for col in print.columns %}
+					{% if col.id == "idx" %}
+					<col class="col-idx" style="width:45px">
+					{% elif col.id in ("account_code", "account_stacked") %}
+					<col class="col-account" style="width:260px">
+					{% elif col.id in ("debit", "credit") %}
+					<col class="col-amt" style="width:135px">
+					{% elif col.id == "line_amount" %}
+					{# Keep column alignment with the body table; never put a line-amount total here. #}
+					<col class="col-amt" style="width:135px">
+					{% elif col.id == "remarks" %}
+					<col class="col-remarks">
+					{% else %}
+					<col>
+					{% endif %}
+					{% endfor %}
+				</colgroup>
+				<tbody>
+					<tr class="totals-primary" data-totals-align="1">
+						{% for col in print.columns %}
+						<td class="{{ col.cls }}">
+							{% if col.id == "remarks" %}
+							{{ print.labels.section_totals }}
+							{% elif col.id == "debit" %}
+							<span class="totals-col-label">{{ print.labels.debit_total }}</span>
+							{{ fmt_amount(totals.total_debit) }}
+							{% elif col.id == "credit" %}
+							<span class="totals-col-label">{{ print.labels.credit_total }}</span>
+							{{ fmt_amount(totals.total_credit) }}
+							{% elif col.id == "line_amount" %}
+							{# No جمع مبلغ جزء — row amounts stay in the entry table only. #}
+							{% endif %}
+						</td>
+						{% endfor %}
+					</tr>
+					<tr class="totals-meta">
+						<td colspan="{{ print.columns|length - 2 }}" class="col-remarks">
+							{% if print.options.show_amount_in_words and totals.amount_in_words %}
+							<strong>{{ print.labels.amount_in_words }}:</strong>
+							{{ totals.amount_in_words|e }}
+							{% endif %}
+						</td>
+						<td class="col-amt text-end" colspan="2">
+							{{ print.labels.difference_short }}:
+							{{ fmt_amount(totals.difference) or "0" }}
+							{% if totals.is_balanced %}
+							<span class="balance-badge ok">{{ print.labels.balanced_ok }}</span>
+							{% else %}
+							<span class="balance-badge bad">{{ print.labels.balanced_bad }}</span>
+							{% endif %}
+						</td>
+					</tr>
+				</tbody>
+			</table>
+		</div>
+		{% else %}
+		<div class="totals-panel" data-totals-footer="debit-credit">
 			<div class="totals-grid">
 				<div class="totals-cell">
 					<span class="k">{{ print.labels.debit_total }}</span>
@@ -593,6 +836,7 @@
 			</div>
 			{% endif %}
 		</div>
+		{% endif %}
 	</section>
 
 	{% if print.options.show_signature_block %}
@@ -664,7 +908,14 @@
 						img.addEventListener("error", resolve, { once: true });
 					});
 				}));
-				var fonts_wait = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
+				// Cap font wait — document.fonts.ready can hang in headless / missing webfonts.
+				var fonts_wait = Promise.resolve();
+				if (document.fonts && document.fonts.ready) {
+					fonts_wait = Promise.race([
+						document.fonts.ready,
+						new Promise(function (resolve) { setTimeout(resolve, 2500); })
+					]);
+				}
 				return Promise.all([image_wait, fonts_wait]);
 			}
 			if (document.readyState === "complete") {

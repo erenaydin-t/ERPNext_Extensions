@@ -95,8 +95,8 @@ LABELS_FA = {
 	"print_timestamp": "تاریخ و زمان چاپ",
 	"print_date": "تاریخ چاپ",
 	"gl_rows": "تعداد ردیف‌ها",
-	"debit_total": "جمع کل بدهکار",
-	"credit_total": "جمع کل بستانکار",
+	"debit_total": "جمع بدهکار",
+	"credit_total": "جمع بستانکار",
 	"difference": "اختلاف",
 	"balanced": "وضعیت تراز",
 	"balanced_ok": "تراز",
@@ -348,6 +348,7 @@ def format_amount(
 	*,
 	show_zero: bool = False,
 	amount_scale=None,
+	as_html: bool = False,
 ) -> str:
 	amount = flt(value)
 	if not show_zero and abs(amount) < 1e-12:
@@ -360,18 +361,25 @@ def format_amount(
 			from dataclasses import replace
 
 			opts = replace(opts, currency=currency)
-		return format_accounting_amount(amount, opts)["display"]
+		formatted = format_accounting_amount(amount, opts)
+		return formatted["display_html"] if as_html else formatted["display"]
 	prec = cint(precision)
 	if currency in ("IRR", "ریال") and prec <= 0:
 		prec = 0
-	formatted = frappe.format_value(amount, {"fieldtype": "Currency", "precision": prec})
-	# Strip unsafe currency glyphs — prefer bare number (CSV/legacy callers).
-	for glyph in ("﷼", "₹", "$", "€", "£"):
-		formatted = formatted.replace(glyph, "")
-	formatted = formatted.strip()
-	if currency == "IRR" and prec == 0 and formatted.endswith(".00"):
-		formatted = formatted[:-3]
-	return formatted
+	from erpnext_extensions.iran_accounting.domain.amount_scale import (
+		_currency_word,
+		_format_grouped_number,
+		build_amount_html,
+	)
+
+	locale = "fa" if currency in ("IRR", "ریال") else "en"
+	number = _format_grouped_number(amount, prec)
+	currency_word = _currency_word(currency, locale)
+	if as_html:
+		return build_amount_html(currency_label=currency_word, number=number, locale=locale)
+	if locale == "fa" and currency_word:
+		return f"{currency_word} {number}"
+	return f"{number} {currency_word}".strip()
 
 
 def escape_text(value) -> str:
@@ -479,19 +487,96 @@ def build_hierarchy_code_html(
 
 	Never emit a lone leaf code unless ``allow_leaf_only`` (non-hierarchical mode).
 	"""
+	from erpnext_extensions.iran_accounting.account_explorer.voucher_gl_hierarchy import (
+		normalize_hierarchy_nodes,
+	)
+
+	nodes = normalize_hierarchy_nodes(hierarchy)
 	parts: list[str] = []
-	seen: set[str] = set()
-	for level in hierarchy or []:
-		code = cstr(level.get("account_number") or "").strip()
-		if not code or code in seen:
+	for level in nodes:
+		code = cstr(level.get("code") or "").strip()
+		if not code:
 			continue
-		seen.add(code)
 		parts.append(f'<div class="hier-code" dir="ltr"><span class="acct-code">{escape_text(code)}</span></div>')
 	if not parts and leaf_fallback and allow_leaf_only:
 		parts.append(
 			f'<div class="hier-code" dir="ltr"><span class="acct-code">{escape_text(leaf_fallback)}</span></div>'
 		)
-	return "".join(parts)
+	if not parts:
+		return ""
+	return f'<div class="account-hierarchy">{"".join(parts)}</div>'
+
+
+def build_hierarchy_pair_html(
+	hierarchy: list[dict] | None,
+	*,
+	rtl: bool = True,
+	leaf_fallback: str = "",
+	leaf_name_fallback: str = "",
+	allow_leaf_only: bool = False,
+) -> str:
+	"""Paired code + title rows wrapped in account-hierarchy (print contract).
+
+	Each node renders one line: ``CODE    Title`` (code LTR, title language-aware).
+	"""
+	from erpnext_extensions.iran_accounting.account_explorer.voucher_gl_hierarchy import (
+		normalize_hierarchy_nodes,
+	)
+
+	nodes = normalize_hierarchy_nodes(hierarchy)
+	if not nodes and allow_leaf_only and (leaf_fallback or leaf_name_fallback):
+		nodes = normalize_hierarchy_nodes(
+			[{"code": leaf_fallback, "name": leaf_name_fallback or leaf_fallback, "level": 0}]
+		)
+	parts: list[str] = []
+	title_dir = "rtl" if rtl else "ltr"
+	for level in nodes:
+		code = cstr(level.get("code") or "").strip()
+		name = cstr(level.get("name") or "").strip()
+		if not code and not name:
+			continue
+		level_no = cint(level.get("level") or level.get("level_sequence") or 0)
+		# Title-only when no real account number (avoid code==name overlap).
+		if not code or (name and code == name):
+			parts.append(
+				f'<div class="hier-pair title-only" data-level="{level_no}">'
+				f'<span class="acct-name" dir="{title_dir}" style="unicode-bidi:plaintext">'
+				f"{escape_text(name or code)}</span>"
+				f"</div>"
+			)
+			continue
+		parts.append(
+			f'<div class="hier-pair" data-level="{level_no}" dir="ltr">'
+			f'<span class="acct-code">{escape_text(code)}</span>'
+			f'<span class="acct-name" dir="{title_dir}" style="unicode-bidi:plaintext">'
+			f"{escape_text(name)}</span>"
+			f"</div>"
+		)
+	if not parts:
+		return ""
+	return f'<div class="account-hierarchy">{"".join(parts)}</div>'
+
+
+def build_hierarchy_titles_html(hierarchy: list[dict] | None, *, rtl: bool = True) -> str:
+	"""Stacked account titles for شرح opposite hierarchy codes."""
+	from erpnext_extensions.iran_accounting.account_explorer.voucher_gl_hierarchy import (
+		normalize_hierarchy_nodes,
+	)
+
+	nodes = normalize_hierarchy_nodes(hierarchy)
+	parts: list[str] = []
+	title_dir = "rtl" if rtl else "ltr"
+	for level in nodes:
+		name = cstr(level.get("name") or "").strip()
+		if not name:
+			continue
+		parts.append(
+			f'<div class="hier-title" dir="{title_dir}" style="unicode-bidi:plaintext">'
+			f"{escape_text(name)}</div>"
+		)
+	if not parts:
+		return ""
+	return f'<div class="account-titles">{"".join(parts)}</div>'
 
 
 def build_hierarchy_description_html(
@@ -501,24 +586,17 @@ def build_hierarchy_description_html(
 	rtl: bool,
 	show_hierarchy_in_cell: bool = True,
 ) -> str:
-	"""Build semantic شرح cell: titles / party / dims / remarks (no technical empty labels)."""
+	"""Build semantic شرح cell: titles / party / dims / remarks (no codes)."""
+	from erpnext_extensions.iran_accounting.account_explorer.voucher_gl_hierarchy import (
+		normalize_hierarchy_nodes,
+	)
+
 	parts: list[str] = []
 	node_type = node.get("node_type")
 	if node_type == "account_header":
-		# Titles only — codes live in the code column.
 		hierarchy = node.get("account_hierarchy") or []
-		for depth, level in enumerate(hierarchy):
-			name = escape_text(level.get("account_name") or "")
-			if not name:
-				continue
-			indent = depth * 12
-			title_dir = "rtl" if rtl else "auto"
-			parts.append(
-				f'<div class="hier-level" style="padding-inline-start:{indent}px">'
-				f'<span class="acct-name" dir="{title_dir}" style="unicode-bidi:plaintext">{name}</span>'
-				f"</div>"
-			)
-		return "".join(parts) or escape_text(node.get("account_name") or "")
+		titles = build_hierarchy_titles_html(hierarchy, rtl=rtl)
+		return titles
 
 	if node_type in ("party_header",):
 		party = node.get("party") or {}
@@ -531,15 +609,6 @@ def build_hierarchy_description_html(
 				f'<div class="party-block"><span class="dim-k">{escape_text(role)}:</span> '
 				f'<span dir="auto" style="unicode-bidi:plaintext">{escape_text(party_name)}</span></div>'
 			)
-			rel = cstr(party.get("party_type") or "").strip()
-			# Show relation type only when it differs from the role label itself.
-			if rel and rel not in ("Employee",) and role == labels.get("person"):
-				parts.append(
-					f'<div class="party-block"><span class="dim-k">{escape_text(labels["person_relation"])}:</span> '
-					f"{escape_text(rel)}</div>"
-				)
-			elif rel == "Employee" and labels.get("employee"):
-				pass  # role already says کارمند / Employee
 		else:
 			role = _party_type_label(party.get("party_type"), labels, kind="party")
 			parts.append(
@@ -551,7 +620,7 @@ def build_hierarchy_description_html(
 	if node_type == "dimension_header":
 		for dim in node.get("dimensions") or []:
 			label = cstr(dim.get("label") or "").strip()
-			value = cstr(dim.get("value") or "").strip()
+			value = cstr(dim.get("title") or dim.get("value") or "").strip()
 			if not label or not value:
 				continue
 			parts.append(
@@ -568,11 +637,12 @@ def build_hierarchy_description_html(
 		}[node_type]
 		return f'<div class="subtotal-label">{escape_text(labels[label_key])}</div>'
 
-	# gl_line — dims (if not already headed) then remarks; no "Description:" prefix.
-	_ = show_hierarchy_in_cell  # reserved for compact embeds
+	# gl_line — dims then remarks; no hierarchy codes here.
+	_ = show_hierarchy_in_cell
+	_ = normalize_hierarchy_nodes  # noqa: keep import path stable for callers
 	for dim in node.get("dimensions") or []:
 		label = cstr(dim.get("label") or "").strip()
-		value = cstr(dim.get("value") or "").strip()
+		value = cstr(dim.get("title") or dim.get("value") or "").strip()
 		if not label or not value:
 			continue
 		parts.append(
@@ -943,14 +1013,13 @@ def prepare_table_rows(payload: dict, print_ctx: dict) -> list[dict]:
 	display_nodes = payload.get("display_nodes") or []
 
 	def _fmt(value, *, show_zero: bool = False):
-		return escape_text(
-			format_amount(
-				value,
-				currency,
-				precision,
-				show_zero=show_zero,
-				amount_scale=amount_scale,
-			)
+		return format_amount(
+			value,
+			currency,
+			precision,
+			show_zero=show_zero,
+			amount_scale=amount_scale,
+			as_html=True,
 		)
 
 	if hierarchical and display_nodes and profile != PROFILE_FULL_AUDIT:
@@ -979,12 +1048,22 @@ def prepare_table_rows(payload: dict, print_ctx: dict) -> list[dict]:
 					}
 				)
 			elif node_type == "account_header":
+				hierarchy = node.get("account_hierarchy") or []
+				# Codes only in کد حساب; titles only in شرح.
 				cells["account_code"] = build_hierarchy_code_html(
-					node.get("account_hierarchy"),
+					hierarchy,
 					allow_leaf_only=False,
 				)
-				cells["remarks"] = build_hierarchy_description_html(node, labels, rtl=rtl)
-				out.append({"idx": "", "cells": cells, "remarks_plain": "", "node_type": node_type})
+				cells["remarks"] = build_hierarchy_titles_html(hierarchy, rtl=rtl)
+				out.append(
+					{
+						"idx": "",
+						"cells": cells,
+						"remarks_plain": "",
+						"node_type": node_type,
+						"account_hierarchy": hierarchy,
+					}
+				)
 			elif node_type in ("party_header", "dimension_header"):
 				cells["remarks"] = build_hierarchy_description_html(node, labels, rtl=rtl)
 				out.append({"idx": "", "cells": cells, "remarks_plain": "", "node_type": node_type})
@@ -992,7 +1071,6 @@ def prepare_table_rows(payload: dict, print_ctx: dict) -> list[dict]:
 				cells["remarks"] = build_hierarchy_description_html(node, labels, rtl=rtl)
 				cells["debit"] = _fmt(node.get("debit"), show_zero=True)
 				cells["credit"] = _fmt(node.get("credit"), show_zero=True)
-				# مبلغ جزء group rollup: dominant side total for the subgroup
 				cells["line_amount"] = _fmt(
 					flt(node.get("debit")) or flt(node.get("credit")), show_zero=True
 				)

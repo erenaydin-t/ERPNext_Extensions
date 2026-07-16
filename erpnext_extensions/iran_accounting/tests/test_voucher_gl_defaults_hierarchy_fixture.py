@@ -16,7 +16,6 @@ from erpnext_extensions.iran_accounting.account_explorer.voucher_gl_renderer imp
 from erpnext_extensions.iran_accounting.domain.amount_scale import (
 	SCALE_MILLIONS,
 	SCALE_RAW,
-	SCALE_THOUSANDS,
 	normalize_amount_scale,
 	resolve_print_amount_scale,
 )
@@ -58,8 +57,8 @@ class TestVoucherGLPrintDefaults(unittest.TestCase):
 
 		self.assertEqual(settings.voucher_gl_layout, SELECT_DEFAULTS["voucher_gl_layout"])
 		self.assertEqual(settings.voucher_gl_page_layout, "Auto")
-		self.assertEqual(settings.voucher_gl_amount_scale, "Use Default")
-		self.assertEqual(settings.default_amount_display_scale, "Auto")
+		self.assertEqual(settings.voucher_gl_amount_scale, "Raw")
+		self.assertEqual(settings.default_amount_display_scale, "Raw")
 		for fieldname, expected in ON_DEFAULTS.items():
 			if settings.meta.has_field(fieldname):
 				self.assertEqual(cint(settings.get(fieldname)), expected, fieldname)
@@ -72,21 +71,93 @@ class TestVoucherGLPrintDefaults(unittest.TestCase):
 		self.assertEqual(cint(settings.get(VERSION_FIELD) or 0), SEED_VERSION)
 
 	def test_user_amount_scale_pass_through_priority(self):
-		# Profile Use Default + user Thousands → Thousands
-		opts = resolve_print_amount_scale(
-			{"amount_scale": "Use Default", "user_amount_scale": "Thousands", "currency": "IRR"}
-		)
-		self.assertEqual(opts.scale, SCALE_THOUSANDS)
+		# Print profile Raw beats AE Auto / Thousands (ISSUE 4).
+		settings = frappe.get_single("Iran Accounting Settings")
+		prev = settings.voucher_gl_amount_scale
+		settings.voucher_gl_amount_scale = "Raw"
+		settings.flags.ignore_permissions = True
+		settings.save()
+		frappe.db.commit()
+		try:
+			opts = resolve_print_amount_scale(
+				{"amount_scale": "Use Default", "user_amount_scale": "Thousands", "currency": "IRR"}
+			)
+			self.assertEqual(opts.scale, SCALE_RAW)
 
-		# Explicit Millions beats user Raw
-		opts = resolve_print_amount_scale(
-			{"amount_scale": "Millions", "user_amount_scale": "Raw", "currency": "IRR"}
-		)
-		self.assertEqual(opts.scale, SCALE_MILLIONS)
+			# Explicit Millions beats user Raw and profile Raw
+			opts = resolve_print_amount_scale(
+				{"amount_scale": "Millions", "user_amount_scale": "Raw", "currency": "IRR"}
+			)
+			self.assertEqual(opts.scale, SCALE_MILLIONS)
+		finally:
+			settings.voucher_gl_amount_scale = prev
+			settings.flags.ignore_permissions = True
+			settings.save()
+			frappe.db.commit()
 
 		# Enum normalization from AE modes
 		self.assertEqual(normalize_amount_scale("millions"), SCALE_MILLIONS)
 		self.assertEqual(normalize_amount_scale("Raw"), SCALE_RAW)
+
+	def test_resolved_amount_scale_raw_when_settings_default_raw(self):
+		"""When Default Amount Display Scale / print scale are Raw, payload resolves to raw."""
+		from erpnext_extensions.iran_accounting.domain.amount_scale import (
+			resolve_auto_to_settings_scale,
+		)
+		from erpnext_extensions.iran_accounting.tests.voucher_gl_print_fixtures import (
+			ensure_hierarchy_business_fixture,
+			ensure_print_company,
+		)
+
+		prev_default = frappe.db.get_single_value(
+			"Iran Accounting Settings", "default_amount_display_scale"
+		)
+		prev_print = frappe.db.get_single_value(
+			"Iran Accounting Settings", "voucher_gl_amount_scale"
+		)
+		frappe.db.set_single_value(
+			"Iran Accounting Settings",
+			{
+				"default_amount_display_scale": "Raw",
+				"voucher_gl_amount_scale": "Raw",
+			},
+		)
+		frappe.clear_cache(doctype="Iran Accounting Settings")
+		try:
+			self.assertEqual(resolve_auto_to_settings_scale("Auto"), SCALE_RAW)
+			opts = resolve_print_amount_scale(
+				{"amount_scale": "Use Default", "user_amount_scale": "Auto", "currency": "IRR"}
+			)
+			self.assertEqual(opts.scale, SCALE_RAW)
+
+			class _Gate:
+				@staticmethod
+				def skipTest(msg):
+					raise unittest.SkipTest(msg)
+
+			ctx = ensure_hierarchy_business_fixture(ensure_print_company(_Gate()))
+			filters = {
+				"company": ctx["company"],
+				"voucher_type": "Journal Entry",
+				"voucher_no": ctx["hier_je"],
+				"language": "fa",
+				"layout": "Standard",
+				"amount_scale": "Use Default",
+				"user_amount_scale": "Auto",
+				"include_opening_entries": 1,
+			}
+			payload = enrich_print_payload(build_voucher_gl_print(filters), filters)
+			self.assertEqual(payload.get("resolved_amount_scale"), "raw")
+			self.assertEqual(getattr(payload.get("amount_scale"), "scale", None), "raw")
+		finally:
+			frappe.db.set_single_value(
+				"Iran Accounting Settings",
+				{
+					"default_amount_display_scale": prev_default,
+					"voucher_gl_amount_scale": prev_print,
+				},
+			)
+			frappe.clear_cache(doctype="Iran Accounting Settings")
 
 
 class TestVoucherGLHierarchyBusinessFixture(unittest.TestCase):
@@ -185,8 +256,9 @@ class TestVoucherGLHierarchyBusinessFixture(unittest.TestCase):
 			places=6,
 		)
 
-		# Scale pass-through: Millions metadata label + scaled cells
+		# Scale pass-through: Millions metadata label + scaled cells (feature still available)
 		filters_m = dict(filters)
+		filters_m["amount_scale"] = "Millions"
 		filters_m["user_amount_scale"] = "Millions"
 		html_m = render_voucher_package(filters_m)
 		self.assertIn("مقیاس نمایش", html_m)

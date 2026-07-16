@@ -33,7 +33,8 @@ class TestAmountScale(unittest.TestCase):
 	def test_normalize_and_divisors(self):
 		self.assertEqual(normalize_amount_scale("Millions"), SCALE_MILLIONS)
 		self.assertEqual(normalize_amount_scale("Use Default"), "use_default")
-		self.assertEqual(effective_scale(SCALE_AUTO, 12_000_000), SCALE_MILLIONS)
+		# Auto is settings-linked; leftover Auto must not magnitude-scale.
+		self.assertEqual(effective_scale(SCALE_AUTO, 12_000_000), SCALE_RAW)
 		self.assertEqual(effective_scale(SCALE_AUTO, 500), SCALE_RAW)
 
 	def test_twelve_million_scales_fa(self):
@@ -41,8 +42,11 @@ class TestAmountScale(unittest.TestCase):
 		raw = format_accounting_amount(
 			value, AmountScaleOptions(scale=SCALE_RAW, currency="IRR", locale="fa", precision=0)
 		)
-		self.assertIn("12,000,000", raw["display"].replace("\u066c", ",").replace("٬", ","))
-
+		self.assertIn("12,000,000", raw["display_number"])
+		self.assertIn("12,000,000", raw["display"])
+		self.assertNotIn("میلیون", raw["display"])
+		self.assertNotIn("هزار", raw["display"])
+		self.assertTrue(raw["display"].startswith("ریال "))
 		thousands = format_accounting_amount(
 			value,
 			AmountScaleOptions(
@@ -94,7 +98,15 @@ class TestAmountScale(unittest.TestCase):
 			1e13,
 			AmountScaleOptions(scale=SCALE_AUTO, locale="en", precision=2, show_scale_label=True),
 		)
-		self.assertEqual(huge["scale"], SCALE_TRILLIONS)
+		# Auto follows settings default (site Raw) — never magnitude K/M/B/T.
+		self.assertEqual(huge["scale"], SCALE_RAW)
+		self.assertIn("10,000,000,000,000", huge["display_number"])
+		# Explicit Trillions still works.
+		explicit = format_accounting_amount(
+			1e13,
+			AmountScaleOptions(scale=SCALE_TRILLIONS, locale="en", precision=2, show_scale_label=True),
+		)
+		self.assertEqual(explicit["scale"], SCALE_TRILLIONS)
 
 
 class TestAccountHierarchy(unittest.TestCase):

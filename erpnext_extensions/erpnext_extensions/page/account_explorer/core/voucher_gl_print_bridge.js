@@ -62,7 +62,7 @@ frappe.provide("erpnext_extensions.account_explorer");
 			frappe.msgprint(__("Print GL is disabled in Iran Accounting Settings."));
 			return;
 		}
-		const profile_scale = this.metadata?.voucher_gl_amount_scale || null;
+		const profile_scale = this.metadata?.voucher_gl_amount_scale || "Raw";
 		this.open_voucher_gl_print({
 			company: this.document_scope?.company,
 			voucher_type: row?.voucher_type,
@@ -72,10 +72,14 @@ frappe.provide("erpnext_extensions.account_explorer");
 			finance_book: this.document_scope?.finance_book || null,
 			include_opening_entries: cint(this.document_scope?.status?.include_opening_entries ?? 1),
 			include_cancelled_entries: cint(this.document_scope?.status?.include_cancelled_entries ?? 0),
+			show_account_hierarchy: cint(this.metadata?.voucher_gl_show_account_hierarchy ?? 1),
+			account_hierarchy_start_level: cint(this.metadata?.voucher_gl_hierarchy_start_level ?? 2),
 			rtl: this.is_page_rtl?.() || document.dir === "rtl",
-			// Stable enum only — current Account Explorer Numbers preference.
-			user_amount_scale: this.number_format_mode || "auto",
-			// Print profile Amount Scale (Use Default → fall through to user pref).
+			// Print Raw default: do not inherit AE Auto (هزار/میلیون) for voucher print.
+			user_amount_scale:
+				profile_scale && profile_scale !== "Use Default"
+					? profile_scale
+					: this.number_format_mode || "Raw",
 			amount_scale: profile_scale,
 		});
 	};

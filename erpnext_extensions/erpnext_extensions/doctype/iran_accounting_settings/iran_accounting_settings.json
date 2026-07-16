@@ -385,8 +385,8 @@
    "label": "Combine Dimensions"
   },
   {
-   "default": "Use Default",
-   "description": "Print amount scale. Use Default follows Default Amount Display Scale (or user AE preference).",
+   "default": "Raw",
+   "description": "Print amount scale. Default Raw shows full accounting values (no هزار/میلیون). Use Default follows Default Amount Display Scale (or user AE preference).",
    "fieldname": "voucher_gl_amount_scale",
    "fieldtype": "Select",
    "label": "Amount Scale",
@@ -438,7 +438,7 @@
    "label": "Amount Display Scale"
   },
   {
-   "default": "Auto",
+   "default": "Raw",
    "description": "Shared default for Account Explorer grid and Voucher GL print (when print scale is Use Default).",
    "fieldname": "default_amount_display_scale",
    "fieldtype": "Select",

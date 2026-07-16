@@ -1,6 +1,6 @@
 frappe.provide("erpnext_extensions.account_explorer.core");
 
-const AE_GRID_PREFS_SCHEMA_VERSION = 1;
+const AE_GRID_PREFS_SCHEMA_VERSION = 2;
 const AE_USER_SETTINGS_DOCTYPE = "Account Explorer";
 const AE_USER_SETTINGS_GRID_KEY = "Grid";
 const AE_GRID_PREFS_DEBOUNCE_MS = 600;
@@ -25,12 +25,29 @@ function ae_prefs_clone(value) {
 	return JSON.parse(JSON.stringify(value ?? null));
 }
 
+function ae_prefs_normalize_number_format(value, fallback = "raw") {
+	const mode = String(value || fallback)
+		.toLowerCase()
+		.replace(/[\s-]+/g, "_");
+	return AE_NUMBER_FORMAT_MODES.includes(mode) ? mode : fallback;
+}
+
+function ae_prefs_settings_number_format(metadata = {}) {
+	const raw =
+		metadata?.default_amount_display_scale ||
+		metadata?.defaults?.number_format ||
+		metadata?.defaults?.amount_display_scale ||
+		"raw";
+	return ae_prefs_normalize_number_format(raw, "raw");
+}
+
 function ae_prefs_default_global(metadata = {}) {
 	const defaults = metadata?.defaults || {};
 	return {
 		density: "comfortable",
 		page_size: ae_prefs_normalize_page_size(defaults.page_size, 50, metadata),
-		number_format: "auto",
+		// Follow Iran Accounting Settings Default Amount Display Scale (typically Raw).
+		number_format: ae_prefs_settings_number_format(metadata),
 	};
 }
 
@@ -83,11 +100,6 @@ function ae_prefs_clamp_width(width, profile = {}) {
 		return preferred;
 	}
 	return Math.max(min, Math.min(max, numeric));
-}
-
-function ae_prefs_normalize_number_format(value, fallback = "auto") {
-	const mode = String(value || fallback).toLowerCase();
-	return AE_NUMBER_FORMAT_MODES.includes(mode) ? mode : fallback;
 }
 
 function ae_prefs_normalize_density(value, fallback = "comfortable") {
@@ -175,7 +187,12 @@ function normalize_grid_preferences(payload, metadata = {}, reconcile_context = 
 	if (!ae_prefs_is_plain_object(source)) {
 		return ae_prefs_clone(defaults);
 	}
-	if (cint(source.schema_version) !== AE_GRID_PREFS_SCHEMA_VERSION) {
+	const source_version = cint(source.schema_version) || 0;
+	// Unknown future schema → safe reset. v1 upgrades in place to v2.
+	if (source_version > AE_GRID_PREFS_SCHEMA_VERSION) {
+		return ae_prefs_clone(defaults);
+	}
+	if (source_version < 1) {
 		return ae_prefs_clone(defaults);
 	}
 	const normalized = ae_prefs_clone(defaults);
@@ -232,6 +249,19 @@ function normalize_grid_preferences(payload, metadata = {}, reconcile_context = 
 			reconcile_context[axis_key]?.required_column_id || null
 		);
 	});
+	// v1→v2: replace leftover schema default Auto with settings Raw (not intentional Auto pick).
+	if (source_version < 2) {
+		const settings_mode = ae_prefs_settings_number_format(metadata);
+		if (normalized.global.number_format === "auto" && settings_mode === "raw") {
+			normalized.global.number_format = "raw";
+			Object.keys(normalized.axes).forEach((axis_key) => {
+				if (normalized.axes[axis_key].number_format === "auto") {
+					normalized.axes[axis_key].number_format = "raw";
+				}
+			});
+		}
+		normalized.schema_version = AE_GRID_PREFS_SCHEMA_VERSION;
+	}
 	return normalized;
 }
 
@@ -325,10 +355,14 @@ erpnext_extensions.account_explorer.core.AEUserPreferences = class AEUserPrefere
 		const grid = raw[AE_USER_SETTINGS_GRID_KEY] || raw.Grid || null;
 		this.payload = normalize_grid_preferences(grid, this.controller.metadata || {});
 		this._attribution.normalize_ms = Math.round((performance.now() - normalize_started) * 100) / 100;
-		this._last_saved_snapshot = JSON.stringify(this.payload);
+		const migrated = cint(grid?.schema_version) < AE_GRID_PREFS_SCHEMA_VERSION;
+		this._last_saved_snapshot = migrated ? null : JSON.stringify(this.payload);
 		this._applied_axis_signature = null;
 		this._loaded = true;
 		this.events?.emit("preferences:loaded", { payload: this.payload, attribution: this._attribution });
+		if (migrated) {
+			this.schedule_save();
+		}
 		return this.payload;
 	}
 
@@ -352,8 +386,12 @@ erpnext_extensions.account_explorer.core.AEUserPreferences = class AEUserPrefere
 			);
 			this.controller.number_format_mode = ae_prefs_normalize_number_format(
 				axis_prefs.number_format || global.number_format,
-				global.number_format
+				ae_prefs_settings_number_format(this.controller.metadata)
 			);
+			// Explicit Raw must not remain painted as Auto after preference apply.
+			if (typeof this.controller.render_totals === "function") {
+				this.controller.render_totals();
+			}
 			this.controller.analysis_context.page_size = ae_prefs_normalize_page_size(
 				axis_prefs.page_size || global.page_size,
 				global.page_size,
@@ -427,6 +465,13 @@ erpnext_extensions.account_explorer.core.AEUserPreferences = class AEUserPrefere
 			),
 			number_format: ae_prefs_normalize_number_format(this.controller.number_format_mode),
 		};
+		// Cascade Numbers mode to every axis so Raw stays Raw across axis switch/reload.
+		const cascaded_number_format = this.payload.global.number_format;
+		Object.keys(this.payload.axes || {}).forEach((key) => {
+			if (this.payload.axes[key] && typeof this.payload.axes[key] === "object") {
+				this.payload.axes[key].number_format = cascaded_number_format;
+			}
+		});
 		this.payload.axes[axis_key] = {
 			...this.get_axis_preferences(axis_key),
 			hidden_columns: [...(presentation.hidden_columns || [])].filter(
@@ -442,7 +487,7 @@ erpnext_extensions.account_explorer.core.AEUserPreferences = class AEUserPrefere
 			sort_order: presentation.sort_order,
 			density: this.controller.get_grid_density?.(),
 			page_size: presentation.page_size,
-			number_format: this.controller.number_format_mode,
+			number_format: cascaded_number_format,
 			show_optional_full_voucher_columns: presentation.show_optional_full_voucher_columns ? 1 : 0,
 			dimension_layout: this.controller.show_full_voucher_dimensions ? "full" : "compact",
 			visible_dimension_fields: Object.entries(this.controller.gl_dimension_column_visibility || {})
