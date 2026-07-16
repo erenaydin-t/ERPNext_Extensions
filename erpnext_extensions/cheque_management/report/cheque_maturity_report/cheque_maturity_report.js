@@ -35,6 +35,11 @@ frappe.query_reports["Cheque Maturity Report"] = {
 			fieldtype: "Link",
 			options: "Workflow State",
 		},
+		{
+			fieldname: "cheque_purpose",
+			label: __("Cheque Purpose"),
+			fieldtype: "Data",
+		},
 		{ fieldname: "break_maturity", fieldtype: "Break" },
 		{
 			fieldname: "days_to_due_exact",

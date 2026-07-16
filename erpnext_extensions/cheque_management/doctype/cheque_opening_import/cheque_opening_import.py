@@ -57,6 +57,8 @@ HEADER_ALIASES = {
 	"sayad_code": "sayad_code",
 	"sayad_registered": "sayad_registered",
 	"sayad_reg": "sayad_registered",
+	"purpose": "cheque_purpose",
+	"cheque_purpose": "cheque_purpose",
 }
 
 # Exact header text (Persian / mixed) → canonical field name.
@@ -66,6 +68,8 @@ HEADER_ALIASES_EXACT: dict[str, str] = {
 	"ثبت صیادی": "sayad_registered",
 	"ثبت شده در صیاد": "sayad_registered",
 	"وضعیت ثبت صیاد": "sayad_registered",
+	"بابت": "cheque_purpose",
+	"Cheque Purpose": "cheque_purpose",
 }
 
 _SAYAD_REGISTERED_TRUE = frozenset(
@@ -472,6 +476,9 @@ def import_row(row_no: int, row: dict[str, Any]) -> str:
 	pdc.workflow_state = normalize_workflow_state_value(None)
 	pdc.allocation_mode = "direct_settlement"
 	pdc.cheque_no = chq_num
+	purpose = cstr(row.get("cheque_purpose") or "").strip()
+	if purpose:
+		pdc.cheque_purpose = purpose
 
 	# Opening import tracking (traceability + re-import protection).
 	pdc.is_opening_import = 1
@@ -757,6 +764,7 @@ TEMPLATE_HEADERS: list[str] = [
 	"party_type",
 	"party",
 	"workflow_state",
+	"cheque_purpose",
 	"drawer_bank_name",
 	"received_date",
 	"sent_to_bank_date",
@@ -800,6 +808,7 @@ def download_import_template():
 			"Customer",
 			"__REPLACE_CUSTOMER__",
 			"Draft",
+			"Collection for April sales",
 			"__REPLACE_DRAWER_BANK__",
 			date(2026, 1, 15),
 			None,
@@ -825,6 +834,7 @@ def download_import_template():
 			"Supplier",
 			"__REPLACE_SUPPLIER__",
 			"Registered",
+			"Settlement of Purchase Invoice PI-00045",
 			"",
 			date(2026, 1, 10),
 			None,
@@ -856,6 +866,8 @@ def download_import_template():
 		"Sayad Code (sayad_code): optional official Sayad tracking code. Aliases: Sayad Code, کد صیادی, شماره صیادی.",
 		"Sayad Registered (sayad_registered): whether the cheque is registered in the Sayad system (1/0, yes/no, true/false, بله/خیر, etc.). Aliases: Sayad Registered, ثبت صیادی, ثبت شده در صیاد, وضعیت ثبت صیاد.",
 		"If Sayad Registered is blank: when Sayad Code is filled, registered defaults to 1; when code is empty, registered defaults to 0. A non-empty registered value always wins over the default.",
+		"",
+		"Cheque Purpose (cheque_purpose): optional free-text business purpose / subject of the cheque. Aliases: purpose, بابت, Cheque Purpose. Omit the column entirely for older files — import still works and leaves the field empty.",
 		"",
 		"Replace all __REPLACE_*__ placeholders with real values from your site (Company, Bank Account, Customer/Supplier, Cheque Book, Drawer Bank, etc.) before Preview / Execute.",
 	]

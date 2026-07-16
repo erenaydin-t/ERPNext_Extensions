@@ -1700,6 +1700,7 @@ class PostDatedCheque(Document):
 		)
 
 		validate_workflow_rollback_logs_immutable(self)
+		self._normalize_cheque_purpose()
 		self._validate_cheque_direction_mutability()
 		self._validate_payable_bank_account_mutability()
 		self._validate_receivable_bank_account_mutability()
@@ -1730,6 +1731,14 @@ class PostDatedCheque(Document):
 		self._validate_party_immutable_after_submit()
 		self._validate_sayad_registration_per_settings()
 		self._apply_cheque_leaf_reservation_draft()
+
+	def _normalize_cheque_purpose(self) -> None:
+		"""Trim cheque_purpose; whitespace-only values become empty (optional field)."""
+		raw = getattr(self, "cheque_purpose", None)
+		if raw is None:
+			return
+		normalized = cstr(raw).strip()
+		self.cheque_purpose = normalized or None
 
 	def _validate_payable_bank_account_mutability(self) -> None:
 		"""Payable: bank_account is immutable once the cheque is Registered-or-later.
