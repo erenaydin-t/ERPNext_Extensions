@@ -113,6 +113,7 @@ def apply_analysis_scope_filters(
 	spec: AccountExplorerQuerySpec,
 	*,
 	party_types: list[str] | None = None,
+	apply_default_party_types: bool = True,
 ):
 	accounts = spec.included_account_names or []
 	if accounts:
@@ -123,13 +124,14 @@ def apply_analysis_scope_filters(
 	if spec.resolved_member_tuples:
 		query = apply_member_tuple_filter(query, gle, spec.resolved_member_tuples)
 	else:
-		if party_types is None:
+		effective_party_types = party_types
+		if effective_party_types is None and apply_default_party_types:
 			if spec.view_axis == "unified_party":
-				party_types = get_unified_party_types()
+				effective_party_types = get_unified_party_types()
 			elif spec.view_axis == "party":
-				party_types = get_enabled_party_types()
-		if party_types:
-			query = query.where(gle.party_type.isin(party_types))
+				effective_party_types = get_enabled_party_types()
+		if effective_party_types:
+			query = query.where(gle.party_type.isin(effective_party_types))
 
 		if spec.view_axis != "unified_party":
 			if spec.party_scope.party_type:
@@ -160,10 +162,84 @@ def apply_scoped_gle_filters(
 	spec: AccountExplorerQuerySpec,
 	*,
 	party_types: list[str] | None = None,
+	apply_default_party_types: bool = True,
 ):
 	query = apply_document_scope_filters(query, gle, spec)
-	query = apply_analysis_scope_filters(query, gle, spec, party_types=party_types)
+	query = apply_analysis_scope_filters(
+		query,
+		gle,
+		spec,
+		party_types=party_types,
+		apply_default_party_types=apply_default_party_types,
+	)
 	return query
+
+
+def _has_nonempty_filter_value(value) -> bool:
+	if value is None or value == "":
+		return False
+	if isinstance(value, (list, tuple, set)):
+		return any(_has_nonempty_filter_value(item) for item in value)
+	return True
+
+
+def spec_has_advanced_gle_filters(spec: AccountExplorerQuerySpec) -> bool:
+	"""True when QuerySpec carries WHERE predicates Trial Balance cannot express.
+
+	Account Levels keep the ERPNext Trial Balance path only for ordinary framing
+	(company / dates / fiscal year / finance book / default-book / PCV flags /
+	hide-zero). Any analytical or document advanced filter must use
+	``apply_scoped_gle_filters`` so Analysis Filter chips are never accounting
+	no-ops.
+
+	Triggers (non-exhaustive but intentional):
+	- document accounting account / party / party_type
+	- document accounting_dimensions (cost center, project, custom dims)
+	- document currency
+	- document voucher (type, no, against, reference)
+	- analysis party_scope / voucher_scope / dimension_scope value
+	- unified party selection or resolved member tuples
+	- include_cancelled_entries (TB always excludes cancelled)
+	"""
+	document = spec.document_scope
+	accounting = document.accounting
+	if _has_nonempty_filter_value(accounting.account) or _has_nonempty_filter_value(accounting.party):
+		return True
+	if accounting.party_type:
+		return True
+	for value in (document.accounting_dimensions or {}).values():
+		if _has_nonempty_filter_value(value):
+			return True
+	currency = document.currency
+	if currency and _has_nonempty_filter_value(currency.currency):
+		return True
+	voucher = document.voucher
+	if voucher and (
+		_has_nonempty_filter_value(voucher.voucher_type)
+		or _has_nonempty_filter_value(voucher.voucher_no)
+		or _has_nonempty_filter_value(voucher.against_voucher_type)
+		or _has_nonempty_filter_value(voucher.against_voucher_no)
+		or _has_nonempty_filter_value(voucher.reference_no)
+	):
+		return True
+	# Trial Balance hard-excludes cancelled; including them requires scoped GL.
+	if document.status.include_cancelled_entries:
+		return True
+	if spec.party_scope.party_type or _has_nonempty_filter_value(spec.party_scope.selected_party):
+		return True
+	if _has_nonempty_filter_value(spec.unified_party_scope.selected_unified_party):
+		return True
+	if spec.resolved_member_tuples:
+		return True
+	if spec.dimension_scope.selected_dimension_value is not None:
+		return True
+	if _has_nonempty_filter_value(spec.voucher_scope.voucher_type) or _has_nonempty_filter_value(
+		spec.voucher_scope.voucher_no
+	):
+		return True
+	# Narrowed account_scope selected_account alone stays on TB (post-subset).
+	# Compatibility fields projected into the shapes above must keep this list current.
+	return False
 
 
 def get_gl_entry_match_conditions() -> str:

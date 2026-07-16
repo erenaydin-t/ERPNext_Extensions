@@ -94,6 +94,19 @@ def get_voucher_navigation_target(payload=None):
 
 
 @frappe.whitelist()
+def render_voucher_gl_print(company=None, voucher_type=None, voucher_no=None, filters=None):
+	"""One-click Print GL HTML (no intermediate report filter page)."""
+	from erpnext_extensions.iran_accounting.account_explorer.api import render_voucher_gl_print as _render
+
+	return _render(
+		company=company,
+		voucher_type=voucher_type,
+		voucher_no=voucher_no,
+		filters=filters,
+	)
+
+
+@frappe.whitelist()
 def get_account_scope_preview(payload=None):
 	from erpnext_extensions.iran_accounting.account_explorer.api import get_account_scope_preview as _preview
 

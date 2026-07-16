@@ -35,6 +35,7 @@
   "cheque_due_date",
   "column_break_cheque",
   "cheque_amount",
+  "cheque_purpose",
   "sayad_code",
   "sayad_registered",
   "drawer_bank_name",
@@ -241,6 +242,13 @@
    "in_list_view": 1,
    "options": "currency",
    "reqd": 1
+  },
+  {
+   "fieldname": "cheque_purpose",
+   "fieldtype": "Small Text",
+   "label": "Cheque Purpose",
+   "in_standard_filter": 1,
+   "description": "Business purpose or subject of the cheque (why it was issued or received)."
   },
   {
    "fieldname": "sayad_code",
@@ -719,6 +727,7 @@
    "cancel": 1
   }
  ],
+ "search_fields": "cheque_no,party,cheque_purpose,sayad_code",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],

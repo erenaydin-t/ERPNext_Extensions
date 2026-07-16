@@ -71,14 +71,29 @@ class TestAccountExplorerVoucherNavigation(unittest.TestCase):
 		self.assertFalse(result["can_print"])
 
 	def test_print_navigation_requires_print_format(self):
+		settings = frappe.get_single("Iran Accounting Settings")
+		settings.show_print_voucher = 1
+		settings.account_explorer_voucher_print_format = None
+		settings.flags.ignore_permissions = True
+		settings.save()
+		frappe.db.commit()
+
 		result = api.get_voucher_navigation_target(self._payload())
 		self.assertIn("can_print", result)
 		self.assertIn("print_format", result)
 		self.assertFalse(result["can_print"])
 		self.assertIsNone(result.get("print_route"))
 
-		settings = frappe.get_single("Iran Accounting Settings")
-		settings.account_explorer_voucher_print_format = "Standard"
+		# Use Voucher GL Print Standard only as a named Print Format that exists;
+		# source voucher print needs a DocType print format — skip if none for voucher.
+		sample_pf = frappe.db.get_value(
+			"Print Format",
+			{"doc_type": self.sample.voucher_type, "disabled": 0},
+			"name",
+		)
+		if not sample_pf:
+			self.skipTest(f"No Print Format for {self.sample.voucher_type}")
+		settings.account_explorer_voucher_print_format = sample_pf
 		settings.flags.ignore_permissions = True
 		settings.save()
 		frappe.db.commit()
@@ -86,7 +101,8 @@ class TestAccountExplorerVoucherNavigation(unittest.TestCase):
 		result = api.get_voucher_navigation_target(self._payload())
 		if result["can_open_source"]:
 			self.assertTrue(result["can_print"])
-			self.assertEqual(result["print_format"], "Standard")
-			self.assertEqual(result["print_route"]["format"], "Standard")
+			self.assertEqual(result["print_format"], sample_pf)
+			self.assertEqual(result["print_route"]["format"], sample_pf)
 			self.assertEqual(result["print_route"]["doctype"], self.sample.voucher_type)
 			self.assertEqual(result["print_route"]["name"], self.sample.voucher_no)
+		self.assertIn("can_print_gl", result)

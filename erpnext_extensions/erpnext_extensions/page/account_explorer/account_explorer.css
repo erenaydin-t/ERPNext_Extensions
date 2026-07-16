@@ -308,7 +308,95 @@
 }
 
 .account-explorer-page .ae-filter-summary {
-	display: none;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin: 8px 0 10px;
+	padding: 8px 10px;
+	border: 1px solid var(--border-color);
+	border-radius: var(--border-radius);
+	background: var(--subtle-fg, var(--control-bg));
+}
+
+.account-explorer-page .ae-filter-summary-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.account-explorer-page .ae-filter-summary-title {
+	font-size: var(--text-sm);
+	font-weight: 600;
+}
+
+.account-explorer-page .ae-filter-summary-warning {
+	font-size: var(--text-sm);
+	color: var(--text-muted);
+}
+
+.account-explorer-page .ae-filter-summary-group-title {
+	font-size: 11px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.02em;
+	color: var(--text-muted);
+	margin-bottom: 4px;
+}
+
+.account-explorer-page .ae-filter-summary-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.account-explorer-page .ae-filter-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	max-width: 100%;
+	padding: 3px 8px;
+	border: 1px solid var(--border-color);
+	border-radius: var(--border-radius);
+	background: var(--bg-color);
+	font-size: var(--text-sm);
+}
+
+.account-explorer-page .ae-filter-chip[data-group="analysis_filters"] {
+	border-color: var(--primary, #2490ef);
+}
+
+.account-explorer-page .ae-filter-chip-label {
+	font-weight: 600;
+	color: var(--text-muted);
+}
+
+.account-explorer-page .ae-filter-chip-value {
+	color: var(--text-color);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.account-explorer-page .ae-filter-chip-remove {
+	appearance: none;
+	border: 0;
+	background: transparent;
+	color: var(--text-muted);
+	cursor: pointer;
+	line-height: 1;
+	padding: 0 2px;
+	font-size: 14px;
+}
+
+.account-explorer-page .ae-filter-chip-remove:hover {
+	color: var(--danger-color, #e24c4c);
+}
+
+[dir="rtl"] .account-explorer-page .ae-filter-summary-header,
+[dir="rtl"] .account-explorer-page .ae-filter-summary-chips,
+[dir="rtl"] .account-explorer-page .ae-filter-chip {
+	direction: rtl;
 }
 
 /* ── Navigator ── */
@@ -511,6 +599,36 @@
 	display: inline-flex;
 	align-items: center;
 	max-width: 100%;
+}
+
+.account-explorer-page .ae-breadcrumb-segment {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	max-width: 100%;
+	min-width: 0;
+}
+
+.account-explorer-page .ae-breadcrumb-remove {
+	appearance: none;
+	border: none;
+	background: transparent;
+	color: var(--text-muted);
+	cursor: pointer;
+	padding: 0 4px;
+	margin-inline-start: 1px;
+	line-height: 1.1;
+	font-size: 14px;
+	border-radius: var(--border-radius-sm, 4px);
+	flex-shrink: 0;
+}
+
+.account-explorer-page .ae-breadcrumb-remove:hover,
+.account-explorer-page .ae-breadcrumb-remove:focus-visible {
+	color: var(--red-500, #e03636);
+	background: var(--fg-hover-color);
+	outline: 2px solid var(--primary, #2490ef);
+	outline-offset: 1px;
 }
 
 .account-explorer-page .ae-breadcrumb-text,
@@ -884,6 +1002,7 @@
 .account-explorer-page .ae-grid-container--datatable .ae-datatable-container {
 	max-height: min(58vh, 680px);
 	overflow: auto;
+	contain: layout style paint;
 }
 
 .account-explorer-page .ae-datatable-host {
@@ -921,6 +1040,175 @@
 
 .account-explorer-page .ae-grid-container--datatable .ae-amount-compact {
 	font-variant-numeric: tabular-nums;
+}
+
+.account-explorer-page .ae-grid-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 6px 12px;
+	padding: 5px 8px;
+	border-bottom: 1px solid var(--border-color);
+	background: var(--subtle-fg, var(--control-bg));
+}
+
+.account-explorer-page .ae-grid-toolbar-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px;
+}
+
+.account-explorer-page .ae-grid-toolbar-meta {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px 12px;
+	font-size: var(--text-xs);
+	color: var(--text-muted);
+}
+
+.account-explorer-page .ae-grid-toolbar-btn:focus-visible,
+.account-explorer-page .ae-grid-state-action:focus-visible {
+	outline: 2px solid var(--primary, #2490ef);
+	outline-offset: 2px;
+}
+
+.account-explorer-page .ae-grid-copy-menu {
+	position: absolute;
+	z-index: 12;
+	min-width: 180px;
+}
+
+.account-explorer-page .ae-grid-status.visually-hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+.account-explorer-page .ae-grid-state {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 8px;
+	padding: 24px 16px;
+}
+
+.account-explorer-page .ae-grid-state-message {
+	color: var(--text-muted);
+}
+
+.account-explorer-page .ae-datatable-host {
+	position: relative;
+}
+
+.account-explorer-page .ae-datatable-skeleton {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	padding: 8px;
+	pointer-events: none;
+	z-index: 1;
+	background: color-mix(in srgb, var(--ae-surface, var(--card-bg, #fff)) 88%, transparent);
+}
+
+.account-explorer-page .ae-datatable-skeleton-row {
+	height: 24px;
+	border-radius: 4px;
+	background: linear-gradient(
+		90deg,
+		color-mix(in srgb, var(--border-color) 35%, transparent) 0%,
+		color-mix(in srgb, var(--border-color) 18%, transparent) 50%,
+		color-mix(in srgb, var(--border-color) 35%, transparent) 100%
+	);
+	background-size: 200% 100%;
+	animation: ae-dt-skeleton 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.account-explorer-page .ae-datatable-skeleton-row {
+		animation: none;
+	}
+}
+
+@keyframes ae-dt-skeleton {
+	0% {
+		background-position: 100% 0;
+	}
+	100% {
+		background-position: -100% 0;
+	}
+}
+
+.account-explorer-page .ae-datatable-host--loading .dt-scrollable {
+	pointer-events: none;
+}
+
+.account-explorer-page .ae-datatable-host--compact .dt-cell {
+	font-size: var(--text-xs);
+}
+
+.account-explorer-page .ae-datatable-host--comfortable .dt-cell {
+	font-size: var(--text-sm, 13px);
+}
+
+.account-explorer-page .ae-grid-container--datatable .dt-cell.ae-dt-amount-col,
+.account-explorer-page .ae-grid-container--datatable .ae-dt-amount-cell {
+	text-align: end;
+}
+
+.account-explorer-page .ae-grid-container--datatable .ae-dt-cell-text {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	max-width: 100%;
+}
+
+.account-explorer-page .ae-grid-container--datatable .ae-dt-cell-text--multiline {
+	white-space: normal;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+.account-explorer-page .ae-grid-container--datatable .dt-row.ae-grid-row--active .dt-cell {
+	background: color-mix(in srgb, var(--primary, #2490ef) 10%, transparent);
+}
+
+.account-explorer-page .ae-grid-container--datatable .dt-cell.ae-dt-col--nosort .sortable {
+	cursor: default;
+	opacity: 0.45;
+}
+
+.account-explorer-page .ae-totals-bar--sticky {
+	position: sticky;
+	bottom: 0;
+	z-index: 3;
+	box-shadow: 0 -4px 12px color-mix(in srgb, var(--shadow-color, #000) 8%, transparent);
+}
+
+html[dir="rtl"] .account-explorer-page .ae-grid-container--datatable .dt-cell.ae-dt-amount-col,
+html[dir="rtl"] .account-explorer-page .ae-grid-container--datatable .ae-dt-amount-cell {
+	text-align: start;
+}
+
+html[dir="rtl"] .account-explorer-page .ae-grid-toolbar {
+	flex-direction: row-reverse;
+}
+
+html[dir="rtl"] .account-explorer-page .ae-grid-toolbar-meta {
+	flex-direction: row-reverse;
 }
 
 [data-theme="dark"] .account-explorer-page .ae-grid-container--datatable .dt-row:hover .dt-cell {
@@ -1423,6 +1711,37 @@ html[dir="rtl"] .account-explorer-page .ae-breadcrumb-list {
 
 html[dir="rtl"] .account-explorer-page .ae-nav-pill--level {
 	align-items: flex-end;
+}
+
+.account-explorer-page .ae-grid-toolbar-prefs {
+	display: inline-flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-inline-start: 8px;
+}
+
+.account-explorer-page .ae-grid-toolbar-control {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	margin-inline-start: 8px;
+}
+
+.account-explorer-page .ae-grid-toolbar-control-label {
+	font-size: 11px;
+	color: var(--text-muted);
+	white-space: nowrap;
+}
+
+.account-explorer-page .ae-grid-toolbar-control select {
+	min-width: 88px;
+	height: 24px;
+	padding: 0 6px;
+}
+
+.account-explorer-page .ae-grid-toolbar-btn--reset-prefs-all {
+	margin-inline-start: 4px;
 }
 
 /* Dark theme contrast safeguards */

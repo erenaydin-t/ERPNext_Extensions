@@ -42,7 +42,36 @@
   "metadata_cache_duration_seconds",
   "column_break_perf",
   "allow_gl_entry_navigation",
-  "account_explorer_voucher_print_format"
+  "section_voucher_printing",
+  "show_print_voucher",
+  "account_explorer_voucher_print_format",
+  "column_break_voucher_print",
+  "show_print_gl",
+  "section_break_voucher_gl_printing",
+  "voucher_gl_layout",
+  "voucher_gl_print_format",
+  "voucher_gl_page_layout",
+  "voucher_gl_auto_orientation",
+  "voucher_gl_show_logo",
+  "voucher_gl_show_letterhead",
+  "column_break_voucher_gl_opts",
+  "voucher_gl_show_amount_in_words",
+  "voucher_gl_show_signature_block",
+  "append_source_attachments",
+  "voucher_gl_hide_empty_columns",
+  "voucher_gl_combine_dimensions",
+  "voucher_gl_amount_scale",
+  "voucher_gl_print_language",
+  "voucher_gl_show_account_hierarchy",
+  "voucher_gl_hierarchy_start_level",
+  "voucher_gl_show_party_breakdown",
+  "voucher_gl_show_dimension_breakdown",
+  "voucher_gl_show_group_subtotals",
+  "section_amount_display_scale",
+  "default_amount_display_scale",
+  "amount_scale_decimal_precision",
+  "show_amount_scale_label",
+  "voucher_gl_print_defaults_version"
  ],
  "fields": [
   {
@@ -239,11 +268,204 @@
    "label": "Allow GL Entry Navigation"
   },
   {
-   "description": "Default print format for Account Explorer voucher Print action. Printing engine integration is configured separately.",
+   "fieldname": "section_voucher_printing",
+   "fieldtype": "Section Break",
+   "label": "Voucher Printing"
+  },
+  {
+   "default": "1",
+   "description": "Show optional Print Voucher action (source document print format) on Account Explorer.",
+   "fieldname": "show_print_voucher",
+   "fieldtype": "Check",
+   "label": "Show Print Voucher"
+  },
+  {
+   "description": "Print Format for the source ERPNext voucher (Sales Invoice, Journal Entry, …). Optional.",
    "fieldname": "account_explorer_voucher_print_format",
    "fieldtype": "Link",
-   "label": "Account Explorer Voucher Print Format",
+   "label": "Source Voucher Print Format",
    "options": "Print Format"
+  },
+  {
+   "fieldname": "column_break_voucher_print",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "description": "Show required Print GL action that prints every GL Entry row for the voucher.",
+   "fieldname": "show_print_gl",
+   "fieldtype": "Check",
+   "label": "Show Print GL"
+  },
+  {
+   "fieldname": "section_break_voucher_gl_printing",
+   "fieldtype": "Section Break",
+   "label": "Voucher GL Printing"
+  },
+  {
+   "default": "Standard",
+   "description": "Print profile for Voucher GL Package: Standard, Modern, Compact, Audit (full columns), or Custom desk Print Format.",
+   "fieldname": "voucher_gl_layout",
+   "fieldtype": "Select",
+   "label": "Profile",
+   "options": "Standard\nModern\nCompact\nAudit\nCustom Print Format"
+  },
+  {
+   "default": "Voucher GL Print Standard",
+   "depends_on": "eval:doc.voucher_gl_layout==='Custom Print Format'",
+   "description": "Used only when Profile is Custom Print Format. Built-in profiles ignore this.",
+   "fieldname": "voucher_gl_print_format",
+   "fieldtype": "Link",
+   "label": "Voucher GL Print Format",
+   "options": "Print Format"
+  },
+  {
+   "default": "Auto",
+   "description": "Auto chooses Portrait for Standard/Compact and Landscape for Audit.",
+   "fieldname": "voucher_gl_page_layout",
+   "fieldtype": "Select",
+   "label": "Page Layout",
+   "options": "Auto\nPortrait\nLandscape"
+  },
+  {
+   "default": "1",
+   "description": "Legacy toggle. Prefer Page Layout = Auto.",
+   "fieldname": "voucher_gl_auto_orientation",
+   "fieldtype": "Check",
+   "hidden": 1,
+   "label": "Auto Orientation"
+  },
+  {
+   "default": "1",
+   "fieldname": "voucher_gl_show_logo",
+   "fieldtype": "Check",
+   "label": "Show Logo"
+  },
+  {
+   "default": "0",
+   "fieldname": "voucher_gl_show_letterhead",
+   "fieldtype": "Check",
+   "label": "Show Letterhead"
+  },
+  {
+   "fieldname": "column_break_voucher_gl_opts",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "voucher_gl_show_amount_in_words",
+   "fieldtype": "Check",
+   "label": "Show Amount in Words"
+  },
+  {
+   "default": "1",
+   "fieldname": "voucher_gl_show_signature_block",
+   "fieldtype": "Check",
+   "label": "Show Signature Block"
+  },
+  {
+   "default": "0",
+   "description": "Append image/PDF File attachments from the source voucher after signatures.",
+   "fieldname": "append_source_attachments",
+   "fieldtype": "Check",
+   "label": "Show Attachments"
+  },
+  {
+   "default": "1",
+   "description": "Hide Party / Dimensions / optional columns when every row value is empty.",
+   "fieldname": "voucher_gl_hide_empty_columns",
+   "fieldtype": "Check",
+   "label": "Hide Empty Columns"
+  },
+  {
+   "default": "1",
+   "description": "Render all analytical dimensions in one compact cell. Audit profile ignores this.",
+   "fieldname": "voucher_gl_combine_dimensions",
+   "fieldtype": "Check",
+   "label": "Combine Dimensions"
+  },
+  {
+   "default": "Raw",
+   "description": "Print amount scale. Default Raw shows full accounting values (no هزار/میلیون). Use Default follows Default Amount Display Scale (or user AE preference).",
+   "fieldname": "voucher_gl_amount_scale",
+   "fieldtype": "Select",
+   "label": "Amount Scale",
+   "options": "Use Default\nRaw\nAuto\nThousands\nMillions\nBillions\nTrillions"
+  },
+  {
+   "default": "Persian",
+   "description": "Language for Voucher GL Print only. Does not change Desk or Account Explorer UI language.",
+   "fieldname": "voucher_gl_print_language",
+   "fieldtype": "Select",
+   "label": "Voucher GL Print Language",
+   "options": "Persian\nEnglish\nFollow User Language"
+  },
+  {
+   "default": "1",
+   "fieldname": "voucher_gl_show_account_hierarchy",
+   "fieldtype": "Check",
+   "label": "Show Account Hierarchy"
+  },
+  {
+   "default": "2",
+   "description": "Omit root/level 1 by default. Hierarchy starts at this Account Explorer level sequence.",
+   "fieldname": "voucher_gl_hierarchy_start_level",
+   "fieldtype": "Int",
+   "label": "Hierarchy Start Level"
+  },
+  {
+   "default": "1",
+   "fieldname": "voucher_gl_show_party_breakdown",
+   "fieldtype": "Check",
+   "label": "Show Party Breakdown"
+  },
+  {
+   "default": "1",
+   "fieldname": "voucher_gl_show_dimension_breakdown",
+   "fieldtype": "Check",
+   "label": "Show Dimension Breakdown"
+  },
+  {
+   "default": "1",
+   "description": "Show group subtotals for multi-line account/party/dimension groups. Compact defaults off when unset.",
+   "fieldname": "voucher_gl_show_group_subtotals",
+   "fieldtype": "Check",
+   "label": "Show Group Subtotals"
+  },
+  {
+   "fieldname": "section_amount_display_scale",
+   "fieldtype": "Section Break",
+   "label": "Amount Display Scale"
+  },
+  {
+   "default": "Raw",
+   "description": "Shared default for Account Explorer grid and Voucher GL print (when print scale is Use Default).",
+   "fieldname": "default_amount_display_scale",
+   "fieldtype": "Select",
+   "label": "Default Amount Display Scale",
+   "options": "Raw\nAuto\nThousands\nMillions\nBillions\nTrillions"
+  },
+  {
+   "default": "2",
+   "fieldname": "amount_scale_decimal_precision",
+   "fieldtype": "Int",
+   "label": "Amount Scale Decimal Precision"
+  },
+  {
+   "default": "1",
+   "description": "Show هزار/میلیون/… (or thousand/million) next to scaled amounts. Never silent K/M/B in Persian print.",
+   "fieldname": "show_amount_scale_label",
+   "fieldtype": "Check",
+   "label": "Show Amount Scale Label"
+  },
+  {
+   "default": "0",
+   "description": "Internal seed marker for Voucher GL Print defaults. Do not edit.",
+   "fieldname": "voucher_gl_print_defaults_version",
+   "fieldtype": "Int",
+   "hidden": 1,
+   "label": "Voucher GL Print Defaults Version",
+   "read_only": 1
   }
  ],
  "issingle": 1,

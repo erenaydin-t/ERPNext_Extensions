@@ -128,7 +128,7 @@
    "label": "Journal Entry Descriptions",
    "collapsible": 1,
    "collapsed": 1,
-   "description": "Optional templates for Journal Entry narration (remarks/user remark) used by PDC posting. Leave empty to use built-in defaults."
+   "description": "Optional templates for Journal Entry narration (remarks/user remark) used by PDC posting. Leave empty to use built-in defaults. Placeholders: {cheque_no}, {cheque_purpose}, {party}, {party_type}, {cheque_amount}, {cheque_due_date}, {workflow_state}, {cheque_status}, {cheque_direction}, {company}, {bank_account}, {pdc_name}, {from_state}, {to_state}. Empty placeholders render as blank."
   },
   {
    "fieldname": "je_remark_register_receivable_template",

@@ -44,6 +44,7 @@ class PDCDescriptionContext:
 	party_type: str | None
 	cheque_amount: Any
 	cheque_due_date: Any
+	cheque_purpose: str | None
 	workflow_state: str | None
 	cheque_status: str | None
 	cheque_direction: str | None
@@ -62,6 +63,7 @@ class PDCDescriptionContext:
 			party_type=get("party_type"),
 			cheque_amount=get("cheque_amount"),
 			cheque_due_date=get("cheque_due_date"),
+			cheque_purpose=get("cheque_purpose"),
 			workflow_state=get("workflow_state"),
 			cheque_status=get("cheque_status"),
 			cheque_direction=get("cheque_direction"),
@@ -79,6 +81,7 @@ class PDCDescriptionContext:
 			"party_type": self.party_type,
 			"cheque_amount": self.cheque_amount,
 			"cheque_due_date": self.cheque_due_date,
+			"cheque_purpose": self.cheque_purpose,
 			"workflow_state": self.workflow_state,
 			"cheque_status": self.cheque_status,
 			"cheque_direction": self.cheque_direction,

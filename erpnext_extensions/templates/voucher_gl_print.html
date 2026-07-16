@@ -1,0 +1,204 @@
+{# Copyright (c) 2026, Farbod Siyahpoosh and contributors #}
+{# Enterprise Voucher GL Print — professional accounting voucher layout #}
+<!DOCTYPE html>
+<html lang="{{ frappe.local.lang or 'en' }}" dir="{{ layout_direction }}">
+<head>
+	<meta charset="utf-8">
+	<title>{{ header.title }} — {{ header.voucher_no }}</title>
+	<style>
+		@page {
+			size: A4 {% if orientation == "Landscape" %}landscape{% else %}portrait{% endif %};
+			margin: 12mm 10mm 14mm 10mm;
+		}
+		* { box-sizing: border-box; }
+		body {
+			font-family: "Vazirmatn", "IRANSansX", "Tahoma", "DejaVu Sans", sans-serif;
+			font-size: 11pt;
+			color: #111;
+			margin: 0;
+			padding: 8px 12px 24px;
+			direction: {{ layout_direction }};
+		}
+		.letterhead { margin-bottom: 10px; }
+		.voucher-title {
+			text-align: center;
+			font-size: 16pt;
+			font-weight: 700;
+			letter-spacing: 0.02em;
+			margin: 6px 0 12px;
+		}
+		.meta-grid {
+			display: grid;
+			grid-template-columns: 1fr 1fr;
+			gap: 4px 18px;
+			margin-bottom: 12px;
+			border: 1px solid #333;
+			padding: 8px 10px;
+		}
+		.meta-row { display: flex; gap: 6px; line-height: 1.45; page-break-inside: avoid; }
+		.meta-label { font-weight: 600; min-width: 8.5em; color: #333; }
+		.meta-value { flex: 1; word-break: break-word; }
+		.qr-wrap { text-align: center; margin: 0 0 8px; }
+		.qr-wrap img { width: 72px; height: 72px; }
+		table.gl-table {
+			width: 100%;
+			border-collapse: collapse;
+			table-layout: fixed;
+			font-variant-numeric: tabular-nums;
+		}
+		table.gl-table thead { display: table-header-group; }
+		table.gl-table tfoot { display: table-footer-group; }
+		table.gl-table th, table.gl-table td {
+			border: 1px solid #444;
+			padding: 4px 5px;
+			vertical-align: top;
+			word-wrap: break-word;
+			overflow-wrap: anywhere;
+			font-size: 9.5pt;
+		}
+		table.gl-table th {
+			background: #f0f0f0;
+			font-weight: 700;
+			text-align: center;
+		}
+		.text-end { text-align: {% if layout_direction == "rtl" %}left{% else %}right{% endif %}; }
+		.text-center { text-align: center; }
+		.totals-row td { font-weight: 700; background: #f7f7f7; }
+		.diff-alert { color: #b00020; font-weight: 700; }
+		.footer-meta {
+			margin-top: 10px;
+			font-size: 9pt;
+			display: flex;
+			justify-content: space-between;
+			gap: 12px;
+		}
+		.page-number:after {
+			content: counter(page);
+		}
+		@media print {
+			.no-print { display: none !important; }
+			tr { page-break-inside: avoid; }
+			thead { display: table-header-group; }
+		}
+		.toolbar.no-print {
+			margin: 0 0 12px;
+			padding: 8px;
+			background: #eef3f8;
+			border: 1px solid #c5d4e4;
+		}
+	</style>
+</head>
+<body>
+	<div class="toolbar no-print">
+		<button type="button" onclick="window.print()">{{ _("Print") }}</button>
+		<button type="button" onclick="window.close()">{{ _("Close") }}</button>
+		<span style="margin-inline-start:12px;">{{ orientation }} · {{ layout_direction|upper }}</span>
+	</div>
+
+	{% if letterhead_html %}
+	<div class="letterhead">{{ letterhead_html }}</div>
+	{% endif %}
+
+	<div class="voucher-title">{{ header.company_name }} — {{ header.title }}</div>
+
+	{% if qr_data_url %}
+	<div class="qr-wrap"><img src="{{ qr_data_url }}" alt="QR"></div>
+	{% endif %}
+
+	<div class="meta-grid">
+		<div class="meta-row"><span class="meta-label">{{ _("Company") }}</span><span class="meta-value">{{ header.company_name }}</span></div>
+		<div class="meta-row"><span class="meta-label">{{ _("Voucher Type") }}</span><span class="meta-value">{{ header.voucher_type }}</span></div>
+		<div class="meta-row"><span class="meta-label">{{ _("Voucher Number") }}</span><span class="meta-value">{{ header.voucher_no }}</span></div>
+		<div class="meta-row"><span class="meta-label">{{ _("Posting Date") }}</span><span class="meta-value">{{ header.posting_date }}</span></div>
+		<div class="meta-row"><span class="meta-label">{{ _("Posting Time") }}</span><span class="meta-value">{{ header.posting_time }}</span></div>
+		<div class="meta-row"><span class="meta-label">{{ _("Fiscal Year") }}</span><span class="meta-value">{{ header.fiscal_year }}</span></div>
+		<div class="meta-row"><span class="meta-label">{{ _("Finance Book") }}</span><span class="meta-value">{{ header.finance_book or "—" }}</span></div>
+		<div class="meta-row"><span class="meta-label">{{ _("Source Document") }}</span><span class="meta-value">{{ header.source_document }}</span></div>
+		<div class="meta-row"><span class="meta-label">{{ _("Generated From") }}</span><span class="meta-value">{{ header.generated_from }}</span></div>
+		<div class="meta-row"><span class="meta-label">{{ _("Party") }}</span><span class="meta-value">{% if header.party_type %}{{ header.party_type }}: {% endif %}{{ header.party_name or header.party or "—" }}</span></div>
+		<div class="meta-row"><span class="meta-label">{{ _("Currency") }}</span><span class="meta-value">{{ header.currency or company_currency }}</span></div>
+		<div class="meta-row"><span class="meta-label">{{ _("Prepared By") }}</span><span class="meta-value">{{ header.prepared_by }}</span></div>
+		<div class="meta-row"><span class="meta-label">{{ _("Printed By") }}</span><span class="meta-value">{{ header.printed_by }}</span></div>
+		<div class="meta-row"><span class="meta-label">{{ _("Print Timestamp") }}</span><span class="meta-value">{{ header.print_timestamp }}</span></div>
+	</div>
+
+	<table class="gl-table">
+		<thead>
+			<tr>
+				<th style="width:2.2em;">#</th>
+				<th>{{ _("Account") }}</th>
+				<th>{{ _("Account Name") }}</th>
+				<th>{{ _("Party Type") }}</th>
+				<th>{{ _("Party") }}</th>
+				<th>{{ _("Debit") }}</th>
+				<th>{{ _("Credit") }}</th>
+				<th>{{ _("Account Currency") }}</th>
+				<th>{{ _("Debit (AC)") }}</th>
+				<th>{{ _("Credit (AC)") }}</th>
+				{% for dim in dimensions %}
+				<th>{{ _(dim.label) }}</th>
+				{% endfor %}
+				<th>{{ _("Against") }}</th>
+				<th>{{ _("Remarks") }}</th>
+				<th>{{ _("Finance Book") }}</th>
+				<th>{{ _("Opening") }}</th>
+				<th>{{ _("Cancelled") }}</th>
+				<th>{{ _("Detail Ref") }}</th>
+			</tr>
+		</thead>
+		<tbody>
+			{% for row in rows %}
+			<tr>
+				<td class="text-center">{{ row.idx }}</td>
+				<td>{{ row.account }}</td>
+				<td>{{ row.account_name }}</td>
+				<td>{{ row.party_type }}</td>
+				<td>{{ row.party_name or row.party }}</td>
+				<td class="text-end">{{ fmt(row.debit, precision) }}</td>
+				<td class="text-end">{{ fmt(row.credit, precision) }}</td>
+				<td class="text-center">{{ row.account_currency }}</td>
+				<td class="text-end">{{ fmt(row.debit_in_account_currency, precision) }}</td>
+				<td class="text-end">{{ fmt(row.credit_in_account_currency, precision) }}</td>
+				{% for dim in dimensions %}
+				<td>{{ (row.dimensions.get(dim.fieldname) or {}).get("title") or "" }}</td>
+				{% endfor %}
+				<td>{{ row.against }}</td>
+				<td>{{ row.remarks }}</td>
+				<td>{{ row.finance_book }}</td>
+				<td class="text-center">{{ row.is_opening }}</td>
+				<td class="text-center">{% if row.is_cancelled %}{{ _("Yes") }}{% else %}{{ _("No") }}{% endif %}</td>
+				<td>{{ row.voucher_detail_no }}</td>
+			</tr>
+			{% endfor %}
+		</tbody>
+		<tfoot>
+			<tr class="totals-row">
+				<td colspan="5" class="text-end">{{ _("Total Debit / Credit") }}</td>
+				<td class="text-end">{{ fmt(totals.total_debit, precision) }}</td>
+				<td class="text-end">{{ fmt(totals.total_credit, precision) }}</td>
+				<td colspan="{{ 3 + (dimensions|length) + 5 }}"></td>
+			</tr>
+			<tr class="totals-row">
+				<td colspan="5" class="text-end">{{ _("Difference") }}</td>
+				<td colspan="2" class="text-end {% if not totals.is_balanced %}diff-alert{% endif %}">
+					{{ fmt(totals.difference, precision) }}
+					{% if not totals.is_balanced %} — {{ _("Unbalanced") }}{% endif %}
+				</td>
+				<td colspan="{{ 3 + (dimensions|length) + 5 }}"></td>
+			</tr>
+		</tfoot>
+	</table>
+
+	<div class="footer-meta">
+		<div>{{ _("Generated From") }}: {{ header.generated_from }} · {{ print_format }}</div>
+		<div>{{ _("Printed") }}: {{ header.print_timestamp }}</div>
+	</div>
+	<script>
+		window.addEventListener("load", function () {
+			if (window.location.search.indexOf("autoprint=1") >= 0) {
+				setTimeout(function () { window.print(); }, 250);
+			}
+		});
+	</script>
+</body>
+</html>

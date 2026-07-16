@@ -57,11 +57,20 @@ def get_party_period_balances(spec: AccountExplorerQuerySpec, party_types: list[
 
 
 def get_unspecified_party_measures(spec: AccountExplorerQuerySpec, party_types: list[str]) -> dict[str, float]:
+	"""Aggregate GL lines with no party attribution under the active scoped WHERE.
+
+	Do not pass party_types into apply_scoped_gle_filters: empty-party lines usually also
+	have empty party_type and would be incorrectly excluded by party_type IN (...).
+	"""
 	gle = frappe.qb.DocType("GL Entry")
 
 	def base_query():
 		query = frappe.qb.from_(gle)
-		query = apply_scoped_gle_filters(query, gle, spec, party_types=party_types)
+		# Empty-party lines often also have empty party_type; do not auto-inject
+		# party-axis party_type restrictions here.
+		query = apply_scoped_gle_filters(
+			query, gle, spec, party_types=None, apply_default_party_types=False
+		)
 		query = query.where((gle.party == "") | (gle.party.isnull()))
 		return query
 

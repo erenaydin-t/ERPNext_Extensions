@@ -147,6 +147,7 @@ def _finalize_group_rows(groups: dict, level, accounts: list[dict], configured_l
 					"display_title": real.account_name or real.name,
 					"is_virtual_group": 0,
 					"selected_account": real.name,
+					"is_group": 1 if real.is_group else 0,
 				}
 			)
 		else:

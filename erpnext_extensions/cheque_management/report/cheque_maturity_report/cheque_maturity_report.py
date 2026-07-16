@@ -34,6 +34,7 @@ def execute(filters=None):
 			"width": 140,
 		},
 		{"label": "Cheque No", "fieldname": "cheque_no", "fieldtype": "Data", "width": 120},
+		{"label": "Cheque Purpose", "fieldname": "cheque_purpose", "fieldtype": "Data", "width": 180},
 		{"label": "Due Date", "fieldname": "cheque_due_date", "fieldtype": "Date", "width": 110},
 		{"label": "Amount", "fieldname": "cheque_amount", "fieldtype": "Currency", "width": 120},
 		{"label": "Workflow State", "fieldname": "workflow_state", "fieldtype": "Data", "width": 120},
@@ -69,6 +70,10 @@ def execute(filters=None):
 		where.append("workflow_state = %(workflow_state)s")
 		params["workflow_state"] = filters.workflow_state
 
+	if filters.cheque_purpose:
+		where.append("cheque_purpose like %(cheque_purpose)s")
+		params["cheque_purpose"] = f"%{filters.cheque_purpose}%"
+
 	conditions = (" where " + " and ".join(where)) if where else ""
 
 	rows = frappe.db.sql(
@@ -81,6 +86,7 @@ def execute(filters=None):
 			company,
 			bank_account,
 			cheque_no,
+			cheque_purpose,
 			cheque_due_date,
 			cheque_amount,
 			workflow_state,
@@ -132,6 +138,7 @@ def execute(filters=None):
 				"company": r.company,
 				"bank_account": r.bank_account,
 				"cheque_no": r.cheque_no,
+				"cheque_purpose": r.cheque_purpose,
 				"cheque_due_date": r.cheque_due_date,
 				"cheque_amount": r.cheque_amount,
 				"workflow_state": r.workflow_state,
