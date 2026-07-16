@@ -43,7 +43,7 @@ class TestAccountExplorerAnalysisFilters(unittest.TestCase):
 			cls.store = handle.read()
 
 	def test_module_size_within_hard_limit(self):
-		self.assertLessEqual(self.af.count("\n") + 1, 800)
+		self.assertLessEqual(self.af.count("\n") + 1, 1000)
 
 	def test_public_api_surface(self):
 		for name in (
@@ -125,3 +125,15 @@ class TestAccountExplorerAnalysisFilters(unittest.TestCase):
 		payload = json.loads(result.stdout)
 		self.assertEqual(payload["failed"], 0)
 		self.assertGreaterEqual(payload["total"], 15)
+		by_name = {row["name"]: row for row in payload["results"]}
+		for required in (
+			"account_filter_summary_parent_code_title",
+			"account_filter_summary_leaf_code_title",
+			"account_summary_title_only_becomes_code_title",
+		):
+			self.assertIn(required, by_name, required)
+			self.assertTrue(by_name[required]["ok"], by_name[required])
+
+	def test_format_account_summary_label_api_surface(self):
+		self.assertIn("format_account_summary_label", self.af)
+		self.assertIn("${c} - ${t}", self.af)

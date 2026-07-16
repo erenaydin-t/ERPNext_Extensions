@@ -473,11 +473,12 @@ erpnext_extensions.account_explorer.core.AnalysisFilters = class AnalysisFilters
 
 		const account = ctx.account_scope || {};
 		if (!next.account && (account.selected_account || account.virtual_row_key)) {
+			const account_value = account.selected_account || account.virtual_row_key;
 			next = this.set_entry(
 				next,
 				{
 					key: "account",
-					value: account.selected_account || account.virtual_row_key,
+					value: account_value,
 					origin,
 					lifetime,
 					meta: {
@@ -485,6 +486,13 @@ erpnext_extensions.account_explorer.core.AnalysisFilters = class AnalysisFilters
 						virtual_row_key: account.virtual_row_key,
 						is_virtual_group: account.is_virtual_group,
 						level_sequence: account.level_sequence,
+						display_code: account.display_code || "",
+						display_title: account.display_title || "",
+						display_label: this.format_account_summary_label({
+							code: account.display_code,
+							title: account.display_title,
+							value: account_value,
+						}),
 					},
 				},
 				{ key: "account", origin, lifetime }
@@ -648,7 +656,17 @@ erpnext_extensions.account_explorer.core.AnalysisFilters = class AnalysisFilters
 			);
 		}
 		if (doc.accounting?.account) {
-			push_doc("document_account", __("Document Account"), doc.accounting.account);
+			const accounts = Array.isArray(doc.accounting.account)
+				? doc.accounting.account
+				: [doc.accounting.account];
+			push_doc(
+				"document_account",
+				__("Document Account"),
+				accounts
+					.map((acc) => this.format_account_summary_label({ value: acc }))
+					.filter(Boolean)
+					.join(", ")
+			);
 		}
 		if (doc.accounting?.party) {
 			push_doc(
@@ -770,7 +788,81 @@ erpnext_extensions.account_explorer.core.AnalysisFilters = class AnalysisFilters
 		return { session: __("Session"), drill: __("Drill"), temporary: __("Temporary") }[lifetime] || lifetime || "—";
 	}
 
+	/**
+	 * Account Filter Summary: always ``code - title`` (never title-only / code-only when both exist).
+	 */
+	static format_account_summary_label({ code = "", title = "", value = "" } = {}) {
+		const c = String(code || "").trim();
+		let t = String(title || "").trim();
+		const v = String(value || "").trim();
+		// DocName patterns: "1110 - Title - AET" or "1110 - Title"
+		const parse_name = (raw) => {
+			const parts = String(raw || "")
+				.split(" - ")
+				.map((p) => p.trim())
+				.filter(Boolean);
+			if (parts.length >= 2 && /^\d[\d.]*$/.test(parts[0])) {
+				const number = parts[0];
+				const name_parts = parts.length >= 3 ? parts.slice(1, -1) : parts.slice(1);
+				return { code: number, title: name_parts.join(" - ") || parts[1] };
+			}
+			return null;
+		};
+		if ((!c || !t) && v) {
+			const parsed = parse_name(v);
+			if (parsed) {
+				return `${parsed.code} - ${parsed.title}`;
+			}
+		}
+		if (c && t && t !== c) {
+			// Avoid "1110 - 1110 - Title"
+			if (t.startsWith(`${c} - `)) {
+				return t;
+			}
+			return `${c} - ${t}`;
+		}
+		if (c) {
+			return c;
+		}
+		if (t) {
+			const parsed = parse_name(t);
+			if (parsed) {
+				return `${parsed.code} - ${parsed.title}`;
+			}
+			return t;
+		}
+		return v;
+	}
+
 	static _display_value(entry) {
+		if (entry?.key === "account") {
+			const meta = entry.meta || {};
+			const value = entry.value;
+			const value_str =
+				value && typeof value === "object" && !Array.isArray(value)
+					? value.selected_account || value.display || ""
+					: Array.isArray(value)
+					? value.join(", ")
+					: String(value ?? "");
+			// Multiple accounts → format each
+			if (Array.isArray(value)) {
+				return value
+					.map((item) =>
+						this.format_account_summary_label({
+							code: meta.display_code,
+							title: meta.display_title || meta.account_name,
+							value: item,
+						})
+					)
+					.filter(Boolean)
+					.join(", ");
+			}
+			return this.format_account_summary_label({
+				code: meta.display_code || meta.account_number,
+				title: meta.display_title || meta.account_name,
+				value: meta.display_label || value_str,
+			});
+		}
 		if (entry.meta?.display_label) {
 			return String(entry.meta.display_label);
 		}

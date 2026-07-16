@@ -2009,6 +2009,83 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		this.render_filter_summary();
 	}
 
+	/**
+	 * Ensure Account Filter Summary chips carry ``code - title`` after URL/saved-view restore.
+	 */
+	async enrich_account_filter_summary_labels() {
+		if (this._enriching_account_filter_labels) {
+			return false;
+		}
+		const AF = erpnext_extensions.account_explorer.core.AnalysisFilters;
+		const filters = this.get_analysis_filters();
+		const entry = AF.get_entry(filters, "account");
+		if (!entry) {
+			return false;
+		}
+		const meta = entry.meta || {};
+		if (meta.display_code && meta.display_title) {
+			const expected = AF.format_account_summary_label({
+				code: meta.display_code,
+				title: meta.display_title,
+				value: entry.value,
+			});
+			if (meta.display_label === expected) {
+				return false;
+			}
+		}
+		const account_name =
+			typeof entry.value === "object" && entry.value
+				? entry.value.selected_account || entry.value.account
+				: entry.value;
+		if (!account_name || meta.is_virtual_group || meta.mode === "virtual_prefix") {
+			// Virtual prefixes already store display_code on drill; try parse only.
+			if (meta.display_code || /^\d/.test(String(account_name || ""))) {
+				return false;
+			}
+			return false;
+		}
+		this._enriching_account_filter_labels = true;
+		try {
+			const result = await frappe.db.get_value("Account", account_name, [
+				"account_number",
+				"account_name",
+			]);
+			const row = result?.message || {};
+			const code = row.account_number || meta.display_code || "";
+			const title = row.account_name || meta.display_title || "";
+			if (!code && !title) {
+				return false;
+			}
+			const summary = AF.format_account_summary_label({
+				code,
+				title,
+				value: account_name,
+			});
+			const next = AF.set_entry(
+				filters,
+				{
+					...entry,
+					meta: {
+						...meta,
+						display_code: code,
+						display_title: title,
+						account_number: code,
+						account_name: title,
+						display_label: summary,
+					},
+				},
+				{ key: "account" }
+			);
+			this.set_analysis_filters_bag(next, { silent: true });
+			this.render_filter_summary();
+			return true;
+		} catch (_error) {
+			return false;
+		} finally {
+			this._enriching_account_filter_labels = false;
+		}
+	}
+
 	update_advanced_filters_button() {
 		this.update_filter_panel_ui();
 	}
@@ -2020,6 +2097,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 				.attr("aria-label", __("Filter Summary"))
 				.insertAfter(this.$filter_panel);
 		}
+		void this.enrich_account_filter_summary_labels();
 		const started = performance.now();
 		const rows = AF.build_summary_rows(this.get_analysis_filters(), {
 			document_scope: this.document_scope,
@@ -4964,6 +5042,14 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			if (!value && value !== 0) {
 				return null;
 			}
+			const AF = erpnext_extensions.account_explorer.core.AnalysisFilters;
+			const display_code = row.display_code || row.account_number || "";
+			const display_title = row.display_title || row.account_name || "";
+			const account_summary = AF.format_account_summary_label({
+				code: display_code,
+				title: display_title,
+				value: is_virtual ? display_code || value : value,
+			});
 			return {
 				key: "account",
 				value,
@@ -4977,7 +5063,11 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 					is_group: row.is_group ? 1 : 0,
 					node_id,
 					selected_node: value,
-					display_label: display_label || value,
+					display_code,
+					display_title,
+					account_number: display_code,
+					account_name: display_title,
+					display_label: account_summary || display_label || value,
 					source_axis_label,
 					descendant_mode: is_virtual ? "virtual_prefix" : "descendants",
 				},

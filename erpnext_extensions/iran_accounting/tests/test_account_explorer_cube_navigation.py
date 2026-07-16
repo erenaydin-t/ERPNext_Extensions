@@ -205,6 +205,11 @@ class TestAccountExplorerCubeNavigation(unittest.TestCase):
 		self.assertIn("source_axis_label", af)
 		self.assertIn("_lifetime_label", af)
 		self.assertIn("origin_label", af)
+		self.assertIn("format_account_summary_label", af)
+		self.assertIn("display_code", af)
+		# Must combine code + title for Account filter summary chips
+		self.assertIn("${c} - ${t}", af)
+		self.assertIn("enrich_account_filter_summary_labels", self.src["page"])
 
 	def test_auto_amount_mode_follows_settings_not_magnitude(self):
 		page = self.src["page"]
