@@ -94,3 +94,33 @@ per-employee party, so that behaviour is **not** reproduced here. If per-employe
 advance/loan tracking is required, enable `Process Payroll Accounting Entry based
 on Employee` (the override defers to stock HRMS in that mode) or handle it as a
 separate change.
+
+---
+
+## Hourly leave (مرخصی ساعتی)
+
+`leave_application_override.py` (`override_doctype_class` on **Leave
+Application**) adds hourly leave on top of stock full/half-day leave — no
+separate Leave Type; the deduction hits the same entitlement balance.
+
+- `custom_is_hourly` + `custom_from_time`/`custom_to_time` on Leave
+  Application; the duration lands in `custom_leave_hours` and
+  `total_leave_days = hours / Employee.custom_daily_working_hours`
+  (default 7.33 — Iranian legal daily hours), rounded to 3 decimals.
+  Leave Ledger Entry accepts fractional leaves, so submit/cancel work
+  unchanged (e.g. 26 days − 2h = 25.727).
+- The balance check is re-run against the fractional value, so an employee
+  with less than one day remaining can still take hourly leave.
+- Attendance is left alone in hourly mode: an existing Present attendance
+  does not block the application, and submit does not convert the day to
+  "On Leave" (protects checkin working-hours / overtime pipelines).
+- Guard rails: single-day only, `to_time > from_time`, hours must stay below
+  the daily working hours, LWP leave types rejected (payroll LOP only
+  understands 0.5/1 day).
+- Pure math lives in `hourly_leave_calc.py` (pytest:
+  `tests/test_hourly_leave_calc.py`); custom fields are created idempotently
+  on `after_migrate` (`custom_fields.HOURLY_LEAVE_CUSTOM_FIELDS`).
+
+Known v1 limitation: one leave application per calendar day (the stock
+overlap validation is kept), so a second hourly leave on the same day is
+rejected.
