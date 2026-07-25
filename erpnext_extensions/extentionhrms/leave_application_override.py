@@ -13,8 +13,10 @@ and no separate Leave Type is needed:
   single day; ``custom_leave_hours`` (Float, read-only) stores the duration.
 * ``total_leave_days`` becomes ``hours / daily working hours`` (3 decimals).
   The divisor comes from ``Employee.custom_daily_working_hours`` (default
-  7.33 — the Iranian legal daily hours). Leave Ledger Entry accepts
-  fractional leaves, so submit/cancel bookkeeping works unchanged.
+  8.75 — the scheduled 08:30-17:15 day, i.e. the hours a full leave day
+  covers; not the 7.33 legal average used for overtime rates). Leave Ledger
+  Entry accepts fractional leaves, so submit/cancel bookkeeping works
+  unchanged.
 
 Behavior changes in hourly mode (each method falls through to the parent when
 ``custom_is_hourly`` is unchecked):

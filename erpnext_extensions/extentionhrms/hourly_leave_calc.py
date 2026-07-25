@@ -12,8 +12,12 @@ from __future__ import annotations
 
 import datetime
 
-#: Iranian labor law daily working hours (44h week / 6 days).
-DEFAULT_DAILY_WORKING_HOURS = 7.33
+#: Scheduled daily working hours: 08:30-17:15 = 8h45m (the legal 44h week
+#: compressed into 5 working days). This is the hours a full leave day covers,
+#: so it is the divisor converting leave hours to days. Distinct from the
+#: 7.33 legal *average* day (44h / 6) used as the payroll overtime rate
+#: divisor. Override per employee via ``Employee.custom_daily_working_hours``.
+DEFAULT_DAILY_WORKING_HOURS = 8.75
 
 #: Decimals stored on ``custom_leave_hours`` (matches the field precision).
 HOURS_PRECISION = 2
