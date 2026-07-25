@@ -208,6 +208,12 @@ override_doctype_class = {
 	"Payroll Entry": (
 		"erpnext_extensions.extentionhrms.payroll_entry_override." "PayrollEntryWithAccountingDimensions"
 	),
+	# Hourly leave (مرخصی ساعتی): converts a single-day time range into a
+	# fractional ``total_leave_days`` so it deducts from the same entitlement
+	# balance. See ``extentionhrms/leave_application_override.py``.
+	"Leave Application": (
+		"erpnext_extensions.extentionhrms.leave_application_override." "LeaveApplicationWithHourlyLeave"
+	),
 }
 
 # Document Events

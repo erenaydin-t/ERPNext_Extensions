@@ -72,8 +72,71 @@ CUSTOM_FIELDS = {
 }
 
 
+# Fields backing the hourly leave override — see ``leave_application_override``.
+# ``custom_daily_working_hours`` defaults to the Iranian legal daily hours
+# (44h week / 6 days) and is the divisor converting leave hours to days.
+HOURLY_LEAVE_CUSTOM_FIELDS = {
+	"Leave Application": [
+		{
+			"fieldname": "custom_is_hourly",
+			"label": "Is Hourly Leave",
+			"fieldtype": "Check",
+			"insert_after": "to_date",
+			"description": (
+				"Single-day leave measured in hours, deducted from the same "
+				"balance as a fraction of a day."
+			),
+		},
+		{
+			"fieldname": "custom_from_time",
+			"label": "From Time",
+			"fieldtype": "Time",
+			"insert_after": "custom_is_hourly",
+			"depends_on": "eval:doc.custom_is_hourly",
+			"mandatory_depends_on": "eval:doc.custom_is_hourly",
+		},
+		{
+			"fieldname": "custom_to_time",
+			"label": "To Time",
+			"fieldtype": "Time",
+			"insert_after": "custom_from_time",
+			"depends_on": "eval:doc.custom_is_hourly",
+			"mandatory_depends_on": "eval:doc.custom_is_hourly",
+		},
+		{
+			"fieldname": "custom_leave_hours",
+			"label": "Leave Hours",
+			"fieldtype": "Float",
+			"insert_after": "custom_to_time",
+			"read_only": 1,
+			"no_copy": 1,
+			"precision": "2",
+			"depends_on": "eval:doc.custom_is_hourly",
+		},
+	],
+	"Employee": [
+		{
+			"fieldname": "custom_daily_working_hours",
+			"label": "Daily Working Hours",
+			"fieldtype": "Float",
+			"insert_after": "holiday_list",
+			"default": "7.33",
+			"precision": "2",
+			"description": (
+				"Legal daily working hours used to convert hourly leave into "
+				"fractional days (Iranian labor law: 7.33)."
+			),
+		},
+	],
+}
+
+
 def create_payroll_custom_fields() -> None:
 	create_custom_fields(CUSTOM_FIELDS, ignore_validate=True)
+
+
+def create_hourly_leave_custom_fields() -> None:
+	create_custom_fields(HOURLY_LEAVE_CUSTOM_FIELDS, ignore_validate=True)
 
 
 # Backwards-compatible alias (used by install.after_migrate).
