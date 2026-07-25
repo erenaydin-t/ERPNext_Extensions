@@ -106,9 +106,10 @@ separate Leave Type; the deduction hits the same entitlement balance.
 - `custom_is_hourly` + `custom_from_time`/`custom_to_time` on Leave
   Application; the duration lands in `custom_leave_hours` and
   `total_leave_days = hours / Employee.custom_daily_working_hours`
-  (default 7.33 — Iranian legal daily hours), rounded to 3 decimals.
-  Leave Ledger Entry accepts fractional leaves, so submit/cancel work
-  unchanged (e.g. 26 days − 2h = 25.727).
+  (default 8.75 — the scheduled 08:30–17:15 day, i.e. what a full leave day
+  covers; not the 7.33 legal average used for overtime rates), rounded to
+  3 decimals. Leave Ledger Entry accepts fractional leaves, so submit/cancel
+  work unchanged (e.g. 26 days − 2h = 25.771).
 - The balance check is re-run against the fractional value, so an employee
   with less than one day remaining can still take hourly leave.
 - Attendance is left alone in hourly mode: an existing Present attendance

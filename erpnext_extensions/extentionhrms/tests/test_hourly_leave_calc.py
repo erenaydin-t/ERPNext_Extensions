@@ -45,28 +45,36 @@ class TestComputeLeaveHours:
 
 
 class TestConvertHoursToDays:
-	def test_iranian_legal_daily_hours(self):
-		# The acceptance case: 2 hours on the 7.33h legal day.
-		assert convert_hours_to_days(2, DEFAULT_DAILY_WORKING_HOURS) == 0.273
+	def test_scheduled_daily_hours_default(self):
+		# The 08:30-17:15 workday is 8h45m = 8.75 decimal hours.
+		assert DEFAULT_DAILY_WORKING_HOURS == 8.75
+		# The acceptance case: a 2-hour leave on that day.
+		assert convert_hours_to_days(2, DEFAULT_DAILY_WORKING_HOURS) == 0.229
 
 	def test_acceptance_balance_deduction(self):
-		# 26 days balance minus a 2-hour leave leaves 25.727 days.
-		balance = round(26 - convert_hours_to_days(2, 7.33), 3)
-		assert balance == 25.727
+		# 26 days balance minus a 2-hour leave leaves 25.771 days.
+		balance = round(26 - convert_hours_to_days(2, 8.75), 3)
+		assert balance == 25.771
+
+	def test_full_day_in_hourly_chunks_costs_one_day(self):
+		# 8.75 hours of hourly leave must equal exactly one day.
+		assert convert_hours_to_days(8.75, 8.75) == 1.0
 
 	def test_custom_daily_hours(self):
 		assert convert_hours_to_days(4, 8) == 0.5
+		# The 7.33 legal-average day stays usable as a per-employee override.
+		assert convert_hours_to_days(2, 7.33) == 0.273
 
 	def test_sub_day_balance_still_representable(self):
-		# An employee with 0.4 days left can take a 2h leave (0.273 < 0.4).
-		assert convert_hours_to_days(2, 7.33) < 0.4
+		# An employee with 0.4 days left can take a 2h leave (0.229 < 0.4).
+		assert convert_hours_to_days(2, 8.75) < 0.4
 
 	def test_rounding_is_three_decimals(self):
-		assert convert_hours_to_days(1, 7.33) == round(1 / 7.33, 3)
+		assert convert_hours_to_days(1, 8.75) == round(1 / 8.75, 3)
 
 	def test_zero_hours_rejected(self):
 		with pytest.raises(ValueError):
-			convert_hours_to_days(0, 7.33)
+			convert_hours_to_days(0, 8.75)
 
 	def test_zero_daily_hours_rejected(self):
 		with pytest.raises(ValueError):

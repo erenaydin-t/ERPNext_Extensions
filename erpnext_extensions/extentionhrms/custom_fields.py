@@ -73,8 +73,9 @@ CUSTOM_FIELDS = {
 
 
 # Fields backing the hourly leave override — see ``leave_application_override``.
-# ``custom_daily_working_hours`` defaults to the Iranian legal daily hours
-# (44h week / 6 days) and is the divisor converting leave hours to days.
+# ``custom_daily_working_hours`` defaults to the scheduled daily hours
+# (08:30-17:15 = 8.75h, the 44h legal week over 5 days) and is the divisor
+# converting leave hours to days.
 HOURLY_LEAVE_CUSTOM_FIELDS = {
 	"Leave Application": [
 		{
@@ -120,11 +121,12 @@ HOURLY_LEAVE_CUSTOM_FIELDS = {
 			"label": "Daily Working Hours",
 			"fieldtype": "Float",
 			"insert_after": "holiday_list",
-			"default": "7.33",
+			"default": "8.75",
 			"precision": "2",
 			"description": (
-				"Legal daily working hours used to convert hourly leave into "
-				"fractional days (Iranian labor law: 7.33)."
+				"Scheduled daily working hours used to convert hourly leave "
+				"into fractional days (08:30-17:15 = 8.75h; the 44h legal "
+				"week over 5 working days)."
 			),
 		},
 	],
