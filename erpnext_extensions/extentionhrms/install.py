@@ -18,6 +18,7 @@ from __future__ import annotations
 import frappe
 
 from erpnext_extensions.extentionhrms.custom_fields import (
+	create_hourly_leave_custom_fields,
 	create_payroll_round_off_department_field,
 )
 
@@ -44,4 +45,5 @@ def ensure_module_def() -> None:
 def after_migrate() -> None:
 	ensure_module_def()
 	create_payroll_round_off_department_field()
+	create_hourly_leave_custom_fields()
 	frappe.db.commit()
