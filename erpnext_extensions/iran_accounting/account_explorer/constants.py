@@ -96,8 +96,10 @@ VIRTUAL_UNIFIED_UNMAPPED_KEY = "virtual:unified:unmapped"
 VIRTUAL_DIMENSION_UNSPECIFIED_PREFIX = "virtual:dimension:unspecified"
 REAL_ACCOUNT_KEY_PREFIX = "account"
 
-NOT_SPECIFIED_LABEL = "Not Specified"
-NOT_SPECIFIED_LABEL_FA = "تعیین نشده"
+NOT_SPECIFIED_LABEL = "Unassigned"
+NOT_SPECIFIED_LABEL_FA = "تخصیص نیافته"
+NOT_SPECIFIED_DISPLAY_CODE = "-"
+
 
 NATIVE_PARTY_TYPES = frozenset({"Customer", "Supplier", "Employee", "Shareholder"})
 
