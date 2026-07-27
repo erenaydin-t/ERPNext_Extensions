@@ -16,3 +16,7 @@ __pycache__
 
 # Videos
 **/e2e/videos/
+
+# Local PDC party pollution recovery analysis outputs (generated, site-specific)
+erpnext_extensions/cheque_management/release_reports/PDC_PARTY_POLLUTION_RECOVERY_ANALYSIS.json
+erpnext_extensions/cheque_management/release_reports/PDC_PARTY_POLLUTION_RECOVERY_ANALYSIS.md
