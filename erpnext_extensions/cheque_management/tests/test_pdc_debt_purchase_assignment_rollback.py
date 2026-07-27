@@ -292,7 +292,7 @@ class TestDebtPurchaseAssignedTransitions(unittest.TestCase):
 
 		dpic_before = _account_balance(dpic, self.company)
 
-		# Assignment JE: Dr DPIC / Cr CIH, no party
+		# Assignment JE: Dr DPIC / Cr CIH, with Party
 		rows = frappe.get_all(
 			"Journal Entry Account",
 			filters={"parent": assign_je},
@@ -306,9 +306,10 @@ class TestDebtPurchaseAssignedTransitions(unittest.TestCase):
 			order_by="idx asc",
 		)
 		self.assertEqual(len(rows), 2)
+		pdc_party = frappe.db.get_value("Post Dated Cheque", pdc_name, ["party_type", "party"], as_dict=True)
 		for r in rows:
-			self.assertFalse(r.party_type)
-			self.assertFalse(r.party)
+			self.assertEqual(r.party_type, pdc_party.party_type)
+			self.assertEqual(r.party, pdc_party.party)
 
 		pdc.bounced_date = today()
 		pdc.save(ignore_permissions=True)
@@ -349,9 +350,10 @@ class TestDebtPurchaseAssignedTransitions(unittest.TestCase):
 		self.assertNotEqual(dr.account, cih)
 		self.assertAlmostEqual(flt(dr.debit_in_account_currency), amount)
 		self.assertAlmostEqual(flt(cr.credit_in_account_currency), amount)
+		pdc_party = frappe.db.get_value("Post Dated Cheque", pdc_name, ["party_type", "party"], as_dict=True)
 		for r in bounce_rows:
-			self.assertFalse(r.party_type)
-			self.assertFalse(r.party)
+			self.assertEqual(r.party_type, pdc_party.party_type)
+			self.assertEqual(r.party, pdc_party.party)
 			self.assertNotEqual(r.account, cih)
 
 		dpic_after = _account_balance(dpic, self.company)

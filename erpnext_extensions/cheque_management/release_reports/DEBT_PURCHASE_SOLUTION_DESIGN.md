@@ -70,7 +70,7 @@ Narration templates (PDC Settings) exist per edge family, e.g.:
 Closest structural analogue: **`Registered → Sent to Bank`**
 
 - Internal reclass of instrument pool
-- No party
+- Drawer Party on both non-Bank rows
 - Debit = dedicated intermediate role account from Settings
 - Credit = Cheques in Hand
 - Purpose = collection-family tag
@@ -140,7 +140,7 @@ Optional later: per-PDC override field (like `cheques_in_clearing_account`) — 
 | Item | Value |
 |---|---|
 | Decision | `journal_entry` |
-| Registry summary | Dr Debt Purchase In Collection, Cr Cheques in Hand — internal reclass; no party |
+| Registry summary | Dr Debt Purchase In Collection, Cr Cheques in Hand — drawer Party on both rows |
 | Debit role | `debt_purchase_in_collection` |
 | Credit role | `cheques_in_hand` (doc `account_paid_to` fallback) |
 | Purpose (new Select value recommended) | `Debt Purchase Assignment` |
@@ -166,7 +166,7 @@ Mirror of Sent-to-Bank template shape; different debit role + purpose + remark.
 | Meaning | Bank dishonour of debt-purchase instrument — **not** return to cashier |
 | Debit role | `protested` ← `default_protested_account` (**required**; **no** `cheques_in_hand` fallback) |
 | Credit role | `debt_purchase_in_collection` |
-| Party | None on either line |
+| Party | Drawer Party on both lines |
 | Purpose | `Returned` (canonical bounce tag, same as Sent to Bank → Bounced) |
 | Remark | `je_remark_receivable_bounced_template` |
 | Journal reference | Yes |

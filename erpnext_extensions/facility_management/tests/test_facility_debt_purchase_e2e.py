@@ -296,9 +296,10 @@ class TestDebtPurchaseSettlementE2E(DebtPurchaseDbFixtureMixin, unittest.TestCas
 		assign_je = assign_refs[0]["journal_entry"]
 		assign_rows = _je_rows(assign_je)
 		self.assertEqual(len(assign_rows), 2)
+		pdc_party = frappe.db.get_value("Post Dated Cheque", pdc_name, ["party_type", "party"], as_dict=True)
 		for r in assign_rows:
-			self.assertFalse(r.get("party_type"))
-			self.assertFalse(r.get("party"))
+			self.assertEqual(r.get("party_type"), pdc_party.party_type)
+			self.assertEqual(r.get("party"), pdc_party.party)
 			self.assertFalse(r.get("reference_type"))
 			self.assertFalse(r.get("reference_name"))
 
@@ -326,7 +327,7 @@ class TestDebtPurchaseSettlementE2E(DebtPurchaseDbFixtureMixin, unittest.TestCas
 		# Assignment ref still present
 		self.assertEqual(len(_refs(pdc_name, purpose=PURPOSE_ASSIGNMENT)), 1)
 
-		# Settlement JE: DPIC credit, no party on any row
+		# Settlement JE: DPIC credit carries PDC Party; other Facility rows do not.
 		dpic = resolve_pdc_accounts_for_journal(pdc)["debt_purchase_in_collection"]
 		settle_rows = _je_rows(rep.journal_entry)
 		credit_dpic = [
@@ -336,11 +337,15 @@ class TestDebtPurchaseSettlementE2E(DebtPurchaseDbFixtureMixin, unittest.TestCas
 		]
 		self.assertEqual(len(credit_dpic), 1)
 		self.assertAlmostEqual(flt(credit_dpic[0]["credit_in_account_currency"]), amount)
+		self.assertEqual(credit_dpic[0].get("party_type"), pdc.party_type)
+		self.assertEqual(credit_dpic[0].get("party"), pdc.party)
 		for r in settle_rows:
-			self.assertFalse(r.get("party_type"), r)
-			self.assertFalse(r.get("party"), r)
 			self.assertFalse(r.get("reference_type"), r)
 			self.assertFalse(r.get("reference_name"), r)
+			if r["account"] == dpic and flt(r["credit_in_account_currency"]) > 0:
+				continue
+			self.assertFalse(r.get("party_type"), r)
+			self.assertFalse(r.get("party"), r)
 
 		bal_after = get_facility_balance_row(fac_name)
 		self.assertAlmostEqual(

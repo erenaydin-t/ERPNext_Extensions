@@ -1,10 +1,10 @@
 # Copyright (c) 2026, Farbod Siyahpoosh and contributors
 # For license information, please see license.txt
 
-"""E2E payload tests: Party only on real Receivable/Payable settlement rows.
+"""E2E payload tests: Finance Party policy — Party on non-Bank rows; Bank clear exception.
 
-Restores the pre-ddde37c accounting contract. Party must not be mirrored onto
-CIH, Under Collection, clearing, bank, or other internal accounts.
+Restores the approved 3.7.2 contract (Register / Return / STB / Clear / Bounce / DP).
+Endorsement and Replacement are not redesigned here.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from erpnext_extensions.cheque_management.pdc_allocation import ALLOCATION_MODE_
 from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
 	CHEQUE_DIRECTION_PAYABLE,
 	CHEQUE_DIRECTION_RECEIVABLE,
+	WORKFLOW_ASSIGNED_DEBT_PURCHASE,
 	WORKFLOW_BOUNCED,
 	WORKFLOW_CLEARED,
 	WORKFLOW_DRAFT,
@@ -41,11 +42,18 @@ _SETTINGS = {
 	"default_payable_cheque_account": "ACC-POOL",
 	"default_protested_account": "ACC-PROT",
 	"default_endorsement_account": "ACC-ENDORSE",
+	"default_debt_purchase_in_collection_account": "ACC-DPIC",
 }
 
 
 def _has_party(row: dict) -> bool:
 	return bool(row.get("party_type") or row.get("party"))
+
+
+def _all_have_party(rows, party_type: str, party: str) -> bool:
+	return all(
+		row.get("party_type") == party_type and row.get("party") == party for row in rows
+	)
 
 
 def _assert_no_party(testcase: unittest.TestCase, row: dict) -> None:
@@ -63,7 +71,7 @@ def _non_bank_rows(rows, bank_gl: str = _BANK):
 
 
 class TestPDCPartyPlacementE2E(unittest.TestCase):
-	def test_01_receivable_register_party_only_on_ar(self) -> None:
+	def test_01_register_receivable_both_lines_party(self) -> None:
 		doc = SimpleNamespace(
 			company="_TC",
 			cheque_direction=CHEQUE_DIRECTION_RECEIVABLE,
@@ -84,14 +92,9 @@ class TestPDCPartyPlacementE2E(unittest.TestCase):
 		):
 			mf._ = lambda s: s
 			je = build_pdc_journal_entry_data(doc, WORKFLOW_DRAFT, WORKFLOW_REGISTERED, POSTING)
-		dr, cr = je["accounts"]
-		self.assertEqual(dr["account"], "ACC-CIH")
-		_assert_no_party(self, dr)
-		self.assertEqual(cr["account"], "ACC-AR")
-		self.assertEqual(cr.get("party_type"), "Customer")
-		self.assertEqual(cr.get("party"), "CUST-1")
+		self.assertTrue(_all_have_party(je["accounts"], "Customer", "CUST-1"))
 
-	def test_02_payable_register_party_only_on_ap(self) -> None:
+	def test_02_register_payable_both_lines_party(self) -> None:
 		doc = SimpleNamespace(
 			company="_TC",
 			cheque_direction=CHEQUE_DIRECTION_PAYABLE,
@@ -112,12 +115,9 @@ class TestPDCPartyPlacementE2E(unittest.TestCase):
 		):
 			mf._ = lambda s: s
 			je = build_pdc_journal_entry_data(doc, WORKFLOW_DRAFT, WORKFLOW_REGISTERED, POSTING)
-		dr, cr = je["accounts"]
-		self.assertEqual(dr.get("party_type"), "Supplier")
-		self.assertEqual(dr.get("party"), "SUP-1")
-		_assert_no_party(self, cr)
+		self.assertTrue(_all_have_party(je["accounts"], "Supplier", "SUP-1"))
 
-	def test_03_send_to_bank_no_party_on_either_row(self) -> None:
+	def test_03_send_to_bank_both_lines_party(self) -> None:
 		doc = SimpleNamespace(
 			company="_TC",
 			cheque_direction=CHEQUE_DIRECTION_RECEIVABLE,
@@ -137,10 +137,9 @@ class TestPDCPartyPlacementE2E(unittest.TestCase):
 		):
 			mf._ = lambda s: s
 			je = build_pdc_journal_entry_data(doc, WORKFLOW_REGISTERED, WORKFLOW_SENT_TO_BANK, POSTING)
-		for row in je["accounts"]:
-			_assert_no_party(self, row)
+		self.assertTrue(_all_have_party(je["accounts"], "Customer", "CUST-1"))
 
-	def test_04_bounce_no_party_on_either_row(self) -> None:
+	def test_04_bounce_both_lines_party(self) -> None:
 		doc = SimpleNamespace(
 			company="_TC",
 			cheque_direction=CHEQUE_DIRECTION_RECEIVABLE,
@@ -160,10 +159,9 @@ class TestPDCPartyPlacementE2E(unittest.TestCase):
 		):
 			mf._ = lambda s: s
 			je = build_pdc_journal_entry_data(doc, WORKFLOW_SENT_TO_BANK, WORKFLOW_BOUNCED, POSTING)
-		for row in je["accounts"]:
-			_assert_no_party(self, row)
+		self.assertTrue(_all_have_party(je["accounts"], "Customer", "CUST-1"))
 
-	def test_05_receivable_return_party_only_on_ar(self) -> None:
+	def test_05_receivable_return_both_lines_party(self) -> None:
 		doc = SimpleNamespace(
 			company="_TC",
 			cheque_direction=CHEQUE_DIRECTION_RECEIVABLE,
@@ -183,13 +181,9 @@ class TestPDCPartyPlacementE2E(unittest.TestCase):
 		):
 			mf._ = lambda s: s
 			je = build_pdc_journal_entry_data(doc, WORKFLOW_REGISTERED, WORKFLOW_RETURNED, POSTING)
-		dr, cr = je["accounts"]
-		self.assertEqual(dr.get("party_type"), "Customer")
-		self.assertEqual(dr.get("party"), "CUST-1")
-		self.assertEqual(cr["account"], "ACC-CIH")
-		_assert_no_party(self, cr)
+		self.assertTrue(_all_have_party(je["accounts"], "Customer", "CUST-1"))
 
-	def test_06_payable_return_party_only_on_ap(self) -> None:
+	def test_06_payable_return_both_lines_party(self) -> None:
 		doc = SimpleNamespace(
 			company="_TC",
 			cheque_direction=CHEQUE_DIRECTION_PAYABLE,
@@ -198,7 +192,9 @@ class TestPDCPartyPlacementE2E(unittest.TestCase):
 			cheque_amount=500.0,
 			cheque_no="P-06",
 			account_paid_to="ACC-AP",
+			account_paid_from=None,
 			bank_account="BA-1",
+			allocation_mode="direct_settlement",
 		)
 		with (
 			patch.object(pdc_mod, "_get_pdc_settings_for_company", return_value=dict(_SETTINGS)),
@@ -208,15 +204,9 @@ class TestPDCPartyPlacementE2E(unittest.TestCase):
 		):
 			mf._ = lambda s: s
 			je = build_pdc_journal_entry_data(doc, WORKFLOW_ISSUED, WORKFLOW_RETURNED, POSTING)
-		# Party only on the AP settlement row; internal cheque row stays clean.
-		party_rows = [r for r in je["accounts"] if _has_party(r)]
-		internal_rows = [r for r in je["accounts"] if not _has_party(r)]
-		self.assertEqual(len(party_rows), 1)
-		self.assertEqual(party_rows[0].get("party_type"), "Supplier")
-		self.assertEqual(party_rows[0].get("party"), "SUP-1")
-		self.assertGreaterEqual(len(internal_rows), 1)
+		self.assertTrue(_all_have_party(je["accounts"], "Supplier", "SUP-1"))
 
-	def test_07_advance_recognition_party_only_on_advance_credit(self) -> None:
+	def test_07_advance_recognition_both_lines_party(self) -> None:
 		doc = SimpleNamespace(
 			company="_TC",
 			cheque_direction=CHEQUE_DIRECTION_RECEIVABLE,
@@ -230,24 +220,22 @@ class TestPDCPartyPlacementE2E(unittest.TestCase):
 			allocation_mode=ALLOCATION_MODE_ADVANCE,
 			recognition_je_posted=0,
 			effective_stage_for_advance_recognition="register",
-			advance_account=None,
+			advance_account="ACC-ADV",
 		)
 		with (
 			patch.object(pdc_mod, "_get_pdc_settings_for_company", return_value=dict(_SETTINGS)),
 			patch.object(pdc_mod, "_get_party_account_or_company_default", return_value="ACC-PARTY"),
 			patch.object(pdc_mod, "_pdc_bank_gl_account", return_value=_BANK),
-			patch.object(pdc_mod, "_company_default_advance_received_account", return_value="ACC-ADV-REC"),
+			patch.object(pdc_mod, "_resolve_advance_account_override", return_value="ACC-ADV"),
+			patch.object(pdc_mod, "_company_default_advance_received_account", return_value="ACC-ADV"),
 			patch.object(pdc_mod, "frappe") as mf,
 		):
 			mf._ = lambda s: s
 			je = build_pdc_journal_entry_data(doc, WORKFLOW_DRAFT, WORKFLOW_REGISTERED, POSTING)
 		self.assertIsNotNone(je)
-		dr, cr = je["accounts"]
-		_assert_no_party(self, dr)
-		self.assertEqual(cr.get("party_type"), "Customer")
-		self.assertEqual(cr.get("party"), "CUST-1")
+		self.assertTrue(_all_have_party(je["accounts"], "Customer", "CUST-1"))
 
-	def test_08_receivable_clear_no_party_on_any_row(self) -> None:
+	def test_08_receivable_clear_party_non_bank_only(self) -> None:
 		doc = SimpleNamespace(
 			company="_TC",
 			cheque_direction=CHEQUE_DIRECTION_RECEIVABLE,
@@ -263,17 +251,17 @@ class TestPDCPartyPlacementE2E(unittest.TestCase):
 			patch.object(pdc_mod, "_get_pdc_settings_for_company", return_value=dict(_SETTINGS)),
 			patch.object(pdc_mod, "_get_party_account_or_company_default", return_value="ACC-PARTY"),
 			patch.object(pdc_mod, "_pdc_bank_gl_account", return_value=_BANK),
+			patch.object(pdc_mod, "_pdc_validate_clearing_bank_ledger_account"),
 			patch.object(pdc_mod, "frappe") as mf,
 		):
 			mf._ = lambda s: s
-			je = build_pdc_journal_entry_data(doc, WORKFLOW_REGISTERED, WORKFLOW_CLEARED, POSTING)
+			je = build_pdc_journal_entry_data(doc, WORKFLOW_SENT_TO_BANK, WORKFLOW_CLEARED, POSTING)
 		rows = je["accounts"]
 		self.assertEqual(len(_bank_rows(rows)), 1)
-		for row in rows:
-			_assert_no_party(self, row)
-		self.assertEqual(len(_non_bank_rows(rows)), 1)
+		self.assertNotIn("party_type", _bank_rows(rows)[0])
+		self.assertTrue(_all_have_party(_non_bank_rows(rows), "Customer", "CUST-1"))
 
-	def test_09_payable_clear_no_party_on_pool_or_bank(self) -> None:
+	def test_09_payable_clear_party_pool_not_bank(self) -> None:
 		doc = SimpleNamespace(
 			company="_TC",
 			cheque_direction=CHEQUE_DIRECTION_PAYABLE,
@@ -282,6 +270,36 @@ class TestPDCPartyPlacementE2E(unittest.TestCase):
 			cheque_amount=500.0,
 			cheque_no="P-09",
 			account_paid_to="ACC-AP",
+			account_paid_from=None,
+			bank_account="BA-1",
+			allocation_mode="direct_settlement",
+		)
+		with (
+			patch.object(pdc_mod, "_get_pdc_settings_for_company", return_value=dict(_SETTINGS)),
+			patch.object(pdc_mod, "_get_party_account_or_company_default", return_value="ACC-PARTY"),
+			patch.object(pdc_mod, "_pdc_bank_gl_account", return_value=_BANK),
+			patch.object(pdc_mod, "_pdc_validate_clearing_bank_ledger_account"),
+			patch.object(pdc_mod, "frappe") as mf,
+		):
+			mf._ = lambda s: s
+			je = build_pdc_journal_entry_data(doc, WORKFLOW_ISSUED, WORKFLOW_CLEARED, POSTING)
+		rows = je["accounts"]
+		self.assertEqual(len(_bank_rows(rows)), 1)
+		self.assertNotIn("party_type", _bank_rows(rows)[0])
+		pool = [r for r in rows if r.get("account") == "ACC-POOL"]
+		self.assertEqual(len(pool), 1)
+		self.assertEqual(pool[0].get("party"), "SUP-1")
+
+	def test_10_debt_purchase_assignment_both_lines_party(self) -> None:
+		doc = SimpleNamespace(
+			company="_TC",
+			cheque_direction=CHEQUE_DIRECTION_RECEIVABLE,
+			party_type="Customer",
+			party="CUST-1",
+			cheque_amount=500.0,
+			cheque_no="R-10",
+			account_paid_to="ACC-CIH",
+			account_paid_from="ACC-AR",
 			bank_account="BA-1",
 		)
 		with (
@@ -291,32 +309,60 @@ class TestPDCPartyPlacementE2E(unittest.TestCase):
 			patch.object(pdc_mod, "frappe") as mf,
 		):
 			mf._ = lambda s: s
-			je = build_pdc_journal_entry_data(doc, WORKFLOW_ISSUED, WORKFLOW_CLEARED, POSTING)
-		for row in je["accounts"]:
-			_assert_no_party(self, row)
+			je = build_pdc_journal_entry_data(
+				doc, WORKFLOW_REGISTERED, WORKFLOW_ASSIGNED_DEBT_PURCHASE, POSTING
+			)
+		self.assertTrue(_all_have_party(je["accounts"], "Customer", "CUST-1"))
 
-	def test_endorsement_no_drawer_mirror_internal_accounts_party_free(self) -> None:
+	def test_11_debt_purchase_bounce_both_lines_party(self) -> None:
+		doc = SimpleNamespace(
+			company="_TC",
+			cheque_direction=CHEQUE_DIRECTION_RECEIVABLE,
+			party_type="Customer",
+			party="CUST-1",
+			cheque_amount=500.0,
+			cheque_no="R-11",
+			account_paid_to="ACC-CIH",
+			account_paid_from="ACC-AR",
+			bank_account="BA-1",
+		)
+		with (
+			patch.object(pdc_mod, "_get_pdc_settings_for_company", return_value=dict(_SETTINGS)),
+			patch.object(pdc_mod, "_get_party_account_or_company_default", return_value="ACC-PARTY"),
+			patch.object(pdc_mod, "_pdc_bank_gl_account", return_value=_BANK),
+			patch.object(pdc_mod, "frappe") as mf,
+		):
+			mf._ = lambda s: s
+			je = build_pdc_journal_entry_data(
+				doc, WORKFLOW_ASSIGNED_DEBT_PURCHASE, WORKFLOW_BOUNCED, POSTING
+			)
+		self.assertTrue(_all_have_party(je["accounts"], "Customer", "CUST-1"))
+		self.assertEqual(je["accounts"][0]["account"], "ACC-PROT")
+		self.assertEqual(je["accounts"][1]["account"], "ACC-DPIC")
+
+	def test_endorsement_unchanged_no_drawer_on_lines(self) -> None:
 		doc = SimpleNamespace(
 			company="_TC",
 			cheque_direction=CHEQUE_DIRECTION_RECEIVABLE,
 			party_type="Customer",
 			party="CUST-DRAWER",
+			holder_party_type="Customer",
+			holder_party="CUST-HOLDER",
 			cheque_amount=500.0,
-			cheque_no="R-END",
+			cheque_no="R-E",
 			account_paid_to="ACC-CIH",
 			account_paid_from="ACC-AR",
 			bank_account="BA-1",
-			holder_party_type="Customer",
-			holder_party="CUST-HOLDER",
-			endorsement_settlement_account=None,
+			endorsement_settlement_account="ACC-ENDORSE",
 		)
 		with (
 			patch.object(pdc_mod, "_get_pdc_settings_for_company", return_value=dict(_SETTINGS)),
-			patch.object(pdc_mod, "_get_party_account_or_company_default", return_value="ACC-HOLDER-AR"),
+			patch.object(pdc_mod, "_get_party_account_or_company_default", return_value="ACC-PARTY"),
 			patch.object(pdc_mod, "_pdc_bank_gl_account", return_value=_BANK),
 			patch.object(pdc_mod, "frappe") as mf,
 		):
 			mf._ = lambda s: s
+			mf.get_cached_value = lambda *a, **k: None
 			je = build_pdc_journal_entry_data(doc, WORKFLOW_REGISTERED, WORKFLOW_ENDORSED, POSTING)
 		for row in je["accounts"]:
 			self.assertNotEqual(row.get("party"), "CUST-DRAWER")

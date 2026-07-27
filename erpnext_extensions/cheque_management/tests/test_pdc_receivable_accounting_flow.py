@@ -3,7 +3,7 @@
 
 """Multi-transition **Receivable** accounting shape tests (no database).
 
-* Register / send-to-bank / clear at bank are **Journal Entry** (clear: Dr bank, Cr intermediary; no party).
+* Register / send-to-bank / clear at bank are **Journal Entry** (clear: Dr bank no Party, Cr intermediary with Party).
 * No Payment Entry exists in this PDC lifecycle.
 """
 
@@ -78,9 +78,9 @@ class TestPDCReceivableAccountingFlow(unittest.TestCase):
 			j2 = build_pdc_journal_entry_data(doc, WORKFLOW_REGISTERED, WORKFLOW_SENT_TO_BANK, POSTING)
 			j3 = build_pdc_journal_entry_data(doc, WORKFLOW_SENT_TO_BANK, WORKFLOW_CLEARED, POSTING)
 		assert j1 and j2 and j3
-		self.assertEqual(_party_touch_count(j1), 1)
-		self.assertEqual(_party_touch_count(j2), 0)
-		self.assertEqual(_party_touch_count(j3), 0)
+		self.assertEqual(_party_touch_count(j1), 2)
+		self.assertEqual(_party_touch_count(j2), 2)
+		self.assertEqual(_party_touch_count(j3), 1)
 		self.assertEqual(j3["accounts"][0]["account"], "ACC-BANK")
 		self.assertEqual(j3["accounts"][1]["account"], "ACC-CLR")
 
@@ -99,7 +99,7 @@ class TestPDCReceivableAccountingFlow(unittest.TestCase):
 		self.assertEqual(j_clear["accounts"][0]["account"], "ACC-BANK")
 		self.assertEqual(j_clear["accounts"][1]["account"], "ACC-CIH")
 
-	def test_registered_sent_bounced_no_party(self) -> None:
+	def test_registered_sent_bounced_with_party(self) -> None:
 		doc = _doc()
 		with (
 			patch.object(pdc_mod, "_get_pdc_settings_for_company", return_value=dict(_SETTINGS)),
@@ -112,7 +112,7 @@ class TestPDCReceivableAccountingFlow(unittest.TestCase):
 		assert j_b
 		self.assertEqual(j_b["accounts"][1]["account"], "ACC-CLR")
 		dr = j_b["accounts"][0]
-		self.assertNotIn("party_type", dr)
+		self.assertEqual(dr.get("party_type"), "Customer")
 
 	def test_registered_returned_reverses_party_once(self) -> None:
 		doc = _doc()
@@ -126,8 +126,8 @@ class TestPDCReceivableAccountingFlow(unittest.TestCase):
 			j_reg = build_pdc_journal_entry_data(doc, WORKFLOW_DRAFT, WORKFLOW_REGISTERED, POSTING)
 			j_ret = build_pdc_journal_entry_data(doc, WORKFLOW_REGISTERED, WORKFLOW_RETURNED, POSTING)
 		assert j_reg and j_ret
-		self.assertEqual(_party_touch_count(j_reg), 1)
-		self.assertEqual(_party_touch_count(j_ret), 1)
+		self.assertEqual(_party_touch_count(j_reg), 2)
+		self.assertEqual(_party_touch_count(j_ret), 2)
 
 	def test_transition_keys_unique_per_edge(self) -> None:
 		k1 = build_pdc_transition_key(CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_DRAFT, WORKFLOW_REGISTERED)

@@ -232,8 +232,8 @@ class TestReceivableBounce(unittest.TestCase):
 		self.assertEqual(_party_credit_to_account(j_reg, GL_AR), AMT)
 		for je in (j_send, j_bounce):
 			for row in je["accounts"]:
-				self.assertNotIn("party_type", row)
-				self.assertNotIn("party", row)
+				self.assertEqual(row.get("party_type"), "Customer")
+				self.assertEqual(row.get("party"), d.party)
 
 		dr, cr = j_bounce["accounts"]
 		self.assertEqual(cr["account"], "GL-CLR")

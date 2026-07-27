@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -146,12 +148,12 @@ class TestDebtPurchaseWorkflow(unittest.TestCase):
 			CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_REGISTERED, WORKFLOW_ASSIGNED_DEBT_PURCHASE
 		)
 		self.assertIsNotNone(spec)
-		self.assertFalse(spec.touches_party)
+		self.assertTrue(spec.touches_party)
 		spec2 = get_accounting_transition_spec(
 			CHEQUE_DIRECTION_RECEIVABLE, WORKFLOW_ASSIGNED_DEBT_PURCHASE, WORKFLOW_BOUNCED
 		)
 		self.assertIsNotNone(spec2)
-		self.assertFalse(spec2.touches_party)
+		self.assertTrue(spec2.touches_party)
 
 	def test_repayment_method_legacy_default(self):
 		self.assertEqual(normalize_repayment_method(None), REPAYMENT_METHOD_BANK)
@@ -202,16 +204,24 @@ class TestDebtPurchaseJeBuilder(unittest.TestCase):
 				"erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque._pdc_bank_gl_account",
 				return_value=None,
 			),
+			patch(
+				"erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque._pdc_account_type",
+				return_value=None,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque.frappe",
+			) as mf,
 		):
-			payload = build_pdc_journal_entry_data(
-				doc, WORKFLOW_REGISTERED, WORKFLOW_ASSIGNED_DEBT_PURCHASE
-			)
+			mf._ = lambda s: s
+			payload = build_pdc_journal_entry_data(doc, WORKFLOW_REGISTERED, WORKFLOW_ASSIGNED_DEBT_PURCHASE, date(2026, 7, 26))
 		self.assertIsNotNone(payload)
 		accounts = payload["accounts"]
 		self.assertEqual(accounts[0]["account"], "DPIC")
 		self.assertEqual(accounts[0]["debit_in_account_currency"], 1000)
+		self.assertEqual(accounts[0].get("party"), "CUST-1")
 		self.assertEqual(accounts[1]["account"], "CIH")
 		self.assertEqual(accounts[1]["credit_in_account_currency"], 1000)
+		self.assertEqual(accounts[1].get("party"), "CUST-1")
 
 	def test_bounce_from_assigned_debits_protested_credits_dpic(self):
 		from erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque import (
@@ -255,20 +265,26 @@ class TestDebtPurchaseJeBuilder(unittest.TestCase):
 				"erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque._pdc_bank_gl_account",
 				return_value=None,
 			),
+			patch(
+				"erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque._pdc_account_type",
+				return_value=None,
+			),
+			patch(
+				"erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque.frappe",
+			) as mf,
 		):
-			payload = build_pdc_journal_entry_data(
-				doc, WORKFLOW_ASSIGNED_DEBT_PURCHASE, WORKFLOW_BOUNCED
-			)
+			mf._ = lambda s: s
+			payload = build_pdc_journal_entry_data(doc, WORKFLOW_ASSIGNED_DEBT_PURCHASE, WORKFLOW_BOUNCED, date(2026, 7, 26))
 		self.assertIsNotNone(payload)
 		accounts = payload["accounts"]
 		self.assertEqual(accounts[0]["account"], "PROT")
 		self.assertEqual(accounts[0]["debit_in_account_currency"], 1000)
-		self.assertFalse(accounts[0].get("party_type"))
-		self.assertFalse(accounts[0].get("party"))
+		self.assertEqual(accounts[0].get("party_type"), "Customer")
+		self.assertEqual(accounts[0].get("party"), "CUST-1")
 		self.assertEqual(accounts[1]["account"], "DPIC")
 		self.assertEqual(accounts[1]["credit_in_account_currency"], 1000)
-		self.assertFalse(accounts[1].get("party_type"))
-		self.assertFalse(accounts[1].get("party"))
+		self.assertEqual(accounts[1].get("party_type"), "Customer")
+		self.assertEqual(accounts[1].get("party"), "CUST-1")
 		self.assertNotIn("CIH", [a["account"] for a in accounts])
 
 	def test_bounce_from_assigned_requires_protested_no_cih_fallback(self):
@@ -324,7 +340,7 @@ class TestDebtPurchaseJeBuilder(unittest.TestCase):
 
 			mf.throw = _throw
 			with self.assertRaises(RuntimeError) as ctx:
-				build_pdc_journal_entry_data(doc, WORKFLOW_ASSIGNED_DEBT_PURCHASE, WORKFLOW_BOUNCED)
+				build_pdc_journal_entry_data(doc, WORKFLOW_ASSIGNED_DEBT_PURCHASE, WORKFLOW_BOUNCED, date(2026, 7, 26))
 			self.assertIn("Protested", str(ctx.exception))
 
 	def test_assign_missing_dpic_returns_none(self):
@@ -366,9 +382,7 @@ class TestDebtPurchaseJeBuilder(unittest.TestCase):
 				return_value=None,
 			),
 		):
-			payload = build_pdc_journal_entry_data(
-				doc, WORKFLOW_REGISTERED, WORKFLOW_ASSIGNED_DEBT_PURCHASE
-			)
+			payload = build_pdc_journal_entry_data(doc, WORKFLOW_REGISTERED, WORKFLOW_ASSIGNED_DEBT_PURCHASE, date(2026, 7, 26))
 			self.assertIsNone(payload)
 
 

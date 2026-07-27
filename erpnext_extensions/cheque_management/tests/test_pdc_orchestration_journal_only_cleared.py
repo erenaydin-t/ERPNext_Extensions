@@ -137,7 +137,7 @@ class TestPdcClearedOrchestrationJournalOnly(unittest.TestCase):
 		m_post.assert_called_once()
 
 	def test_payable_draft_registered_issued_cleared(self) -> None:
-		"""Draft → Registered → Issued → Cleared: pool vs bank; no party on clear; legacy fields remain blank."""
+		"""Draft → Registered → Issued → Cleared: pool vs bank; Party on pool, not bank."""
 		doc = _doc_for_builder(CHEQUE_DIRECTION_PAYABLE)
 		doc.account_paid_to = "ACC-AP-DOC"
 		doc.account_paid_from = None
@@ -153,9 +153,10 @@ class TestPdcClearedOrchestrationJournalOnly(unittest.TestCase):
 		assert j_reg and j_clr
 		self.assertEqual(j_clr["accounts"][0]["account"], "ACC-POOL")
 		self.assertEqual(j_clr["accounts"][1]["account"], _BANK_GL)
-		# No party dimensions on clear
-		for row in j_clr["accounts"]:
-			self.assertFalse(row.get("party_type") or row.get("party"))
+		# Party on pool debit only; bank credit stays clean
+		self.assertEqual(j_clr["accounts"][0].get("party_type"), "Supplier")
+		self.assertTrue(j_clr["accounts"][0].get("party"))
+		self.assertFalse(j_clr["accounts"][1].get("party_type") or j_clr["accounts"][1].get("party"))
 
 		pdc = _pdc_for_orchestration(CHEQUE_DIRECTION_PAYABLE, WORKFLOW_ISSUED)
 		with (

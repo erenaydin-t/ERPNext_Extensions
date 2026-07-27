@@ -168,7 +168,7 @@ class TestPayablePDCEndToEndScenario(unittest.TestCase):
 			mf._ = lambda s: s
 			je = build_pdc_journal_entry_data(doc, WORKFLOW_DRAFT, WORKFLOW_REGISTERED, POSTING)
 		self.assertIsNotNone(je)
-		self.assertEqual(_party_line_count(je), 1)
+		self.assertEqual(_party_line_count(je), 2)
 		self.assertEqual(_bank_gl_line_count(je), 0)
 		dr, cr = je["accounts"]
 		self.assertEqual(dr["account"], "ACC-AP-DOC")
@@ -176,9 +176,9 @@ class TestPayablePDCEndToEndScenario(unittest.TestCase):
 		self.assertEqual(dr.get("party"), "SUP-1")
 		self.assertNotIn("reference_type", dr)
 		self.assertEqual(cr["account"], "ACC-POOL")
-		self.assertNotIn("party", cr)
+		self.assertEqual(cr.get("party"), "SUP-1")
 
-	def test_issued_to_cleared_dr_pool_cr_bank_no_party(self) -> None:
+	def test_issued_to_cleared_dr_pool_with_party_cr_bank_no_party(self) -> None:
 		doc = _base_doc()
 		with (
 			patch.object(pdc_mod, "_get_pdc_settings_for_company", return_value=dict(_SETTINGS)),
@@ -190,11 +190,11 @@ class TestPayablePDCEndToEndScenario(unittest.TestCase):
 			je = build_pdc_journal_entry_data(doc, WORKFLOW_ISSUED, WORKFLOW_CLEARED, POSTING)
 		self.assertIsNotNone(je)
 		self.assertEqual(je["voucher_type"], "Bank Entry")
-		self.assertEqual(_party_line_count(je), 0)
+		self.assertEqual(_party_line_count(je), 1)
 		self.assertEqual(_bank_gl_line_count(je), 1)
 		dr, cr = je["accounts"]
 		self.assertEqual(dr["account"], "ACC-POOL")
-		self.assertNotIn("party", dr)
+		self.assertEqual(dr.get("party"), "SUP-1")
 		self.assertEqual(cr["account"], _BANK_GL)
 		self.assertNotIn("party_type", cr)
 
@@ -209,11 +209,11 @@ class TestPayablePDCEndToEndScenario(unittest.TestCase):
 			mf._ = lambda s: s
 			je = build_pdc_journal_entry_data(doc, WORKFLOW_ISSUED, WORKFLOW_RETURNED, POSTING)
 		self.assertIsNotNone(je)
-		self.assertEqual(_party_line_count(je), 1)
+		self.assertEqual(_party_line_count(je), 2)
 		self.assertEqual(_bank_gl_line_count(je), 0)
 		dr, cr = je["accounts"]
 		self.assertEqual(dr["account"], "ACC-POOL")
-		self.assertNotIn("party", dr)
+		self.assertEqual(dr.get("party"), "SUP-1")
 		self.assertEqual(cr["account"], "ACC-AP-DOC")
 		self.assertEqual(cr.get("party_type"), "Supplier")
 		self.assertEqual(cr.get("party"), "SUP-1")
@@ -229,11 +229,11 @@ class TestPayablePDCEndToEndScenario(unittest.TestCase):
 			mf._ = lambda s: s
 			je = build_pdc_journal_entry_data(doc, WORKFLOW_ISSUED, WORKFLOW_CANCELLED, POSTING)
 		self.assertIsNotNone(je)
-		self.assertEqual(_party_line_count(je), 1)
+		self.assertEqual(_party_line_count(je), 2)
 		self.assertEqual(_bank_gl_line_count(je), 0)
 		dr, cr = je["accounts"]
 		self.assertEqual(dr["account"], "ACC-POOL")
-		self.assertNotIn("party", dr)
+		self.assertEqual(dr.get("party"), "SUP-1")
 		self.assertEqual(cr["account"], "ACC-AP-DOC")
 		self.assertEqual(cr.get("party_type"), "Supplier")
 
@@ -259,8 +259,8 @@ class TestPayablePDCEndToEndScenario(unittest.TestCase):
 				self.assertEqual(_bank_gl_line_count(je), 0, f"{label} must not hit bank GL")
 		self.assertEqual(_bank_gl_line_count(j_clr), 1)
 
-	def test_clear_je_no_party_on_pool_or_bank(self) -> None:
-		"""Cleared: pool and bank both stay party-free."""
+	def test_clear_je_party_on_pool_not_bank(self) -> None:
+		"""Cleared: pool carries supplier Party; bank stays Party-free."""
 		doc = _base_doc()
 		with (
 			patch.object(pdc_mod, "_get_pdc_settings_for_company", return_value=dict(_SETTINGS)),
@@ -270,9 +270,9 @@ class TestPayablePDCEndToEndScenario(unittest.TestCase):
 		):
 			mf._ = lambda s: s
 			je = build_pdc_journal_entry_data(doc, WORKFLOW_ISSUED, WORKFLOW_CLEARED, POSTING)
-		self.assertEqual(_party_line_count(je), 0)
+		self.assertEqual(_party_line_count(je), 1)
 		dr, cr = je["accounts"]
-		self.assertNotIn("party", dr)
+		self.assertEqual(dr.get("party"), "SUP-1")
 		self.assertNotIn("party_type", cr)
 
 	def test_draft_to_registered_splits_party_debit_per_pi_when_slices_provided(self) -> None:
