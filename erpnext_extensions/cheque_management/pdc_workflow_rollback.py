@@ -29,6 +29,7 @@ from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
 	ALL_WORKFLOW_STATES,
 	CHEQUE_DIRECTION_PAYABLE,
 	CHEQUE_DIRECTION_RECEIVABLE,
+	WORKFLOW_ASSIGNED_DEBT_PURCHASE,
 	WORKFLOW_CLEARED,
 	WORKFLOW_DRAFT,
 	WORKFLOW_ISSUED,
@@ -64,6 +65,10 @@ def get_rollback_target_states(pdc_name: str) -> list[str]:
 		return []
 	current = normalize_workflow_state_value(doc.workflow_state)
 	if current == WORKFLOW_DRAFT:
+		return []
+	# Assigned DP is irreversible via rollback: only Bounce (PDC Management) or
+	# Facility Repayment settlement may leave this state.
+	if current == WORKFLOW_ASSIGNED_DEBT_PURCHASE:
 		return []
 
 	if cint(doc.is_opening_import):

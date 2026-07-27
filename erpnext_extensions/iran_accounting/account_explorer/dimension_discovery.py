@@ -134,7 +134,7 @@ def validate_dimension_field(fieldname: str) -> None:
 
 def get_dimension_display_title(dimension_field: str, value: str) -> str:
 	if not value:
-		return NOT_SPECIFIED_LABEL
+		return not_specified_label()
 	if dimension_field == "cost_center":
 		return frappe.db.get_value("Cost Center", value, "cost_center_name") or value
 	if dimension_field == "project":

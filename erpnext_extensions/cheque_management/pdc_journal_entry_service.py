@@ -32,9 +32,11 @@ from erpnext_extensions.cheque_management.pdc_bank_dimension import (
 from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
 	CHEQUE_DIRECTION_PAYABLE,
 	CHEQUE_DIRECTION_RECEIVABLE,
+	WORKFLOW_ASSIGNED_DEBT_PURCHASE,
 	WORKFLOW_BOUNCED,
 	WORKFLOW_CANCELLED,
 	WORKFLOW_CLEARED,
+	WORKFLOW_DEBT_PURCHASE_SETTLED,
 	WORKFLOW_DRAFT,
 	WORKFLOW_ENDORSED,
 	WORKFLOW_ISSUED,
@@ -89,6 +91,13 @@ def _purpose_for_transition(
 			return "Receive"
 		if f == WORKFLOW_REGISTERED and t == WORKFLOW_SENT_TO_BANK:
 			return "Under Collection"
+		if f == WORKFLOW_REGISTERED and t == WORKFLOW_ASSIGNED_DEBT_PURCHASE:
+			return "Debt Purchase Assignment"
+		if f == WORKFLOW_ASSIGNED_DEBT_PURCHASE and t == WORKFLOW_DEBT_PURCHASE_SETTLED:
+			return "Debt Purchase Settlement"
+		if f == WORKFLOW_ASSIGNED_DEBT_PURCHASE and t == WORKFLOW_BOUNCED:
+			# Canonical bounce tag matches Sent to Bank → Bounced (legacy "Bounce" not used for new rows).
+			return "Returned"
 		if t == WORKFLOW_CLEARED and f in (
 			WORKFLOW_REGISTERED,
 			WORKFLOW_SENT_TO_BANK,

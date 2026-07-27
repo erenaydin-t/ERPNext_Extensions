@@ -271,9 +271,19 @@
   "modified": "2026-05-09 00:00:00.000000",
   "name": "PM Post",
   "workflow_action_name": "PM Post"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "modified": "2026-07-26 00:00:00.000000",
+  "name": "Assign for Debt Purchase",
+  "workflow_action_name": "Assign for Debt Purchase"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "modified": "2026-07-26 00:00:00.000000",
+  "name": "Return Debt Purchase Cheque",
+  "workflow_action_name": "Return Debt Purchase Cheque"
  }
 ]
-
-
-
-

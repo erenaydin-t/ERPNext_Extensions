@@ -8,7 +8,6 @@ import frappe
 
 from erpnext_extensions.iran_accounting.account_explorer import api
 from erpnext_extensions.iran_accounting.account_explorer.constants import VIRTUAL_DIMENSION_UNSPECIFIED_PREFIX
-from erpnext_extensions.iran_accounting.account_explorer.dimension_discovery import not_specified_label
 from erpnext_extensions.iran_accounting.tests.test_account_explorer_fixtures import (
 	build_payload,
 	current_fiscal_year,
@@ -56,6 +55,12 @@ class TestAccountExplorerDimensionSummary(unittest.TestCase):
 		self.assertEqual(result.get("dimension_type"), "cost_center")
 
 	def test_not_specified_row_label(self):
+		from erpnext_extensions.iran_accounting.account_explorer.constants import (
+			NOT_SPECIFIED_DISPLAY_CODE,
+			NOT_SPECIFIED_LABEL,
+			NOT_SPECIFIED_LABEL_FA,
+		)
+
 		payload = build_payload(
 			self.company,
 			self.fiscal_year,
@@ -67,14 +72,40 @@ class TestAccountExplorerDimensionSummary(unittest.TestCase):
 			},
 			document={"hide_zero_rows": 0},
 		)
-		result = api.get_dimension_summary(payload)
-		unspecified = [
-			row
-			for row in result["rows"]
-			if (row.get("row_key") or "").startswith(VIRTUAL_DIMENSION_UNSPECIFIED_PREFIX)
-		]
-		for row in unspecified:
-			self.assertEqual(row["display_title"], not_specified_label())
+		prev_lang = frappe.local.lang
+		try:
+			frappe.local.lang = "en"
+			result = api.get_dimension_summary(payload)
+			unspecified = [
+				row
+				for row in result["rows"]
+				if (row.get("row_key") or "").startswith(VIRTUAL_DIMENSION_UNSPECIFIED_PREFIX)
+			]
+			self.assertTrue(unspecified, "expected unassigned dimension residual row")
+			for row in unspecified:
+				self.assertEqual(row["display_code"], NOT_SPECIFIED_DISPLAY_CODE)
+				self.assertEqual(row["display_title"], NOT_SPECIFIED_LABEL)
+				self.assertEqual(row["display_title"], "Unassigned")
+				self.assertNotEqual(row["display_code"], "__NOT_SPECIFIED__")
+				self.assertNotIn("__NOT_SPECIFIED__", str(row.get("display_code") or ""))
+				self.assertTrue(row.get("is_virtual_group"))
+				self.assertFalse(row.get("drill_down_enabled"))
+
+			frappe.local.lang = "fa"
+			result_fa = api.get_dimension_summary(payload)
+			unspecified_fa = [
+				row
+				for row in result_fa["rows"]
+				if (row.get("row_key") or "").startswith(VIRTUAL_DIMENSION_UNSPECIFIED_PREFIX)
+			]
+			for row in unspecified_fa:
+				self.assertEqual(row["display_code"], NOT_SPECIFIED_DISPLAY_CODE)
+				self.assertEqual(row["display_title"], NOT_SPECIFIED_LABEL_FA)
+				self.assertEqual(row["display_title"], "تخصیص نیافته")
+				self.assertTrue(row.get("is_virtual_group"))
+				self.assertFalse(row.get("drill_down_enabled"))
+		finally:
+			frappe.local.lang = prev_lang
 
 	def test_dimension_pagination(self):
 		payload = build_payload(

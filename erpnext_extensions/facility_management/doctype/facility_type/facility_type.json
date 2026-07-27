@@ -12,6 +12,7 @@
  "field_order": [
   "facility_type_name",
   "description",
+  "is_debt_purchase",
   "disabled"
  ],
  "fields": [
@@ -28,6 +29,13 @@
    "fieldname": "description",
    "fieldtype": "Small Text",
    "label": "Description"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_debt_purchase",
+   "fieldtype": "Check",
+   "label": "Is Debt Purchase",
+   "description": "When checked, facilities of this type may be settled via Debt Purchase Cheque on Facility Repayment. Does not force cheque repayment."
   },
   {
    "default": "0",

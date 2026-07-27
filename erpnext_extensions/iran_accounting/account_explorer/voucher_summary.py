@@ -14,6 +14,7 @@ from erpnext_extensions.iran_accounting.account_explorer.gle_filters import (
 	collect_scope_warnings,
 )
 from erpnext_extensions.iran_accounting.account_explorer.pagination import sort_rows
+from erpnext_extensions.iran_accounting.account_explorer.party_sources import resolve_party_display_name
 from erpnext_extensions.iran_accounting.account_explorer.schemas import AccountExplorerQuerySpec
 from erpnext_extensions.iran_accounting.account_explorer.voucher_metadata import enrich_voucher_rows
 
@@ -167,6 +168,7 @@ def _enrich_party_fields(spec: AccountExplorerQuerySpec, rows: list[dict], *, sc
 
 
 def _party_name(party_type: str, party: str) -> str:
+	"""Resolve party display name without querying missing columns."""
 	if not party_type or not party:
 		return ""
 	cache_key = f"{party_type}:{party}"
@@ -177,16 +179,6 @@ def _party_name(party_type: str, party: str) -> str:
 	cached = cache.get(cache_key)
 	if cached is not None:
 		return cached
-	field_map = {
-		"Customer": "customer_name",
-		"Supplier": "supplier_name",
-		"Employee": "employee_name",
-		"Shareholder": "shareholder_name",
-	}
-	fieldname = field_map.get(party_type)
-	if not fieldname:
-		cache[cache_key] = party
-		return party
-	value = frappe.db.get_value(party_type, party, fieldname) or party
+	value = resolve_party_display_name(party_type, party) or party
 	cache[cache_key] = value
 	return value

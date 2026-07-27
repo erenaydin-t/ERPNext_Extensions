@@ -12,11 +12,15 @@ const REPAYMENT_ACCOUNTS_AND_DIMENSIONS = [
 	"bank_account_dimension",
 ];
 
+const METHOD_BANK = "Bank Account";
+const METHOD_DP = "Debt Purchase Cheque";
+
 frappe.ui.form.on("Facility Repayment", {
 	onload(frm) {
 		if (frm.doc.docstatus === 0) {
 			erpnext_extensions.facility_management.defaults.init_form(frm);
 		}
+		setup_debt_purchase_cheque_query(frm);
 	},
 	refresh(frm) {
 		recalculate_total_payment(frm);
@@ -24,6 +28,8 @@ frappe.ui.form.on("Facility Repayment", {
 			filters: { repayment_select: 1 },
 		}));
 		sync_repayment_accounts_dimensions_read_only(frm);
+		toggle_repayment_method_fields(frm);
+		setup_debt_purchase_cheque_query(frm);
 		if (frm.doc.docstatus === 0) {
 			erpnext_extensions.facility_management.defaults.init_form(frm);
 		}
@@ -35,8 +41,18 @@ frappe.ui.form.on("Facility Repayment", {
 			);
 		}
 	},
+	repayment_method(frm) {
+		const method = (frm.doc.repayment_method || METHOD_BANK).trim() || METHOD_BANK;
+		if (method === METHOD_BANK) {
+			frm.set_value("post_dated_cheque", null);
+		} else if (method === METHOD_DP) {
+			frm.set_value("bank_account", null);
+		}
+		toggle_repayment_method_fields(frm);
+	},
 	facility(frm) {
 		recalculate_total_payment(frm);
+		setup_debt_purchase_cheque_query(frm);
 	},
 	principal_amount(frm) {
 		recalculate_total_payment(frm);
@@ -48,6 +64,27 @@ frappe.ui.form.on("Facility Repayment", {
 		recalculate_total_payment(frm);
 	},
 });
+
+function setup_debt_purchase_cheque_query(frm) {
+	frm.set_query("post_dated_cheque", () => ({
+		query:
+			"erpnext_extensions.facility_management.facility_debt_purchase.debt_purchase_cheque_query",
+		filters: {
+			company: frm.doc.company || undefined,
+		},
+	}));
+}
+
+function toggle_repayment_method_fields(frm) {
+	const method = (frm.doc.repayment_method || METHOD_BANK).trim() || METHOD_BANK;
+	const is_bank = method === METHOD_BANK;
+	const is_dp = method === METHOD_DP;
+
+	frm.toggle_display("bank_account", is_bank);
+	frm.toggle_reqd("bank_account", is_bank && frm.doc.docstatus === 0);
+	frm.toggle_display("post_dated_cheque", is_dp);
+	frm.toggle_reqd("post_dated_cheque", is_dp && frm.doc.docstatus === 0);
+}
 
 function sync_repayment_accounts_dimensions_read_only(frm) {
 	const read_only = frm.doc.docstatus !== 0 ? 1 : 0;

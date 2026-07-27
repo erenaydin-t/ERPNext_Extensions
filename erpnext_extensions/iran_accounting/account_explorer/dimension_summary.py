@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from erpnext_extensions.iran_accounting.account_explorer.constants import (
 	DIMENSION_SORTABLE_FIELDS,
+	NOT_SPECIFIED_DISPLAY_CODE,
 	VIRTUAL_DIMENSION_UNSPECIFIED_PREFIX,
 )
 from erpnext_extensions.iran_accounting.account_explorer.dimension_discovery import (
@@ -33,7 +34,7 @@ def build_dimension_summary(spec: AccountExplorerQuerySpec) -> dict:
 		opening_debit, opening_credit = opening.get(value, (0.0, 0.0))
 		period_debit, period_credit = period.get(value, (0.0, 0.0))
 		is_unspecified = value == ""
-		display_code = "__NOT_SPECIFIED__" if is_unspecified else value
+		display_code = NOT_SPECIFIED_DISPLAY_CODE if is_unspecified else value
 		display_title = not_specified_label() if is_unspecified else get_dimension_display_title(
 			dimension_type, value
 		)

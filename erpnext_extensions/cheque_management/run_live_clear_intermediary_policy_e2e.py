@@ -139,7 +139,7 @@ def run():
 	tr = _transition(pdc_e, WORKFLOW_SENT_TO_BANK, sent_to_bank_date=t0)
 	rep = _je_report(tr["je"], ctx)
 	results.append({"test": "E_send_to_bank", "transition": tr, "report": rep})
-	errors.extend(_assert_party_policy(rep, "E", expect_both=True, expect_clear_split=False))
+	errors.extend(_assert_party_policy(rep, "E", expect_no_party=True))
 
 	# Test F — Bounce regression
 	pdc_f = _new_receivable_pdc(ctx, _unique_cheque_no("CLR-F-BOU"))
@@ -148,7 +148,7 @@ def run():
 	tr = _transition(pdc_f, WORKFLOW_BOUNCED, bounced_date=t0)
 	rep = _je_report(tr["je"], ctx)
 	results.append({"test": "F_bounce", "transition": tr, "report": rep})
-	errors.extend(_assert_party_policy(rep, "F", expect_both=True, expect_clear_split=False))
+	errors.extend(_assert_party_policy(rep, "F", expect_no_party=True))
 
 	# Test G — Endorsement unchanged (smoke)
 	holder = frappe.db.get_value(

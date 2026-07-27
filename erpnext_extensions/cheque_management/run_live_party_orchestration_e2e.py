@@ -1,4 +1,4 @@
-"""Live orchestration E2E: party on both JE sides (development.localhost).
+"""Live orchestration E2E: Party only on real AR/AP settlement rows (development.localhost).
 
 bench --site development.localhost execute erpnext_extensions.cheque_management.run_live_party_orchestration_e2e.run
 """
@@ -206,8 +206,16 @@ def _je_report(je_name: str | None, ctx: dict) -> dict:
 
 
 def _assert_party_policy(
-	report: dict, scenario: str, expect_both: bool, expect_clear_split: bool
+	report: dict,
+	scenario: str,
+	*,
+	expect_party_rows: int | None = None,
+	expect_no_party: bool = False,
+	# Backward-compatible aliases used by clear-intermediary live script.
+	expect_both: bool = False,
+	expect_clear_split: bool = False,
 ) -> list[str]:
+	"""Validate JE/GL party placement against the approved AR/AP-only contract."""
 	errors = []
 	rows = report.get("accounts") or []
 	bank_gl = report.get("bank_gl")
@@ -216,22 +224,43 @@ def _assert_party_policy(
 		return errors
 	if report.get("docstatus") != 1:
 		errors.append(f"{scenario}: JE not submitted (docstatus={report.get('docstatus')})")
-	if expect_clear_split and bank_gl:
+
+	def _has_party(r: dict) -> bool:
+		return bool(r.get("party_type") or r.get("party"))
+
+	# Map legacy flags onto the approved contract.
+	if expect_both:
+		expect_party_rows = len(rows)
+	if expect_clear_split:
+		expect_no_party = True
+
+	party_rows = [r for r in rows if _has_party(r)]
+	if expect_no_party:
 		for r in rows:
-			if r["account"] == bank_gl:
-				if r.get("party_type") or r.get("party"):
-					errors.append(f"{scenario}: bank line has party")
-			else:
-				if not r.get("party_type") or not r.get("party"):
-					errors.append(f"{scenario}: non-bank line missing party")
-	elif expect_both:
-		for r in rows:
-			if not r.get("party_type") or not r.get("party"):
-				errors.append(f"{scenario}: line missing party on account {r.get('account')}")
-	# GL mirrors party on rows that had party
+			if _has_party(r):
+				errors.append(f"{scenario}: unexpected party on account {r.get('account')}")
+	elif expect_party_rows is not None:
+		if len(party_rows) != expect_party_rows:
+			errors.append(
+				f"{scenario}: expected {expect_party_rows} party row(s), got {len(party_rows)}"
+			)
+
 	for gle in report.get("gl") or []:
-		if gle.account == bank_gl and (gle.party_type or gle.party):
+		if bank_gl and gle.account == bank_gl and (gle.party_type or gle.party):
 			errors.append(f"{scenario}: GL bank line has party")
+		matching = [r for r in rows if r["account"] == gle.account]
+		if not matching:
+			continue
+		ok = any(
+			(r.get("party_type") or "") == (gle.party_type or "")
+			and (r.get("party") or "") == (gle.party or "")
+			for r in matching
+		)
+		if not ok:
+			errors.append(
+				f"{scenario}: GL party mismatch for {gle.account}: "
+				f"GL=({gle.party_type},{gle.party})"
+			)
 	return errors
 
 
@@ -241,16 +270,14 @@ def run():
 	errors = []
 	t0 = _today()
 
-	# 1 Receivable Register
+	# 1 Receivable Register — Party only on AR
 	pdc_r1 = _new_receivable_pdc(ctx, _unique_cheque_no("LIVE-R-REG"))
 	tr = _transition(pdc_r1, WORKFLOW_REGISTERED, received_date=t0)
 	rep = _je_report(tr["je"], ctx)
 	results.append({"scenario": "1_receivable_register", "pdc": pdc_r1.name, "transition": tr, "report": rep})
-	errors.extend(
-		_assert_party_policy(rep, "1_receivable_register", expect_both=True, expect_clear_split=False)
-	)
+	errors.extend(_assert_party_policy(rep, "1_receivable_register", expect_party_rows=1))
 
-	# 2 Receivable Send To Bank
+	# 2 Receivable Send To Bank — no Party
 	pdc_r2 = _new_receivable_pdc(ctx, _unique_cheque_no("LIVE-R-STB"))
 	_transition(pdc_r2, WORKFLOW_REGISTERED, received_date=t0)
 	tr = _transition(pdc_r2, WORKFLOW_SENT_TO_BANK, sent_to_bank_date=t0)
@@ -258,44 +285,40 @@ def run():
 	results.append(
 		{"scenario": "2_receivable_send_to_bank", "pdc": pdc_r2.name, "transition": tr, "report": rep}
 	)
-	errors.extend(
-		_assert_party_policy(rep, "2_receivable_send_to_bank", expect_both=True, expect_clear_split=False)
-	)
+	errors.extend(_assert_party_policy(rep, "2_receivable_send_to_bank", expect_no_party=True))
 
-	# 3 Receivable Bounce
+	# 3 Receivable Bounce — no Party
 	pdc_r3 = _new_receivable_pdc(ctx, _unique_cheque_no("LIVE-R-BOU"))
 	_transition(pdc_r3, WORKFLOW_REGISTERED, received_date=t0)
 	_transition(pdc_r3, WORKFLOW_SENT_TO_BANK, sent_to_bank_date=t0)
 	tr = _transition(pdc_r3, WORKFLOW_BOUNCED, bounced_date=t0)
 	rep = _je_report(tr["je"], ctx)
 	results.append({"scenario": "3_receivable_bounce", "pdc": pdc_r3.name, "transition": tr, "report": rep})
-	errors.extend(
-		_assert_party_policy(rep, "3_receivable_bounce", expect_both=True, expect_clear_split=False)
-	)
+	errors.extend(_assert_party_policy(rep, "3_receivable_bounce", expect_no_party=True))
 
-	# 4 Receivable Clear (Registered -> Cleared direct)
+	# 4 Receivable Clear (Registered -> Cleared direct) — no Party
 	pdc_r4 = _new_receivable_pdc(ctx, _unique_cheque_no("LIVE-R-CLR"))
 	_transition(pdc_r4, WORKFLOW_REGISTERED, received_date=t0)
 	tr = _transition(pdc_r4, WORKFLOW_CLEARED, cleared_date=t0)
 	rep = _je_report(tr["je"], ctx)
 	results.append({"scenario": "4_receivable_clear", "pdc": pdc_r4.name, "transition": tr, "report": rep})
-	errors.extend(_assert_party_policy(rep, "4_receivable_clear", expect_both=False, expect_clear_split=True))
+	errors.extend(_assert_party_policy(rep, "4_receivable_clear", expect_no_party=True))
 
-	# 5 Payable Register
+	# 5 Payable Register — Party only on AP
 	pdc_p5 = _new_payable_pdc(ctx, _unique_cheque_no("LIVE-P-REG"))
 	tr = _transition(pdc_p5, WORKFLOW_REGISTERED, received_date=t0)
 	rep = _je_report(tr["je"], ctx)
 	results.append({"scenario": "5_payable_register", "pdc": pdc_p5.name, "transition": tr, "report": rep})
-	errors.extend(_assert_party_policy(rep, "5_payable_register", expect_both=True, expect_clear_split=False))
+	errors.extend(_assert_party_policy(rep, "5_payable_register", expect_party_rows=1))
 
-	# 6 Payable Clear
+	# 6 Payable Clear — no Party
 	pdc_p6 = _new_payable_pdc(ctx, _unique_cheque_no("LIVE-P-CLR"))
 	_transition(pdc_p6, WORKFLOW_REGISTERED, received_date=t0)
 	_transition(pdc_p6, WORKFLOW_ISSUED, handover_date=t0)
 	tr = _transition(pdc_p6, WORKFLOW_CLEARED, cleared_date=t0)
 	rep = _je_report(tr["je"], ctx)
 	results.append({"scenario": "6_payable_clear", "pdc": pdc_p6.name, "transition": tr, "report": rep})
-	errors.extend(_assert_party_policy(rep, "6_payable_clear", expect_both=False, expect_clear_split=True))
+	errors.extend(_assert_party_policy(rep, "6_payable_clear", expect_no_party=True))
 
 	# 8 Endorsement unchanged (holder AR debit; temporarily clear endorsement GL setting)
 	holder = frappe.db.get_value(

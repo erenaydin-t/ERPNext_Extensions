@@ -47,7 +47,61 @@ def get_party_identifier(party_type: str, party: str, identifier_field: str | No
 	return frappe.db.get_value(party_type, party, identifier_field)
 
 
+# Preferred display fields for native ERPNext party doctypes.
+PARTY_DISPLAY_FIELD_MAP = {
+	"Customer": "customer_name",
+	"Supplier": "supplier_name",
+	"Employee": "employee_name",
+	"Shareholder": "title",
+}
+
+_GENERIC_PARTY_DISPLAY_CANDIDATES = (
+	"title",
+	"customer_name",
+	"supplier_name",
+	"employee_name",
+	"party_name",
+)
+
+
+def _safe_party_field_value(party_type: str, party: str, fieldname: str) -> str | None:
+	"""Return field value only when the column exists — never SELECT a missing field."""
+	if not party_type or not party or not fieldname:
+		return None
+	if not frappe.db.exists("DocType", party_type):
+		return None
+	meta = frappe.get_meta(party_type)
+	if not meta.has_field(fieldname):
+		return None
+	return frappe.db.get_value(party_type, party, fieldname)
+
+
+def resolve_party_display_name(party_type: str, party: str) -> str:
+	"""Safe party display name for Voucher Summary / GL / Print.
+
+	Never queries a non-existent column. Falls back to party id.
+	"""
+	if not party_type or not party:
+		return ""
+	preferred = PARTY_DISPLAY_FIELD_MAP.get(party_type)
+	if preferred:
+		value = _safe_party_field_value(party_type, party, preferred)
+		if value:
+			return value
+		return party
+	if not frappe.db.exists("DocType", party_type):
+		return party
+	meta = frappe.get_meta(party_type)
+	for candidate in _GENERIC_PARTY_DISPLAY_CANDIDATES:
+		if meta.has_field(candidate):
+			value = frappe.db.get_value(party_type, party, candidate)
+			if value:
+				return value
+	return party
+
+
 def get_party_display_title(party_type: str, party: str) -> str:
+	"""Party-axis display title (respects Customer/Supplier naming settings)."""
 	if party_type in ("Customer", "Supplier"):
 		if party_type == "Customer":
 			naming = frappe.get_single_value("Selling Settings", "cust_master_name")
@@ -56,12 +110,10 @@ def get_party_display_title(party_type: str, party: str) -> str:
 			naming = frappe.db.get_single_value("Buying Settings", "supp_master_name")
 			name_field = "supplier_name"
 		if naming == "Naming Series":
-			return frappe.db.get_value(party_type, party, name_field) or party
+			return _safe_party_field_value(party_type, party, name_field) or party
 		return party
-	if party_type == "Employee":
-		return frappe.db.get_value("Employee", party, "employee_name") or party
-	if party_type == "Shareholder":
-		return frappe.db.get_value("Shareholder", party, "title") or party
+	if party_type in ("Employee", "Shareholder") or party_type not in NATIVE_PARTY_TYPES:
+		return resolve_party_display_name(party_type, party)
 	return party
 
 
