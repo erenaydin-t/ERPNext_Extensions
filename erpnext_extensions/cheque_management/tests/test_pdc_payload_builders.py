@@ -100,7 +100,8 @@ class TestPDCJournalEntryPayloadBuilder(unittest.TestCase):
 		self.assertEqual(cr["credit_in_account_currency"], 1000.0)
 		self.assertEqual(cr.get("party_type"), "Customer")
 		self.assertEqual(cr.get("party"), "CUST-1")
-		self.assertEqual(dr.get("party"), "CUST-1")
+		self.assertNotIn("party_type", dr)
+		self.assertNotIn("party", dr)
 
 	def test_receivable_draft_to_registered_splits_party_credit_per_si_when_slices_provided(self) -> None:
 		doc = _doc()
@@ -176,7 +177,7 @@ class TestPDCJournalEntryPayloadBuilder(unittest.TestCase):
 		self.assertEqual(dr["account"], "ACC-CLEAR-SET")
 		self.assertEqual(cr["account"], "ACC-CIH-DOC")
 
-	def test_receivable_sent_bank_to_bounced_party_on_both_rows(self) -> None:
+	def test_receivable_sent_bank_to_bounced_no_party_on_either_row(self) -> None:
 		doc = _doc()
 		with (
 			patch.object(pdc, "_get_pdc_settings_for_company", return_value=dict(_SETTINGS_BASE)),
@@ -188,9 +189,9 @@ class TestPDCJournalEntryPayloadBuilder(unittest.TestCase):
 		assert je is not None
 		dr, cr = je["accounts"]
 		self.assertEqual(dr["account"], "ACC-PROTEST-SET")
-		self.assertEqual(dr.get("party"), "CUST-1")
+		self.assertNotIn("party", dr)
 		self.assertEqual(cr["account"], "ACC-CLEAR-SET")
-		self.assertEqual(cr.get("party"), "CUST-1")
+		self.assertNotIn("party", cr)
 
 	def test_receivable_sent_bank_to_bounced_without_protested_uses_cheques_in_hand(self) -> None:
 		doc = _doc()
@@ -207,7 +208,7 @@ class TestPDCJournalEntryPayloadBuilder(unittest.TestCase):
 		dr = je["accounts"][0]
 		# Resolver prefers PDC Settings cheques-in-hand over ``account_paid_to``.
 		self.assertEqual(dr["account"], "ACC-CIH-SET")
-		self.assertEqual(dr.get("party"), "CUST-1")
+		self.assertNotIn("party", dr)
 
 	def test_payable_draft_to_registered(self) -> None:
 		doc = _doc(cheque_direction=CHEQUE_DIRECTION_PAYABLE, account_paid_from=None)
@@ -223,8 +224,10 @@ class TestPDCJournalEntryPayloadBuilder(unittest.TestCase):
 		dr, cr = je["accounts"]
 		self.assertEqual(dr["account"], "ACC-CIH-DOC")
 		self.assertEqual(dr.get("party_type"), "Customer")
+		self.assertEqual(dr.get("party"), "CUST-1")
 		self.assertEqual(cr["account"], "ACC-PAY-POOL-SET")
-		self.assertEqual(cr.get("party"), "CUST-1")
+		self.assertNotIn("party", cr)
+		self.assertNotIn("party_type", cr)
 
 	def test_advance_mode_payable_po_recognition_posts_on_register_and_sets_marker(self) -> None:
 		doc = _doc(
@@ -407,7 +410,7 @@ class TestPDCJournalEntryPayloadBuilder(unittest.TestCase):
 		self.assertEqual(dr["account"], "ACC-BANK-GL")
 		self.assertEqual(cr["account"], "ACC-CIH-DOC")
 		self.assertNotIn("party_type", dr)
-		self.assertEqual(cr.get("party"), "CUST-1")
+		self.assertNotIn("party", cr)
 		self.assertIn(PDC_JE_REMARK_CLEAR_RECEIVABLE_REGISTERED, je["remarks"])
 
 	def test_returns_none_when_clearing_missing_for_send_to_bank(self) -> None:
@@ -468,7 +471,7 @@ class TestPDCJournalEntryPayloadBuilder(unittest.TestCase):
 		self.assertEqual(je2["voucher_type"], "Bank Entry")
 		self.assertEqual(je2["accounts"][1]["account"], "ACC-CLEAR-SET")
 
-	def test_payable_issued_to_cleared_journal_dr_pool_cr_bank_party_on_pool_only(self) -> None:
+	def test_payable_issued_to_cleared_journal_dr_pool_cr_bank_no_party(self) -> None:
 		doc = _doc(cheque_direction=CHEQUE_DIRECTION_PAYABLE, account_paid_from=None)
 		with (
 			patch.object(pdc, "_get_pdc_settings_for_company", return_value=dict(_SETTINGS_BASE)),
@@ -484,7 +487,8 @@ class TestPDCJournalEntryPayloadBuilder(unittest.TestCase):
 		self.assertEqual(float(dr.get("debit_in_account_currency") or 0), 1000.0)
 		self.assertEqual(cr["account"], "ACC-BANK-GL")
 		self.assertEqual(float(cr.get("credit_in_account_currency") or 0), 1000.0)
-		self.assertEqual(dr.get("party"), "CUST-1")
+		self.assertNotIn("party", dr)
+		self.assertNotIn("party_type", dr)
 		self.assertNotIn("party_type", cr)
 		self.assertEqual(je["remarks"], f"{PDC_JE_REMARK_CLEAR_PAYABLE_CHEQUE} — CHK-9")
 
@@ -588,8 +592,8 @@ class TestPDCClearingBankLedgerValidation(unittest.TestCase):
 			with self.assertRaises(ValidationError):
 				build_pdc_journal_entry_data(doc, WORKFLOW_ISSUED, WORKFLOW_CLEARED, POSTING)
 
-	def test_receivable_clear_allows_receivable_intermediary_account(self) -> None:
-		"""Cheques in Clearing may be account type Receivable; party applied on credit line."""
+	def test_receivable_clear_allows_receivable_intermediary_account_without_party(self) -> None:
+		"""Clearing account may be typed Receivable in COA; Party must still stay empty on clear."""
 		doc = _doc()
 		settings = dict(_SETTINGS_BASE)
 		settings["default_cheques_in_clearing_account"] = "ACC-CLEAR-REC"
@@ -615,7 +619,8 @@ class TestPDCClearingBankLedgerValidation(unittest.TestCase):
 		cr = [r for r in je["accounts"] if r.get("credit_in_account_currency")][0]
 		dr = [r for r in je["accounts"] if r.get("debit_in_account_currency")][0]
 		self.assertEqual(cr["account"], "ACC-CLEAR-REC")
-		self.assertEqual(cr.get("party_type"), "Customer")
+		self.assertNotIn("party_type", cr)
+		self.assertNotIn("party", cr)
 		self.assertNotIn("party_type", dr)
 
 	def test_receivable_clear_rejects_bank_gl_receivable_account_type(self) -> None:
@@ -664,5 +669,6 @@ class TestPDCClearingBankLedgerValidation(unittest.TestCase):
 		dr = [r for r in je["accounts"] if r.get("debit_in_account_currency")][0]
 		cr = [r for r in je["accounts"] if r.get("credit_in_account_currency")][0]
 		self.assertEqual(dr["account"], "ACC-POOL-PAY")
-		self.assertEqual(dr.get("party_type"), "Supplier")
+		self.assertNotIn("party_type", dr)
+		self.assertNotIn("party", dr)
 		self.assertNotIn("party_type", cr)

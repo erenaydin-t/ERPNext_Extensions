@@ -17,6 +17,14 @@ from erpnext_extensions.facility_management.facility_accounting import (
 	preview_repayment_journal_entry as build_repayment_je_preview,
 )
 from erpnext_extensions.facility_management.facility_balances import get_facility_balance_row
+from erpnext_extensions.facility_management.facility_debt_purchase import (
+	REPAYMENT_METHOD_BANK,
+	is_debt_purchase_cheque_method,
+	normalize_repayment_method,
+	settle_debt_purchase_on_submit,
+	validate_bank_account_method_fields,
+	validate_debt_purchase_cheque_repayment,
+)
 from erpnext_extensions.facility_management.facility_monetary import (
 	FACILITY_REPAYMENT_CURRENCY_FIELDS,
 	parse_facility_amount,
@@ -76,16 +84,30 @@ class FacilityRepayment(Document):
 		for fn in _REPAYMENT_ACCOUNT_FIELDS:
 			if self.get(fn):
 				continue
+			# Do not auto-fill bank_account for Debt Purchase Cheque method.
+			if fn == "bank_account" and is_debt_purchase_cheque_method(self):
+				continue
 			val = resolve_account(fn, repayment=self, facility=facility, settings=settings, required=False)
 			if val:
 				self.set(fn, val)
 
+	def _normalize_repayment_method_fields(self) -> None:
+		method = normalize_repayment_method(self.repayment_method)
+		self.repayment_method = method
+		if method == REPAYMENT_METHOD_BANK:
+			self.post_dated_cheque = None
+		else:
+			# Stale bank must not be used as settlement credit; clear for DP method.
+			self.bank_account = None
+
 	def before_save(self):
 		self._capture_exact_currency()
+		self._normalize_repayment_method_fields()
 		self._recalculate_total_payment()
 
 	def validate(self):
 		self._capture_exact_currency()
+		self._normalize_repayment_method_fields()
 		self._recalculate_total_payment()
 		if flt(self.total_payment_amount) <= 0:
 			frappe.throw(_("Enter at least one of principal, profit, or penalty amount."))
@@ -99,14 +121,19 @@ class FacilityRepayment(Document):
 			frappe.throw(_("Profit amount exceeds remaining profit."))
 		settings = get_facility_settings_doc(facility.company)
 		self._fill_empty_repayment_accounts(facility, settings)
-		validate_repayment_je_prerequisites(
-			self,
-			facility,
-			settings,
-			principal=self.principal_amount,
-			profit=self.profit_amount,
-			penalty=self.penalty_amount,
-		)
+
+		if is_debt_purchase_cheque_method(self):
+			validate_debt_purchase_cheque_repayment(self, facility=facility)
+		else:
+			validate_bank_account_method_fields(self)
+			validate_repayment_je_prerequisites(
+				self,
+				facility,
+				settings,
+				principal=self.principal_amount,
+				profit=self.profit_amount,
+				penalty=self.penalty_amount,
+			)
 
 	def after_insert(self):
 		persist_exact_currency_fields("Facility Repayment", self.name, self._exact_persist_fields())
@@ -119,10 +146,56 @@ class FacilityRepayment(Document):
 		persist_exact_currency_fields("Facility Repayment", self.name, self._exact_persist_fields())
 		je = create_and_submit_repayment_je(self)
 		self.db_set("journal_entry", je, update_modified=False)
+		if is_debt_purchase_cheque_method(self):
+			settle_debt_purchase_on_submit(self, je)
 		refresh_facility_paid_fields(self.facility)
 
 	def on_cancel(self):
-		cancel_journal_entry(self.journal_entry)
+		# Bank Account: preserve existing cancel order exactly.
+		# Debt Purchase Cheque fail-safe order:
+		#   1) lock + revalidate PDC is Settled by this repayment
+		#   2) cancel settlement JE
+		#   3) only then remove Settlement journal ref, restore Assigned, clear links
+		# If JE cancel fails: PDC/links/refs must remain Settled (no partial rollback).
+		je_name = self.journal_entry
+		if is_debt_purchase_cheque_method(self):
+			from frappe.utils.synchronization import filelock
+
+			from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
+				WORKFLOW_DEBT_PURCHASE_SETTLED,
+				normalize_workflow_state_value,
+			)
+			from erpnext_extensions.facility_management.facility_debt_purchase import (
+				restore_pdc_after_debt_purchase_cancel,
+			)
+
+			pdc_name = (self.post_dated_cheque or "").strip()
+			lock_name = f"pdc_debt_purchase_settle_{pdc_name}"
+			with filelock(lock_name, timeout=120):
+				pdc = frappe.get_doc("Post Dated Cheque", pdc_name)
+				if normalize_workflow_state_value(pdc.workflow_state) != WORKFLOW_DEBT_PURCHASE_SETTLED:
+					frappe.throw(
+						_("Linked cheque is not in Debt Purchase Settled state."),
+						title=_("Debt Purchase Cancel"),
+					)
+				if (pdc.debt_purchase_repayment or "").strip() != self.name:
+					frappe.throw(
+						_("Cheque is not settled by this Facility Repayment."),
+						title=_("Debt Purchase Cancel"),
+					)
+				try:
+					cancel_journal_entry(je_name)
+				except Exception:
+					raise
+				self.db_set("journal_entry", None, update_modified=False)
+				restore_pdc_after_debt_purchase_cancel(pdc, self, settlement_je=je_name)
+			refresh_facility_paid_fields(self.facility)
+			return
+
+		try:
+			cancel_journal_entry(je_name)
+		except Exception:
+			raise
 		self.db_set("journal_entry", None, update_modified=False)
 		refresh_facility_paid_fields(self.facility)
 

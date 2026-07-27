@@ -15,6 +15,8 @@
   "facility_type",
   "company",
   "posting_date",
+  "repayment_method",
+  "post_dated_cheque",
   "column_break_main",
   "principal_amount",
   "profit_amount",
@@ -85,6 +87,25 @@
    "reqd": 1
   },
   {
+   "default": "Bank Account",
+   "fieldname": "repayment_method",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Repayment Method",
+   "options": "Bank Account\nDebt Purchase Cheque",
+   "reqd": 1
+  },
+  {
+   "fieldname": "post_dated_cheque",
+   "fieldtype": "Link",
+   "label": "Post Dated Cheque",
+   "options": "Post Dated Cheque",
+   "depends_on": "eval:doc.repayment_method=='Debt Purchase Cheque'",
+   "mandatory_depends_on": "eval:doc.repayment_method=='Debt Purchase Cheque'",
+   "description": "Receivable cheque in Assigned to Bank for Debt Purchase. Required for Debt Purchase Cheque method."
+  },
+  {
    "fieldname": "column_break_main",
    "fieldtype": "Column Break"
   },
@@ -125,7 +146,9 @@
    "fieldname": "bank_account",
    "fieldtype": "Link",
    "label": "Bank Account",
-   "options": "Account"
+   "options": "Account",
+   "depends_on": "eval:!doc.repayment_method || doc.repayment_method=='Bank Account'",
+   "mandatory_depends_on": "eval:!doc.repayment_method || doc.repayment_method=='Bank Account'"
   },
   {
    "fetch_from": "facility.loan_payable_account",

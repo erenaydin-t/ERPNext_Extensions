@@ -85,6 +85,8 @@
   "return_reason",
   "column_break_dates_outcome_col2",
   "handover_date",
+  "debt_purchase_facility",
+  "debt_purchase_repayment",
   "section_break_journal",
   "journal_references",
   "section_break_workflow_rollback",
@@ -470,7 +472,7 @@
    "label": "Cheque Status",
    "in_list_view": 1,
    "in_standard_filter": 1,
-   "options": "Draft\nRegistered\nIn Hand\nIn Clearing\nCleared\nBounced\nEndorsed\nReturned to Customer\nReplaced\nUnder Legal Action\nCancelled\nIssued\nReturned from Payee",
+   "options": "Draft\nRegistered\nIn Hand\nIn Clearing\nCleared\nBounced\nEndorsed\nReturned to Customer\nReplaced\nUnder Legal Action\nCancelled\nIssued\nReturned from Payee\nDebt Purchase In Collection\nDebt Purchase Settled",
    "default": "Draft",
    "read_only": 1,
    "allow_on_submit": 1,
@@ -611,6 +613,22 @@
    "description": "Reason for business return.",
    "mandatory_depends_on": "eval:doc.workflow_state===\"Returned\"",
    "allow_on_submit": 1
+  },
+  {
+   "fieldname": "debt_purchase_facility",
+   "fieldtype": "Link",
+   "label": "Debt Purchase Facility",
+   "options": "Facility",
+   "read_only": 1,
+   "description": "Set only when settled via Facility Repayment (Debt Purchase Cheque)."
+  },
+  {
+   "fieldname": "debt_purchase_repayment",
+   "fieldtype": "Link",
+   "label": "Debt Purchase Facility Repayment",
+   "options": "Facility Repayment",
+   "read_only": 1,
+   "description": "Set only when settled via Facility Repayment (Debt Purchase Cheque)."
   },
   {
    "fieldname": "section_break_journal",

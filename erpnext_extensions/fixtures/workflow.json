@@ -187,6 +187,38 @@
     "update_field": null,
     "update_value": null,
     "workflow_builder_id": "pdc-st-legal"
+   },
+   {
+    "allow_edit": "All",
+    "avoid_status_override": 0,
+    "doc_status": "1",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "parent": "PDC Workflow",
+    "parentfield": "states",
+    "parenttype": "Workflow",
+    "send_email": 0,
+    "state": "Assigned to Bank for Debt Purchase",
+    "update_field": null,
+    "update_value": null,
+    "workflow_builder_id": "pdc-st-assigned-to-bank-for"
+   },
+   {
+    "allow_edit": "All",
+    "avoid_status_override": 0,
+    "doc_status": "1",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "parent": "PDC Workflow",
+    "parentfield": "states",
+    "parenttype": "Workflow",
+    "send_email": 0,
+    "state": "Debt Purchase Settled",
+    "update_field": null,
+    "update_value": null,
+    "workflow_builder_id": "pdc-st-debt-purchase-settle"
    }
   ],
   "transitions": [
@@ -436,6 +468,32 @@
     "send_email_to_creator": 0,
     "state": "Under Legal Action",
     "workflow_builder_id": "pdc-tr-22"
+   },
+   {
+    "action": "Assign for Debt Purchase",
+    "allow_self_approval": 1,
+    "allowed": "All",
+    "condition": "doc.get('cheque_direction') == 'Receivable'",
+    "next_state": "Assigned to Bank for Debt Purchase",
+    "parent": "PDC Workflow",
+    "parentfield": "transitions",
+    "parenttype": "Workflow",
+    "send_email_to_creator": 0,
+    "state": "Registered",
+    "workflow_builder_id": "pdc-tr-dp-assign"
+   },
+   {
+    "action": "Return Debt Purchase Cheque",
+    "allow_self_approval": 1,
+    "allowed": "All",
+    "condition": "doc.get('cheque_direction') == 'Receivable'",
+    "next_state": "Returned",
+    "parent": "PDC Workflow",
+    "parentfield": "transitions",
+    "parenttype": "Workflow",
+    "send_email_to_creator": 0,
+    "state": "Assigned to Bank for Debt Purchase",
+    "workflow_builder_id": "pdc-tr-dp-return"
    }
   ],
   "workflow_data": "[]"

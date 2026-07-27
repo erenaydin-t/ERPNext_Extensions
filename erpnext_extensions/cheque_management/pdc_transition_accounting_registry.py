@@ -23,6 +23,7 @@ from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
 	CHEQUE_DIRECTION_PAYABLE,
 	CHEQUE_DIRECTION_RECEIVABLE,
 	PDC_ACCOUNTING_JOURNAL_ENTRY,
+	WORKFLOW_ASSIGNED_DEBT_PURCHASE,
 	WORKFLOW_BOUNCED,
 	WORKFLOW_CANCELLED,
 	WORKFLOW_CLEARED,
@@ -135,6 +136,22 @@ PDC_ACCOUNTING_TRANSITION_REGISTRY: Final[dict[tuple[str, str, str], PDCAccounti
 			PDC_ACCOUNTING_JOURNAL_ENTRY,
 			True,
 			"Dr endorsement/holder AR, Cr Cheques in Hand.",
+		),
+		_spec(
+			CHEQUE_DIRECTION_RECEIVABLE,
+			WORKFLOW_REGISTERED,
+			WORKFLOW_ASSIGNED_DEBT_PURCHASE,
+			PDC_ACCOUNTING_JOURNAL_ENTRY,
+			False,
+			"Dr Debt Purchase In Collection, Cr Cheques in Hand — internal reclass; no party.",
+		),
+		_spec(
+			CHEQUE_DIRECTION_RECEIVABLE,
+			WORKFLOW_ASSIGNED_DEBT_PURCHASE,
+			WORKFLOW_RETURNED,
+			PDC_ACCOUNTING_JOURNAL_ENTRY,
+			True,
+			"Dr Party, Cr Debt Purchase In Collection — reverse assignment position.",
 		),
 		# Payable: register / return / cancel / clear; clear uses JE (not Payment Entry — journal-centric architecture)
 		_spec(

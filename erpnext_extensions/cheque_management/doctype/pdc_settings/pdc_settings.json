@@ -17,6 +17,7 @@
   "section_break_accounts",
   "default_cheques_in_hand_account",
   "default_cheques_in_clearing_account",
+  "default_debt_purchase_in_collection_account",
   "column_break_payable",
   "default_payable_cheque_account",
   "default_protested_account",
@@ -27,6 +28,8 @@
   "section_break_je_descriptions",
   "je_remark_register_receivable_template",
   "je_remark_send_receivable_to_bank_template",
+  "je_remark_return_debt_purchase_receivable_template",
+  "je_remark_assign_receivable_debt_purchase_template",
   "je_remark_receivable_bounced_template",
   "je_remark_return_receivable_to_party_template",
   "je_remark_endorse_receivable_template",
@@ -78,6 +81,13 @@
    "label": "Default Cheques in Clearing Account",
    "options": "Account",
    "description": "Cheques under collection (in clearing), between hand and final bank settlement."
+  },
+  {
+   "fieldname": "default_debt_purchase_in_collection_account",
+   "fieldtype": "Link",
+   "label": "Default Debt Purchase In Collection Account",
+   "options": "Account",
+   "description": "Receivable cheques assigned to bank for debt purchase (خرید دین) — peer pool to Cheques in Clearing; not used for normal Sent to Bank / Cleared."
   },
   {
    "fieldname": "column_break_payable",
@@ -143,6 +153,20 @@
    "label": "JE Remark — Send Receivable to Bank",
    "default": "ارسال چک دریافتنی {cheque_no} به بانک",
    "description": "Default: Send receivable cheque to bank — {cheque_no}"
+  },
+  {
+   "fieldname": "je_remark_assign_receivable_debt_purchase_template",
+   "fieldtype": "Small Text",
+   "label": "JE Remark — Assign Receivable for Debt Purchase",
+   "default": "واگذاری چک دریافتنی {cheque_no} به بانک جهت خرید دین",
+   "description": "Default: Assign receivable cheque to bank for debt purchase — {cheque_no}"
+  },
+  {
+   "fieldname": "je_remark_return_debt_purchase_receivable_template",
+   "fieldtype": "Small Text",
+   "label": "JE Remark — Return Debt Purchase Receivable",
+   "default": "عودت چک واگذارشده خرید دین {cheque_no} به {party}",
+   "description": "Default: Return debt-purchase assigned cheque to party — {cheque_no}"
   },
   {
    "fieldname": "je_remark_receivable_bounced_template",

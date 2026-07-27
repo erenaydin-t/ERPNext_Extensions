@@ -73,6 +73,8 @@ WORKFLOW_ENDORSED: Final = "Endorsed"
 WORKFLOW_CANCELLED: Final = "Cancelled"
 WORKFLOW_REPLACED: Final = "Replaced"
 WORKFLOW_UNDER_LEGAL_ACTION: Final = "Under Legal Action"
+WORKFLOW_ASSIGNED_DEBT_PURCHASE: Final = "Assigned to Bank for Debt Purchase"
+WORKFLOW_DEBT_PURCHASE_SETTLED: Final = "Debt Purchase Settled"
 
 # All workflow states that appear in DocType options (order matches DocType for traceability)
 ALL_WORKFLOW_STATES: Final[tuple[str, ...]] = (
@@ -87,6 +89,8 @@ ALL_WORKFLOW_STATES: Final[tuple[str, ...]] = (
 	WORKFLOW_CANCELLED,
 	WORKFLOW_REPLACED,
 	WORKFLOW_UNDER_LEGAL_ACTION,
+	WORKFLOW_ASSIGNED_DEBT_PURCHASE,
+	WORKFLOW_DEBT_PURCHASE_SETTLED,
 )
 
 # --- Allowed transitions: from_state -> set of allowed to_state ---
@@ -122,6 +126,7 @@ RECEIVABLE_WORKFLOW_TRANSITIONS: Final[dict[str, frozenset[str]]] = {
 			WORKFLOW_ENDORSED,
 			WORKFLOW_REPLACED,
 			WORKFLOW_UNDER_LEGAL_ACTION,
+			WORKFLOW_ASSIGNED_DEBT_PURCHASE,
 		}
 	),
 	WORKFLOW_SENT_TO_BANK: frozenset({WORKFLOW_CLEARED, WORKFLOW_BOUNCED}),
@@ -129,6 +134,10 @@ RECEIVABLE_WORKFLOW_TRANSITIONS: Final[dict[str, frozenset[str]]] = {
 	WORKFLOW_RETURNED: frozenset({WORKFLOW_REPLACED}),
 	WORKFLOW_UNDER_LEGAL_ACTION: frozenset({WORKFLOW_CLEARED, WORKFLOW_RETURNED}),
 	WORKFLOW_ENDORSED: frozenset(),
+	# Returned is desk/workflow; Settled is Facility Repayment only (not in this set).
+	# Cleared from Assigned is explicitly forbidden (see PDC_VALIDATION_DEBT_PURCHASE_ASSIGNED_NO_CLEAR).
+	WORKFLOW_ASSIGNED_DEBT_PURCHASE: frozenset({WORKFLOW_RETURNED}),
+	WORKFLOW_DEBT_PURCHASE_SETTLED: frozenset(),
 }
 
 PAYABLE_WORKFLOW_TRANSITIONS: Final[dict[str, frozenset[str]]] = {
@@ -165,6 +174,12 @@ _RECEIVABLE_ACCOUNTING_DECISIONS: Final[dict[tuple[str, str], str]] = {
 	(WORKFLOW_REGISTERED, WORKFLOW_RETURNED): PDC_ACCOUNTING_JOURNAL_ENTRY,
 	# Registered → Endorsed = JE (endorsement / transfer)
 	(WORKFLOW_REGISTERED, WORKFLOW_ENDORSED): PDC_ACCOUNTING_JOURNAL_ENTRY,
+	# Registered → Assigned to Bank for Debt Purchase = JE (Dr DP in collection, Cr in hand)
+	(WORKFLOW_REGISTERED, WORKFLOW_ASSIGNED_DEBT_PURCHASE): PDC_ACCOUNTING_JOURNAL_ENTRY,
+	# Assigned DP → Returned = JE (Dr party AR, Cr DP in collection)
+	(WORKFLOW_ASSIGNED_DEBT_PURCHASE, WORKFLOW_RETURNED): PDC_ACCOUNTING_JOURNAL_ENTRY,
+	# Assigned DP → Settled: Facility Repayment owns the JE (PDC journal_reference only)
+	(WORKFLOW_ASSIGNED_DEBT_PURCHASE, WORKFLOW_DEBT_PURCHASE_SETTLED): PDC_ACCOUNTING_NO_DOCUMENT,
 	# Bounced → Returned = no business accounting document (workflow-only / customer follow-up)
 	(WORKFLOW_BOUNCED, WORKFLOW_RETURNED): PDC_ACCOUNTING_NO_DOCUMENT,
 	# Bounced → Replaced = JE (replacement cheque after bank bounce)
@@ -212,6 +227,19 @@ PDC_VALIDATION_ISSUED_PAYABLE_ONLY: Final = "Issued is only valid for Payable ch
 
 PDC_VALIDATION_SENT_TO_BANK_RECEIVABLE_ONLY: Final = "Sent to Bank is only valid for Receivable cheques."
 
+PDC_VALIDATION_DEBT_PURCHASE_RECEIVABLE_ONLY: Final = (
+	"Assigned to Bank for Debt Purchase and Debt Purchase Settled are only valid for Receivable cheques."
+)
+
+PDC_VALIDATION_DEBT_PURCHASE_ASSIGNED_NO_CLEAR: Final = (
+	"Cheques Assigned to Bank for Debt Purchase cannot be Cleared. "
+	"Use Debt Purchase Settled via Facility Repayment, or Return the cheque."
+)
+
+PDC_VALIDATION_DEBT_PURCHASE_SETTLED_FACILITY_ONLY: Final = (
+	"Debt Purchase Settled is only allowed via Facility Repayment (Debt Purchase Cheque method)."
+)
+
 PDC_VALIDATION_CLEARED_IS_TERMINAL: Final = (
 	"Cleared is a terminal Workflow State. Further changes to Workflow State are not allowed."
 )
@@ -224,10 +252,16 @@ PDC_VALIDATION_REPLACED_IS_TERMINAL: Final = (
 	"Replaced is a terminal Workflow State. Further changes to Workflow State are not allowed."
 )
 
+PDC_VALIDATION_DEBT_PURCHASE_SETTLED_IS_TERMINAL: Final = (
+	"Debt Purchase Settled is a terminal Workflow State. "
+	"Cancel the linked Facility Repayment to restore Assigned to Bank for Debt Purchase."
+)
+
 PDC_TERMINAL_WORKFLOW_STATE_ERRORS: Final[dict[str, str]] = {
 	WORKFLOW_CLEARED: PDC_VALIDATION_CLEARED_IS_TERMINAL,
 	WORKFLOW_CANCELLED: PDC_VALIDATION_CANCELLED_IS_TERMINAL,
 	WORKFLOW_REPLACED: PDC_VALIDATION_REPLACED_IS_TERMINAL,
+	WORKFLOW_DEBT_PURCHASE_SETTLED: PDC_VALIDATION_DEBT_PURCHASE_SETTLED_IS_TERMINAL,
 }
 
 PDC_TERMINAL_WORKFLOW_STATES: Final[frozenset[str]] = frozenset(PDC_TERMINAL_WORKFLOW_STATE_ERRORS.keys())
@@ -429,6 +463,8 @@ def get_pdc_workflow_transition_validation_error(
 	"""
 	if getattr(frappe.flags, "in_pdc_workflow_rollback", None):
 		return None
+	if getattr(frappe.flags, "in_debt_purchase_facility_settlement", None):
+		return None
 	curr = normalize_workflow_state_value(new_workflow_state_raw)
 	if curr not in ALL_WORKFLOW_STATES:
 		return f"Invalid Workflow State {curr!r}. Must be one of: " f"{', '.join(ALL_WORKFLOW_STATES)}."
@@ -450,6 +486,24 @@ def get_pdc_workflow_transition_validation_error(
 	):
 		return PDC_VALIDATION_ENDORSED_NO_BANK_CLEAR
 
+	# Debt Purchase Assigned → Cleared is explicitly forbidden.
+	if (
+		cheque_type == CHEQUE_DIRECTION_RECEIVABLE
+		and had_previous
+		and prev == WORKFLOW_ASSIGNED_DEBT_PURCHASE
+		and curr == WORKFLOW_CLEARED
+	):
+		return PDC_VALIDATION_DEBT_PURCHASE_ASSIGNED_NO_CLEAR
+
+	# Debt Purchase Settled only via Facility Repayment (flag bypasses this validator).
+	if (
+		cheque_type == CHEQUE_DIRECTION_RECEIVABLE
+		and had_previous
+		and prev == WORKFLOW_ASSIGNED_DEBT_PURCHASE
+		and curr == WORKFLOW_DEBT_PURCHASE_SETTLED
+	):
+		return PDC_VALIDATION_DEBT_PURCHASE_SETTLED_FACILITY_ONLY
+
 	# Bounced: Receivable only; previous must be Sent to Bank (or unchanged Bounced).
 	# Runs before ``cheque_type not in _TRANSITION_MAP`` so unset/invalid direction still rejects Bounced.
 	if curr == WORKFLOW_BOUNCED:
@@ -470,6 +524,10 @@ def get_pdc_workflow_transition_validation_error(
 	# Sent to Bank: Receivable only (before generic cheque_type gate).
 	if curr == WORKFLOW_SENT_TO_BANK and cheque_type == CHEQUE_DIRECTION_PAYABLE:
 		return PDC_VALIDATION_SENT_TO_BANK_RECEIVABLE_ONLY
+
+	# Debt Purchase states: Receivable only.
+	if curr in (WORKFLOW_ASSIGNED_DEBT_PURCHASE, WORKFLOW_DEBT_PURCHASE_SETTLED) and cheque_type == CHEQUE_DIRECTION_PAYABLE:
+		return PDC_VALIDATION_DEBT_PURCHASE_RECEIVABLE_ONLY
 
 	if cheque_type not in _TRANSITION_MAP:
 		return None
@@ -506,13 +564,19 @@ __all__ = [
 	"PDC_VALIDATION_ISSUED_PAYABLE_ONLY",
 	"PDC_VALIDATION_REPLACED_IS_TERMINAL",
 	"PDC_VALIDATION_SENT_TO_BANK_RECEIVABLE_ONLY",
+	"PDC_VALIDATION_DEBT_PURCHASE_RECEIVABLE_ONLY",
+	"PDC_VALIDATION_DEBT_PURCHASE_ASSIGNED_NO_CLEAR",
+	"PDC_VALIDATION_DEBT_PURCHASE_SETTLED_FACILITY_ONLY",
+	"PDC_VALIDATION_DEBT_PURCHASE_SETTLED_IS_TERMINAL",
 	"PDC_TERMINAL_WORKFLOW_STATE_ERRORS",
 	"PDC_TERMINAL_WORKFLOW_STATES",
 	"PAYABLE_WORKFLOW_TRANSITIONS",
 	"RECEIVABLE_WORKFLOW_TRANSITIONS",
+	"WORKFLOW_ASSIGNED_DEBT_PURCHASE",
 	"WORKFLOW_BOUNCED",
 	"WORKFLOW_CANCELLED",
 	"WORKFLOW_CLEARED",
+	"WORKFLOW_DEBT_PURCHASE_SETTLED",
 	"WORKFLOW_DRAFT",
 	"WORKFLOW_ENDORSED",
 	"WORKFLOW_ISSUED",

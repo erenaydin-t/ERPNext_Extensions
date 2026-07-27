@@ -166,11 +166,11 @@ def _validate_repayment_je_dimensions(je_name: str, facility, repayment) -> None
 					)
 				)
 		role = spec.get("role")
-		if role == "bank":
+		if role in ("bank", "debt_purchase_in_collection"):
 			forbidden = {dim_fn, "department", "bank_account_dimension", "cost_center"} - set(
 				(spec.get("dims") or {}).keys()
 			)
-			_assert_row_dims_empty(row, {f for f in forbidden if f}, label="Repayment JE bank row")
+			_assert_row_dims_empty(row, {f for f in forbidden if f}, label=f"Repayment JE {role} row")
 		elif role in ("loan", "loan_profit", "deferred_credit"):
 			forbidden = {"department", "bank_dimension", "bank_account_dimension", "cost_center"}
 			if dim_fn:
@@ -760,15 +760,43 @@ def build_repayment_je_plan(repayment, facility=None) -> list[dict[str, Any]]:
 		facility = frappe.get_doc("Facility", repayment.facility)
 	principal, profit, penalty = _repayment_amounts(repayment)
 	settings = get_facility_settings_doc(facility.company)
+	from erpnext_extensions.facility_management.facility_debt_purchase import (
+		REPAYMENT_METHOD_DEBT_PURCHASE,
+		is_debt_purchase_cheque_method,
+		normalize_repayment_method,
+		resolve_debt_purchase_in_collection_account,
+		validate_debt_purchase_cheque_repayment,
+	)
+
+	method = normalize_repayment_method(getattr(repayment, "repayment_method", None))
+	dp_ctx = None
+	if method == REPAYMENT_METHOD_DEBT_PURCHASE:
+		dp_ctx = validate_debt_purchase_cheque_repayment(repayment, facility=facility)
+	# Shared prerequisites (interest/deferred/cost center). Bank Account is only required for bank method
+	# via resolve_account(required=True) below / validate_repayment path for bank.
 	validate_repayment_je_prerequisites(
 		repayment, facility, settings, principal=principal, profit=profit, penalty=penalty
 	)
 	ctx = build_template_context(facility, repayment)
 	tpl = _repayment_row_templates(facility, repayment, settings, ctx)
 
-	bank_acc = resolve_account(
-		"bank_account", repayment=repayment, facility=facility, settings=settings, required=True
-	)
+	if is_debt_purchase_cheque_method(repayment):
+		# Settlement credit = debt_purchase_in_collection (not bank).
+		settlement_acc = dp_ctx["dpic_account"]
+		settlement_role = "debt_purchase_in_collection"
+		settlement_tpl_key = "bank"  # reuse bank row narration template family for settlement credit
+		settlement_label = "Debt Purchase In Collection"
+		# Cheque mode: credit amount is principal + profit only (penalty forbidden at validate).
+		settlement_total = principal + profit
+	else:
+		settlement_acc = resolve_account(
+			"bank_account", repayment=repayment, facility=facility, settings=settings, required=True
+		)
+		settlement_role = "bank"
+		settlement_tpl_key = "bank"
+		settlement_label = "Bank"
+		settlement_total = principal + profit + penalty
+
 	loan_acc = resolve_account(
 		"loan_payable_account",
 		repayment=repayment,
@@ -798,12 +826,13 @@ def build_repayment_je_plan(repayment, facility=None) -> list[dict[str, Any]]:
 		required=penalty > 0,
 	)
 
-	total = principal + profit + penalty
 	plan: list[dict[str, Any]] = []
 
 	def add(role, account, amount, debit, tpl_key, label):
 		if amount <= 0:
 			return
+		# Bank-row dimensions for settlement credit (bank or DPIC credit leg).
+		dim_role = "bank" if role in ("bank", "debt_purchase_in_collection") else role
 		plan.append(
 			{
 				"role": role,
@@ -812,13 +841,13 @@ def build_repayment_je_plan(repayment, facility=None) -> list[dict[str, Any]]:
 				"amount": amount,
 				"debit": debit,
 				"dims": repayment_je_row_dimensions(
-					role, facility.name, repayment=repayment, facility=facility, settings=settings
+					dim_role, facility.name, repayment=repayment, facility=facility, settings=settings
 				),
 				"user_remark": render_facility_template(tpl[tpl_key], ctx),
 			}
 		)
 
-	add("bank", bank_acc, total, False, "bank", "Bank")
+	add(settlement_role, settlement_acc, settlement_total, False, settlement_tpl_key, settlement_label)
 	add("loan", loan_acc, principal, True, "principal", "Principal — Loan Payable")
 	add("loan_profit", loan_acc, profit, True, "profit", "Profit — Loan Payable")
 	add("penalty", penalty_acc, penalty, True, "penalty", "Penalty Expense")
@@ -848,9 +877,14 @@ def create_and_submit_repayment_je(repayment) -> str:
 	facility = frappe.get_doc("Facility", repayment.facility)
 	principal, profit, penalty = _repayment_amounts(repayment)
 	settings = get_facility_settings_doc(facility.company)
-	validate_repayment_je_prerequisites(
-		repayment, facility, settings, principal=principal, profit=profit, penalty=penalty
+	from erpnext_extensions.facility_management.facility_debt_purchase import (
+		is_debt_purchase_cheque_method,
 	)
+
+	if not is_debt_purchase_cheque_method(repayment):
+		validate_repayment_je_prerequisites(
+			repayment, facility, settings, principal=principal, profit=profit, penalty=penalty
+		)
 	plan = build_repayment_je_plan(repayment, facility=facility)
 	ctx = build_template_context(facility, repayment)
 	tpl = _repayment_row_templates(facility, repayment, settings, ctx)
@@ -876,6 +910,7 @@ def create_and_submit_repayment_je(repayment) -> str:
 			user_remark=spec.get("user_remark"),
 		)
 
+	# Planned row amounts: for DP cheque, settlement credit is P+profit (penalty=0).
 	planned = _planned_repayment_rows(principal, profit, penalty)
 	je.insert(ignore_permissions=True)
 	je.reload()

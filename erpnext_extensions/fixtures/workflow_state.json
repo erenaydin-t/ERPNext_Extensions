@@ -322,9 +322,23 @@
   "name": "Posted",
   "style": "Success",
   "workflow_state_name": "Posted"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2026-07-26 00:00:00.000000",
+  "name": "Assigned to Bank for Debt Purchase",
+  "style": "Info",
+  "workflow_state_name": "Assigned to Bank for Debt Purchase"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2026-07-26 00:00:00.000000",
+  "name": "Debt Purchase Settled",
+  "style": "Success",
+  "workflow_state_name": "Debt Purchase Settled"
  }
 ]
-
-
-
-
