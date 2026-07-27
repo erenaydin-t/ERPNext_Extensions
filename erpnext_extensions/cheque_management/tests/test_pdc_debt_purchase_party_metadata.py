@@ -3,10 +3,10 @@
 
 """Row-level Party / reference metadata tests for Debt Purchase JE builders.
 
-Acceptance: DP Assignment has no Party on either pool row; DP Bounce has no Party
-on Protested debit / DPIC credit; Facility DP settlement credit matches bank
-credit metadata shape (no Party). Existing Sent-to-Bank / Registered→Returned
-behavior must remain unchanged.
+Acceptance (3.7.2): DP Assignment and DP Bounce carry drawer Party on both rows;
+no invoice refs on those edges. Facility DP settlement credit carries PDC Party
+only on the DPIC row. Sent-to-Bank / Registered→Returned also carry Party on
+non-Bank rows.
 """
 
 from __future__ import annotations
@@ -79,7 +79,7 @@ def _has_invoice_ref(row) -> bool:
 
 
 class TestDebtPurchaseAssignmentPartyMetadata(unittest.TestCase):
-	def test_assignment_two_rows_no_party_no_invoice_refs(self) -> None:
+	def test_assignment_two_rows_party_no_invoice_refs(self) -> None:
 		doc = _doc()
 		with (
 			patch.object(pdc_mod, "_get_pdc_settings_for_company", return_value=dict(_SETTINGS)),
@@ -99,11 +99,12 @@ class TestDebtPurchaseAssignmentPartyMetadata(unittest.TestCase):
 		self.assertEqual(rows[1]["account"], "ACC-CIH")
 		self.assertEqual(rows[1]["credit_in_account_currency"], 1000.0)
 		for r in rows:
-			self.assertFalse(_has_party(r), r)
+			self.assertEqual(r.get("party_type"), "Customer")
+			self.assertEqual(r.get("party"), "CUST-1")
 			self.assertFalse(_has_invoice_ref(r), r)
 
-	def test_assignment_builder_shape_matches_sent_to_bank_without_party(self) -> None:
-		"""Both Sent to Bank and DP Assignment keep pool-only rows (no Party)."""
+	def test_assignment_builder_shape_matches_sent_to_bank_with_party(self) -> None:
+		"""Both Sent to Bank and DP Assignment carry drawer Party on both rows."""
 		doc = _doc()
 		with (
 			patch.object(pdc_mod, "_get_pdc_settings_for_company", return_value=dict(_SETTINGS)),
@@ -116,14 +117,14 @@ class TestDebtPurchaseAssignmentPartyMetadata(unittest.TestCase):
 			dp = build_pdc_journal_entry_data(
 				doc, WORKFLOW_REGISTERED, WORKFLOW_ASSIGNED_DEBT_PURCHASE, POSTING
 			)
-		self.assertTrue(all(not _has_party(r) for r in stb["accounts"]))
-		self.assertTrue(all(not _has_party(r) for r in dp["accounts"]))
+		self.assertTrue(all(_has_party(r) for r in stb["accounts"]))
+		self.assertTrue(all(_has_party(r) for r in dp["accounts"]))
 		self.assertEqual(len(stb["accounts"]), 2)
 		self.assertEqual(len(dp["accounts"]), 2)
 
 
 class TestDebtPurchaseBouncePartyMetadata(unittest.TestCase):
-	def test_bounce_debits_protested_credits_dpic_no_party(self) -> None:
+	def test_bounce_debits_protested_credits_dpic_with_party(self) -> None:
 		doc = _doc(workflow_state=WORKFLOW_ASSIGNED_DEBT_PURCHASE)
 		with (
 			patch.object(pdc_mod, "_get_pdc_settings_for_company", return_value=dict(_SETTINGS)),
@@ -139,11 +140,11 @@ class TestDebtPurchaseBouncePartyMetadata(unittest.TestCase):
 		dr, cr = je["accounts"]
 		self.assertEqual(dr["account"], "ACC-PROT")
 		self.assertEqual(dr["debit_in_account_currency"], 1000.0)
-		self.assertFalse(_has_party(dr), dr)
+		self.assertEqual(dr.get("party"), "CUST-1")
 		self.assertFalse(_has_invoice_ref(dr), dr)
 		self.assertEqual(cr["account"], "ACC-DPIC")
 		self.assertEqual(cr["credit_in_account_currency"], 1000.0)
-		self.assertFalse(_has_party(cr), cr)
+		self.assertEqual(cr.get("party"), "CUST-1")
 		self.assertFalse(_has_invoice_ref(cr), cr)
 		self.assertNotEqual(dr["account"], "ACC-CIH")
 
@@ -168,8 +169,8 @@ class TestDebtPurchaseBouncePartyMetadata(unittest.TestCase):
 		self.assertEqual(assign["accounts"][1]["account"], "ACC-CIH")
 		self.assertEqual(bounce["accounts"][0]["account"], "ACC-PROT")
 		self.assertEqual(bounce["accounts"][1]["account"], "ACC-DPIC")
-		self.assertTrue(all(not _has_party(r) for r in assign["accounts"]))
-		self.assertTrue(all(not _has_party(r) for r in bounce["accounts"]))
+		self.assertTrue(all(_has_party(r) for r in assign["accounts"]))
+		self.assertTrue(all(_has_party(r) for r in bounce["accounts"]))
 
 
 class TestDebtPurchaseFacilitySettlementMetadata(unittest.TestCase):
@@ -213,7 +214,7 @@ class TestDebtPurchaseFacilitySettlementMetadata(unittest.TestCase):
 		ns.get = _get
 		return ns
 
-	def test_dp_settlement_credit_has_no_party_and_matches_bank_dims_role(self) -> None:
+	def test_dp_settlement_credit_has_pdc_party_only_on_dpic(self) -> None:
 		from erpnext_extensions.facility_management.facility_accounting import build_repayment_je_plan
 
 		facility = self._facility()
@@ -264,7 +265,11 @@ class TestDebtPurchaseFacilitySettlementMetadata(unittest.TestCase):
 			),
 			patch(
 				"erpnext_extensions.facility_management.facility_accounting.repayment_je_row_dimensions",
-				side_effect=lambda role, *a, **k: {"bank_dimension": "BD-1"} if role == "bank" else {},
+				side_effect=lambda role, *a, pdc_party=None, **k: (
+					{"bank_dimension": "BD-1", **(pdc_party or {})}
+					if role in ("bank", "debt_purchase_in_collection")
+					else {}
+				),
 			),
 			patch(
 				"erpnext_extensions.facility_management.facility_accounting.render_facility_template",
@@ -294,12 +299,15 @@ class TestDebtPurchaseFacilitySettlementMetadata(unittest.TestCase):
 		self.assertFalse(dp_credit["debit"])
 		self.assertEqual(dp_credit["account"], "DPIC")
 		self.assertEqual(dp_credit["amount"], Decimal("1000"))
-		# Same dimension shape as bank credit (bank_dimension via bank dim-role).
-		self.assertEqual(dp_credit.get("dims"), bank_credit.get("dims"))
-		# No PDC customer propagated onto any Facility plan row.
+		self.assertEqual(dp_credit["dims"].get("bank_dimension"), bank_credit["dims"].get("bank_dimension"))
+		self.assertEqual(dp_credit["dims"].get("party_type"), "Customer")
+		self.assertEqual(dp_credit["dims"].get("party"), "CUST-FROM-PDC")
+		self.assertNotIn("party", bank_credit.get("dims") or {})
 		for r in plan:
-			self.assertNotIn("party", r)
-			self.assertNotIn("party_type", r)
+			if r["role"] == "debt_purchase_in_collection":
+				continue
+			self.assertNotIn("party", r.get("dims") or {})
+			self.assertNotIn("party_type", r.get("dims") or {})
 			self.assertNotIn("reference_type", r)
 			self.assertNotIn("reference_name", r)
 
@@ -317,7 +325,7 @@ class TestDebtPurchaseFacilitySettlementMetadata(unittest.TestCase):
 
 
 class TestExistingPartyPolicyRegression(unittest.TestCase):
-	def test_sent_to_bank_has_no_party_on_either_row(self) -> None:
+	def test_sent_to_bank_has_party_on_both_rows(self) -> None:
 		doc = _doc()
 		with (
 			patch.object(pdc_mod, "_get_pdc_settings_for_company", return_value=dict(_SETTINGS)),
@@ -328,9 +336,9 @@ class TestExistingPartyPolicyRegression(unittest.TestCase):
 			mf._ = lambda s: s
 			je = build_pdc_journal_entry_data(doc, WORKFLOW_REGISTERED, WORKFLOW_SENT_TO_BANK, POSTING)
 		for r in je["accounts"]:
-			self.assertFalse(_has_party(r), r)
+			self.assertEqual(r.get("party"), "CUST-1")
 
-	def test_registered_returned_party_only_on_ar_not_cih(self) -> None:
+	def test_registered_returned_party_on_ar_and_cih(self) -> None:
 		doc = _doc()
 		with (
 			patch.object(pdc_mod, "_get_pdc_settings_for_company", return_value=dict(_SETTINGS)),
@@ -344,7 +352,7 @@ class TestExistingPartyPolicyRegression(unittest.TestCase):
 		dr, cr = je["accounts"]
 		self.assertEqual(dr.get("party"), "CUST-1")
 		self.assertEqual(cr["account"], "ACC-CIH")
-		self.assertFalse(_has_party(cr), cr)
+		self.assertEqual(cr.get("party"), "CUST-1")
 
 
 if __name__ == "__main__":

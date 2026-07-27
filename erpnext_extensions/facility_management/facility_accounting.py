@@ -207,6 +207,7 @@ def repayment_je_row_dimensions(
 	repayment,
 	facility,
 	settings=None,
+	pdc_party: dict[str, str] | None = None,
 ) -> dict[str, Any]:
 	"""Finance Excel — repayment JE row dimensions (independent from receipt rules)."""
 	if row_role == "bank":
@@ -216,6 +217,21 @@ def repayment_je_row_dimensions(
 		)
 		if bank_dim and _je_account_has_field("bank_dimension"):
 			out["bank_dimension"] = bank_dim
+		return out
+	if row_role == "debt_purchase_in_collection":
+		# Keep bank_dimension shape for settlement credit; add selected cheque Party only.
+		out: dict[str, Any] = {}
+		bank_dim = resolve_dimension(
+			"bank_dimension", repayment=repayment, facility=facility, settings=settings
+		)
+		if bank_dim and _je_account_has_field("bank_dimension"):
+			out["bank_dimension"] = bank_dim
+		if pdc_party:
+			pt = (pdc_party.get("party_type") or "").strip()
+			p = (pdc_party.get("party") or "").strip()
+			if pt and p:
+				out["party_type"] = pt
+				out["party"] = p
 		return out
 	if row_role in ("loan", "loan_profit", "deferred_credit"):
 		return facility_dimension_on_row(facility_name)
@@ -274,6 +290,12 @@ def _enforce_je_row_dims_from_plan(je, plan: list[dict[str, Any]]) -> None:
 		dims = spec.get("dims") or {}
 		for fn in fields:
 			row.set(fn, dims.get(fn))
+		# Party only when the plan explicitly sets it (DPIC settlement credit).
+		for fn in ("party_type", "party"):
+			if fn in dims:
+				row.set(fn, dims.get(fn))
+			elif getattr(row, fn, None) not in (None, ""):
+				row.set(fn, None)
 
 
 def _planned_receipt_rows(principal: Decimal, profit: Decimal) -> list[tuple[Decimal, str]]:
@@ -827,12 +849,19 @@ def build_repayment_je_plan(repayment, facility=None) -> list[dict[str, Any]]:
 	)
 
 	plan: list[dict[str, Any]] = []
+	pdc_party: dict[str, str] | None = None
+	if dp_ctx and dp_ctx.get("pdc") is not None:
+		pdc = dp_ctx["pdc"]
+		pt = (getattr(pdc, "party_type", None) or "").strip()
+		party = (getattr(pdc, "party", None) or "").strip()
+		if pt and party:
+			pdc_party = {"party_type": pt, "party": party}
 
 	def add(role, account, amount, debit, tpl_key, label):
 		if amount <= 0:
 			return
-		# Bank-row dimensions for settlement credit (bank or DPIC credit leg).
-		dim_role = "bank" if role in ("bank", "debt_purchase_in_collection") else role
+		# DPIC settlement uses its own role (bank_dimension + PDC Party); bank stays Party-free.
+		dim_role = role if role in ("bank", "debt_purchase_in_collection") else role
 		plan.append(
 			{
 				"role": role,
@@ -841,7 +870,12 @@ def build_repayment_je_plan(repayment, facility=None) -> list[dict[str, Any]]:
 				"amount": amount,
 				"debit": debit,
 				"dims": repayment_je_row_dimensions(
-					dim_role, facility.name, repayment=repayment, facility=facility, settings=settings
+					dim_role,
+					facility.name,
+					repayment=repayment,
+					facility=facility,
+					settings=settings,
+					pdc_party=pdc_party if role == "debt_purchase_in_collection" else None,
 				),
 				"user_remark": render_facility_template(tpl[tpl_key], ctx),
 			}

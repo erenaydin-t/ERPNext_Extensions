@@ -199,9 +199,9 @@ Assigned …  →  Sent to Bank / Endorsed   ✗
 | Journal ref | Same child table / key pattern |
 | Rollback | Assigned DP has no rollback transition; cancel-JE-by-key remains for allowed non-DP rollback paths |
 
-Closest existing analogue for assignment: **Registered → Sent to Bank** (pool reclass, no party).
+Closest existing analogue for assignment: **Registered → Sent to Bank** (pool reclass with drawer Party on both rows).
 
-Closest existing analogue for bounce-from-assigned: **Sent to Bank → Bounced** (Dr protested / Cr collection pool) — with **DPIC** replacing clearing as the credit role.
+Closest existing analogue for bounce-from-assigned: **Sent to Bank → Bounced** (Dr protested / Cr collection pool, Party on both) — with **DPIC** replacing clearing as the credit role.
 
 Settlement is **hybrid trigger**: Facility Repayment posts **one** JE (Cr DPIC + Facility debit legs) and drives PDC `Assigned → Settled` with a Journal Reference to that same JE (see Part 6).
 
@@ -221,7 +221,7 @@ Settlement is **hybrid trigger**: Facility Repayment posts **one** JE (Cr DPIC +
 |------|------------|
 | `cheques_in_hand` | Cr on assignment only; **not** used on Assigned→Bounced |
 | `protested` | Dr on Assigned→Bounced (required; no CIH fallback) |
-| `party_receivable` | **Not** used on Assigned→Bounced (Return-from-Assigned superseded) |
+| `party_receivable` | Drawer Party mirrored onto DPIC / Protested / CIH lines (not an AR settlement debit on bounce) |
 | Facility-side accounts | From Facility Type / Facility Repayment builders (`facility_loan_receivable`, interest income, bank) — **not** PDC Settings roles |
 
 ### Optional additional configurable roles (only if product needs them)
@@ -250,9 +250,9 @@ Settlement is **hybrid trigger**: Facility Repayment posts **one** JE (Cr DPIC +
 
 | Edge | Party on JE? | Bank GL? |
 |------|--------------|----------|
-| DP1 Assign | No | No (Bank Account on PDC for ops only) |
-| DP3 Bounce | No — Dr Protested / Cr DPIC | No |
-| DP4 Settle | No party on JE (Facility loan/expense dimensions only) | **No** — credit is DPIC role, not bank |
+| DP1 Assign | **Yes** — drawer Party on DPIC and CIH | No (Bank Account on PDC for ops only) |
+| DP3 Bounce | **Yes** — drawer Party on Protested and DPIC | No |
+| DP4 Settle | **PDC Party only on DPIC settlement credit**; other Facility rows keep Facility policy | **No** — credit is DPIC role, not bank |
 
 ---
 
