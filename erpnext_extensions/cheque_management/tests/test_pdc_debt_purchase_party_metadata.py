@@ -3,10 +3,10 @@
 
 """Row-level Party / reference metadata tests for Debt Purchase JE builders.
 
-Acceptance: DP Assignment has no Party on either pool row; DP Return has Party
-(and SI refs) only on AR debits; Facility DP settlement credit matches bank credit
-metadata shape (no Party). Existing Sent-to-Bank / Registered→Returned behavior
-must remain unchanged.
+Acceptance: DP Assignment has no Party on either pool row; DP Bounce has no Party
+on Protested debit / DPIC credit; Facility DP settlement credit matches bank
+credit metadata shape (no Party). Existing Sent-to-Bank / Registered→Returned
+behavior must remain unchanged.
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ from erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_c
 from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
 	CHEQUE_DIRECTION_RECEIVABLE,
 	WORKFLOW_ASSIGNED_DEBT_PURCHASE,
+	WORKFLOW_BOUNCED,
 	WORKFLOW_REGISTERED,
 	WORKFLOW_RETURNED,
 	WORKFLOW_SENT_TO_BANK,
@@ -121,62 +122,54 @@ class TestDebtPurchaseAssignmentPartyMetadata(unittest.TestCase):
 		self.assertEqual(len(dp["accounts"]), 2)
 
 
-class TestDebtPurchaseReturnPartyMetadata(unittest.TestCase):
-	def test_return_party_only_on_ar_debit_dpic_clean(self) -> None:
+class TestDebtPurchaseBouncePartyMetadata(unittest.TestCase):
+	def test_bounce_debits_protested_credits_dpic_no_party(self) -> None:
 		doc = _doc(workflow_state=WORKFLOW_ASSIGNED_DEBT_PURCHASE)
 		with (
 			patch.object(pdc_mod, "_get_pdc_settings_for_company", return_value=dict(_SETTINGS)),
 			patch.object(pdc_mod, "_get_party_account_or_company_default", return_value="ACC-AR"),
 			patch.object(pdc_mod, "_pdc_bank_gl_account", return_value="ACC-BANK"),
-			patch.object(pdc_mod, "receivable_sales_invoice_settlement_slices", return_value=[]),
 			patch.object(pdc_mod, "frappe") as mf,
 		):
 			mf._ = lambda s: s
 			je = build_pdc_journal_entry_data(
-				doc, WORKFLOW_ASSIGNED_DEBT_PURCHASE, WORKFLOW_RETURNED, POSTING
+				doc, WORKFLOW_ASSIGNED_DEBT_PURCHASE, WORKFLOW_BOUNCED, POSTING
 			)
 		self.assertIsNotNone(je)
 		dr, cr = je["accounts"]
-		self.assertEqual(dr["account"], "ACC-AR")
-		self.assertEqual(dr.get("party_type"), "Customer")
-		self.assertEqual(dr.get("party"), "CUST-1")
-		self.assertFalse(_has_invoice_ref(dr))
+		self.assertEqual(dr["account"], "ACC-PROT")
+		self.assertEqual(dr["debit_in_account_currency"], 1000.0)
+		self.assertFalse(_has_party(dr), dr)
+		self.assertFalse(_has_invoice_ref(dr), dr)
 		self.assertEqual(cr["account"], "ACC-DPIC")
+		self.assertEqual(cr["credit_in_account_currency"], 1000.0)
 		self.assertFalse(_has_party(cr), cr)
 		self.assertFalse(_has_invoice_ref(cr), cr)
+		self.assertNotEqual(dr["account"], "ACC-CIH")
 
-	def test_return_preserves_si_allocation_on_ar_only(self) -> None:
-		doc = _doc(workflow_state=WORKFLOW_ASSIGNED_DEBT_PURCHASE)
+	def test_bounce_does_not_use_cih_unlike_assignment_credit(self) -> None:
+		"""Assign credits CIH; Bounce debits Protested (not reverse into CIH)."""
+		doc = _doc()
 		with (
 			patch.object(pdc_mod, "_get_pdc_settings_for_company", return_value=dict(_SETTINGS)),
 			patch.object(pdc_mod, "_get_party_account_or_company_default", return_value="ACC-AR"),
 			patch.object(pdc_mod, "_pdc_bank_gl_account", return_value="ACC-BANK"),
-			patch.object(
-				pdc_mod,
-				"receivable_sales_invoice_settlement_slices",
-				return_value=[("SINV-A", 400.0), ("SINV-B", 600.0)],
-			),
 			patch.object(pdc_mod, "frappe") as mf,
 		):
 			mf._ = lambda s: s
-			je = build_pdc_journal_entry_data(
-				doc, WORKFLOW_ASSIGNED_DEBT_PURCHASE, WORKFLOW_RETURNED, POSTING
+			assign = build_pdc_journal_entry_data(
+				doc, WORKFLOW_REGISTERED, WORKFLOW_ASSIGNED_DEBT_PURCHASE, POSTING
 			)
-			reg_ret = build_pdc_journal_entry_data(doc, WORKFLOW_REGISTERED, WORKFLOW_RETURNED, POSTING)
-		self.assertIsNotNone(je)
-		rows = je["accounts"]
-		self.assertEqual(len(rows), 3)
-		self.assertEqual(rows[0].get("reference_type"), "Sales Invoice")
-		self.assertEqual(rows[0].get("reference_name"), "SINV-A")
-		self.assertEqual(rows[0].get("party"), "CUST-1")
-		self.assertEqual(rows[1].get("reference_name"), "SINV-B")
-		self.assertEqual(rows[1].get("party"), "CUST-1")
-		self.assertEqual(rows[2]["account"], "ACC-DPIC")
-		self.assertFalse(_has_party(rows[2]))
-		self.assertFalse(_has_invoice_ref(rows[2]))
-		# Registered→Returned: Party only on AR debit rows; CIH credit stays clean.
-		self.assertEqual(reg_ret["accounts"][2]["account"], "ACC-CIH")
-		self.assertFalse(_has_party(reg_ret["accounts"][2]))
+			doc.workflow_state = WORKFLOW_ASSIGNED_DEBT_PURCHASE
+			bounce = build_pdc_journal_entry_data(
+				doc, WORKFLOW_ASSIGNED_DEBT_PURCHASE, WORKFLOW_BOUNCED, POSTING
+			)
+		self.assertEqual(assign["accounts"][0]["account"], "ACC-DPIC")
+		self.assertEqual(assign["accounts"][1]["account"], "ACC-CIH")
+		self.assertEqual(bounce["accounts"][0]["account"], "ACC-PROT")
+		self.assertEqual(bounce["accounts"][1]["account"], "ACC-DPIC")
+		self.assertTrue(all(not _has_party(r) for r in assign["accounts"]))
+		self.assertTrue(all(not _has_party(r) for r in bounce["accounts"]))
 
 
 class TestDebtPurchaseFacilitySettlementMetadata(unittest.TestCase):

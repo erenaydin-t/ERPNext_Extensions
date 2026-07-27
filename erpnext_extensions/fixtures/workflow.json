@@ -483,17 +483,17 @@
     "workflow_builder_id": "pdc-tr-dp-assign"
    },
    {
-    "action": "Return Debt Purchase Cheque",
+    "action": "Bounce Cheque",
     "allow_self_approval": 1,
     "allowed": "All",
     "condition": "doc.get('cheque_direction') == 'Receivable'",
-    "next_state": "Returned",
+    "next_state": "Bounced",
     "parent": "PDC Workflow",
     "parentfield": "transitions",
     "parenttype": "Workflow",
     "send_email_to_creator": 0,
     "state": "Assigned to Bank for Debt Purchase",
-    "workflow_builder_id": "pdc-tr-dp-return"
+    "workflow_builder_id": "pdc-tr-dp-bounce"
    }
   ],
   "workflow_data": "[]"

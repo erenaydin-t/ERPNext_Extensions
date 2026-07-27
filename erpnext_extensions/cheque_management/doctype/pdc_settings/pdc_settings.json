@@ -166,7 +166,7 @@
    "fieldtype": "Small Text",
    "label": "JE Remark — Return Debt Purchase Receivable",
    "default": "عودت چک واگذارشده خرید دین {cheque_no} به {party}",
-   "description": "Default: Return debt-purchase assigned cheque to party — {cheque_no}"
+   "description": "Deprecated: Assigned→Returned path removed. Use je_remark_receivable_bounced_template for Assigned→Bounced."
   },
   {
    "fieldname": "je_remark_receivable_bounced_template",

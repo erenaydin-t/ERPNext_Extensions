@@ -1,7 +1,11 @@
 # Copyright (c) 2026, ERPNext Extensions contributors
 # License: MIT
 
-"""Ensure Debt Purchase Workflow States / Actions / PDC Workflow transitions exist."""
+"""Ensure Debt Purchase Workflow States / Actions / PDC Workflow transitions exist.
+
+Assigned DP allows Bounce Cheque only (not Return / Clear / Registered rollback).
+Debt Purchase Settled remains Facility Repayment–driven (no desk transition).
+"""
 
 from __future__ import annotations
 
@@ -22,7 +26,7 @@ def execute():
 				}
 			).insert(ignore_permissions=True)
 
-	for name in ("Assign for Debt Purchase", "Return Debt Purchase Cheque"):
+	for name in ("Assign for Debt Purchase", "Bounce Cheque"):
 		if not frappe.db.exists("Workflow Action Master", name):
 			frappe.get_doc(
 				{
@@ -30,6 +34,9 @@ def execute():
 					"workflow_action_name": name,
 				}
 			).insert(ignore_permissions=True)
+
+	# "Return Debt Purchase Cheque" may exist from earlier DP drafts — deprecated;
+	# not added here and removed from PDC Workflow transitions (use Bounce Cheque).
 
 	if not frappe.db.exists("Workflow", "PDC Workflow"):
 		return
@@ -49,6 +56,12 @@ def execute():
 			)
 			changed = True
 
+	# Remove forbidden Assigned DP → Returned desk transition if present.
+	for t in list(doc.transitions):
+		if t.state == "Assigned to Bank for Debt Purchase" and t.next_state == "Returned":
+			doc.remove(t)
+			changed = True
+
 	existing_tr = {(t.state, t.next_state, t.action) for t in doc.transitions}
 	wanted = [
 		(
@@ -59,8 +72,8 @@ def execute():
 		),
 		(
 			"Assigned to Bank for Debt Purchase",
-			"Returned",
-			"Return Debt Purchase Cheque",
+			"Bounced",
+			"Bounce Cheque",
 			"doc.get('cheque_direction') == 'Receivable'",
 		),
 	]

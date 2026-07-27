@@ -148,10 +148,10 @@ PDC_ACCOUNTING_TRANSITION_REGISTRY: Final[dict[tuple[str, str, str], PDCAccounti
 		_spec(
 			CHEQUE_DIRECTION_RECEIVABLE,
 			WORKFLOW_ASSIGNED_DEBT_PURCHASE,
-			WORKFLOW_RETURNED,
+			WORKFLOW_BOUNCED,
 			PDC_ACCOUNTING_JOURNAL_ENTRY,
-			True,
-			"Dr Party, Cr Debt Purchase In Collection — reverse assignment position.",
+			False,
+			"Dr Protested, Cr Debt Purchase In Collection — bank dishonour; no CIH fallback; no party.",
 		),
 		# Payable: register / return / cancel / clear; clear uses JE (not Payment Entry — journal-centric architecture)
 		_spec(

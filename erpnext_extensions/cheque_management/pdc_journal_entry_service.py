@@ -95,7 +95,8 @@ def _purpose_for_transition(
 			return "Debt Purchase Assignment"
 		if f == WORKFLOW_ASSIGNED_DEBT_PURCHASE and t == WORKFLOW_DEBT_PURCHASE_SETTLED:
 			return "Debt Purchase Settlement"
-		if f == WORKFLOW_ASSIGNED_DEBT_PURCHASE and t == WORKFLOW_RETURNED:
+		if f == WORKFLOW_ASSIGNED_DEBT_PURCHASE and t == WORKFLOW_BOUNCED:
+			# Canonical bounce tag matches Sent to Bank → Bounced (legacy "Bounce" not used for new rows).
 			return "Returned"
 		if t == WORKFLOW_CLEARED and f in (
 			WORKFLOW_REGISTERED,

@@ -1,8 +1,8 @@
 # Solution Design Proposal (Revised): Debt Purchase Accounting via PDC Template Architecture
 
-**Application:** `erpnext_extensions`  
-**Modules:** `cheque_management`, `facility_management`  
-**Status:** Design only — **no implementation until approval**  
+**Application:** `erpnext_extensions`
+**Modules:** `cheque_management`, `facility_management`
+**Status:** Design only — **no implementation until approval**
 **Date:** 2026-07-26 (revision 6 — multi-method Facility Repayment: Bank Account + Debt Purchase Cheque)
 
 ---
@@ -69,13 +69,13 @@ Narration templates (PDC Settings) exist per edge family, e.g.:
 
 Closest structural analogue: **`Registered → Sent to Bank`**
 
-- Internal reclass of instrument pool  
-- No party  
-- Debit = dedicated intermediate role account from Settings  
-- Credit = Cheques in Hand  
-- Purpose = collection-family tag  
-- Remark template configurable  
-- Rollback cancels that transition JE  
+- Internal reclass of instrument pool
+- No party
+- Debit = dedicated intermediate role account from Settings
+- Credit = Cheques in Hand
+- Purpose = collection-family tag
+- Remark template configurable
+- Rollback cancels that transition JE
 
 Debt Purchase assignment is the **same pattern** with a **new intermediate role**, not reuse of `cheques_in_clearing`.
 
@@ -99,24 +99,26 @@ accounting_rollback/pdc/*              # JE cancel by transition key
 
 ## B. Proposed Debt Purchase as new template/state family
 
-### B.1 Workflow (unchanged business rules)
+### B.1 Workflow (approved business rules)
 
 ```
 Registered (نزد صندوق)
     ↓
 Assigned to Bank for Debt Purchase (واگذار به بانک جهت خرید دین)
 
-Allowed:
-  → Registered                 (rollback)
-  → Returned                   (برگشت)
+Allowed exits:
+  → Bounced                    (برگشت خورده بانکی — Dr Protested / Cr DPIC)
   → Debt Purchase Settled      (only via Facility Repayment)
 
 Forbidden:
+  → Registered                 (no desk rollback)
+  → Returned                   (superseded — use Bounced)
   → Cleared
+  → Sent to Bank / Endorsed
 ```
 
-Facility Type gate: `is_debt_purchase = 1` (Check).  
-Facility links: **only at settlement**, not at assignment.  
+Facility Type gate: `is_debt_purchase = 1` (Check).
+Facility links: **only at settlement**, not at assignment.
 Amount rule: `cheque_amount == principal_amount + profit_amount` exactly (business “interest” = `profit_amount`).
 
 ### B.2 New account **role** (template architecture)
@@ -152,23 +154,24 @@ Mirror of Sent-to-Bank template shape; different debit role + purpose + remark.
 
 | Item | Value |
 |---|---|
-| Mechanism | Existing rollback engine |
-| Accounting | Cancel assignment JE via journal_reference for that transition key |
-| Builder | No new forward JE |
+| Mechanism | **Blocked** — no desk rollback from Assigned DP |
+| Accounting | N/A |
+| Builder | No forward JE |
 
-#### 3) Return — `Assigned → Returned` (**separate builder branch**)
+#### 3) Bounce — `Assigned → Bounced` (**approved bank-reject path**)
 
 | Item | Value |
 |---|---|
 | Decision | `journal_entry` |
-| Why not reuse Registered→Returned | That template **credits `cheques_in_hand`**; after assignment, balance is in DP role |
-| Debit | Party AR (same as Registered→Returned, incl. SI slices) |
+| Meaning | Bank dishonour of debt-purchase instrument — **not** return to cashier |
+| Debit role | `protested` ← `default_protested_account` (**required**; **no** `cheques_in_hand` fallback) |
 | Credit role | `debt_purchase_in_collection` |
-| Purpose | `Returned` (existing) or `Debt Purchase Return` if finance wants distinct tag |
-| Remark | New template `je_remark_return_debt_purchase_receivable_template` (or reuse return template text with different accounts) |
+| Party | None on either line |
+| Purpose | `Returned` (canonical bounce tag, same as Sent to Bank → Bounced) |
+| Remark | `je_remark_receivable_bounced_template` |
 | Journal reference | Yes |
 
-**Recommendation:** Same Returned state/validations, **new edge template** for accounts (do not reuse Registered→Returned credit of in-hand).
+**Superseded:** Assigned → Returned (Party Dr / DPIC Cr) is **forbidden**. Do not Dr CIH on bounce.
 
 #### 4) Settlement — multi-method Facility Repayment
 
@@ -243,19 +246,19 @@ elif repayment_method == "Debt Purchase Cheque":
 
 ##### UI (client) + server validation
 
-Bank → show/require bank; hide/clear PDC.  
-Cheque → show/require PDC; hide/clear bank; filter eligible Assigned cheques.  
+Bank → show/require bank; hide/clear PDC.
+Cheque → show/require PDC; hide/clear bank; filter eligible Assigned cheques.
 Server enforces all rules if client bypassed.
 
 ##### Cancel — Debt Purchase Cheque (ordered, fail-safe)
 
-1. Lock repayment + PDC  
-2. Validate PDC still Settled by this repayment  
-3. Cancel JE successfully  
-4. Remove/cancel PDC Journal Reference  
-5. PDC → Assigned to Bank for Debt Purchase  
-6. Clear links  
-7. Refresh balances  
+1. Lock repayment + PDC
+2. Validate PDC still Settled by this repayment
+3. Cancel JE successfully
+4. Remove/cancel PDC Journal Reference
+5. PDC → Assigned to Bank for Debt Purchase
+6. Clear links
+7. Refresh balances
 
 If JE cancel fails → **do not** change PDC state or clear links.
 
@@ -307,13 +310,13 @@ Unchanged current behavior only.
 - Extend `purpose` options (above)
 
 ### Code layers to extend (not hardcode outside)
-1. State machine transitions + decisions  
-2. Transition registry specs  
-3. `resolve_pdc_accounts_for_journal` role  
-4. `build_pdc_journal_entry_data` branches (assignment + Assigned→Returned)  
-5. `_purpose_for_transition`  
-6. Facility repayment JE plan branch using resolver role  
-7. Rollback edges + Settled guards  
+1. State machine transitions + decisions
+2. Transition registry specs
+3. `resolve_pdc_accounts_for_journal` role
+4. `build_pdc_journal_entry_data` branches (assignment + Assigned→Bounced)
+5. `_purpose_for_transition`
+6. Facility repayment JE plan branch using resolver role
+7. Settled guards (no rollback from Assigned DP)
 
 ---
 
@@ -322,8 +325,9 @@ Unchanged current behavior only.
 | From | To | Template |
 |---|---|---|
 | Registered | Assigned to Bank for Debt Purchase | New JE template (DP role Dr / In Hand Cr) |
-| Assigned… | Registered | Rollback (cancel assignment JE) |
-| Assigned… | Returned | New JE template (Party Dr / DP role Cr) |
+| Assigned… | Registered | **Forbidden** (no desk rollback) |
+| Assigned… | Bounced | Dr Protested / Cr DPIC (required Protested; no CIH) |
+| Assigned… | Returned | **Forbidden** |
 | Assigned… | Debt Purchase Settled | Facility Repayment with `repayment_method = Debt Purchase Cheque` |
 | Assigned… | Cleared | **Forbidden** |
 
@@ -334,8 +338,8 @@ Unchanged current behavior only.
 | Path | Behavior |
 |---|---|
 | Settled → Assigned | Cancel Facility Repayment (**Debt Purchase Cheque** method only): ordered fail-safe in §B.4; Bank Account cancel never touches PDC |
-| Assigned → Registered | PDC rollback: cancel assignment JE by transition key |
-| Assigned → Returned then rollback | Cancel return JE; restore Assigned (if rollback path allows) |
+| Assigned → Registered | **Blocked** — no PDC rollback targets from Assigned DP |
+| Assigned → Bounced then recovery | Protested holds balance; Bounced→Replaced / legal follow existing bounce paths |
 
 Settled must not roll back via PDC-only action while linked repayment is submitted.
 
@@ -344,12 +348,15 @@ Settled must not roll back via PDC-only action while linked repayment is submitt
 ## F. Accounting entries (role-based wording)
 
 ### Assignment
-Dr **role** `debt_purchase_in_collection` → Settings account  
+Dr **role** `debt_purchase_in_collection` → Settings account
 Cr **role** `cheques_in_hand`
 
-### DP Return
-Dr Party AR  
+### DP Bounce (Assigned → Bounced)
+Dr **role** `protested` → `default_protested_account` (**required**; no CIH fallback)
 Cr **role** `debt_purchase_in_collection`
+
+### ~~DP Return~~ (deprecated — forbidden)
+~~Dr Party AR / Cr `debt_purchase_in_collection`~~ — superseded by Bounce path above.
 
 ### Facility settlement
 
@@ -357,8 +364,8 @@ Cr **role** `debt_purchase_in_collection`
 
 **Debt Purchase Cheque method** — one JE from extended `build_repayment_je_plan`:
 
-Cr **role** `debt_purchase_in_collection` = principal + profit  
-(+ shared Facility debit/deferred legs; penalty = 0 in v1)  
+Cr **role** `debt_purchase_in_collection` = principal + profit
+(+ shared Facility debit/deferred legs; penalty = 0 in v1)
 (+ PDC → Debt Purchase Settled + links + Journal Reference to **this** JE)
 
 **Rejected:** converting all repayments to DP; debiting DPIC at settlement; two-JE settlement; skipping deferred/interest-expense legs.
@@ -367,46 +374,46 @@ Cr **role** `debt_purchase_in_collection` = principal + profit
 
 ## G. Validation rules
 
-1. Assignment requires Settings DP role account configured.  
-2. Assigned → Cleared / Sent to Bank rejected.  
-3. Debt Purchase Settled only via Facility Repayment with `repayment_method = Debt Purchase Cheque`.  
-4. Cheque method only if `is_debt_purchase = 1` (eligibility). Bank method never requires this flag.  
-5. Exact amount: `cheque_amount == principal_amount + profit_amount`.  
-6. `penalty_amount == 0` for Debt Purchase Cheque (v1).  
-7. No Facility links at assignment.  
-8. Atomic cheque-method submit/cancel (one JE; PDC state + journal reference in same transaction).  
-9. Settled→Assigned only via Facility Repayment cancel (cheque method).  
-10. Bank method: `post_dated_cheque` must be empty; bank mandatory.  
-11. Method switch: clear the other method’s field; server rejects conflicts.  
-12. Empty/`NULL` `repayment_method` ≡ Bank Account.  
+1. Assignment requires Settings DP role account configured.
+2. Assigned → Cleared / Sent to Bank rejected.
+3. Debt Purchase Settled only via Facility Repayment with `repayment_method = Debt Purchase Cheque`.
+4. Cheque method only if `is_debt_purchase = 1` (eligibility). Bank method never requires this flag.
+5. Exact amount: `cheque_amount == principal_amount + profit_amount`.
+6. `penalty_amount == 0` for Debt Purchase Cheque (v1).
+7. No Facility links at assignment.
+8. Atomic cheque-method submit/cancel (one JE; PDC state + journal reference in same transaction).
+9. Settled→Assigned only via Facility Repayment cancel (cheque method).
+10. Bank method: `post_dated_cheque` must be empty; bank mandatory.
+11. Method switch: clear the other method’s field; server rejects conflicts.
+12. Empty/`NULL` `repayment_method` ≡ Bank Account.
 
 ---
 
 ## H. Test matrix
 
 ### Bank Account
-- Existing repayment creation unchanged  
-- `bank_account` mandatory; PDC not required / rejected if set  
-- Penalty supported; submit/cancel as before; JE unchanged  
-- Existing bank-payment tests remain green  
-- DP Facility Type may still repay via Bank Account  
+- Existing repayment creation unchanged
+- `bank_account` mandatory; PDC not required / rejected if set
+- Penalty supported; submit/cancel as before; JE unchanged
+- Existing bank-payment tests remain green
+- DP Facility Type may still repay via Bank Account
 
 ### Debt Purchase Cheque
-- Eligible Assigned PDC selectable  
-- Non-DP Facility Type rejected  
-- Wrong PDC state / already settled / amount mismatch / penalty > 0 rejected  
-- Bank not required; credit role = `debt_purchase_in_collection`  
-- Submit → Settled + links + Journal Reference  
-- Cancel → Assigned; failed JE cancel leaves PDC/links unchanged  
-- Concurrent submit cannot settle one PDC twice  
+- Eligible Assigned PDC selectable
+- Non-DP Facility Type rejected
+- Wrong PDC state / already settled / amount mismatch / penalty > 0 rejected
+- Bank not required; credit role = `debt_purchase_in_collection`
+- Submit → Settled + links + Journal Reference
+- Cancel → Assigned; failed JE cancel leaves PDC/links unchanged
+- Concurrent submit cannot settle one PDC twice
 
 ### Method switching
-- Bank → cheque clears `bank_account`  
-- Cheque → bank clears `post_dated_cheque`  
-- Server rejects stale/conflicting fields if client bypassed  
+- Bank → cheque clears `bank_account`
+- Cheque → bank clears `post_dated_cheque`
+- Server rejects stale/conflicting fields if client bypassed
 
 ### PDC assignment family (unit/integration/Playwright)
-- Resolver role; assign/return builders; rollback assignment; no Facility link on assign  
+- Resolver role; assign/bounce builders; no rollback from Assigned DP; no Facility link on assign
 
 ### Regression
 PDC rollback, opening import, cheque leaf, standard Facility loan (`is_debt_purchase=0`), balances include both methods.
@@ -428,24 +435,32 @@ PDC rollback, opening import, cheque leaf, standard Facility loan (`is_debt_purc
 ## J. Implementation plan (after final approval — no code yet)
 
 ### Phase 1 — PDC Debt Purchase family
-1. Workflow states + edges (forbid Assigned→Cleared)  
-2. PDC Settings role `debt_purchase_in_collection` + remark templates  
-3. Resolver + assignment / Assigned→Returned builders + purposes  
-4. Rollback for assignment/return  
+1. Workflow states + edges (forbid Assigned→Cleared / Returned / Registered rollback)
+2. PDC Settings role `debt_purchase_in_collection` + remark templates
+3. Resolver + assignment / Assigned→Bounced builders + purposes
+4. No rollback from Assigned DP; Bounce requires Protested account
+
+### Deprecated artifacts (kept for DB / fixture compatibility)
+
+| Artifact | Status |
+|---|---|
+| Workflow Action Master **Return Debt Purchase Cheque** | **Deprecated** — not wired in `PDC Workflow`; Assigned→Returned forbidden. Use **Bounce Cheque**. |
+| PDC Settings `je_remark_return_debt_purchase_receivable_template` | **Deprecated** — no builder consumes this template after Return-from-Assigned was removed. |
+| `translations/fa.csv` row for Return Debt Purchase Cheque | **Deprecated** — label retained for legacy Workflow Action Master row only. |
 
 ### Phase 2 — Facility Repayment multi-method
-1. Add `repayment_method` (default Bank Account) + `post_dated_cheque`  
-2. Client form toggles; server validation for both methods  
-3. Credit-source branch in `build_repayment_je_plan` / prerequisites  
-4. Cheque-method `on_submit` atomic: JE → links → Journal Reference → Settled  
-5. Cheque-method `on_cancel` ordered fail-safe restore to Assigned  
-6. Migration: treat empty method as Bank Account (no repost)  
+1. Add `repayment_method` (default Bank Account) + `post_dated_cheque`
+2. Client form toggles; server validation for both methods
+3. Credit-source branch in `build_repayment_je_plan` / prerequisites
+4. Cheque-method `on_submit` atomic: JE → links → Journal Reference → Settled
+5. Cheque-method `on_cancel` ordered fail-safe restore to Assigned
+6. Migration: treat empty method as Bank Account (no repost)
 
 ### Phase 3 — Tests
-1. Full Bank Account regression (must stay green)  
-2. Debt Purchase Cheque matrix (§H)  
-3. Method-switching + concurrency  
-4. Playwright for assign / settle / cancel  
+1. Full Bank Account regression (must stay green)
+2. Debt Purchase Cheque matrix (§H)
+3. Method-switching + concurrency
+4. Playwright for assign / settle / cancel
 
 ### Phase 4 — Reports / UX polish
 Include `Debt Purchase Settled` in closed/settled cheque reporting as needed.

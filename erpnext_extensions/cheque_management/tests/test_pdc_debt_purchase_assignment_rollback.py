@@ -1,7 +1,7 @@
 # Copyright (c) 2026, ERPNext Extensions contributors
 # License: MIT
 
-"""Integration: Registered → Assigned Debt Purchase → rollback → Registered."""
+"""Integration: Assigned Debt Purchase has no rollback; Bounce restores DPIC."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import unittest
 from datetime import timedelta
 
 import frappe
+from frappe.model.workflow import get_transitions
 from frappe.utils import flt, getdate, random_string, today
 
 from erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque import (
@@ -22,14 +23,21 @@ from erpnext_extensions.cheque_management.pdc_workflow_rollback import (
 )
 from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
 	WORKFLOW_ASSIGNED_DEBT_PURCHASE,
+	WORKFLOW_BOUNCED,
+	WORKFLOW_CLEARED,
+	WORKFLOW_DEBT_PURCHASE_SETTLED,
 	WORKFLOW_DRAFT,
 	WORKFLOW_REGISTERED,
+	WORKFLOW_RETURNED,
+	WORKFLOW_SENT_TO_BANK,
+	get_pdc_workflow_transition_validation_error,
 	normalize_workflow_state_value,
 )
 from erpnext_extensions.facility_management.facility_e2e_context import ensure_bank_master
 
 
 PURPOSE_ASSIGNMENT = "Debt Purchase Assignment"
+PURPOSE_BOUNCE = "Returned"  # canonical bounce purpose (same as Sent to Bank → Bounced)
 
 
 def _pick_company() -> str:
@@ -97,7 +105,19 @@ def _refs(pdc_name: str, *, purpose: str | None = None) -> list[dict]:
 	)
 
 
-class TestDebtPurchaseAssignmentRollback(unittest.TestCase):
+def _account_balance(account: str, company: str) -> float:
+	row = frappe.db.sql(
+		"""
+		SELECT COALESCE(SUM(debit) - SUM(credit), 0)
+		FROM `tabGL Entry`
+		WHERE account = %s AND company = %s AND is_cancelled = 0
+		""",
+		(account, company),
+	)
+	return flt(row[0][0] if row else 0)
+
+
+class TestDebtPurchaseAssignedTransitions(unittest.TestCase):
 	@classmethod
 	def setUpClass(cls):
 		frappe.set_user("Administrator")
@@ -117,6 +137,12 @@ class TestDebtPurchaseAssignmentRollback(unittest.TestCase):
 		cls.settings = _get_pdc_settings_for_company(cls.company)
 		if not cls.settings or not cls.settings.default_cheques_in_hand_account:
 			raise unittest.SkipTest("PDC Settings / Cheques in Hand missing")
+		# Ensure site workflow matches Bounce-from-Assigned policy.
+		from erpnext_extensions.patches.post_model_sync.ensure_debt_purchase_pdc_workflow import (
+			execute as sync_dp_workflow,
+		)
+
+		sync_dp_workflow()
 		frappe.db.commit()
 
 	def _apply_action(self, doc, action: str):
@@ -124,15 +150,22 @@ class TestDebtPurchaseAssignmentRollback(unittest.TestCase):
 
 		return apply_workflow(doc, action)
 
-	def _new_assigned_pdc(self, *, amount: float = 1000.0) -> tuple[str, str]:
-		"""Returns (pdc_name, assignment_je_name). Uses Desk workflow actions so docstatus=1."""
+	@staticmethod
+	def _workflow_actions(doc) -> set[str]:
+		return {t.get("action") or "" for t in get_transitions(doc) if t.get("action")}
+
+	@staticmethod
+	def _workflow_next_states(doc) -> set[str]:
+		return {t.get("next_state") or "" for t in get_transitions(doc) if t.get("next_state")}
+
+	def _new_receivable_draft(self, *, amount: float = 1000.0, cheque_prefix: str = "DP-RB"):
 		acc = get_default_party_accounts("Customer", self.customer, self.company, "Receivable") or {}
 		doc = frappe.new_doc("Post Dated Cheque")
 		doc.cheque_direction = "Receivable"
 		doc.company = self.company
 		doc.party_type = "Customer"
 		doc.party = self.customer
-		doc.cheque_no = f"DP-RB-{random_string(8)}"
+		doc.cheque_no = f"{cheque_prefix}-{random_string(8)}"
 		doc.cheque_due_date = getdate(today()) + timedelta(days=30)
 		doc.cheque_amount = amount
 		doc.received_date = today()
@@ -147,8 +180,11 @@ class TestDebtPurchaseAssignmentRollback(unittest.TestCase):
 		doc.sayad_registered = 1
 		doc.insert(ignore_permissions=True)
 		frappe.db.commit()
+		return frappe.get_doc("Post Dated Cheque", doc.name)
 
-		doc = frappe.get_doc("Post Dated Cheque", doc.name)
+	def _new_assigned_pdc(self, *, amount: float = 1000.0) -> tuple[str, str]:
+		"""Returns (pdc_name, assignment_je_name). Uses Desk workflow actions so docstatus=1."""
+		doc = self._new_receivable_draft(amount=amount, cheque_prefix="DP-RB")
 		doc = self._apply_action(doc, "Register Cheque")
 		doc.reload()
 		self.assertEqual(doc.docstatus, 1)
@@ -166,14 +202,97 @@ class TestDebtPurchaseAssignmentRollback(unittest.TestCase):
 		self.assertEqual(len(assign_refs), 1, assign_refs)
 		return doc.name, assign_refs[0]["journal_entry"]
 
-	def test_assign_then_rollback_to_registered(self):
-		pdc_name, assign_je = self._new_assigned_pdc(amount=1500.0)
+	def _new_sent_to_bank_pdc(self, *, amount: float = 1000.0) -> str:
+		doc = self._new_receivable_draft(amount=amount, cheque_prefix="DP-STB")
+		doc = self._apply_action(doc, "Register Cheque")
+		doc.reload()
+		doc.sent_to_bank_date = today()
+		doc.save(ignore_permissions=True)
+		frappe.db.commit()
+		doc = frappe.get_doc("Post Dated Cheque", doc.name)
+		doc = self._apply_action(doc, "Send to Bank")
+		doc.reload()
+		self.assertEqual(normalize_workflow_state_value(doc.workflow_state), WORKFLOW_SENT_TO_BANK)
+		frappe.db.commit()
+		return doc.name
+
+	def test_assigned_has_no_rollback_targets(self):
+		pdc_name, _assign_je = self._new_assigned_pdc(amount=1200.0)
+		targets = get_rollback_target_states(pdc_name)
+		self.assertEqual(targets, [])
+		self.assertNotIn(WORKFLOW_REGISTERED, targets)
+
+		with self.assertRaises(Exception):
+			rollback_workflow_state(pdc_name, WORKFLOW_REGISTERED, "must fail — no rollback from Assigned DP")
+		frappe.db.rollback()
+
+		pdc = frappe.get_doc("Post Dated Cheque", pdc_name)
+		self.assertEqual(
+			normalize_workflow_state_value(pdc.workflow_state), WORKFLOW_ASSIGNED_DEBT_PURCHASE
+		)
+		self.assertEqual(len(_refs(pdc_name, purpose=PURPOSE_ASSIGNMENT)), 1)
+
+	def test_assigned_forbidden_desk_transitions(self):
+		"""Registered / Returned / Cleared / Settled rejected from Assigned DP."""
+		for target in (
+			WORKFLOW_REGISTERED,
+			WORKFLOW_RETURNED,
+			WORKFLOW_CLEARED,
+			WORKFLOW_DEBT_PURCHASE_SETTLED,
+		):
+			err = get_pdc_workflow_transition_validation_error(
+				"Receivable", WORKFLOW_ASSIGNED_DEBT_PURCHASE, target
+			)
+			self.assertIsNotNone(err, target)
+
+	def test_assigned_dp_workflow_action_visibility(self):
+		"""Desk actions from Assigned DP: Bounce only; no Return/Clear/Register/Rollback."""
+		pdc_name, _je = self._new_assigned_pdc(amount=1100.0)
+		pdc = frappe.get_doc("Post Dated Cheque", pdc_name)
+		actions = self._workflow_actions(pdc)
+		next_states = self._workflow_next_states(pdc)
+
+		self.assertIn("Bounce Cheque", actions)
+		self.assertEqual(actions, {"Bounce Cheque"}, actions)
+		self.assertEqual(next_states, {WORKFLOW_BOUNCED}, next_states)
+
+		forbidden_actions = {
+			"Return Cheque",
+			"Return Debt Purchase Cheque",
+			"Clear Cheque",
+			"Register Cheque",
+			"Send to Bank",
+			"Rollback",
+			"Rollback Workflow",
+		}
+		self.assertFalse(actions & forbidden_actions, actions)
+		for state in (WORKFLOW_REGISTERED, WORKFLOW_RETURNED, WORKFLOW_CLEARED, WORKFLOW_DEBT_PURCHASE_SETTLED):
+			self.assertNotIn(state, next_states)
+
+		# Rollback is not a workflow action and has no targets from Assigned DP.
+		self.assertEqual(get_rollback_target_states(pdc_name), [])
+
+	def test_sent_to_bank_still_exposes_bounce_cheque(self):
+		"""Non–Debt Purchase Receivable path: Sent to Bank still offers Bounce Cheque."""
+		pdc_name = self._new_sent_to_bank_pdc(amount=900.0)
+		pdc = frappe.get_doc("Post Dated Cheque", pdc_name)
+		actions = self._workflow_actions(pdc)
+		self.assertIn("Bounce Cheque", actions)
+		self.assertIn(WORKFLOW_BOUNCED, self._workflow_next_states(pdc))
+
+	def test_assign_then_bounce_debits_protested_clears_dpic_party_free(self):
+		amount = 1750.0
+		pdc_name, assign_je = self._new_assigned_pdc(amount=amount)
 		pdc = frappe.get_doc("Post Dated Cheque", pdc_name)
 		roles = resolve_pdc_accounts_for_journal(pdc)
 		dpic = roles["debt_purchase_in_collection"]
 		cih = (pdc.account_paid_to or "").strip() or roles["cheques_in_hand"]
+		protested = roles["protested"]
+		self.assertTrue(protested, "PDC Settings Default Protested Account required for DP bounce")
 
-		# Assignment JE matrix
+		dpic_before = _account_balance(dpic, self.company)
+
+		# Assignment JE: Dr DPIC / Cr CIH, no party
 		rows = frappe.get_all(
 			"Journal Entry Account",
 			filters={"parent": assign_je},
@@ -187,51 +306,56 @@ class TestDebtPurchaseAssignmentRollback(unittest.TestCase):
 			order_by="idx asc",
 		)
 		self.assertEqual(len(rows), 2)
-		dr = next(r for r in rows if flt(r.debit_in_account_currency) > 0)
-		cr = next(r for r in rows if flt(r.credit_in_account_currency) > 0)
-		self.assertEqual(dr.account, dpic)
-		self.assertEqual(cr.account, cih)
-		self.assertAlmostEqual(flt(dr.debit_in_account_currency), 1500.0)
-		self.assertAlmostEqual(flt(cr.credit_in_account_currency), 1500.0)
 		for r in rows:
 			self.assertFalse(r.party_type)
 			self.assertFalse(r.party)
 
-		assign_refs = _refs(pdc_name, purpose=PURPOSE_ASSIGNMENT)
-		self.assertEqual(len(assign_refs), 1)
-		self.assertEqual(assign_refs[0]["journal_entry"], assign_je)
-		self.assertFalse(pdc.debt_purchase_facility)
-		self.assertFalse(pdc.debt_purchase_repayment)
+		pdc.bounced_date = today()
+		pdc.save(ignore_permissions=True)
+		frappe.db.commit()
+		pdc = frappe.get_doc("Post Dated Cheque", pdc_name)
+		pdc = self._apply_action(pdc, "Bounce Cheque")
+		pdc.reload()
+		self.assertEqual(normalize_workflow_state_value(pdc.workflow_state), WORKFLOW_BOUNCED)
+		frappe.db.commit()
 
-		targets = get_rollback_target_states(pdc_name)
-		self.assertIn(WORKFLOW_REGISTERED, targets)
+		bounce_refs = [
+			r
+			for r in _refs(pdc_name)
+			if r.get("pdc_transition_key")
+			and "Assigned to Bank for Debt Purchase|Bounced" in (r.get("pdc_transition_key") or "")
+		]
+		self.assertEqual(len(bounce_refs), 1, bounce_refs)
+		bounce_je = bounce_refs[0]["journal_entry"]
+		self.assertEqual(bounce_refs[0]["purpose"], PURPOSE_BOUNCE)
 
-		result = rollback_workflow_state(
-			pdc_name, WORKFLOW_REGISTERED, "DP assignment rollback integration test"
+		bounce_rows = frappe.get_all(
+			"Journal Entry Account",
+			filters={"parent": bounce_je},
+			fields=[
+				"account",
+				"debit_in_account_currency",
+				"credit_in_account_currency",
+				"party_type",
+				"party",
+			],
+			order_by="idx asc",
 		)
-		self.assertTrue(result)
+		self.assertEqual(len(bounce_rows), 2)
+		dr = next(r for r in bounce_rows if flt(r.debit_in_account_currency) > 0)
+		cr = next(r for r in bounce_rows if flt(r.credit_in_account_currency) > 0)
+		self.assertEqual(dr.account, protested)
+		self.assertEqual(cr.account, dpic)
+		self.assertNotEqual(dr.account, cih)
+		self.assertAlmostEqual(flt(dr.debit_in_account_currency), amount)
+		self.assertAlmostEqual(flt(cr.credit_in_account_currency), amount)
+		for r in bounce_rows:
+			self.assertFalse(r.party_type)
+			self.assertFalse(r.party)
+			self.assertNotEqual(r.account, cih)
 
-		pdc.reload()
-		self.assertEqual(normalize_workflow_state_value(pdc.workflow_state), WORKFLOW_REGISTERED)
-		self.assertEqual(frappe.db.get_value("Journal Entry", assign_je, "docstatus"), 2)
-		self.assertEqual(frappe.db.count("GL Entry", {"voucher_no": assign_je, "is_cancelled": 0}), 0)
-		self.assertEqual(len(_refs(pdc_name, purpose=PURPOSE_ASSIGNMENT)), 0)
-		# Receive reference from Draft→Registered must remain
-		self.assertTrue(_refs(pdc_name))
-		self.assertFalse(pdc.debt_purchase_facility)
-		self.assertFalse(pdc.debt_purchase_repayment)
-		# No duplicate assignment refs
-		self.assertEqual(len(_refs(pdc_name, purpose=PURPOSE_ASSIGNMENT)), 0)
-
-		# Second rollback to Registered must fail safely (already Registered)
-		with self.assertRaises(Exception):
-			rollback_workflow_state(
-				pdc_name, WORKFLOW_REGISTERED, "second rollback should fail"
-			)
-		frappe.db.rollback()
-		pdc.reload()
-		self.assertEqual(normalize_workflow_state_value(pdc.workflow_state), WORKFLOW_REGISTERED)
-		self.assertEqual(len(_refs(pdc_name, purpose=PURPOSE_ASSIGNMENT)), 0)
+		dpic_after = _account_balance(dpic, self.company)
+		self.assertAlmostEqual(dpic_after, dpic_before - amount, places=3)
 
 
 if __name__ == "__main__":

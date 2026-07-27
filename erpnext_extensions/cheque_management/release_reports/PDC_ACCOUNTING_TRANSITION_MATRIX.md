@@ -1,8 +1,8 @@
 # PDC Accounting Transition Matrix & Debt Purchase Extension
 
-**Status:** Design review only — **no implementation**  
-**Date:** 2026-07-26 (rev: multi-method Facility Repayment)  
-**Scope:** Existing PDC accounting engine (complete) + Debt Purchase as the same transition family  
+**Status:** Design review only — **no implementation**
+**Date:** 2026-07-26 (rev: multi-method Facility Repayment)
+**Scope:** Existing PDC accounting engine (complete) + Debt Purchase as the same transition family
 
 ---
 
@@ -169,8 +169,7 @@ Registered
     ↓
 Assigned to Bank for Debt Purchase
     ↓
-    ├── Rollback → Registered
-    ├── Returned
+    ├── Bounce Cheque → Bounced   ← Dr Protested / Cr DPIC (not CIH)
     └── Debt Purchase Settled   ← ONLY via Facility Repayment
                                     (repayment_method = Debt Purchase Cheque)
 ```
@@ -179,26 +178,30 @@ Assigned to Bank for Debt Purchase
 
 ```
 Assigned to Bank for Debt Purchase  →  Cleared   ✗
-Assigned …  →  Sent to Bank / Endorsed / Bounced (as bank reject)   ✗ (v1)
+Assigned …  →  Returned / Registered (desk)   ✗
+Assigned …  →  Sent to Bank / Endorsed   ✗
 ```
 
+> **Accounting note (approved):** Assigned → Bounced is **bank dishonour**, not reverse-assignment.
+> JE: **Dr `protested`** (`default_protested_account`, required — no CIH fallback) / **Cr `debt_purchase_in_collection`**.
+> Do **not** Dr `cheques_in_hand` (cheque is not returned to cashier).
 ### Architecture reuse map
 
 | Layer | Change |
 |-------|--------|
-| State machine | Add two states; add edges Registered→Assigned, Assigned→Returned, Assigned→Settled; **do not** add Assigned→Cleared |
-| Accounting decision | JE for assign, return-from-assign, settle |
-| Registry | Three new `PdcTransitionAccountingSpec` rows |
+| State machine | Add two states; add edges Registered→Assigned, Assigned→Bounced, Assigned→Settled; **do not** add Assigned→Cleared / Returned |
+| Accounting decision | JE for assign, bounce-from-assigned, settle |
+| Registry | Three new `PdcTransitionAccountingSpec` rows (assign, bounce, settle metadata) |
 | Role resolver | New key `debt_purchase_in_collection` from Settings |
 | Builder | Three new branches in `build_pdc_journal_entry_data` |
 | Remark | Three new Settings templates |
 | Purpose | Extend `_purpose_for_transition` + Journal Reference Select |
 | Journal ref | Same child table / key pattern |
-| Rollback | Same cancel-JE-by-key; Assigned→Registered cancels assignment JE |
+| Rollback | Assigned DP has no rollback transition; cancel-JE-by-key remains for allowed non-DP rollback paths |
 
 Closest existing analogue for assignment: **Registered → Sent to Bank** (pool reclass, no party).
 
-Closest existing analogue for return-from-assign: **not** Registered→Returned (that credits in-hand). New path credits **`debt_purchase_in_collection`**.
+Closest existing analogue for bounce-from-assigned: **Sent to Bank → Bounced** (Dr protested / Cr collection pool) — with **DPIC** replacing clearing as the credit role.
 
 Settlement is **hybrid trigger**: Facility Repayment posts **one** JE (Cr DPIC + Facility debit legs) and drives PDC `Assigned → Settled` with a Journal Reference to that same JE (see Part 6).
 
@@ -216,8 +219,9 @@ Settlement is **hybrid trigger**: Facility Repayment posts **one** JE (Cr DPIC +
 
 | Role | Used in DP |
 |------|------------|
-| `cheques_in_hand` | Cr on assignment; not used after assign until return/settle |
-| `party_receivable` | Dr on return from Assigned |
+| `cheques_in_hand` | Cr on assignment only; **not** used on Assigned→Bounced |
+| `protested` | Dr on Assigned→Bounced (required; no CIH fallback) |
+| `party_receivable` | **Not** used on Assigned→Bounced (Return-from-Assigned superseded) |
 | Facility-side accounts | From Facility Type / Facility Repayment builders (`facility_loan_receivable`, interest income, bank) — **not** PDC Settings roles |
 
 ### Optional additional configurable roles (only if product needs them)
@@ -236,8 +240,9 @@ Settlement is **hybrid trigger**: Facility Repayment posts **one** JE (Cr DPIC +
 | # | Source | Destination | Decision | Purpose (proposed) | Builder (proposed) | Debit role | Credit role | Remark template (proposed) | Journal reference | Rollback | Cancel | Facility impact |
 |---|--------|-------------|---------|---------------------|-------------------|------------|-------------|---------------------------|-------------------|----------|--------|-----------------|
 | DP1 | Registered | Assigned to Bank for Debt Purchase | JE | Debt Purchase Assignment | `build_…` branch assign | `debt_purchase_in_collection` | `cheques_in_hand` | `je_remark_debt_purchase_assign_template` | Yes — `…\|Registered\|Assigned to Bank for Debt Purchase` | Cancel JE → Registered; clear bank/date fields | Blocked if JE exists | **None** — no Facility link |
-| DP2 | Assigned… | Registered | *(rollback, not forward edge)* | — | Rollback cancels DP1 JE | reverse of DP1 | reverse of DP1 | — | Cancels DP1 ref | N/A | — | None |
-| DP3 | Assigned… | Returned | JE | Debt Purchase Return *(or Returned)* | new return-from-DP branch | `party_receivable` | `debt_purchase_in_collection` | `je_remark_debt_purchase_return_template` | Yes | Cancel JE → Assigned | Blocked | **None** (still no Facility) |
+| DP2 | Assigned… | Registered | *(rollback blocked)* | — | No desk rollback from Assigned | — | — | — | — | N/A | — | None |
+| DP3 | Assigned… | Bounced | JE | Returned *(canonical purpose)* | DP bounce branch | `protested`, `debt_purchase_in_collection` | `protested` (**required**, no CIH fallback) | `debt_purchase_in_collection` | `je_remark_receivable_bounced_template` | Yes | **No workflow rollback** (terminal business transition). Any reversal requires approved recovery/accounting correction path. | Blocked | **None** |
+| DP3-legacy | Assigned… | Returned | ~~JE~~ | — | **Superseded** — Return from Assigned forbidden | ~~`party_receivable`~~ | ~~`debt_purchase_in_collection`~~ | — | — | — | — | — |
 | DP4 | Assigned… | Debt Purchase Settled | **One JE** (Facility-owned) | Debt Purchase Settlement | Extend `build_repayment_je_plan` — same Facility debit roles; **credit** `debt_purchase_in_collection` instead of bank | See Part 7 (code-backed) | `debt_purchase_in_collection` (total) | Facility repayment remarks (+ optional DP settle template) | PDC Journal Reference → **same** Facility Repayment `journal_entry` | Cancel Facility Repayment → cancels JE → restore Assigned | Blocked | **Links** `debt_purchase_facility`, `debt_purchase_repayment`; repayment.`post_dated_cheque` |
 | DP5 | Assigned… | Cleared | **Forbidden** | — | — | — | — | — | — | — | — | — |
 
@@ -246,7 +251,7 @@ Settlement is **hybrid trigger**: Facility Repayment posts **one** JE (Cr DPIC +
 | Edge | Party on JE? | Bank GL? |
 |------|--------------|----------|
 | DP1 Assign | No | No (Bank Account on PDC for ops only) |
-| DP3 Return | Yes — drawer Customer | No |
+| DP3 Bounce | No — Dr Protested / Cr DPIC | No |
 | DP4 Settle | No party on JE (Facility loan/expense dimensions only) | **No** — credit is DPIC role, not bank |
 
 ---
@@ -313,7 +318,7 @@ When `repayment_method = "Bank Account"` (including legacy rows with empty metho
 | Cr | `deferred_credit` | profit if > 0 |
 | Dr | `interest_expense` | profit if > 0 |
 
-**Submit:** create JE → set `journal_entry` → refresh balances.  
+**Submit:** create JE → set `journal_entry` → refresh balances.
 **Cancel:** cancel JE → clear `journal_entry` → refresh balances. **No PDC steps.**
 
 ## 6.4 Method: Debt Purchase Cheque (additive)
@@ -376,9 +381,9 @@ Roles only — no hardcoded account names.
 
 After successful JE submit, **same DB transaction**:
 
-1. Link PDC ↔ Facility Repayment  
-2. Append PDC Journal Reference → Facility Repayment `journal_entry`  
-3. Purpose = `Debt Purchase Settlement`  
+1. Link PDC ↔ Facility Repayment
+2. Append PDC Journal Reference → Facility Repayment `journal_entry`
+3. Purpose = `Debt Purchase Settlement`
 4. PDC: `Assigned to Bank for Debt Purchase` → `Debt Purchase Settled`
 
 Bank Account method: **no** link, **no** state change, **no** journal reference.
@@ -393,13 +398,13 @@ Preserve current order: cancel JE → clear JE link → refresh balances.
 
 Ordered cancel (fail-safe):
 
-1. Lock Facility Repayment and PDC  
-2. Validate linked PDC is still `Debt Purchase Settled` **by this repayment**  
-3. Cancel JE successfully  
-4. Cancel/remove PDC Journal Reference (existing rollback architecture)  
-5. PDC → `Assigned to Bank for Debt Purchase`  
-6. Clear repayment/PDC links  
-7. Refresh Facility balances  
+1. Lock Facility Repayment and PDC
+2. Validate linked PDC is still `Debt Purchase Settled` **by this repayment**
+3. Cancel JE successfully
+4. Cancel/remove PDC Journal Reference (existing rollback architecture)
+5. PDC → `Assigned to Bank for Debt Purchase`
+6. Clear repayment/PDC links
+7. Refresh Facility balances
 
 If JE cancel **fails** → **do not** change PDC state or clear links.
 
@@ -445,52 +450,52 @@ One Facility JE: Cr DPIC 1,000 + Facility debit/deferred legs; PDC → Settled +
 
 ### Gaps to implement (after approval)
 
-- Field `repayment_method` + `post_dated_cheque` on Facility Repayment  
-- Client form toggles + server validation for both methods  
-- Credit-source branch in `build_repayment_je_plan`  
-- Cheque-method submit/cancel orchestration with PDC  
-- PDC states/builders/role/remarks (assignment family)  
-- Migration default for empty method  
+- Field `repayment_method` + `post_dated_cheque` on Facility Repayment
+- Client form toggles + server validation for both methods
+- Credit-source branch in `build_repayment_je_plan`
+- Cheque-method submit/cancel orchestration with PDC
+- PDC states/builders/role/remarks (assignment family)
+- Migration default for empty method
 
 ### Required test matrix
 
 **Bank Account**
 
-- Creation unchanged; `bank_account` mandatory; PDC not required  
-- Penalty supported; submit/cancel as today; JE shape unchanged  
-- Existing bank-payment tests green  
+- Creation unchanged; `bank_account` mandatory; PDC not required
+- Penalty supported; submit/cancel as today; JE shape unchanged
+- Existing bank-payment tests green
 
 **Debt Purchase Cheque**
 
-- Eligible Assigned PDC selectable; non-DP Facility Type rejected  
-- Wrong state / already settled / amount mismatch / penalty > 0 rejected  
-- Bank not required; credit role = `debt_purchase_in_collection`  
-- Submit → Settled + links + Journal Reference  
-- Cancel → Assigned; failed JE cancel leaves PDC/links unchanged  
-- Concurrent submit cannot settle one PDC twice  
+- Eligible Assigned PDC selectable; non-DP Facility Type rejected
+- Wrong state / already settled / amount mismatch / penalty > 0 rejected
+- Bank not required; credit role = `debt_purchase_in_collection`
+- Submit → Settled + links + Journal Reference
+- Cancel → Assigned; failed JE cancel leaves PDC/links unchanged
+- Concurrent submit cannot settle one PDC twice
 
 **Method switching**
 
-- Bank → cheque clears `bank_account`  
-- Cheque → bank clears `post_dated_cheque`  
-- Server rejects conflicting fields if client bypassed  
+- Bank → cheque clears `bank_account`
+- Cheque → bank clears `post_dated_cheque`
+- Server rejects conflicting fields if client bypassed
 
 ### Design lock checklist
 
-- [x] Multi-method Facility Repayment (Bank default + DP cheque additive)  
-- [x] Settlement **credits** DPIC  
-- [x] One JE; shared debit/deferred legs  
-- [x] Bank path unchanged / backward compatible  
-- [ ] Final approval to implement  
+- [x] Multi-method Facility Repayment (Bank default + DP cheque additive)
+- [x] Settlement **credits** DPIC
+- [x] One JE; shared debit/deferred legs
+- [x] Bank path unchanged / backward compatible
+- [ ] Final approval to implement
 
 ---
 
 ## Explicit non-goals
 
-- No code until approval  
-- Do **not** replace or restrict bank repayment  
-- Do **not** force `is_debt_purchase` facilities onto cheque-only repayment  
-- No second settlement JE; no `facility_category`; no reuse of Sent to Bank / Cleared for DP  
+- No code until approval
+- Do **not** replace or restrict bank repayment
+- Do **not** force `is_debt_purchase` facilities onto cheque-only repayment
+- No second settlement JE; no `facility_category`; no reuse of Sent to Bank / Cleared for DP
 
 ---
 

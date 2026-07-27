@@ -701,49 +701,63 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 					)
 			return
 
-		# Debt Purchase return: Party (+ SI refs) only on AR debit rows; DPIC credit is pool-only.
-		if edge == (WORKFLOW_ASSIGNED_DEBT_PURCHASE, WORKFLOW_RETURNED):
-			if not dims:
+		# Debt Purchase bounce: Dr Protested / Cr DPIC — dishonour into protested pool; no Party.
+		if edge == (WORKFLOW_ASSIGNED_DEBT_PURCHASE, WORKFLOW_BOUNCED):
+			protested = (acc.get("protested") or "").strip() or None
+			dpic = (acc.get("debt_purchase_in_collection") or "").strip() or None
+			if not protested:
 				frappe.throw(
 					frappe._(
-						"Receivable PDC accounting integrity: Party Type and Party are required on the PDC for transition {0} → {1}."
-					).format(from_state, to_state),
-					title=frappe._("PDC accounting integrity"),
+						"Default Protested Account is required in PDC Settings to bounce a Debt Purchase cheque. "
+						"Configure Default Protested Account before Bounce Cheque."
+					),
+					title=frappe._("Missing Protested Account"),
 				)
-			dpic = (acc.get("debt_purchase_in_collection") or "").strip() or None
-			saw_party_debit = False
+			saw_prot_debit = False
+			saw_dpic_credit = False
 			for r in rows:
-				acc_name = _strip_link_name_or_none(r.get("account"))
-				is_dpic_credit = bool(
-					dpic
-					and acc_name == dpic
-					and float(r.get("credit_in_account_currency") or 0) > 0
-				)
-				has_party = bool(r.get("party_type") or r.get("party"))
-				has_ref = bool(r.get("reference_type") or r.get("reference_name"))
-				if is_dpic_credit:
-					if has_party or has_ref:
-						frappe.throw(
-							frappe._(
-								"Receivable PDC accounting integrity: Debt Purchase In Collection credit "
-								"must not carry Party or invoice references ({0} → {1})."
-							).format(from_state, to_state),
-							title=frappe._("PDC accounting integrity"),
-						)
-					continue
-				# Non-DPIC rows are party AR debits (possibly SI-sliced).
-				if not _row_has_doc_party(r):
+				if r.get("party_type") or r.get("party"):
 					frappe.throw(
 						frappe._(
-							"Receivable PDC accounting integrity: Party receivable debit must carry drawer Party ({0} → {1})."
+							"Receivable PDC accounting integrity: Debt Purchase Bounce Journal Entry "
+							"must not carry Party on any line ({0} → {1})."
 						).format(from_state, to_state),
 						title=frappe._("PDC accounting integrity"),
 					)
-				saw_party_debit = True
-			if not saw_party_debit:
+				if r.get("reference_type") or r.get("reference_name"):
+					frappe.throw(
+						frappe._(
+							"Receivable PDC accounting integrity: Debt Purchase Bounce Journal Entry "
+							"must not carry invoice references on any line ({0} → {1})."
+						).format(from_state, to_state),
+						title=frappe._("PDC accounting integrity"),
+					)
+				acc_name = _strip_link_name_or_none(r.get("account"))
+				if float(r.get("debit_in_account_currency") or 0) > 0:
+					if acc_name != protested:
+						frappe.throw(
+							frappe._(
+								"Receivable PDC accounting integrity: Debt Purchase Bounce must debit "
+								"Default Protested Account ({0}), not {1}."
+							).format(protested, acc_name or "—"),
+							title=frappe._("PDC accounting integrity"),
+						)
+					saw_prot_debit = True
+				if float(r.get("credit_in_account_currency") or 0) > 0:
+					if not dpic or acc_name != dpic:
+						frappe.throw(
+							frappe._(
+								"Receivable PDC accounting integrity: Debt Purchase Bounce must credit "
+								"Debt Purchase In Collection ({0}), not {1}."
+							).format(dpic or "—", acc_name or "—"),
+							title=frappe._("PDC accounting integrity"),
+						)
+					saw_dpic_credit = True
+			if not saw_prot_debit or not saw_dpic_credit:
 				frappe.throw(
 					frappe._(
-						"Receivable PDC accounting integrity: Debt Purchase Return requires at least one Party receivable debit ({0} → {1})."
+						"Receivable PDC accounting integrity: Debt Purchase Bounce requires "
+						"Dr Protested and Cr Debt Purchase In Collection ({0} → {1})."
 					).format(from_state, to_state),
 					title=frappe._("PDC accounting integrity"),
 				)
@@ -929,12 +943,11 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 		edge = (from_state, to_state)
 		# Skip party sanitizer for transitions whose builders own party placement entirely:
 		# - Endorsement (holder-only party rules; CIH may need party when typed Receivable)
-		# - Debt Purchase Assignment (pool ↔ pool; no party)
-		# - Debt Purchase Return (party only on AR debit rows; DPIC credit stays clean)
+		# - Debt Purchase Assignment / Bounce (pool ↔ pool; no party; Bounce uses Protested not CIH)
 		skip_party_mirror = doc.cheque_direction == CHEQUE_DIRECTION_RECEIVABLE and edge in (
 			(WORKFLOW_REGISTERED, WORKFLOW_ENDORSED),
 			(WORKFLOW_REGISTERED, WORKFLOW_ASSIGNED_DEBT_PURCHASE),
-			(WORKFLOW_ASSIGNED_DEBT_PURCHASE, WORKFLOW_RETURNED),
+			(WORKFLOW_ASSIGNED_DEBT_PURCHASE, WORKFLOW_BOUNCED),
 		)
 		if not skip_party_mirror:
 			bank_gl = _pdc_bank_gl_account(doc) if to_state == WORKFLOW_CLEARED else None
@@ -1098,60 +1111,45 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 			]
 			return _return_je(je)
 
-		# Assigned DP -> Returned: Dr party AR, Cr Debt Purchase In Collection (not in-hand).
-		if from_state == WORKFLOW_ASSIGNED_DEBT_PURCHASE and to_state == WORKFLOW_RETURNED:
+		# Assigned DP -> Bounced: Dr Protested / Cr DPIC (dishonour; not returned to cashier).
+		# No cheques_in_hand fallback — Protested must be configured in PDC Settings.
+		if from_state == WORKFLOW_ASSIGNED_DEBT_PURCHASE and to_state == WORKFLOW_BOUNCED:
 			dpic = acc.get("debt_purchase_in_collection")
+			protested = acc.get("protested")
 			if not dpic:
-				return None
-			debit_account = _strip_link_name_or_none(
-				getattr(doc, "account_paid_from", None)
-			) or _get_party_account_or_company_default(
-				doc.party_type, doc.party, doc.company, "receivable"
-			)
-			if not debit_account:
-				return None
+				frappe.throw(
+					frappe._(
+						"Default Debt Purchase In Collection Account is required in PDC Settings "
+						"to bounce a Debt Purchase cheque."
+					),
+					title=frappe._("Missing Debt Purchase In Collection Account"),
+				)
+			if not protested:
+				frappe.throw(
+					frappe._(
+						"Default Protested Account is required in PDC Settings to bounce a Debt Purchase cheque. "
+						"Configure Default Protested Account before Bounce Cheque. "
+						"Cheques in Hand is not used for this transition."
+					),
+					title=frappe._("Missing Protested Account"),
+				)
 			remark = render_pdc_je_text(
-				getattr(settings, "je_remark_return_debt_purchase_receivable_template", None)
-				if settings
-				else None,
-				fallback_text=frappe._(PDC_JE_REMARK_RETURN_DEBT_PURCHASE_RECEIVABLE),
+				getattr(settings, "je_remark_receivable_bounced_template", None) if settings else None,
+				fallback_text=frappe._(PDC_JE_REMARK_RECEIVABLE_CHEQUE_BOUNCED),
 				context=ctx,
 				append_cheque_no_suffix=True,
 			)
 			je = _base(remark)
-			slices = receivable_sales_invoice_settlement_slices(doc)
-			if slices:
-				je["accounts"] = []
-				for sinv, amt in slices:
-					je["accounts"].append(
-						{
-							"account": debit_account,
-							"debit_in_account_currency": amt,
-							"party_type": doc.party_type,
-							"party": doc.party,
-							"reference_type": "Sales Invoice",
-							"reference_name": sinv,
-						}
-					)
-				je["accounts"].append(
-					{
-						"account": dpic,
-						"credit_in_account_currency": doc.cheque_amount,
-					}
-				)
-			else:
-				je["accounts"] = [
-					{
-						"account": debit_account,
-						"debit_in_account_currency": doc.cheque_amount,
-						"party_type": doc.party_type,
-						"party": doc.party,
-					},
-					{
-						"account": dpic,
-						"credit_in_account_currency": doc.cheque_amount,
-					},
-				]
+			je["accounts"] = [
+				{
+					"account": protested,
+					"debit_in_account_currency": doc.cheque_amount,
+				},
+				{
+					"account": dpic,
+					"credit_in_account_currency": doc.cheque_amount,
+				},
+			]
 			return _return_je(je)
 
 		# Registered / Sent to Bank / Under Legal Action -> Cleared: Dr Bank GL, Cr intermediary (party on credit via _return_je).
@@ -2898,7 +2896,8 @@ class PostDatedCheque(Document):
 			)
 
 	def _validate_bounced_workflow_state(self):
-		"""**Bounced** = bank rejection after **Sent to Bank** (not **Returned**, which is a business return).
+		"""**Bounced** = bank rejection after **Sent to Bank** or **Assigned to Bank for Debt Purchase**
+		(not **Returned**, which is a business return).
 
 		Requires ``bounced_date``. Transition rules match :data:`PDC_VALIDATION_BOUNCED_REQUIRES_RECEIVABLE_SENT_TO_BANK`
 		from :func:`get_pdc_workflow_transition_validation_error` (validated first in
@@ -2914,7 +2913,7 @@ class PostDatedCheque(Document):
 		prev_raw = self._get_previous_workflow_state_raw()
 		if not is_workflow_previous_empty(prev_raw):
 			prev = normalize_workflow_state_value(prev_raw)
-			if prev != WORKFLOW_SENT_TO_BANK and prev != WORKFLOW_BOUNCED:
+			if prev not in (WORKFLOW_SENT_TO_BANK, WORKFLOW_ASSIGNED_DEBT_PURCHASE, WORKFLOW_BOUNCED):
 				frappe.throw(
 					frappe._(PDC_VALIDATION_BOUNCED_REQUIRES_RECEIVABLE_SENT_TO_BANK),
 					title=frappe._("Invalid Bounced workflow state"),
@@ -2923,7 +2922,8 @@ class PostDatedCheque(Document):
 			frappe.throw(
 				frappe._(
 					"Bounced Date is mandatory when Workflow State is Bounced. "
-					"Enter the bank rejection date — dishonour after Sent to Bank. "
+					"Enter the bank rejection date — dishonour after Sent to Bank or "
+					"Assigned to Bank for Debt Purchase. "
 					"This is not a business return (use Returned and Returned Date for that)."
 				),
 				title=frappe._("Missing Bounced Date"),
