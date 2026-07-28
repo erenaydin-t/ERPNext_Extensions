@@ -123,7 +123,12 @@ class TestReturnFromBankBackendE2E(unittest.TestCase):
 
 	def test_normal_return_from_bank(self):
 		doc = self._new_recv(201)
-		sent_date = today()
+		# Chronology: received < sent < returned (Return later than Send must succeed).
+		received = getdate(today()) - timedelta(days=40)
+		sent_date = getdate(today()) - timedelta(days=30)
+		frappe.db.set_value("Post Dated Cheque", doc.name, "received_date", received, update_modified=False)
+		frappe.db.commit()
+		doc.reload()
 		self._transition(doc, WORKFLOW_DRAFT, WORKFLOW_REGISTERED)
 		je_send = self._transition(doc, WORKFLOW_REGISTERED, WORKFLOW_SENT_TO_BANK, sent_to_bank_date=sent_date)
 		self.assertTrue(je_send)
@@ -131,6 +136,7 @@ class TestReturnFromBankBackendE2E(unittest.TestCase):
 		prev_sent = doc.sent_to_bank_date
 		prev_bank = doc.bank_account
 		ret_date = today()
+		self.assertGreater(getdate(ret_date), getdate(sent_date))
 		je_ret = self._transition(
 			doc, WORKFLOW_SENT_TO_BANK, WORKFLOW_REGISTERED, returned_from_bank_date=ret_date
 		)

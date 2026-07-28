@@ -132,21 +132,124 @@ class TestReturnFromBankDates(unittest.TestCase):
 		):
 			p._validate_important_dates_not_in_future()
 
-	def test_re_send_requires_sent_on_or_after_returned_from_bank(self):
+	def test_return_allows_returned_after_sent_date(self):
+		"""A. Return from Bank: returned later than prior sent is valid (no sent↔returned compare)."""
+		from datetime import date
+
+		p = _pdc(
+			workflow_state=WORKFLOW_REGISTERED,
+			sent_to_bank_date=date(1405, 1, 1),
+			returned_from_bank_date=date(1405, 2, 14),
+			received_date=date(1404, 12, 1),
+		)
+		p._get_previous_workflow_state_raw = lambda: WORKFLOW_SENT_TO_BANK
+		with (
+			patch.object(pdc_mod, "frappe", _fake_frappe()),
+			patch.object(pdc_mod, "getdate", side_effect=lambda x=None: x),
+		):
+			# Generic sent-vs-received must not throw on returned-after-sent.
+			p._validate_receivable_sent_to_bank_vs_received_date()
+			# Re-send comparator must not run on Return edge.
+			p._validate_receivable_resend_sent_vs_returned_from_bank()
+
+	def test_return_allows_empty_sent_to_bank_date(self):
+		"""B. Opening balance / Return with no prior sent_to_bank_date."""
+		from datetime import date
+
+		p = _pdc(
+			workflow_state=WORKFLOW_REGISTERED,
+			sent_to_bank_date=None,
+			returned_from_bank_date=date(1405, 2, 14),
+			received_date=date(1404, 12, 1),
+		)
+		p._get_previous_workflow_state_raw = lambda: WORKFLOW_SENT_TO_BANK
+		with (
+			patch.object(pdc_mod, "frappe", _fake_frappe()),
+			patch.object(pdc_mod, "getdate", side_effect=lambda x=None: x),
+		):
+			p._validate_receivable_sent_to_bank_vs_received_date()
+			p._validate_receivable_resend_sent_vs_returned_from_bank()
+
+	def test_re_send_rejected_when_sent_before_returned(self):
+		"""C. Re-send Registered → Sent to Bank rejected when new sent < returned."""
 		from datetime import date
 
 		p = _pdc(
 			workflow_state=WORKFLOW_SENT_TO_BANK,
-			sent_to_bank_date=date(2026, 1, 15),
-			returned_from_bank_date=date(2026, 2, 1),
-			received_date=date(2026, 1, 1),
+			sent_to_bank_date=date(1405, 2, 13),
+			returned_from_bank_date=date(1405, 2, 14),
+			received_date=date(1404, 12, 1),
 		)
+		p._get_previous_workflow_state_raw = lambda: WORKFLOW_REGISTERED
 		with (
 			patch.object(pdc_mod, "frappe", _fake_frappe()),
 			patch.object(pdc_mod, "getdate", side_effect=lambda x=None: x),
 			self.assertRaises(ValidationError),
 		):
-			p._validate_receivable_sent_to_bank_vs_received_date()
+			p._validate_receivable_resend_sent_vs_returned_from_bank()
+
+	def test_re_send_allows_equal_dates(self):
+		"""D. Re-send succeeds when sent == returned."""
+		from datetime import date
+
+		p = _pdc(
+			workflow_state=WORKFLOW_SENT_TO_BANK,
+			sent_to_bank_date=date(1405, 2, 14),
+			returned_from_bank_date=date(1405, 2, 14),
+			received_date=date(1404, 12, 1),
+		)
+		p._get_previous_workflow_state_raw = lambda: WORKFLOW_REGISTERED
+		with (
+			patch.object(pdc_mod, "frappe", _fake_frappe()),
+			patch.object(pdc_mod, "getdate", side_effect=lambda x=None: x),
+		):
+			p._validate_receivable_resend_sent_vs_returned_from_bank()
+
+	def test_re_send_allows_sent_after_returned(self):
+		"""E. Re-send succeeds when new sent > returned."""
+		from datetime import date
+
+		p = _pdc(
+			workflow_state=WORKFLOW_SENT_TO_BANK,
+			sent_to_bank_date=date(1405, 2, 20),
+			returned_from_bank_date=date(1405, 2, 14),
+			received_date=date(1404, 12, 1),
+		)
+		p._get_previous_workflow_state_raw = lambda: WORKFLOW_REGISTERED
+		with (
+			patch.object(pdc_mod, "frappe", _fake_frappe()),
+			patch.object(pdc_mod, "getdate", side_effect=lambda x=None: x),
+		):
+			p._validate_receivable_resend_sent_vs_returned_from_bank()
+
+	def test_ordinary_save_does_not_run_resend_comparison(self):
+		"""F. Ordinary save while STB/Registered must not trigger re-send compare."""
+		from datetime import date
+
+		# Already Sent to Bank (no transition): prior sent earlier than returned must not throw.
+		p_stb = _pdc(
+			workflow_state=WORKFLOW_SENT_TO_BANK,
+			sent_to_bank_date=date(1405, 1, 1),
+			returned_from_bank_date=date(1405, 2, 14),
+			received_date=date(1404, 12, 1),
+		)
+		p_stb._get_previous_workflow_state_raw = lambda: WORKFLOW_SENT_TO_BANK
+		# Already Registered (no transition): same dates must not throw.
+		p_reg = _pdc(
+			workflow_state=WORKFLOW_REGISTERED,
+			sent_to_bank_date=date(1405, 1, 1),
+			returned_from_bank_date=date(1405, 2, 14),
+			received_date=date(1404, 12, 1),
+		)
+		p_reg._get_previous_workflow_state_raw = lambda: WORKFLOW_REGISTERED
+		with (
+			patch.object(pdc_mod, "frappe", _fake_frappe()),
+			patch.object(pdc_mod, "getdate", side_effect=lambda x=None: x),
+		):
+			p_stb._validate_receivable_sent_to_bank_vs_received_date()
+			p_stb._validate_receivable_resend_sent_vs_returned_from_bank()
+			p_reg._validate_receivable_sent_to_bank_vs_received_date()
+			p_reg._validate_receivable_resend_sent_vs_returned_from_bank()
 
 
 class TestOpenOccurrenceIdempotency(unittest.TestCase):
