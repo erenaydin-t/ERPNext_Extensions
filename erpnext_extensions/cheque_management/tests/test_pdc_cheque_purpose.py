@@ -60,6 +60,8 @@ class TestChequePurposeUnit(unittest.TestCase):
 		self.assertIsNotNone(df)
 		self.assertEqual(df.fieldtype, "Small Text")
 		self.assertFalse(df.reqd)
+		self.assertEqual(int(df.permlevel or 0), 0)
+		self.assertFalse(int(df.hidden or 0))
 		search = (meta.search_fields or "").replace(" ", "")
 		self.assertIn("cheque_purpose", search.split(","))
 

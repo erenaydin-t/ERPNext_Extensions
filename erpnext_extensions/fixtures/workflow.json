@@ -353,6 +353,19 @@
     "workflow_builder_id": "pdc-tr-11"
    },
    {
+    "action": "Return from Bank",
+    "allow_self_approval": 1,
+    "allowed": "All",
+    "condition": "doc.get('cheque_direction') == 'Receivable'",
+    "next_state": "Registered",
+    "parent": "PDC Workflow",
+    "parentfield": "transitions",
+    "parenttype": "Workflow",
+    "send_email_to_creator": 0,
+    "state": "Sent to Bank",
+    "workflow_builder_id": "pdc-tr-return-from-bank"
+   },
+   {
     "action": "Clear Cheque",
     "allow_self_approval": 1,
     "allowed": "All",
