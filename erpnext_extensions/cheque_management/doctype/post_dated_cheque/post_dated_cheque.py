@@ -2401,7 +2401,12 @@ class PostDatedCheque(Document):
 			)
 
 	def _validate_receivable_sent_to_bank_vs_received_date(self) -> None:
-		"""Receivable: ``sent_to_bank_date`` must be on or after ``received_date`` when both are set."""
+		"""Receivable: ``sent_to_bank_date`` must be on or after ``received_date`` when both are set.
+
+		Does **not** compare ``sent_to_bank_date`` to ``returned_from_bank_date``. That check is
+		transition-scoped on Registered → Sent to Bank only
+		(:meth:`_validate_receivable_resend_sent_vs_returned_from_bank`).
+		"""
 		if self.cheque_direction != CHEQUE_DIRECTION_RECEIVABLE:
 			return
 		sent = getattr(self, "sent_to_bank_date", None)
@@ -2416,8 +2421,28 @@ class PostDatedCheque(Document):
 				),
 				title=frappe._("Invalid Date Sequence"),
 			)
+
+	def _validate_receivable_resend_sent_vs_returned_from_bank(self) -> None:
+		"""Receivable re-send only: Registered → Sent to Bank requires ``sent_to_bank_date`` ≥ ``returned_from_bank_date``.
+
+		Runs only on that workflow edge when a prior Return from Bank date exists. Ordinary saves while
+		already Sent to Bank / Registered, and Return from Bank (Sent to Bank → Registered), must not
+		compare these dates — a Return date later than the previous Send date is valid and expected.
+		Opening-balance Return with no ``sent_to_bank_date`` is unaffected (this method never runs on Return).
+		"""
+		if (self.cheque_direction or "").strip() != CHEQUE_DIRECTION_RECEIVABLE:
+			return
+		curr = normalize_workflow_state_value(self.workflow_state)
+		if curr != WORKFLOW_SENT_TO_BANK:
+			return
+		prev = normalize_workflow_state_value(self._get_previous_workflow_state_raw())
+		if prev != WORKFLOW_REGISTERED:
+			return
 		returned_from_bank = getattr(self, "returned_from_bank_date", None)
-		if returned_from_bank and getdate(sent) < getdate(returned_from_bank):
+		sent = getattr(self, "sent_to_bank_date", None)
+		if not returned_from_bank or not sent:
+			return
+		if getdate(sent) < getdate(returned_from_bank):
 			frappe.throw(
 				frappe._(
 					"Sent to Bank Date cannot be earlier than Returned from Bank Date.\n"
@@ -2611,6 +2636,7 @@ class PostDatedCheque(Document):
 		self._append_holder_history_on_endorsement()
 		self._validate_issued_workflow_state()
 		self._validate_sent_to_bank_workflow_state()
+		self._validate_receivable_resend_sent_vs_returned_from_bank()
 		self._validate_bank_account_for_workflow_state()
 		self._validate_bank_account_for_cleared_workflow_state()
 		self._validate_bank_gl_account_for_cleared_workflow_state()
