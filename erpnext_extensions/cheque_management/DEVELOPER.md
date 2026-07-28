@@ -77,7 +77,7 @@ Terminal states (no transition **to a different** state after that): **Cleared**
 | ---- | ----------- |
 | Draft | Registered, Cancelled |
 | Registered | Sent to Bank, Cleared, Returned, Endorsed, Replaced, Under Legal Action, Cancelled |
-| Sent to Bank | Cleared, Bounced |
+| Sent to Bank | Cleared, Bounced, Registered (Return from Bank) |
 | Bounced | Returned, Replaced, Under Legal Action |
 | Returned | Replaced, Cancelled |
 | Under Legal Action | Cleared, Returned |

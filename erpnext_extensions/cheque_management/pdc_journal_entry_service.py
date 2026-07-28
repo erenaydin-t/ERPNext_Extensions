@@ -23,6 +23,8 @@ from erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_c
 from erpnext_extensions.cheque_management.pdc_accounting_idempotency import (
 	build_pdc_accounting_transition_key,
 	build_pdc_transition_key_suffix,
+	find_open_occurrence_journal_entry,
+	is_cycleable_open_occurrence_edge,
 	normalize_cheque_direction_for_accounting_key,
 	stored_transition_key_matches,
 )
@@ -91,6 +93,8 @@ def _purpose_for_transition(
 			return "Receive"
 		if f == WORKFLOW_REGISTERED and t == WORKFLOW_SENT_TO_BANK:
 			return "Under Collection"
+		if f == WORKFLOW_SENT_TO_BANK and t == WORKFLOW_REGISTERED:
+			return "Return from Bank"
 		if f == WORKFLOW_REGISTERED and t == WORKFLOW_ASSIGNED_DEBT_PURCHASE:
 			return "Debt Purchase Assignment"
 		if f == WORKFLOW_ASSIGNED_DEBT_PURCHASE and t == WORKFLOW_DEBT_PURCHASE_SETTLED:
@@ -142,10 +146,17 @@ def get_existing_journal_entry_for_transition(
 	using the same normalization as when the row was created. If no exact ``pdc_transition_key``
 	hit is found (e.g. minor historical variants), falls back to scanning ``journal_references``
 	with :func:`stored_transition_key_matches`.
+
+	For cycleable Registered ↔ Sent to Bank edges, returns the JE only while an **open**
+	occurrence exists (not closed by the opposite edge). This allows Send → Return → Send
+	cycles without requiring a prior Send JE for Return from Bank.
 	"""
 	name = (pdc_name or "").strip()
 	if not name:
 		return None
+	if is_cycleable_open_occurrence_edge(from_state, to_state):
+		return find_open_occurrence_journal_entry(name, cheque_direction, from_state, to_state)
+
 	full = build_pdc_accounting_transition_key(name, cheque_direction, from_state, to_state)
 	legacy = build_pdc_transition_key_suffix(cheque_direction, from_state, to_state)
 	for key in (full, legacy):

@@ -145,6 +145,8 @@ PDC_HOLDER_HISTORY_REASON_ENDORSEMENT = "Endorsement — transfer to new holder"
 PDC_JE_REMARK_REGISTER_RECEIVABLE_CHEQUE = "Register receivable cheque"
 # Journal Entry remarks — Receivable Registered → Sent to Bank
 PDC_JE_REMARK_SEND_RECEIVABLE_CHEQUE_TO_BANK = "Send receivable cheque to bank"
+# Journal Entry remarks — Receivable Sent to Bank → Registered (Return from Bank)
+PDC_JE_REMARK_RETURN_RECEIVABLE_FROM_BANK = "Return receivable cheque from bank to cashbox"
 # Journal Entry remarks — Receivable Registered → Assigned to Bank for Debt Purchase
 PDC_JE_REMARK_ASSIGN_RECEIVABLE_DEBT_PURCHASE = "Assign receivable cheque for debt purchase"
 # Journal Entry remarks — Receivable Assigned DP → Returned
@@ -819,6 +821,7 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 			(WORKFLOW_DRAFT, WORKFLOW_REGISTERED),
 			(WORKFLOW_REGISTERED, WORKFLOW_RETURNED),
 			(WORKFLOW_REGISTERED, WORKFLOW_SENT_TO_BANK),
+			(WORKFLOW_SENT_TO_BANK, WORKFLOW_REGISTERED),
 			(WORKFLOW_SENT_TO_BANK, WORKFLOW_BOUNCED),
 		}
 		if edge in party_on_both_edges:
@@ -1208,6 +1211,37 @@ def build_pdc_journal_entry_data(doc, from_state: str, to_state: str, posting_da
 				},
 				{
 					"account": credit_account,
+					"credit_in_account_currency": doc.cheque_amount,
+				},
+			]
+			return _return_je(je)
+
+		# Sent to Bank -> Registered (Return from Bank): reverse of Send — Dr CIH, Cr Clearing.
+		# Independent JE; does not require or link to a prior Send JE (opening-balance safe).
+		if from_state == WORKFLOW_SENT_TO_BANK and to_state == WORKFLOW_REGISTERED:
+			if not acc["cheques_in_clearing"]:
+				return None
+			debit_account = (
+				_strip_link_name_or_none(getattr(doc, "account_paid_to", None)) or acc["cheques_in_hand"]
+			)
+			if not debit_account:
+				return None
+			remark = render_pdc_je_text(
+				getattr(settings, "je_remark_return_receivable_from_bank_template", None)
+				if settings
+				else None,
+				fallback_text=frappe._(PDC_JE_REMARK_RETURN_RECEIVABLE_FROM_BANK),
+				context=ctx,
+				append_cheque_no_suffix=True,
+			)
+			je = _base(remark)
+			je["accounts"] = [
+				{
+					"account": debit_account,
+					"debit_in_account_currency": doc.cheque_amount,
+				},
+				{
+					"account": acc["cheques_in_clearing"],
 					"credit_in_account_currency": doc.cheque_amount,
 				},
 			]
@@ -2253,6 +2287,7 @@ class PostDatedCheque(Document):
 			("returned_date", "Returned Date"),
 			("handover_date", "Handover / Endorsement Date"),
 			("bounced_date", "Bounced Date"),
+			("returned_from_bank_date", "Returned from Bank Date"),
 		]
 
 		for fieldname, label in date_fields:
@@ -2378,6 +2413,16 @@ class PostDatedCheque(Document):
 				frappe._(
 					"Sent to Bank Date cannot be earlier than Received / Issued Date.\n"
 					"A receivable cheque cannot be sent for collection before it was received or recorded."
+				),
+				title=frappe._("Invalid Date Sequence"),
+			)
+		returned_from_bank = getattr(self, "returned_from_bank_date", None)
+		if returned_from_bank and getdate(sent) < getdate(returned_from_bank):
+			frappe.throw(
+				frappe._(
+					"Sent to Bank Date cannot be earlier than Returned from Bank Date.\n"
+					"When re-sending a cheque after Return from Bank, enter a new Sent to Bank Date "
+					"on or after the Returned from Bank Date."
 				),
 				title=frappe._("Invalid Date Sequence"),
 			)
@@ -2747,6 +2792,7 @@ class PostDatedCheque(Document):
 		# - Any → Returned: use returned_date only
 		# - Any → Bounced: use bounced_date only (bank rejection after Sent to Bank)
 		# - Receivable → Sent to Bank: use sent_to_bank_date only (bank handover for collection)
+		# - Receivable Sent to Bank → Registered (Return from Bank): use returned_from_bank_date only
 		# - Payable Draft→Registered: use received_date (register / settlement event)
 		# - Receivable → Endorsed: use handover_date only (endorsement / transfer)
 		# Fallback only for other transitions that are not business-dated yet.
@@ -2762,6 +2808,12 @@ class PostDatedCheque(Document):
 			and (self.cheque_direction or "").strip() == CHEQUE_DIRECTION_RECEIVABLE
 		):
 			posting_date = getattr(self, "sent_to_bank_date", None)
+		elif (
+			curr_norm == WORKFLOW_REGISTERED
+			and prev_norm == WORKFLOW_SENT_TO_BANK
+			and (self.cheque_direction or "").strip() == CHEQUE_DIRECTION_RECEIVABLE
+		):
+			posting_date = getattr(self, "returned_from_bank_date", None)
 		elif (
 			curr_norm == WORKFLOW_ENDORSED
 			and (self.cheque_direction or "").strip() == CHEQUE_DIRECTION_RECEIVABLE
@@ -2813,6 +2865,20 @@ class PostDatedCheque(Document):
 						"Enter the date the cheque was delivered to the bank for collection — do not use workflow time or today."
 					),
 					title=frappe._("Missing Sent to Bank Date"),
+				)
+		elif (
+			curr_norm == WORKFLOW_REGISTERED
+			and prev_norm == WORKFLOW_SENT_TO_BANK
+			and (self.cheque_direction or "").strip() == CHEQUE_DIRECTION_RECEIVABLE
+		):
+			if not posting_date:
+				frappe.throw(
+					frappe._(
+						"Returned from Bank Date is mandatory when returning a receivable cheque "
+						"from Sent to Bank to Registered (Return from Bank). "
+						"Enter the date the cheque was returned to the cashbox — do not auto-fill or use today."
+					),
+					title=frappe._("Missing Returned from Bank Date"),
 				)
 		elif (
 			curr_norm == WORKFLOW_ISSUED and (self.cheque_direction or "").strip() == CHEQUE_DIRECTION_PAYABLE

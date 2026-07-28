@@ -177,6 +177,31 @@ class TestPDCJournalEntryPayloadBuilder(unittest.TestCase):
 		self.assertEqual(dr["account"], "ACC-CLEAR-SET")
 		self.assertEqual(cr["account"], "ACC-CIH-DOC")
 
+	def test_receivable_return_from_bank_reverses_send(self) -> None:
+		from erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_cheque import (
+			PDC_JE_REMARK_RETURN_RECEIVABLE_FROM_BANK,
+		)
+
+		doc = _doc()
+		with (
+			patch.object(pdc, "_get_pdc_settings_for_company", return_value=dict(_SETTINGS_BASE)),
+			patch.object(pdc, "_get_party_account_or_company_default", return_value="ACC-PARTY-FALLBACK"),
+			patch.object(pdc, "frappe") as mf,
+		):
+			mf._ = lambda s: s
+			je = build_pdc_journal_entry_data(doc, WORKFLOW_SENT_TO_BANK, WORKFLOW_REGISTERED, POSTING)
+		assert je is not None
+		self.assertEqual(je["remarks"], f"{PDC_JE_REMARK_RETURN_RECEIVABLE_FROM_BANK} — CHK-9")
+		dr, cr = je["accounts"]
+		self.assertEqual(dr["account"], "ACC-CIH-DOC")
+		self.assertEqual(dr.get("party"), "CUST-1")
+		self.assertEqual(dr.get("party_type"), "Customer")
+		self.assertEqual(cr["account"], "ACC-CLEAR-SET")
+		self.assertEqual(cr.get("party"), "CUST-1")
+		self.assertEqual(cr.get("party_type"), "Customer")
+		self.assertFalse(dr.get("reference_type") or dr.get("reference_name"))
+		self.assertFalse(cr.get("reference_type") or cr.get("reference_name"))
+
 	def test_receivable_sent_bank_to_bounced_party_on_both_rows(self) -> None:
 		doc = _doc()
 		with (

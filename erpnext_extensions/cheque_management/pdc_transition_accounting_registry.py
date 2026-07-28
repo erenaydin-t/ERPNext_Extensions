@@ -91,6 +91,14 @@ PDC_ACCOUNTING_TRANSITION_REGISTRY: Final[dict[tuple[str, str, str], PDCAccounti
 		),
 		_spec(
 			CHEQUE_DIRECTION_RECEIVABLE,
+			WORKFLOW_SENT_TO_BANK,
+			WORKFLOW_REGISTERED,
+			PDC_ACCOUNTING_JOURNAL_ENTRY,
+			True,
+			"Return from Bank: Dr Cheques in Hand, Cr Cheques in Clearing — drawer Party on both rows.",
+		),
+		_spec(
+			CHEQUE_DIRECTION_RECEIVABLE,
 			WORKFLOW_REGISTERED,
 			WORKFLOW_CLEARED,
 			PDC_ACCOUNTING_JOURNAL_ENTRY,

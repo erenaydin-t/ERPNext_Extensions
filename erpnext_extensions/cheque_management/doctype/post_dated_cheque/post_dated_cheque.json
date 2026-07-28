@@ -76,6 +76,7 @@
   "received_date",
   "column_break_dates_primary_col2",
   "sent_to_bank_date",
+  "returned_from_bank_date",
   "section_break_dates_primary_row2",
   "cleared_date",
   "column_break_dates_primary_row2_col2",
@@ -249,6 +250,8 @@
    "fieldname": "cheque_purpose",
    "fieldtype": "Small Text",
    "label": "Cheque Purpose",
+   "permlevel": 0,
+   "hidden": 0,
    "in_standard_filter": 1,
    "description": "Business purpose or subject of the cheque (why it was issued or received)."
   },
@@ -551,6 +554,13 @@
    "label": "Sent to Bank Date",
    "description": "Delivered to bank for collection.",
    "mandatory_depends_on": "eval:doc.cheque_direction===\"Receivable\" && doc.workflow_state===\"Sent to Bank\"",
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "returned_from_bank_date",
+   "fieldtype": "Date",
+   "label": "Returned from Bank Date",
+   "description": "Date the receivable cheque was returned from bank collection to cashbox (Return from Bank). Enter before the workflow action; not auto-filled.",
    "allow_on_submit": 1
   },
   {

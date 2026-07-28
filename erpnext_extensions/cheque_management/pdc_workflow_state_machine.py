@@ -100,7 +100,7 @@ ALL_WORKFLOW_STATES: Final[tuple[str, ...]] = (
 # Receivable:
 #   Draft -> Registered, Cancelled
 #   Registered -> Sent to Bank, Cleared, Returned, Endorsed, Replaced, Under Legal Action, Cancelled
-#   Sent to Bank -> Cleared, Bounced
+#   Sent to Bank -> Cleared, Bounced, Registered (Return from Bank)
 #   Bounced -> Returned, Replaced, Under Legal Action
 #   Returned -> Replaced, Cancelled
 #   Under Legal Action -> Cleared, Returned
@@ -129,7 +129,7 @@ RECEIVABLE_WORKFLOW_TRANSITIONS: Final[dict[str, frozenset[str]]] = {
 			WORKFLOW_ASSIGNED_DEBT_PURCHASE,
 		}
 	),
-	WORKFLOW_SENT_TO_BANK: frozenset({WORKFLOW_CLEARED, WORKFLOW_BOUNCED}),
+	WORKFLOW_SENT_TO_BANK: frozenset({WORKFLOW_CLEARED, WORKFLOW_BOUNCED, WORKFLOW_REGISTERED}),
 	WORKFLOW_BOUNCED: frozenset({WORKFLOW_RETURNED, WORKFLOW_REPLACED, WORKFLOW_UNDER_LEGAL_ACTION}),
 	WORKFLOW_RETURNED: frozenset({WORKFLOW_REPLACED}),
 	WORKFLOW_UNDER_LEGAL_ACTION: frozenset({WORKFLOW_CLEARED, WORKFLOW_RETURNED}),
@@ -170,6 +170,8 @@ _RECEIVABLE_ACCOUNTING_DECISIONS: Final[dict[tuple[str, str], str]] = {
 	(WORKFLOW_SENT_TO_BANK, WORKFLOW_CLEARED): PDC_ACCOUNTING_JOURNAL_ENTRY,
 	# Sent to Bank → Bounced = JE (bank return)
 	(WORKFLOW_SENT_TO_BANK, WORKFLOW_BOUNCED): PDC_ACCOUNTING_JOURNAL_ENTRY,
+	# Sent to Bank → Registered = JE (Return from Bank; reverse of Send to Bank)
+	(WORKFLOW_SENT_TO_BANK, WORKFLOW_REGISTERED): PDC_ACCOUNTING_JOURNAL_ENTRY,
 	# Registered → Returned = JE (business return from in-hand)
 	(WORKFLOW_REGISTERED, WORKFLOW_RETURNED): PDC_ACCOUNTING_JOURNAL_ENTRY,
 	# Registered → Endorsed = JE (endorsement / transfer)

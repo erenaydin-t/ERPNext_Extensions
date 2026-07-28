@@ -163,6 +163,13 @@
  {
   "docstatus": 0,
   "doctype": "Workflow Action Master",
+  "modified": "2026-07-28 00:00:00.000000",
+  "name": "Return from Bank",
+  "workflow_action_name": "Return from Bank"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
   "modified": "2026-04-03 00:00:00.000000",
   "name": "Clear Cheque",
   "workflow_action_name": "Clear Cheque"
