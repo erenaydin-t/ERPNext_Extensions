@@ -11,7 +11,6 @@ from erpnext_extensions.iran_accounting.domain.currency import (
 	get_company_currency,
 	get_currency_precision,
 	is_irr_company,
-	round_currency,
 	round_row_amount_financial,
 )
 from erpnext_extensions.iran_accounting.domain.qty_rate_amount import compose_stock_entry_row_amount
