@@ -53,6 +53,7 @@ from erpnext_extensions.iran_accounting.domain.stock_reconciliation_sync import 
 	sync_irr_sle_from_stock_reconciliation_row,
 )
 from erpnext_extensions.iran_accounting.manufacture_rounding import (
+	align_manufacture_finished_good_residual,
 	align_manufacture_finished_good_to_outgoing,
 )
 from erpnext_extensions.iran_accounting.rounding import round_stock_entry_totals
@@ -208,7 +209,7 @@ def _reconcile_stock_entry_after_repost(voucher_no: str, company: str) -> list[s
 
 	align_stock_entry_item_amounts(doc)
 	round_stock_entry_totals(doc)
-	align_manufacture_finished_good_to_outgoing(doc)
+	align_manufacture_finished_good_residual(doc)
 	for row in doc.items:
 		frappe.db.set_value(
 			"Stock Entry Detail",
