@@ -62,3 +62,18 @@ Flag submitted IRR Stock Entries where:
 
 Running repost utilities on affected Stock Entries **before** upgrading can
 re-corrupt or lock in undervalued inventory. Upgrade first.
+
+## Known issues
+
+### Stock Reconciliation RIV ±1 IRR GL magnitude (`test_repost_determinism`)
+
+`erpnext_extensions.iran_accounting.tests.test_repost_determinism.test_repost_item_does_not_break_determinism`
+can fail after Repost Item Valuation on Opening Stock Reconciliation when
+`gl_magnitude` is 1 IRR below `difference_amount` / SLE (example: GL 27535 vs
+header/SLE 27536).
+
+- **Scope:** Stock Reconciliation only — not Stock Entry capitalization.
+- **Pre-existing:** Reproduced on parent of Commit 1 (`db71ca0`, pre-3.7.6).
+  `_reconcile_stock_reconciliation_after_repost` is unchanged in 3.7.6.
+- **Not a 3.7.6 regression** for Manufacture / Additional Cost / LCV / transfer GL.
+- **Not fixed in this release.** Track separately from inventory capitalization.
