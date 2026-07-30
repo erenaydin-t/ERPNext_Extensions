@@ -9,6 +9,7 @@ from erpnext_extensions.iran_accounting.domain.qty_rate_amount import (  # noqa:
 	align_sales_invoice_item_amounts,
 	align_stock_entry_item_amounts,
 	align_stock_reconciliation_row_amounts,
+	compose_stock_entry_row_amount,
 	compute_final_difference_amount,
 	compute_row_amount,
 	enforce_row_amounts,

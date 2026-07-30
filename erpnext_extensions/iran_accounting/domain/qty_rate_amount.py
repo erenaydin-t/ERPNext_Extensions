@@ -169,17 +169,42 @@ def enforce_row_amounts(doc) -> None:
 		align_delivery_note_item_amounts(doc)
 
 
+def compose_stock_entry_row_amount(row, currency: str) -> float:
+	"""ERPNext capitalization model: basic_amount + additional_cost + landed_cost_voucher_amount."""
+	return flt(
+		rounding.round_currency(
+			flt(row.get("basic_amount"))
+			+ flt(row.get("additional_cost"))
+			+ flt(row.get("landed_cost_voucher_amount")),
+			currency,
+		)
+	)
+
+
 def align_stock_entry_item_amounts(doc) -> None:
+	"""Round SE row amounts while preserving ERPNext capitalization ownership.
+
+	basic_amount = round(transfer_qty × basic_rate)
+	amount = round(basic_amount + additional_cost + landed_cost_voucher_amount)
+	valuation_rate stays consistent with amount / transfer_qty when transfer_qty > 0.
+	"""
 	if not rounding.is_irr_company(doc.company):
 		return
 	currency = rounding.get_company_currency(doc.company)
 	for row in doc.get("items") or []:
-		qty = flt(row.qty)
+		transfer_qty = flt(row.get("transfer_qty") if row.get("transfer_qty") not in (None, "") else row.get("qty"))
 		if row.get("basic_rate") is not None:
-			row.basic_amount = rounding.round_row_amount(qty, row.basic_rate, currency)
-		rate = row.basic_rate if row.get("basic_rate") not in (None, "") else row.get("valuation_rate")
-		if qty and rate not in (None, ""):
-			row.amount = rounding.round_row_amount(qty, rate, currency)
+			if transfer_qty:
+				row.basic_amount = rounding.round_row_amount(transfer_qty, row.basic_rate, currency)
+			else:
+				row.basic_amount = rounding.round_currency(flt(row.get("basic_amount")), currency)
+
+		# Never discard capitalized costs; compose amount from ERPNext fields.
+		row.amount = compose_stock_entry_row_amount(row, currency)
+		if transfer_qty:
+			row.valuation_rate = flt(row.amount) / transfer_qty
+		elif row.get("valuation_rate") is not None:
+			row.valuation_rate = flt(row.valuation_rate)
 
 
 def _align_po_pi_si_row(row, company_currency: str, transaction_currency: str) -> None:

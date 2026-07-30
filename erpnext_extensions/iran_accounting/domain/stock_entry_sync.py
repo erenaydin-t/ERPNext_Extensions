@@ -1,5 +1,5 @@
 # Copyright (c) 2026, ERPNext Extensions contributors
-"""Stock Entry: row.amount is the only source for SLE movement and GL legs (IRR)."""
+"""Stock Entry: capitalization-aware row.amount is the source for SLE movement (IRR)."""
 
 from __future__ import annotations
 
@@ -15,16 +15,29 @@ from erpnext_extensions.iran_accounting.domain.currency import (
 
 
 def stock_entry_row_amount(row, company: str) -> float:
-	"""Normalized row.amount = round(qty × rate); never read valuation engine."""
+	"""Capitalization-aware row amount for SLE/GL mirroring.
+
+	Prefer stored ``amount`` (already ERPNext composition after align).
+	If missing, recompose: basic_amount + additional_cost + landed_cost_voucher_amount,
+	with basic_amount from transfer_qty × basic_rate when needed.
+	"""
 	ccy = get_company_currency(company)
 	if row.get("amount") not in (None, ""):
 		return float(round_currency(row.amount, ccy))
-	qty = flt(row.get("qty"))
-	rate = row.get("basic_rate")
-	if rate in (None, ""):
-		rate = row.get("valuation_rate")
-	if qty and rate not in (None, ""):
-		return float(round_row_amount_financial(qty, rate, ccy))
+
+	transfer_qty = flt(
+		row.get("transfer_qty") if row.get("transfer_qty") not in (None, "") else row.get("qty")
+	)
+	basic_amount = row.get("basic_amount")
+	if basic_amount in (None, "") and transfer_qty and row.get("basic_rate") not in (None, ""):
+		basic_amount = round_row_amount_financial(transfer_qty, row.basic_rate, ccy)
+	composed = (
+		flt(basic_amount)
+		+ flt(row.get("additional_cost"))
+		+ flt(row.get("landed_cost_voucher_amount"))
+	)
+	if composed:
+		return float(round_currency(composed, ccy))
 	return 0.0
 
 
@@ -48,7 +61,16 @@ def sync_irr_sle_from_stock_entry_row(sle) -> None:
 	row = frappe.db.get_value(
 		"Stock Entry Detail",
 		sle.voucher_detail_no,
-		["qty", "basic_rate", "valuation_rate", "amount"],
+		[
+			"qty",
+			"transfer_qty",
+			"basic_rate",
+			"basic_amount",
+			"additional_cost",
+			"landed_cost_voucher_amount",
+			"valuation_rate",
+			"amount",
+		],
 		as_dict=True,
 	)
 	if not row:
@@ -95,7 +117,16 @@ def assert_stock_entry_row_sle_mirror(voucher_no: str, company: str) -> list[str
 		row = frappe.db.get_value(
 			"Stock Entry Detail",
 			sle.voucher_detail_no,
-			["qty", "basic_rate", "valuation_rate", "amount"],
+			[
+				"qty",
+				"transfer_qty",
+				"basic_rate",
+				"basic_amount",
+				"additional_cost",
+				"landed_cost_voucher_amount",
+				"valuation_rate",
+				"amount",
+			],
 			as_dict=True,
 		)
 		if not row:
