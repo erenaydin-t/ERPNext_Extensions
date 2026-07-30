@@ -5,10 +5,19 @@ from __future__ import annotations
 import unittest
 from unittest import mock
 
-from frappe.utils import flt
-
 from erpnext_extensions.iran_accounting.domain.stock_entry_ledger_contract import (
 	_assert_row_composition,
+)
+from erpnext_extensions.iran_accounting.tests.hardening.decimal_money import (
+	compose_amount,
+	valuation_from_amount,
+)
+from erpnext_extensions.iran_accounting.tests.hardening.fixtures import (
+	ADD_COST,
+	AMT_A,
+	IRR_PRECISION,
+	QTY_A,
+	RATE_A,
 )
 
 
@@ -30,6 +39,7 @@ class _Doc:
 
 class TestLedgerContractComposition(unittest.TestCase):
 	def test_composition_pass_with_additional_cost(self):
+		amount = compose_amount(AMT_A, ADD_COST, 0, precision=IRR_PRECISION)
 		doc = _Doc(
 			doctype="Stock Entry",
 			name="STE-1",
@@ -38,14 +48,14 @@ class TestLedgerContractComposition(unittest.TestCase):
 					idx=1,
 					name="row1",
 					item_code="FG",
-					transfer_qty=10,
-					qty=10,
-					basic_rate=100,
-					basic_amount=1000,
-					additional_cost=500,
+					transfer_qty=float(QTY_A),
+					qty=float(QTY_A),
+					basic_rate=float(RATE_A),
+					basic_amount=float(AMT_A),
+					additional_cost=float(ADD_COST),
 					landed_cost_voucher_amount=0,
-					amount=1500,
-					valuation_rate=150,
+					amount=float(amount),
+					valuation_rate=float(valuation_from_amount(amount, QTY_A)),
 				)
 			],
 		)
@@ -75,14 +85,14 @@ class TestLedgerContractComposition(unittest.TestCase):
 					idx=1,
 					name="row1",
 					item_code="FG",
-					transfer_qty=10,
-					qty=10,
-					basic_rate=100,
-					basic_amount=1000,
-					additional_cost=500,
+					transfer_qty=float(QTY_A),
+					qty=float(QTY_A),
+					basic_rate=float(RATE_A),
+					basic_amount=float(AMT_A),
+					additional_cost=float(ADD_COST),
 					landed_cost_voucher_amount=0,
-					amount=1000,
-					valuation_rate=100,
+					amount=float(AMT_A),  # stripped capitalization
+					valuation_rate=float(RATE_A),
 				)
 			],
 		)

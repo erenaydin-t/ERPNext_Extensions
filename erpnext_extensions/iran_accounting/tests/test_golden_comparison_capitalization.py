@@ -1,10 +1,5 @@
 # Copyright (c) 2026, ERPNext Extensions contributors
-"""Golden comparison: iran_accounting vs ERPNext ownership for Stock Entry economics.
-
-Documents that after 3.7.6, iran_accounting must match ERPNext capitalization
-economics; differences are limited to documented IRR residual rounding or the
-approved zero-value transfer GL shape.
-"""
+"""Golden comparison: iran_accounting vs ERPNext ownership for Stock Entry economics."""
 
 from __future__ import annotations
 
@@ -12,11 +7,26 @@ import unittest
 from contextlib import contextmanager
 from unittest import mock
 
-from frappe.utils import flt
-
 from erpnext_extensions.iran_accounting.domain.qty_rate_amount import align_stock_entry_item_amounts
 from erpnext_extensions.iran_accounting.manufacture_rounding import (
 	align_manufacture_finished_good_residual,
+)
+from erpnext_extensions.iran_accounting.tests.hardening.decimal_money import (
+	compose_amount,
+	money_equal,
+	rate_equal,
+	valuation_from_amount,
+)
+from erpnext_extensions.iran_accounting.tests.hardening.fixtures import (
+	AMT_B,
+	IRR_PRECISION,
+	LCV_AMT,
+	PROD_ADD,
+	PROD_FG,
+	PROD_OUTGOING,
+	PROD_QTY,
+	QTY_B,
+	RATE_B,
 )
 from erpnext_extensions.iran_accounting.zero_value_transfer import (
 	ZERO_VALUE_TRANSFER_STOCK_ENTRY_PURPOSES,
@@ -44,8 +54,7 @@ class _Doc:
 
 
 def _erpnext_compose(basic_amount, additional_cost, landed_cost):
-	"""ERPNext update_valuation_rate amount identity."""
-	return flt(basic_amount) + flt(additional_cost) + flt(landed_cost)
+	return compose_amount(basic_amount, additional_cost, landed_cost, precision=IRR_PRECISION)
 
 
 @contextmanager
@@ -77,21 +86,21 @@ def _irr():
 
 class TestGoldenComparisonCapitalization(unittest.TestCase):
 	def test_manufacture_additional_cost_matches_erpnext_economics(self):
-		basic = 3482885707
-		add = 2558380216
-		qty = 3150.0
+		basic = PROD_OUTGOING
+		add = PROD_ADD
+		qty = PROD_QTY
 		erpnext_amount = _erpnext_compose(basic, add, 0)
-		erpnext_rate = erpnext_amount / qty
+		erpnext_rate = valuation_from_amount(erpnext_amount, qty)
 
 		fg = _Row(
-			qty=qty,
-			transfer_qty=qty,
-			basic_rate=basic / qty,
-			basic_amount=basic,
-			additional_cost=add,
+			qty=float(qty),
+			transfer_qty=float(qty),
+			basic_rate=float(basic / qty),
+			basic_amount=float(basic),
+			additional_cost=float(add),
 			landed_cost_voucher_amount=0,
-			amount=erpnext_amount,
-			valuation_rate=erpnext_rate,
+			amount=float(erpnext_amount),
+			valuation_rate=float(erpnext_rate),
 			s_warehouse=None,
 			t_warehouse="FG",
 			is_finished_item=1,
@@ -99,12 +108,12 @@ class TestGoldenComparisonCapitalization(unittest.TestCase):
 		rm = _Row(
 			qty=1,
 			transfer_qty=1,
-			basic_rate=basic,
-			basic_amount=basic,
+			basic_rate=float(basic),
+			basic_amount=float(basic),
 			additional_cost=0,
 			landed_cost_voucher_amount=0,
-			amount=basic,
-			valuation_rate=basic,
+			amount=float(basic),
+			valuation_rate=float(basic),
 			s_warehouse="RM",
 			t_warehouse=None,
 			is_finished_item=0,
@@ -114,32 +123,32 @@ class TestGoldenComparisonCapitalization(unittest.TestCase):
 			purpose="Manufacture",
 			company="Test",
 			items=[rm, fg],
-			total_outgoing_value=basic,
-			total_incoming_value=erpnext_amount,
-			value_difference=add,
+			total_outgoing_value=float(basic),
+			total_incoming_value=float(erpnext_amount),
+			value_difference=float(add),
 		)
 		with _irr():
 			align_stock_entry_item_amounts(doc)
 			align_manufacture_finished_good_residual(doc)
 
-		self.assertEqual(flt(fg.amount), erpnext_amount)
-		self.assertAlmostEqual(flt(fg.valuation_rate), erpnext_rate)
-		self.assertEqual(flt(doc.value_difference), add)
+		money_equal(fg.amount, erpnext_amount, precision=IRR_PRECISION)
+		rate_equal(fg.valuation_rate, erpnext_rate, places=9)
+		money_equal(doc.value_difference, add, precision=IRR_PRECISION)
 
 	def test_lcv_matches_erpnext_economics(self):
-		basic = 1000000
-		lcv = 500000
-		qty = 10
+		basic = AMT_B
+		lcv = LCV_AMT
+		qty = QTY_B
 		erpnext_amount = _erpnext_compose(basic, 0, lcv)
 		row = _Row(
-			qty=qty,
-			transfer_qty=qty,
-			basic_rate=100000,
-			basic_amount=basic,
+			qty=float(qty),
+			transfer_qty=float(qty),
+			basic_rate=float(RATE_B),
+			basic_amount=float(basic),
 			additional_cost=0,
-			landed_cost_voucher_amount=lcv,
-			amount=erpnext_amount,
-			valuation_rate=erpnext_amount / qty,
+			landed_cost_voucher_amount=float(lcv),
+			amount=float(erpnext_amount),
+			valuation_rate=float(valuation_from_amount(erpnext_amount, qty)),
 			s_warehouse=None,
 			t_warehouse="S",
 			is_finished_item=0,
@@ -147,8 +156,8 @@ class TestGoldenComparisonCapitalization(unittest.TestCase):
 		doc = _Doc(doctype="Stock Entry", purpose="Material Receipt", company="Test", items=[row])
 		with _irr():
 			align_stock_entry_item_amounts(doc)
-		self.assertEqual(flt(row.amount), erpnext_amount)
-		self.assertEqual(flt(row.landed_cost_voucher_amount), lcv)
+		money_equal(row.amount, erpnext_amount, precision=IRR_PRECISION)
+		money_equal(row.landed_cost_voucher_amount, lcv, precision=IRR_PRECISION)
 
 	def test_zero_value_transfer_uses_iran_shape_not_core_builder(self):
 		self.assertIn("Material Transfer", ZERO_VALUE_TRANSFER_STOCK_ENTRY_PURPOSES)
@@ -157,8 +166,8 @@ class TestGoldenComparisonCapitalization(unittest.TestCase):
 			doctype = "Stock Entry"
 			purpose = "Material Transfer"
 			company = "Test"
-			total_incoming_value = 1000
-			total_outgoing_value = 1000
+			total_incoming_value = 1234
+			total_outgoing_value = 1234
 			value_difference = 0
 
 			def set_total_incoming_outgoing_value(self):
@@ -167,16 +176,16 @@ class TestGoldenComparisonCapitalization(unittest.TestCase):
 		self.assertTrue(_should_force_balanced_transfer_gl(Doc(), 0))
 
 	def test_conversion_factor_uses_transfer_qty(self):
-		# qty in alternate UOM=2, transfer_qty in stock UOM=10
+		# qty=2 alt UOM, transfer_qty=11 stock UOM, rate = 1237/11
 		row = _Row(
 			qty=2,
-			transfer_qty=10,
-			basic_rate=100,
-			basic_amount=200,
+			transfer_qty=float(QTY_B),
+			basic_rate=float(RATE_B),
+			basic_amount=200,  # stale qty-based
 			additional_cost=0,
 			landed_cost_voucher_amount=0,
 			amount=200,
-			valuation_rate=100,
+			valuation_rate=float(RATE_B),
 			s_warehouse=None,
 			t_warehouse="S",
 			is_finished_item=0,
@@ -184,9 +193,9 @@ class TestGoldenComparisonCapitalization(unittest.TestCase):
 		doc = _Doc(doctype="Stock Entry", purpose="Material Receipt", company="Test", items=[row])
 		with _irr():
 			align_stock_entry_item_amounts(doc)
-		self.assertEqual(flt(row.basic_amount), 1000)
-		self.assertEqual(flt(row.amount), 1000)
-		self.assertEqual(flt(row.valuation_rate), 100)
+		money_equal(row.basic_amount, AMT_B, precision=IRR_PRECISION)
+		money_equal(row.amount, AMT_B, precision=IRR_PRECISION)
+		rate_equal(row.valuation_rate, RATE_B, places=9)
 
 
 if __name__ == "__main__":

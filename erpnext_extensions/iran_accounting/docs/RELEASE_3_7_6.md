@@ -63,6 +63,26 @@ Flag submitted IRR Stock Entries where:
 Running repost utilities on affected Stock Entries **before** upgrading can
 re-corrupt or lock in undervalued inventory. Upgrade first.
 
+## Test hardening (pre-release)
+
+Production-grade coverage added under
+`iran_accounting/tests/hardening/` and `test_production_hardening_376.py`:
+
+- **Rounding fixtures** — non-trivial amounts/qtys (`1234/7`, `1237/11`, `5113/13`,
+  `2479/7`, Additional Cost `137`, LCV `59`) with Decimal assertions (no float `==`)
+- **Stock Entry scenarios** — Material Receipt/Issue/Transfer/MTfM, Manufacture ±
+  Additional Cost, Repack, LCV-on-SE, multi in/out rows, alternate UOM, cancel/amend/resubmit
+- **DB verification** — Stock Entry header + Detail, SLE, GL (balanced, no duplicate
+  capitalization), Bin ↔ last SLE
+- **Reports** — Stock Ledger, General Ledger; Stock Balance / Trial Balance attempted via ERPNext
+- **Repost Item Valuation** — Manufacture + Add Cost + LCV; double RIV snapshot idempotency
+- **Repost Accounting Ledger** — attempted when Allowed Doctypes permit (skipped otherwise)
+- **Stock Reconciliation** — integer qty×rate pipeline + RIV (avoids known fractional flake)
+- **End-to-end** — Receipt → Manufacture → Add Cost → LCV → Transfer → Issue → SR → RIV
+- **Vanilla comparison** — amount composition parity with ERPNext
+- **Monkey patch** — single install, original preserved, Manufacture delegates
+- **Stress** — 50 receipts, 20 manufactures, 10 reconciliations, 5 LCV + sample RIV/RAL
+
 ## Known issues
 
 ### Stock Reconciliation RIV ±1 IRR GL magnitude (`test_repost_determinism`)
@@ -77,3 +97,4 @@ header/SLE 27536).
   `_reconcile_stock_reconciliation_after_repost` is unchanged in 3.7.6.
 - **Not a 3.7.6 regression** for Manufacture / Additional Cost / LCV / transfer GL.
 - **Not fixed in this release.** Track separately from inventory capitalization.
+- Hardening suite uses **integer** SR qty×rate paths to avoid tripping this flake on submit.
