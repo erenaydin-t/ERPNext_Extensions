@@ -1,5 +1,5 @@
 # Copyright (c) 2026, ERPNext Extensions contributors
-"""Fail-fast ledger contract: Stock Entry row → SLE → GL (IRR)."""
+"""Fail-fast ledger contract: verify capitalization-aware Stock Entry row → SLE → GL (IRR)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,14 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
-from erpnext_extensions.iran_accounting.domain.currency import get_company_currency, is_irr_company
+from erpnext_extensions.iran_accounting.domain.currency import (
+	get_company_currency,
+	get_currency_precision,
+	is_irr_company,
+	round_currency,
+	round_row_amount_financial,
+)
+from erpnext_extensions.iran_accounting.domain.qty_rate_amount import compose_stock_entry_row_amount
 from erpnext_extensions.iran_accounting.domain.stock_entry_sync import (
 	assert_stock_entry_row_sle_mirror,
 	stock_entry_row_amount,
@@ -25,6 +32,22 @@ from erpnext_extensions.iran_accounting.zero_value_transfer import (
 	ZERO_VALUE_TRANSFER_STOCK_ENTRY_PURPOSES,
 	expected_balanced_transfer_gl_magnitude,
 )
+
+
+def _tol(company: str) -> float:
+	ccy = get_company_currency(company)
+	precision = get_currency_precision(ccy)
+	return 1.0 if precision == 0 else (1.0 / (10**precision))
+
+
+def _fail(doc, row, relationship: str, expected, actual) -> str:
+	item = getattr(row, "item_code", None) or row.get("item_code")
+	name = getattr(row, "name", None) or row.get("name")
+	idx = getattr(row, "idx", None) or row.get("idx")
+	return (
+		f"{doc.doctype} {doc.name} row {idx} item={item} name={name}: "
+		f"{relationship} expected={expected} actual={actual}"
+	)
 
 
 def signed_net_row_amount_sum(doc) -> float:
@@ -71,12 +94,102 @@ def _gl_stock_account_net(gl_rows: list[dict], company: str) -> float:
 	return net
 
 
+def _assert_row_composition(doc, company: str) -> list[str]:
+	"""Verify basic_amount / amount / valuation_rate relationships (verifier, not calculator)."""
+	failures = []
+	ccy = get_company_currency(company)
+	tol = _tol(company)
+	for row in doc.get("items") or []:
+		transfer_qty = flt(
+			row.get("transfer_qty") if row.get("transfer_qty") not in (None, "") else row.get("qty")
+		)
+		if row.get("basic_rate") is not None and transfer_qty:
+			exp_basic = round_row_amount_financial(transfer_qty, row.basic_rate, ccy)
+			if abs(flt(row.basic_amount) - exp_basic) > tol:
+				failures.append(
+					_fail(
+						doc,
+						row,
+						"basic_amount ≈ transfer_qty × basic_rate",
+						exp_basic,
+						row.basic_amount,
+					)
+				)
+
+		exp_amount = compose_stock_entry_row_amount(row, ccy)
+		if abs(flt(row.amount) - exp_amount) > tol:
+			failures.append(
+				_fail(
+					doc,
+					row,
+					"amount ≈ basic_amount + additional_cost + landed_cost_voucher_amount",
+					exp_amount,
+					row.amount,
+				)
+			)
+
+		if transfer_qty and flt(row.amount):
+			exp_rate = flt(row.amount) / transfer_qty
+			if abs(flt(row.valuation_rate) - exp_rate) > max(tol / transfer_qty, 1e-9):
+				failures.append(
+					_fail(
+						doc,
+						row,
+						"valuation_rate ≈ amount / transfer_qty",
+						exp_rate,
+						row.valuation_rate,
+					)
+				)
+	return failures
+
+
+def _assert_additional_cost_gl(doc, gl_rows: list[dict]) -> list[str]:
+	failures = []
+	add_accounts = {
+		t.expense_account
+		for t in doc.get("additional_costs") or []
+		if t.expense_account and flt(t.base_amount)
+	}
+	if not add_accounts:
+		return failures
+	posted = {r.get("account") for r in gl_rows if flt(r.get("credit")) or flt(r.get("debit"))}
+	missing = add_accounts - posted
+	for account in sorted(missing):
+		failures.append(
+			f"{doc.doctype} {doc.name}: Additional Cost GL missing for expense_account={account}"
+		)
+	return failures
+
+
+def _assert_lcv_gl(doc, gl_rows: list[dict]) -> list[str]:
+	failures = []
+	has_lcv = any(flt(r.get("landed_cost_voucher_amount")) for r in doc.get("items") or [])
+	if not has_lcv:
+		return failures
+	# Presence check: remarks or accounts from linked LCV — at minimum GL must be balanced
+	# and inventory net should reflect capitalization (covered elsewhere). Detect LCV remarks.
+	lcv_remarks = [
+		r
+		for r in gl_rows
+		if "LCV" in (r.get("remarks") or "") or "Landed Cost" in (r.get("remarks") or "")
+	]
+	if not lcv_remarks:
+		# Soft signal: if LCV amount on rows, expect non-transfer SE to have extra credit legs
+		# beyond pure stock pairs. Fail explicitly for clarity.
+		failures.append(
+			f"{doc.doctype} {doc.name}: landed_cost_voucher_amount present on items "
+			f"but no LCV-related GL remarks found"
+		)
+	return failures
+
+
 def collect_ledger_contract_failures(voucher_no: str, company: str) -> list[str]:
 	if not frappe.db.exists("Stock Entry", voucher_no):
 		return [f"Stock Entry {voucher_no} not found"]
 
 	doc = frappe.get_doc("Stock Entry", voucher_no)
 	failures = list(assert_stock_entry_row_sle_mirror(voucher_no, company))
+	failures.extend(_assert_row_composition(doc, company))
 
 	row_gross = sum_stock_entry_row_amounts(doc)
 	sle_sum = flt(
@@ -104,25 +217,32 @@ def collect_ledger_contract_failures(voucher_no: str, company: str) -> list[str]
 	signed_net = signed_net_row_amount_sum(doc)
 	if doc.purpose in ZERO_VALUE_TRANSFER_STOCK_ENTRY_PURPOSES and flt(doc.value_difference) == 0:
 		if sle_sum != 0:
-			failures.append(f"transfer Σ SLE movement must be 0, got {sle_sum}")
+			failures.append(
+				f"{doc.doctype} {doc.name}: transfer Σ SLE movement must be 0, got {sle_sum}"
+			)
 		if abs(sle_pos - row_gross) != 0:
-			failures.append(f"transfer |Σ SLE+| {sle_pos} != Σ row.amount {row_gross}")
+			failures.append(
+				f"{doc.doctype} {doc.name}: transfer |Σ SLE+| {sle_pos} != Σ row.amount {row_gross}"
+			)
 	else:
 		if sle_sum != signed_net:
-			failures.append(f"Σ SLE {sle_sum} != signed Σ row.amount {signed_net}")
+			failures.append(
+				f"{doc.doctype} {doc.name}: Σ SLE {sle_sum} != signed Σ row.amount {signed_net}"
+			)
 		if abs(sle_sum) != row_gross and doc.purpose in ("Material Receipt", "Material Issue"):
-			failures.append(f"|Σ SLE| {abs(sle_sum)} != Σ row.amount {row_gross}")
+			failures.append(
+				f"{doc.doctype} {doc.name}: |Σ SLE| {abs(sle_sum)} != Σ row.amount {row_gross}"
+			)
 
 	exp_inc, exp_out = expected_header_totals(doc)
 	if flt(doc.total_incoming_value) != exp_inc:
-		failures.append(f"header incoming {doc.total_incoming_value} != Σ row.amount in {exp_inc}")
+		failures.append(
+			f"{doc.doctype} {doc.name}: header incoming {doc.total_incoming_value} != Σ row.amount in {exp_inc}"
+		)
 	if flt(doc.total_outgoing_value) != exp_out:
-		failures.append(f"header outgoing {doc.total_outgoing_value} != Σ row.amount out {exp_out}")
-
-	for row in doc.items:
-		norm = stock_entry_row_amount(row, company)
-		if norm != flt(row.amount):
-			failures.append(f"row {row.idx}: amount {row.amount} != round(qty×rate) {norm}")
+		failures.append(
+			f"{doc.doctype} {doc.name}: header outgoing {doc.total_outgoing_value} != Σ row.amount out {exp_out}"
+		)
 
 	if doc.docstatus == 1:
 		gl_rows = fetch_gl_rows("Stock Entry", voucher_no)
@@ -134,26 +254,31 @@ def collect_ledger_contract_failures(voucher_no: str, company: str) -> list[str]
 			expected_gl_mag = expected_balanced_transfer_gl_magnitude(doc)
 			if max(debit, credit) != expected_gl_mag:
 				failures.append(
-					f"GL magnitude {max(debit, credit)} != expected transfer GL {expected_gl_mag}"
+					f"{doc.doctype} {doc.name}: GL magnitude {max(debit, credit)} "
+					f"!= expected transfer GL {expected_gl_mag}"
 				)
 		else:
 			if abs(gl_stock_net) != abs(sle_sum):
-				failures.append(f"|GL stock net| {abs(gl_stock_net)} != |Σ SLE| {abs(sle_sum)}")
+				failures.append(
+					f"{doc.doctype} {doc.name}: |GL stock net| {abs(gl_stock_net)} != |Σ SLE| {abs(sle_sum)}"
+				)
 			if gl_net != 0:
-				failures.append(f"GL debit-credit net must be 0, got {gl_net}")
+				failures.append(f"{doc.doctype} {doc.name}: GL debit-credit net must be 0, got {gl_net}")
+			failures.extend(_assert_additional_cost_gl(doc, gl_rows))
+			failures.extend(_assert_lcv_gl(doc, gl_rows))
 
 		if not assert_no_fractional_irr_gl("Stock Entry", voucher_no, company):
 			bad = []
 			for row in gl_rows:
 				bad.extend(fractional_gl_fields(row, company))
-			failures.append(f"fractional IRR in GL: {bad[:3]}")
+			failures.append(f"{doc.doctype} {doc.name}: fractional IRR in GL: {bad[:3]}")
 		if not assert_no_fractional_irr_sle("Stock Entry", voucher_no, company):
-			from erpnext_extensions.iran_accounting.validation import fetch_sle_rows, fractional_sle_fields
+			from erpnext_extensions.iran_accounting.validation import fetch_sle_rows
 
 			bad = []
 			for row in fetch_sle_rows("Stock Entry", voucher_no):
 				bad.extend(fractional_sle_fields(row, company))
-			failures.append(f"fractional IRR in SLE: {bad[:3]}")
+			failures.append(f"{doc.doctype} {doc.name}: fractional IRR in SLE: {bad[:3]}")
 
 	return failures
 
