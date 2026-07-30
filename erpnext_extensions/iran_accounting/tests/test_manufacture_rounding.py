@@ -9,6 +9,7 @@ from unittest import mock
 from frappe.utils import flt
 
 from erpnext_extensions.iran_accounting.manufacture_rounding import (
+	align_manufacture_finished_good_residual,
 	align_manufacture_finished_good_to_outgoing,
 )
 from erpnext_extensions.iran_accounting.stock_entry import validate_stock_entry
@@ -47,6 +48,10 @@ def _irr_patches():
 			return_value="IRR",
 		),
 		mock.patch(
+			"erpnext_extensions.iran_accounting.manufacture_rounding.get_currency_precision",
+			return_value=0,
+		),
+		mock.patch(
 			"erpnext_extensions.iran_accounting.stock_entry.is_irr_company",
 			return_value=True,
 		),
@@ -64,6 +69,14 @@ def _irr_patches():
 		),
 		mock.patch(
 			"erpnext_extensions.iran_accounting.domain.ledger_rounding.get_company_currency",
+			return_value="IRR",
+		),
+		mock.patch(
+			"erpnext_extensions.iran_accounting.rounding.is_irr_company",
+			return_value=True,
+		),
+		mock.patch(
+			"erpnext_extensions.iran_accounting.rounding.get_company_currency",
 			return_value="IRR",
 		),
 	):
@@ -93,6 +106,8 @@ def _staging_rm_rows():
 				basic_rate=rate,
 				valuation_rate=rate,
 				basic_amount=amount,
+				additional_cost=0,
+				landed_cost_voucher_amount=0,
 				amount=amount,
 				s_warehouse="RM Stores",
 				t_warehouse=None,
@@ -105,14 +120,17 @@ def _staging_rm_rows():
 class TestManufactureRounding(unittest.TestCase):
 	def test_align_fixes_staging_one_rial_discrepancy(self):
 		items = _staging_rm_rows()
+		outgoing = sum(r.amount for r in items)
 		items.append(
 			_SteRow(
 				qty=2968.0,
 				transfer_qty=2968.0,
-				basic_rate=950455.748972372,
-				valuation_rate=950455.748972372,
-				basic_amount=2820952663.0,
-				amount=2820952663.0,
+				basic_rate=outgoing / 2968.0,
+				valuation_rate=(outgoing + 1) / 2968.0,
+				basic_amount=outgoing + 1,
+				additional_cost=0,
+				landed_cost_voucher_amount=0,
+				amount=outgoing + 1,
 				s_warehouse=None,
 				t_warehouse="FG Stores",
 				is_finished_item=1,
@@ -123,22 +141,20 @@ class TestManufactureRounding(unittest.TestCase):
 			purpose="Manufacture",
 			company="Test IRR Co",
 			items=items,
-			total_outgoing_value=2820952662.0,
-			total_incoming_value=2820952663.0,
+			total_outgoing_value=outgoing,
+			total_incoming_value=outgoing + 1,
 			value_difference=1.0,
 		)
 
 		with _irr_patches():
-			align_manufacture_finished_good_to_outgoing(doc)
+			align_manufacture_finished_good_residual(doc)
 
 		fg = items[-1]
 		self.assertEqual(doc.value_difference, 0)
-		self.assertEqual(doc.total_outgoing_value, 2820952662)
-		self.assertEqual(doc.total_incoming_value, 2820952662)
-		self.assertEqual(fg.amount, 2820952662)
-		self.assertEqual(fg.basic_amount, 2820952662)
-		self.assertEqual(flt(fg.basic_rate), flt(2820952662 / 2968))
-		self.assertEqual(fg.valuation_rate, fg.basic_rate)
+		self.assertEqual(doc.total_outgoing_value, outgoing)
+		self.assertEqual(doc.total_incoming_value, outgoing)
+		self.assertEqual(fg.amount, outgoing)
+		self.assertEqual(fg.basic_amount, outgoing)
 
 	def test_align_skips_multi_finished_goods(self):
 		doc = _SteDoc(
@@ -148,6 +164,9 @@ class TestManufactureRounding(unittest.TestCase):
 			items=[
 				_SteRow(
 					amount=100,
+					basic_amount=100,
+					additional_cost=0,
+					landed_cost_voucher_amount=0,
 					s_warehouse="W",
 					qty=1,
 					transfer_qty=1,
@@ -155,6 +174,9 @@ class TestManufactureRounding(unittest.TestCase):
 				),
 				_SteRow(
 					amount=200,
+					basic_amount=200,
+					additional_cost=0,
+					landed_cost_voucher_amount=0,
 					t_warehouse="W",
 					qty=1,
 					transfer_qty=1,
@@ -162,6 +184,9 @@ class TestManufactureRounding(unittest.TestCase):
 				),
 				_SteRow(
 					amount=300,
+					basic_amount=300,
+					additional_cost=0,
+					landed_cost_voucher_amount=0,
 					t_warehouse="W",
 					qty=1,
 					transfer_qty=1,
@@ -176,16 +201,114 @@ class TestManufactureRounding(unittest.TestCase):
 			align_manufacture_finished_good_to_outgoing(doc)
 		self.assertEqual(doc.value_difference, 400)
 
-	def test_validate_stock_entry_aligns_manufacture_totals(self):
+	def test_manufacture_with_additional_cost_preserved(self):
+		outgoing = 3482885707
+		add_cost = 2558380216
+		expected = 6041265923
+		qty = 3150.0
+		items = [
+			_SteRow(
+				qty=1,
+				transfer_qty=1,
+				basic_rate=outgoing,
+				basic_amount=outgoing,
+				additional_cost=0,
+				landed_cost_voucher_amount=0,
+				amount=outgoing,
+				valuation_rate=outgoing,
+				s_warehouse="RM",
+				t_warehouse=None,
+				is_finished_item=0,
+			),
+			_SteRow(
+				qty=qty,
+				transfer_qty=qty,
+				basic_rate=outgoing / qty,
+				basic_amount=outgoing,
+				additional_cost=add_cost,
+				landed_cost_voucher_amount=0,
+				amount=expected,
+				valuation_rate=expected / qty,
+				s_warehouse=None,
+				t_warehouse="FG",
+				is_finished_item=1,
+			),
+		]
+		doc = _SteDoc(
+			doctype="Stock Entry",
+			purpose="Manufacture",
+			company="Test IRR Co",
+			items=items,
+			total_outgoing_value=outgoing,
+			total_incoming_value=expected,
+			value_difference=add_cost,
+		)
+		with _irr_patches():
+			align_manufacture_finished_good_residual(doc)
+		fg = items[-1]
+		self.assertEqual(flt(fg.amount), expected)
+		self.assertEqual(flt(fg.additional_cost), add_cost)
+		self.assertEqual(flt(doc.value_difference), add_cost)
+		self.assertNotEqual(flt(fg.valuation_rate), flt(fg.basic_rate))
+
+	def test_repack_with_additional_cost_not_force_equal(self):
+		# 1234 outgoing / 7 qty; FG amount 1234+137 with repeating rate
+		items = [
+			_SteRow(
+				qty=7,
+				transfer_qty=7,
+				basic_rate=1234 / 7,
+				basic_amount=1234,
+				additional_cost=0,
+				landed_cost_voucher_amount=0,
+				amount=1234,
+				valuation_rate=1234 / 7,
+				s_warehouse="RM",
+				t_warehouse=None,
+				is_finished_item=0,
+			),
+			_SteRow(
+				qty=7,
+				transfer_qty=7,
+				basic_rate=1234 / 7,
+				basic_amount=1234,
+				additional_cost=137,
+				landed_cost_voucher_amount=0,
+				amount=1371,
+				valuation_rate=1371 / 7,
+				s_warehouse=None,
+				t_warehouse="FG",
+				is_finished_item=1,
+			),
+		]
+		doc = _SteDoc(
+			doctype="Stock Entry",
+			purpose="Repack",
+			company="Test IRR Co",
+			items=items,
+			total_outgoing_value=1234,
+			total_incoming_value=1371,
+			value_difference=137,
+		)
+		with _irr_patches():
+			validate_stock_entry(doc)
+		fg = items[-1]
+		self.assertEqual(flt(fg.amount), 1371)
+		self.assertEqual(flt(doc.value_difference), 137)
+
+	def test_manufacture_without_additional_cost_residual_only(self):
 		items = _staging_rm_rows()
+		outgoing = sum(r.amount for r in items)
 		items.append(
 			_SteRow(
 				qty=2968.0,
 				transfer_qty=2968.0,
-				basic_rate=950455.748972372,
-				valuation_rate=950455.748972372,
-				basic_amount=2820952663.0,
-				amount=2820952663.0,
+				basic_rate=outgoing / 2968.0,
+				valuation_rate=outgoing / 2968.0,
+				basic_amount=outgoing,
+				additional_cost=0,
+				landed_cost_voucher_amount=0,
+				amount=outgoing,
 				s_warehouse=None,
 				t_warehouse="FG Stores",
 				is_finished_item=1,
@@ -196,16 +319,55 @@ class TestManufactureRounding(unittest.TestCase):
 			purpose="Manufacture",
 			company="Test IRR Co",
 			items=items,
-			total_outgoing_value=2820952662.0,
-			total_incoming_value=2820952663.0,
-			value_difference=1.0,
+			total_outgoing_value=outgoing,
+			total_incoming_value=outgoing,
+			value_difference=0,
 		)
-
 		with _irr_patches():
 			validate_stock_entry(doc)
-
 		self.assertEqual(doc.value_difference, 0)
 		self.assertEqual(doc.total_incoming_value, doc.total_outgoing_value)
+
+	def test_large_value_difference_not_treated_as_residual(self):
+		# Δ=5 IRR is beyond ±1 residual tolerance — must not force-equal
+		doc = _SteDoc(
+			doctype="Stock Entry",
+			purpose="Manufacture",
+			company="Test IRR Co",
+			items=[
+				_SteRow(
+					amount=1234,
+					basic_amount=1234,
+					additional_cost=0,
+					landed_cost_voucher_amount=0,
+					s_warehouse="W",
+					qty=7,
+					transfer_qty=7,
+					is_finished_item=0,
+					basic_rate=1234 / 7,
+					valuation_rate=1234 / 7,
+				),
+				_SteRow(
+					amount=1239,
+					basic_amount=1239,
+					additional_cost=0,
+					landed_cost_voucher_amount=0,
+					t_warehouse="W",
+					qty=7,
+					transfer_qty=7,
+					is_finished_item=1,
+					basic_rate=1239 / 7,
+					valuation_rate=1239 / 7,
+				),
+			],
+			total_incoming_value=1239,
+			total_outgoing_value=1234,
+			value_difference=5,
+		)
+		with _irr_patches():
+			align_manufacture_finished_good_residual(doc)
+		self.assertEqual(doc.value_difference, 5)
+		self.assertEqual(doc.items[-1].amount, 1239)
 
 
 if __name__ == "__main__":

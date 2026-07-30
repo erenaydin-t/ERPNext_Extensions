@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
-
 import frappe
 from erpnext.accounts.doctype.accounting_dimension.accounting_dimension import get_accounting_dimensions
 from erpnext.accounts.general_ledger import get_merge_key, get_merge_properties, process_gl_map
@@ -12,7 +10,6 @@ from erpnext.stock.doctype.inventory_dimension.inventory_dimension import get_in
 from frappe import _
 from frappe.utils import flt
 
-from erpnext_extensions.iran_accounting.domain.stock_entry_sync import gl_movement_from_row_only
 from erpnext_extensions.iran_accounting.rounding import (
 	get_company_currency,
 	get_currency_precision,
@@ -342,18 +339,70 @@ def expected_balanced_transfer_gl_magnitude(doc, inventory_account_map=None) -> 
 	return flt(total)
 
 
-def get_gl_entries(self, inventory_account_map=None, default_expense_account=None, default_cost_center=None):
-	"""Stock Entry / Stock Reconciliation only. Other stock vouchers use ERPNext SLE-based GL."""
-	if self.doctype not in ("Stock Entry", "Stock Reconciliation"):
-		from erpnext.controllers.stock_controller import StockController
+def build_iran_balanced_transfer_gl(
+	self, inventory_account_map=None, default_expense_account=None, default_cost_center=None
+):
+	"""Zero-value transfer inventory↔inventory GL (no expense-bridge doubling)."""
+	if not inventory_account_map:
+		inventory_account_map = self.get_inventory_account_map()
 
-		orig = getattr(StockController, "_iran_original_get_gl_entries", None)
-		if orig:
-			return orig(self, inventory_account_map, default_expense_account, default_cost_center)
-		return StockController.get_gl_entries(
-			self, inventory_account_map, default_expense_account, default_cost_center
+	sle_map = self.get_stock_ledger_details()
+	voucher_details = self.get_voucher_details(default_expense_account, default_cost_center, sle_map)
+	gl_list = []
+	precision = self.get_debit_field_precision()
+
+	for item_row in voucher_details:
+		_append_balanced_transfer_item_gl(self, gl_list, item_row, inventory_account_map, precision)
+
+	gl_map = process_gl_map(
+		gl_list, precision=precision, from_repost=frappe.flags.through_repost_item_valuation
+	)
+	return finalize_zero_value_transfer_gl_map(self, gl_map, precision)
+
+
+def resolve_original_stock_entry_get_gl_entries():
+	"""Return the saved ERPNext StockEntry.get_gl_entries callable."""
+	from erpnext.stock.doctype.stock_entry.stock_entry import StockEntry
+
+	original = getattr(StockEntry, "_iran_original_stock_entry_get_gl_entries", None)
+	if not callable(original):
+		frappe.throw(
+			_(
+				"iran_accounting Stock Entry GL patch is misconfigured: "
+				"_iran_original_stock_entry_get_gl_entries is missing or not callable"
+			),
+			title=_("IRR GL Ownership"),
 		)
+	if getattr(original, "_iran_stock_entry_gl_wrapper", None):
+		frappe.throw(
+			_(
+				"iran_accounting Stock Entry GL patch saved its own wrapper as the original "
+				"(duplicate / circular patch installation)"
+			),
+			title=_("IRR GL Ownership"),
+		)
+	return original
 
+
+def iran_stock_entry_get_gl_entries(
+	self, inventory_account_map=None, default_expense_account=None, default_cost_center=None
+):
+	"""ERPNext-first SE GL: balanced transfer branch OR original StockEntry.get_gl_entries.
+
+	Original core path owns SLE inventory GL, Additional Cost GL, and LCV GL.
+	"""
+	_ = default_expense_account, default_cost_center
+	precision = self.get_debit_field_precision()
+	if _should_force_balanced_transfer_gl(self, precision):
+		return build_iran_balanced_transfer_gl(self, inventory_account_map)
+
+	original = resolve_original_stock_entry_get_gl_entries()
+	# Core StockEntry.get_gl_entries(self, inventory_account_map) only.
+	return original(self, inventory_account_map)
+
+
+def get_gl_entries(self, inventory_account_map=None, default_expense_account=None, default_cost_center=None):
+	"""Dispatch: Stock Reconciliation builder, else Stock Entry ERPNext-first wrapper."""
 	if self.doctype == "Stock Reconciliation":
 		from erpnext_extensions.iran_accounting.domain.stock_reconciliation_gl import (
 			get_stock_reconciliation_gl_entries,
@@ -363,186 +412,19 @@ def get_gl_entries(self, inventory_account_map=None, default_expense_account=Non
 			self, inventory_account_map, default_expense_account, default_cost_center
 		)
 
-	if not inventory_account_map:
-		inventory_account_map = self.get_inventory_account_map()
-
-	sle_map = self.get_stock_ledger_details()
-	voucher_details = self.get_voucher_details(default_expense_account, default_cost_center, sle_map)
-
-	gl_list = []
-	warehouse_with_no_account = []
-	precision = self.get_debit_field_precision()
-	force_balanced_transfer = _should_force_balanced_transfer_gl(self, precision)
-	if force_balanced_transfer:
-		for item_row in voucher_details:
-			_append_balanced_transfer_item_gl(self, gl_list, item_row, inventory_account_map, precision)
-		if warehouse_with_no_account:
-			for wh in warehouse_with_no_account:
-				if frappe.get_cached_value("Warehouse", wh, "company"):
-					frappe.throw(
-						_(
-							"Warehouse {0} is not linked to any account, please mention the account in the warehouse record or set default inventory account in company {1}."
-						).format(wh, self.company)
-					)
-		gl_map = process_gl_map(
-			gl_list, precision=precision, from_repost=frappe.flags.through_repost_item_valuation
+	if self.doctype == "Stock Entry":
+		return iran_stock_entry_get_gl_entries(
+			self, inventory_account_map, default_expense_account, default_cost_center
 		)
-		return finalize_zero_value_transfer_gl_map(self, gl_map, precision)
 
-	for item_row in voucher_details:
-		sle_list = sle_map.get(item_row.name)
-		sle_rounding_diff = 0.0
-		if not sle_list:
-			continue
+	from erpnext.controllers.stock_controller import StockController
 
-		group_amounts = defaultdict(float)
-		group_meta = {}
-
-		for sle in sle_list:
-			_inv_dict = self.get_inventory_account_dict(sle, inventory_account_map)
-
-			if _inv_dict.get("account"):
-				if self.doctype == "Stock Entry":
-					mov = gl_movement_from_row_only(item_row, sle, self.company)
-				else:
-					mov = flt(sle.stock_value_difference, precision)
-				sle_rounding_diff += mov
-				self.check_expense_account(item_row)
-
-				group_key = _get_transfer_gl_aggregate_key(self, sle, item_row, _inv_dict)
-				group_amounts[group_key] += mov
-				group_meta[group_key] = (sle, _inv_dict)
-			elif sle.warehouse not in warehouse_with_no_account:
-				warehouse_with_no_account.append(sle.warehouse)
-
-		if not group_amounts:
-			continue
-
-		used_balanced_gl = False
-		if force_balanced_transfer:
-			used_balanced_gl = True
-			balanced_gl_amounts = _get_balanced_stock_gl_amounts(
-				self, group_amounts, precision, sle_rounding_diff
-			)
-			for group_key, amount in balanced_gl_amounts.items():
-				sle, _inv_dict = group_meta[group_key]
-				_append_zero_value_transfer_inventory_gl(
-					self, gl_list, amount, sle, _inv_dict, item_row, precision
-				)
-		else:
-			for sle in sle_list:
-				_inv_dict = self.get_inventory_account_dict(sle, inventory_account_map)
-
-				if not _inv_dict.get("account"):
-					continue
-
-				expense_account = _get_transfer_expense_account(
-					self, item_row, inventory_account_map, sle=sle
-				)
-				if self.doctype == "Stock Entry":
-					mov = gl_movement_from_row_only(item_row, sle, self.company)
-				else:
-					mov = flt(sle.stock_value_difference, precision)
-
-				gl_list.append(
-					self.get_gl_dict(
-						{
-							"account": _inv_dict["account"],
-							"against": expense_account,
-							"cost_center": item_row.cost_center,
-							"project": sle.get("project") or item_row.project or self.get("project"),
-							"remarks": self.get("remarks") or _("Accounting Entry for Stock"),
-							"debit": mov,
-							"is_opening": item_row.get("is_opening") or self.get("is_opening") or "No",
-						},
-						_inv_dict["account_currency"],
-						item=item_row,
-					)
-				)
-
-				gl_list.append(
-					self.get_gl_dict(
-						{
-							"account": expense_account,
-							"against": _inv_dict["account"],
-							"cost_center": item_row.cost_center,
-							"remarks": self.get("remarks") or _("Accounting Entry for Stock"),
-							"debit": -1 * mov,
-							"project": sle.get("project") or item_row.get("project") or self.get("project"),
-							"is_opening": item_row.get("is_opening") or self.get("is_opening") or "No",
-						},
-						item=item_row,
-					)
-				)
-
-		if (
-			not used_balanced_gl
-			and abs(sle_rounding_diff) > (1.0 / (10**precision))
-			and self.is_internal_transfer()
-		):
-			warehouse_asset_account = ""
-			if self.get("is_internal_customer"):
-				_inv_dict = self.get_inventory_account_dict(
-					item_row, inventory_account_map, warehouse_field="target_warehouse"
-				)
-				warehouse_asset_account = _inv_dict.get("account") if _inv_dict else None
-			elif self.get("is_internal_supplier"):
-				_inv_dict = self.get_inventory_account_dict(item_row, inventory_account_map)
-				warehouse_asset_account = _inv_dict.get("account") if _inv_dict else None
-
-			expense_account = frappe.get_cached_value("Company", self.company, "default_expense_account")
-			if not expense_account:
-				frappe.throw(
-					_(
-						"Please set default cost of goods sold account in company {0} for booking rounding gain and loss during stock transfer"
-					).format(frappe.bold(self.company))
-				)
-
-			gl_list.append(
-				self.get_gl_dict(
-					{
-						"account": expense_account,
-						"against": warehouse_asset_account,
-						"cost_center": item_row.cost_center,
-						"project": item_row.project or self.get("project"),
-						"remarks": _("Rounding gain/loss Entry for Stock Transfer"),
-						"debit": sle_rounding_diff,
-						"is_opening": item_row.get("is_opening") or self.get("is_opening") or "No",
-					},
-					_inv_dict["account_currency"],
-					item=item_row,
-				)
-			)
-
-			gl_list.append(
-				self.get_gl_dict(
-					{
-						"account": warehouse_asset_account,
-						"against": expense_account,
-						"cost_center": item_row.cost_center,
-						"remarks": _("Rounding gain/loss Entry for Stock Transfer"),
-						"credit": sle_rounding_diff,
-						"project": item_row.get("project") or self.get("project"),
-						"is_opening": item_row.get("is_opening") or self.get("is_opening") or "No",
-					},
-					item=item_row,
-				)
-			)
-
-	if warehouse_with_no_account:
-		for wh in warehouse_with_no_account:
-			if frappe.get_cached_value("Warehouse", wh, "company"):
-				frappe.throw(
-					_(
-						"Warehouse {0} is not linked to any account, please mention the account in the warehouse record or set default inventory account in company {1}."
-					).format(wh, self.company)
-				)
-
-	gl_map = process_gl_map(
-		gl_list, precision=precision, from_repost=frappe.flags.through_repost_item_valuation
+	orig = getattr(StockController, "_iran_original_get_gl_entries", None)
+	if orig:
+		return orig(self, inventory_account_map, default_expense_account, default_cost_center)
+	return StockController.get_gl_entries(
+		self, inventory_account_map, default_expense_account, default_cost_center
 	)
-
-	return finalize_zero_value_transfer_gl_map(self, gl_map, precision)
 
 
 STOCK_CONTROLLER_METHODS = {

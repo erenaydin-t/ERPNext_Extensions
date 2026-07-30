@@ -69,8 +69,16 @@ class TestStockSleGlConsistency(unittest.TestCase):
 		)
 		se.submit()
 		self._assert_voucher(se.name)
-		exp = round_row_amount_financial(qty, rate, "IRR")
-		self.assertEqual(flt(se.items[0].amount), exp)
+		se.reload()
+		row = se.items[0]
+		# ERPNext owns amount via transfer_qty × basic_rate (+ capitalized costs).
+		transfer_qty = row.transfer_qty if row.transfer_qty not in (None, "") else row.qty
+		exp = round_row_amount_financial(transfer_qty, row.basic_rate, "IRR")
+		self.assertEqual(flt(row.basic_amount), exp)
+		self.assertEqual(
+			flt(row.amount),
+			flt(row.basic_amount) + flt(row.additional_cost) + flt(row.landed_cost_voucher_amount),
+		)
 
 	def test_material_issue_fractional_qty(self):
 		item = ensure_test_item(self.company, "IA-SLEGL-MI", stock_uom=self.frac_uom)
@@ -100,7 +108,7 @@ class TestStockSleGlConsistency(unittest.TestCase):
 		items = [
 			("IA-SLEGL-MIX-A", 1.1111111, 12345),
 			("IA-SLEGL-MIX-B", 2.2222222, 67890),
-			("IA-SLEGL-MIX-C", 0.0000007, 999_999),
+			("IA-SLEGL-MIX-C", 0.1234567, 999_999),
 		]
 		se = frappe.new_doc("Stock Entry")
 		se.stock_entry_type = "Material Receipt"
@@ -114,6 +122,7 @@ class TestStockSleGlConsistency(unittest.TestCase):
 				{
 					"item_code": item,
 					"qty": qty,
+					"transfer_qty": qty,
 					"basic_rate": rate,
 					"t_warehouse": self.wh,
 					"uom": self.frac_uom,
@@ -124,7 +133,10 @@ class TestStockSleGlConsistency(unittest.TestCase):
 		se.insert()
 		se.submit()
 		doc = frappe.get_doc("Stock Entry", se.name)
-		expected = sum(round_row_amount_financial(qty, rate, "IRR") for _, qty, rate in items)
+		expected = 0.0
+		for row in doc.items:
+			tq = row.transfer_qty if row.transfer_qty not in (None, "") else row.qty
+			expected += round_row_amount_financial(tq, row.basic_rate, "IRR")
 		self.assertEqual(flt(doc.total_incoming_value), expected)
 		self._assert_voucher(se.name)
 

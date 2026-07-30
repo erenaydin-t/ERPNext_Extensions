@@ -107,28 +107,41 @@ def _item_rows_generic(doc, child_table: str, qty_field: str = "qty") -> list[di
 
 
 def _item_rows_stock_entry(doc) -> list[dict]:
+	"""Capitalization-aware Stock Entry consistency rows."""
+	from erpnext_extensions.iran_accounting.domain.qty_rate_amount import compose_stock_entry_row_amount
+
 	ccy = get_company_currency(doc.company)
 	rows = []
 	for item in doc.get("items") or []:
-		qty = item.qty
+		transfer_qty = item.transfer_qty if item.get("transfer_qty") not in (None, "") else item.qty
 		if item.get("basic_rate") is not None and item.get("basic_amount") is not None:
 			rows.append(
 				{
 					"row_name": item.name,
 					"item_code": item.item_code,
-					**row_qty_rate_check(qty, item.basic_rate, item.basic_amount, ccy, label="basic_amount"),
+					**row_qty_rate_check(
+						transfer_qty, item.basic_rate, item.basic_amount, ccy, label="basic_amount"
+					),
 				}
 			)
 		if item.get("amount") is not None:
-			rate = item.basic_rate if item.get("basic_rate") is not None else item.valuation_rate
-			if rate is not None:
-				rows.append(
-					{
-						"row_name": item.name,
-						"item_code": item.item_code,
-						**row_qty_rate_check(qty, rate, item.amount, ccy, label="amount"),
-					}
-				)
+			expected = compose_stock_entry_row_amount(item, ccy)
+			stored = flt(item.amount)
+			rows.append(
+				{
+					"row_name": item.name,
+					"item_code": item.item_code,
+					"field": "amount",
+					"qty": transfer_qty,
+					"rate": None,
+					"currency": ccy,
+					"raw_amount": expected,
+					"expected_rounded_amount": expected,
+					"stored_amount": stored,
+					"residual": stored - expected,
+					"status": "PASS" if stored == expected else "FAIL",
+				}
+			)
 	return rows
 
 

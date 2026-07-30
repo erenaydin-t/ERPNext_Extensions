@@ -295,6 +295,7 @@ def _patch_stock_entry():
 	import erpnext_extensions.iran_accounting.stock_entry as se_hooks
 
 	if getattr(StockEntry, "_iran_patched", None):
+		# Idempotent: never re-save wrapper as original.
 		return
 
 	se_hooks._original_set_total_incoming_outgoing_value = StockEntry.set_total_incoming_outgoing_value
@@ -313,13 +314,22 @@ def _patch_stock_entry():
 		before_gl_preview._iran_wrapped = True
 		StockEntry.before_gl_preview = before_gl_preview
 
+	current_get_gl = StockEntry.get_gl_entries
+	if getattr(current_get_gl, "_iran_stock_entry_gl_wrapper", None):
+		# Already wrapped somehow without _iran_patched — refuse circular save.
+		frappe.throw(
+			"iran_accounting: StockEntry.get_gl_entries already wrapped; refusing duplicate patch",
+		)
+	StockEntry._iran_original_stock_entry_get_gl_entries = current_get_gl
+
 	def get_gl_entries(
 		self, inventory_account_map=None, default_expense_account=None, default_cost_center=None
 	):
-		return zvt.get_gl_entries(
+		return zvt.iran_stock_entry_get_gl_entries(
 			self, inventory_account_map, default_expense_account, default_cost_center
 		)
 
+	get_gl_entries._iran_stock_entry_gl_wrapper = True
 	StockEntry.get_gl_entries = get_gl_entries
 	StockEntry._iran_patched = True
 

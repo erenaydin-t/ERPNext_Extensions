@@ -6,6 +6,7 @@ import frappe
 from frappe.utils import flt
 
 from erpnext_extensions.iran_accounting.manufacture_rounding import (
+	align_manufacture_finished_good_residual,
 	align_manufacture_finished_good_to_outgoing,
 )
 from erpnext_extensions.iran_accounting.qty_rate_amount import align_stock_entry_item_amounts
@@ -48,7 +49,7 @@ def validate_stock_entry(doc, method=None):
 		return
 	align_stock_entry_item_amounts(doc)
 	round_stock_entry_totals(doc)
-	align_manufacture_finished_good_to_outgoing(doc)
+	align_manufacture_finished_good_residual(doc)
 
 
 def before_submit_stock_entry(doc, method=None):
@@ -57,7 +58,7 @@ def before_submit_stock_entry(doc, method=None):
 		return
 	if hasattr(doc, "set_total_incoming_outgoing_value"):
 		doc.set_total_incoming_outgoing_value()
-	align_manufacture_finished_good_to_outgoing(doc)
+	align_manufacture_finished_good_residual(doc)
 	align_zero_value_transfer_totals(doc)
 
 
@@ -79,7 +80,7 @@ def before_gl_preview_stock_entry(doc, method=None):
 	if is_irr_company(doc.company) and hasattr(doc, "set_total_incoming_outgoing_value"):
 		doc.set_total_incoming_outgoing_value()
 	round_stock_entry_totals(doc)
-	align_manufacture_finished_good_to_outgoing(doc)
+	align_manufacture_finished_good_residual(doc)
 	align_zero_value_transfer_totals(doc)
 
 
@@ -100,7 +101,7 @@ def patched_set_total_incoming_outgoing_value(self):
 
 	# Do not round summed totals — rows are already IRR integers.
 	self.value_difference = flt(self.total_incoming_value) - flt(self.total_outgoing_value)
-	align_manufacture_finished_good_to_outgoing(self)
+	align_manufacture_finished_good_residual(self)
 	align_zero_value_transfer_totals(self)
 
 

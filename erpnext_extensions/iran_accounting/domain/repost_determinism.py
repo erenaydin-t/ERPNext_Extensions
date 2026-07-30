@@ -53,6 +53,7 @@ from erpnext_extensions.iran_accounting.domain.stock_reconciliation_sync import 
 	sync_irr_sle_from_stock_reconciliation_row,
 )
 from erpnext_extensions.iran_accounting.manufacture_rounding import (
+	align_manufacture_finished_good_residual,
 	align_manufacture_finished_good_to_outgoing,
 )
 from erpnext_extensions.iran_accounting.rounding import round_stock_entry_totals
@@ -201,6 +202,11 @@ def _reconcile_stock_reconciliation_after_repost(voucher_no: str, company: str) 
 
 
 def _reconcile_stock_entry_after_repost(voucher_no: str, company: str) -> list[str]:
+	"""Re-assert capitalization-aware row truth after engine repost.
+
+	Preserves additional_cost / landed_cost_voucher_amount via composition-preserving
+	align_stock_entry_item_amounts; never reapplies amount = qty × basic_rate.
+	"""
 	actions: list[str] = []
 	doc = frappe.get_doc("Stock Entry", voucher_no)
 	if doc.docstatus != 1:
@@ -208,12 +214,19 @@ def _reconcile_stock_entry_after_repost(voucher_no: str, company: str) -> list[s
 
 	align_stock_entry_item_amounts(doc)
 	round_stock_entry_totals(doc)
-	align_manufacture_finished_good_to_outgoing(doc)
+	align_manufacture_finished_good_residual(doc)
 	for row in doc.items:
 		frappe.db.set_value(
 			"Stock Entry Detail",
 			row.name,
-			{"amount": row.amount, "basic_amount": row.get("basic_amount")},
+			{
+				"amount": row.amount,
+				"basic_amount": row.get("basic_amount"),
+				"valuation_rate": row.get("valuation_rate"),
+				# Never clear capitalization fields — leave ERPNext-owned values intact.
+				"additional_cost": row.get("additional_cost"),
+				"landed_cost_voucher_amount": row.get("landed_cost_voucher_amount"),
+			},
 			update_modified=False,
 		)
 	doc.db_set(
@@ -224,7 +237,7 @@ def _reconcile_stock_entry_after_repost(voucher_no: str, company: str) -> list[s
 		},
 		update_modified=False,
 	)
-	actions.append("reapplied_ste_row_truth")
+	actions.append("reapplied_ste_row_truth_capitalization_aware")
 
 	for sle_name in frappe.get_all(
 		"Stock Ledger Entry",
@@ -240,6 +253,17 @@ def _reconcile_stock_entry_after_repost(voucher_no: str, company: str) -> list[s
 	mirror_failures = assert_stock_entry_row_sle_mirror(voucher_no, company)
 	if mirror_failures:
 		actions.append(f"sle_mirror_warnings:{len(mirror_failures)}")
+
+	# Contract verifies composition + GL ownership (add-cost/LCV when present).
+	from erpnext_extensions.iran_accounting.domain.stock_entry_ledger_contract import (
+		collect_ledger_contract_failures,
+	)
+
+	contract_failures = collect_ledger_contract_failures(voucher_no, company)
+	if contract_failures:
+		actions.append(f"contract_warnings:{len(contract_failures)}")
+	else:
+		actions.append("contract_pass")
 	return actions
 
 
