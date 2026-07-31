@@ -1,0 +1,147 @@
+{
+ "actions": [],
+ "autoname": "field:company",
+ "creation": "2026-07-31 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Setup",
+ "engine": "InnoDB",
+ "field_order": [
+  "company",
+  "section_accounts",
+  "consignment_inventory_account",
+  "consignment_temporary_clearing_account",
+  "consignment_valuation_difference_account",
+  "column_break_acc",
+  "default_cost_center",
+  "default_finance_book",
+  "default_consignment_warehouse",
+  "section_policy",
+  "allow_zero_receipt_rate"
+ ],
+ "fields": [
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "section_accounts",
+   "fieldtype": "Section Break",
+   "label": "Accounts"
+  },
+  {
+   "fieldname": "consignment_inventory_account",
+   "fieldtype": "Link",
+   "label": "Consignment Inventory Account",
+   "options": "Account",
+   "reqd": 1
+  },
+  {
+   "fieldname": "consignment_temporary_clearing_account",
+   "fieldtype": "Link",
+   "label": "Consignment Temporary Clearing Account",
+   "options": "Account",
+   "reqd": 1
+  },
+  {
+   "fieldname": "consignment_valuation_difference_account",
+   "fieldtype": "Link",
+   "label": "Consignment Valuation Difference Account",
+   "options": "Account",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_acc",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "default_cost_center",
+   "fieldtype": "Link",
+   "label": "Default Cost Center",
+   "options": "Cost Center"
+  },
+  {
+   "fieldname": "default_finance_book",
+   "fieldtype": "Link",
+   "label": "Default Finance Book",
+   "options": "Finance Book"
+  },
+  {
+   "fieldname": "default_consignment_warehouse",
+   "fieldtype": "Link",
+   "label": "Default Consignment Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "section_policy",
+   "fieldtype": "Section Break",
+   "label": "Policy"
+  },
+  {
+   "default": "0",
+   "fieldname": "allow_zero_receipt_rate",
+   "fieldtype": "Check",
+   "label": "Allow Zero Receipt Rate"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-07-31 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Consignment Stock",
+ "name": "Consignment Stock Settings",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Stock Manager",
+   "share": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

@@ -1,0 +1,538 @@
+{
+  "accounting": {
+    "baseline_receipt": {
+      "qty": 100,
+      "rate": 10000,
+      "amount": 1000000,
+      "receipt": "MAT-STE-2026-02884",
+      "receipt_gl": [
+        {
+          "account": "Consignment Temp Clearing Test - T",
+          "debit": 0.0,
+          "credit": 1000000.0,
+          "party_type": null,
+          "party": null
+        },
+        {
+          "account": "Consignment Inventory Test - T",
+          "debit": 1000000.0,
+          "credit": 0.0,
+          "party_type": null,
+          "party": null
+        }
+      ],
+      "receipt_gl_balances": {
+        "Consignment Temp Clearing Test - T": {
+          "debit": 0.0,
+          "credit": 1000000.0,
+          "net": -1000000.0
+        },
+        "Consignment Inventory Test - T": {
+          "debit": 1000000.0,
+          "credit": 0.0,
+          "net": 1000000.0
+        }
+      },
+      "recognition_je": "ACC-JV-2026-01517",
+      "recognition_lines": [
+        {
+          "account": "Consignment Temp Clearing Test - T",
+          "debit": 1000000.0,
+          "credit": 0.0,
+          "party_type": null,
+          "party": null,
+          "reference_type": null,
+          "reference_name": null
+        },
+        {
+          "account": "Creditors - T",
+          "debit": 0.0,
+          "credit": 1000000.0,
+          "party_type": "Supplier",
+          "party": "CS-SUP-jEz2X",
+          "reference_type": null,
+          "reference_name": null
+        }
+      ],
+      "recognition_gl": [
+        {
+          "account": "Creditors - T",
+          "debit": 0.0,
+          "credit": 1000000.0,
+          "party_type": "Supplier",
+          "party": "CS-SUP-jEz2X"
+        },
+        {
+          "account": "Consignment Temp Clearing Test - T",
+          "debit": 1000000.0,
+          "credit": 0.0,
+          "party_type": null,
+          "party": null
+        }
+      ],
+      "recognition_gl_balances": {
+        "Creditors - T": {
+          "debit": 0.0,
+          "credit": 1000000.0,
+          "net": -1000000.0
+        },
+        "Consignment Temp Clearing Test - T": {
+          "debit": 1000000.0,
+          "credit": 0.0,
+          "net": 1000000.0
+        }
+      },
+      "accounts": {
+        "inventory": "Consignment Inventory Test - T",
+        "temporary": "Consignment Temp Clearing Test - T",
+        "difference": "Consignment Valuation Diff Test - T"
+      }
+    },
+    "higher": {
+      "label": "A_higher_12000",
+      "return": "MAT-STE-2026-02887",
+      "settlement_je": "ACC-JV-2026-01519",
+      "amounts": {
+        "receipt_settlement_amount": 1000000.0,
+        "actual_return_valuation_amount": 1200000.0,
+        "valuation_difference": 200000.0
+      },
+      "return_gl": [
+        {
+          "account": "Consignment Temp Clearing Test - T",
+          "debit": 1200000.0,
+          "credit": 0.0,
+          "party_type": null,
+          "party": null
+        },
+        {
+          "account": "Consignment Inventory Test - T",
+          "debit": 0.0,
+          "credit": 1200000.0,
+          "party_type": null,
+          "party": null
+        }
+      ],
+      "settlement_lines": [
+        {
+          "account": "Creditors - T",
+          "debit": 1000000.0,
+          "credit": 0.0,
+          "party_type": "Supplier",
+          "party": "CS-SUP-x6MWz",
+          "reference_type": null,
+          "reference_name": null
+        },
+        {
+          "account": "Consignment Valuation Diff Test - T",
+          "debit": 200000.0,
+          "credit": 0.0,
+          "party_type": null,
+          "party": null,
+          "reference_type": null,
+          "reference_name": null
+        },
+        {
+          "account": "Consignment Temp Clearing Test - T",
+          "debit": 0.0,
+          "credit": 1200000.0,
+          "party_type": null,
+          "party": null,
+          "reference_type": null,
+          "reference_name": null
+        }
+      ],
+      "settlement_gl": [
+        {
+          "account": "Consignment Temp Clearing Test - T",
+          "debit": 0.0,
+          "credit": 1200000.0,
+          "party_type": null,
+          "party": null
+        },
+        {
+          "account": "Consignment Valuation Diff Test - T",
+          "debit": 200000.0,
+          "credit": 0.0,
+          "party_type": null,
+          "party": null
+        },
+        {
+          "account": "Creditors - T",
+          "debit": 1000000.0,
+          "credit": 0.0,
+          "party_type": "Supplier",
+          "party": "CS-SUP-x6MWz"
+        }
+      ],
+      "return_outgoing_value": 1200000.0
+    },
+    "lower": {
+      "label": "A_lower_8000",
+      "return": "MAT-STE-2026-02890",
+      "settlement_je": "ACC-JV-2026-01521",
+      "amounts": {
+        "receipt_settlement_amount": 1000000.0,
+        "actual_return_valuation_amount": 800000.0,
+        "valuation_difference": -200000.0
+      },
+      "return_gl": [
+        {
+          "account": "Consignment Temp Clearing Test - T",
+          "debit": 800000.0,
+          "credit": 0.0,
+          "party_type": null,
+          "party": null
+        },
+        {
+          "account": "Consignment Inventory Test - T",
+          "debit": 0.0,
+          "credit": 800000.0,
+          "party_type": null,
+          "party": null
+        }
+      ],
+      "settlement_lines": [
+        {
+          "account": "Creditors - T",
+          "debit": 1000000.0,
+          "credit": 0.0,
+          "party_type": "Supplier",
+          "party": "CS-SUP-ZO5a9",
+          "reference_type": null,
+          "reference_name": null
+        },
+        {
+          "account": "Consignment Valuation Diff Test - T",
+          "debit": 0.0,
+          "credit": 200000.0,
+          "party_type": null,
+          "party": null,
+          "reference_type": null,
+          "reference_name": null
+        },
+        {
+          "account": "Consignment Temp Clearing Test - T",
+          "debit": 0.0,
+          "credit": 800000.0,
+          "party_type": null,
+          "party": null,
+          "reference_type": null,
+          "reference_name": null
+        }
+      ],
+      "settlement_gl": [
+        {
+          "account": "Consignment Temp Clearing Test - T",
+          "debit": 0.0,
+          "credit": 800000.0,
+          "party_type": null,
+          "party": null
+        },
+        {
+          "account": "Consignment Valuation Diff Test - T",
+          "debit": 0.0,
+          "credit": 200000.0,
+          "party_type": null,
+          "party": null
+        },
+        {
+          "account": "Creditors - T",
+          "debit": 1000000.0,
+          "credit": 0.0,
+          "party_type": "Supplier",
+          "party": "CS-SUP-ZO5a9"
+        }
+      ],
+      "return_outgoing_value": 800000.0
+    },
+    "higher_balances_settlement": {
+      "Consignment Temp Clearing Test - T": {
+        "debit": 0.0,
+        "credit": 1200000.0,
+        "net": -1200000.0
+      },
+      "Consignment Valuation Diff Test - T": {
+        "debit": 200000.0,
+        "credit": 0.0,
+        "net": 200000.0
+      },
+      "Creditors - T": {
+        "debit": 1000000.0,
+        "credit": 0.0,
+        "net": 1000000.0
+      }
+    },
+    "lower_balances_settlement": {
+      "Consignment Temp Clearing Test - T": {
+        "debit": 0.0,
+        "credit": 800000.0,
+        "net": -800000.0
+      },
+      "Consignment Valuation Diff Test - T": {
+        "debit": 0.0,
+        "credit": 200000.0,
+        "net": -200000.0
+      },
+      "Creditors - T": {
+        "debit": 1000000.0,
+        "credit": 0.0,
+        "net": 1000000.0
+      }
+    }
+  },
+  "property_setter": {
+    "property_setter_exists": true,
+    "property_setter": {
+      "name": "Journal Entry Account-reference_type-options",
+      "value": "\nSales Invoice\nPurchase Invoice\nJournal Entry\nSales Order\nPurchase Order\nExpense Claim\nAsset\nLoan\nPayroll Entry\nEmployee Advance\nExchange Rate Revaluation\nInvoice Discounting\nFees\nFull and Final Statement\nPayment Entry\nBank Transaction\nStock Entry",
+      "doctype_or_field": "DocField"
+    },
+    "stock_entry_in_meta_options": true,
+    "stock_entry_in_setter_value": true,
+    "expected_options_include_stock_entry": true,
+    "patch_log": {
+      "patch": "erpnext_extensions.patches.post_model_sync.add_consignment_stock_custom_fields",
+      "skipped": 0
+    },
+    "after_migrate_hook": true,
+    "migration_safety": {
+      "idempotent_create_custom_fields_update_true": true,
+      "idempotent_make_property_setter": true,
+      "new_site_path": "migrate runs DocType sync + post_model_sync patch + after_migrate ensure_custom_fields"
+    }
+  },
+  "je_role": {
+    "fieldname": "custom_consignment_je_role",
+    "exists": true,
+    "fieldtype": "Select",
+    "options": "\nRecognition\nSettlement",
+    "allowed_values": [
+      "",
+      "Recognition",
+      "Settlement"
+    ],
+    "mandatory": false,
+    "read_only": true,
+    "no_copy": true,
+    "why_standard_refs_not_enough": [
+      "reference_type/reference_name link JE lines to Stock Entry (source voucher) \u2014 used.",
+      "They do not distinguish Recognition vs Settlement when both reference Stock Entry.",
+      "Duplicate prevention and on_cancel link-clearing need a stable JE-level role discriminator.",
+      "user_remark is free text and unsafe for idempotency filters."
+    ]
+  },
+  "cancellation": {
+    "documents": {
+      "receipt": "MAT-STE-2026-02891",
+      "recognition": "ACC-JV-2026-01522",
+      "return": "MAT-STE-2026-02892",
+      "settlement": "ACC-JV-2026-01523"
+    },
+    "attempts": {
+      "cancel_receipt_while_deps_exist": {
+        "ok": false,
+        "error": "Cancel Recognition Journal Entry ACC-JV-2026-01522 before cancelling Consignment Receipt MAT-STE-2026-02891."
+      },
+      "cancel_return_while_settlement_submitted": {
+        "ok": false,
+        "error": "Cancel Settlement Journal Entry ACC-JV-2026-01523 before cancelling Consignment Return MAT-STE-2026-02892."
+      },
+      "cancel_settlement_je": {
+        "ok": true
+      },
+      "cancel_return_after_settlement_cancelled": {
+        "ok": true
+      },
+      "cancel_recognition_je": {
+        "ok": true
+      },
+      "cancel_receipt_after_deps_cleared": {
+        "ok": true
+      },
+      "active_ple_against_stock_entry": [],
+      "ple_clean": true
+    }
+  },
+  "permissions": {
+    "doctype_role_permissions": {
+      "Stock User": {
+        "Stock Entry": {
+          "read": 1,
+          "write": 1,
+          "create": 1,
+          "cancel": 1,
+          "submit": 1
+        },
+        "Journal Entry": {
+          "read": 0,
+          "write": 0,
+          "create": 0,
+          "cancel": 0,
+          "submit": 0
+        },
+        "Consignment Stock Settings": {
+          "read": 0,
+          "write": 0,
+          "create": 0,
+          "cancel": 0,
+          "submit": 0
+        }
+      },
+      "Accounts User": {
+        "Stock Entry": {
+          "read": 0,
+          "write": 0,
+          "create": 0,
+          "cancel": 0,
+          "submit": 0
+        },
+        "Journal Entry": {
+          "read": 1,
+          "write": 1,
+          "create": 1,
+          "cancel": 1,
+          "submit": 1
+        },
+        "Consignment Stock Settings": {
+          "read": 1,
+          "write": 0,
+          "create": 0,
+          "cancel": 0,
+          "submit": 0
+        }
+      },
+      "Accounts Manager": {
+        "Stock Entry": {
+          "read": 0,
+          "write": 0,
+          "create": 0,
+          "cancel": 0,
+          "submit": 0
+        },
+        "Journal Entry": {
+          "read": 1,
+          "write": 1,
+          "create": 1,
+          "cancel": 1,
+          "submit": 1
+        },
+        "Consignment Stock Settings": {
+          "read": 1,
+          "write": 1,
+          "create": 1,
+          "cancel": 0,
+          "submit": 0
+        }
+      },
+      "Stock Manager": {
+        "Stock Entry": {
+          "read": 1,
+          "write": 1,
+          "create": 1,
+          "cancel": 1,
+          "submit": 1
+        },
+        "Journal Entry": {
+          "read": 0,
+          "write": 0,
+          "create": 0,
+          "cancel": 0,
+          "submit": 0
+        },
+        "Consignment Stock Settings": {
+          "read": 1,
+          "write": 0,
+          "create": 0,
+          "cancel": 0,
+          "submit": 0
+        }
+      },
+      "System Manager": {
+        "Stock Entry": {
+          "read": 0,
+          "write": 0,
+          "create": 0,
+          "cancel": 0,
+          "submit": 0
+        },
+        "Journal Entry": {
+          "read": 0,
+          "write": 0,
+          "create": 0,
+          "cancel": 0,
+          "submit": 0
+        },
+        "Consignment Stock Settings": {
+          "read": 1,
+          "write": 1,
+          "create": 1,
+          "cancel": 0,
+          "submit": 0
+        }
+      }
+    },
+    "consignment_stock_settings_meta_permissions": [
+      {
+        "role": "System Manager",
+        "read": 1,
+        "write": 1,
+        "create": 1,
+        "delete": 1
+      },
+      {
+        "role": "Accounts Manager",
+        "read": 1,
+        "write": 1,
+        "create": 1,
+        "delete": 1
+      },
+      {
+        "role": "Accounts User",
+        "read": 1,
+        "write": 0,
+        "create": 0,
+        "delete": 0
+      },
+      {
+        "role": "Stock Manager",
+        "read": 1,
+        "write": 0,
+        "create": 0,
+        "delete": 0
+      }
+    ],
+    "api_gates": {
+      "create_consignment_recognition_entry": [
+        "Stock Entry:write",
+        "Journal Entry:create"
+      ],
+      "create_consignment_return_settlement": [
+        "Stock Entry:write",
+        "Journal Entry:create"
+      ],
+      "note": "API requires BOTH SE write and JE create \u2014 Stock User alone cannot create JEs if lacking JE create."
+    }
+  },
+  "upgrade_migration": {
+    "app_version": "3.8.0",
+    "module_def_exists": true,
+    "settings_doctype_exists": true,
+    "patch_executed": {
+      "patch": "erpnext_extensions.patches.post_model_sync.add_consignment_stock_custom_fields",
+      "skipped": 0,
+      "creation": "2026-07-31 15:32:11.900583"
+    },
+    "custom_field_count": 13,
+    "custom_field_count_after_rerun": 13,
+    "idempotent": true,
+    "upgrade_path": [
+      "Install/upgrade erpnext_extensions 3.8.0",
+      "bench migrate",
+      "DocType sync creates Consignment Stock Settings",
+      "post_model_sync.add_consignment_stock_custom_fields creates custom fields + Property Setter",
+      "after_migrate re-ensures custom fields (idempotent)",
+      "No data backfill required (greenfield process)"
+    ]
+  }
+}

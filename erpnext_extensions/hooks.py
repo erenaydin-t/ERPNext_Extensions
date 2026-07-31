@@ -90,6 +90,12 @@ doctype_js = {
 	"Facility Settings": [
 		"facility_management/public/js/facility_dimension_link_queries.js",
 	],
+	"Stock Entry": [
+		"consignment_stock/public/js/stock_entry_consignment.js",
+	],
+	"Stock Entry Type": [
+		"consignment_stock/public/js/stock_entry_type_consignment.js",
+	],
 }
 doctype_list_js = {
 	"PM Clearance": "erpnext_extensions/petty_management/doctype/pm_clearance/pm_clearance_list.js",
@@ -144,6 +150,7 @@ after_migrate = [
 	"erpnext_extensions.facility_management.facility_accounting_dimensions.after_migrate",
 	"erpnext_extensions.iran_accounting.integration.bootstrap.apply",
 	"erpnext_extensions.extentionhrms.install.after_migrate",
+	"erpnext_extensions.consignment_stock.install.after_migrate",
 ]
 
 # ERPNext injects Accounting Dimension custom fields onto these DocTypes (see Accounting Dimension on_update).
@@ -229,8 +236,20 @@ doc_events = {
 		"onload": "erpnext_extensions.petty_management.clearance_onload.sync_pm_clearance_on_load",
 	},
 	"Journal Entry": {
-		"on_submit": "erpnext_extensions.petty_management.journal_entry_hooks.on_journal_entry_submit",
-		"before_cancel": "erpnext_extensions.petty_management.journal_entry_hooks.on_journal_entry_before_cancel",
+		"on_submit": [
+			"erpnext_extensions.petty_management.journal_entry_hooks.on_journal_entry_submit",
+			"erpnext_extensions.consignment_stock.journal_entry_hooks.on_submit",
+		],
+		"before_cancel": [
+			"erpnext_extensions.petty_management.journal_entry_hooks.on_journal_entry_before_cancel",
+			"erpnext_extensions.consignment_stock.journal_entry_hooks.before_cancel",
+		],
+		"on_cancel": [
+			"erpnext_extensions.consignment_stock.journal_entry_hooks.on_cancel",
+		],
+		"on_trash": [
+			"erpnext_extensions.consignment_stock.journal_entry_hooks.on_trash",
+		],
 	},
 	"Payment Entry": {
 		"validate": "erpnext_extensions.cheque_management.payment_entry_pdc_validation.validate_payment_entry_against_pdc_settlement",
@@ -297,9 +316,30 @@ doc_events = {
 		"after_insert": "erpnext_extensions.iran_accounting.stock_ledger.after_insert_stock_ledger_entry",
 	},
 	"Stock Entry": {
-		"validate": "erpnext_extensions.iran_accounting.stock_entry.validate_stock_entry",
-		"before_submit": "erpnext_extensions.iran_accounting.stock_entry.before_submit_stock_entry",
-		"on_submit": "erpnext_extensions.iran_accounting.stock_entry.on_submit_stock_entry",
+		"before_validate": [
+			"erpnext_extensions.consignment_stock.stock_entry_hooks.before_validate",
+		],
+		"validate": [
+			"erpnext_extensions.iran_accounting.stock_entry.validate_stock_entry",
+			"erpnext_extensions.consignment_stock.stock_entry_hooks.validate",
+		],
+		"before_submit": [
+			"erpnext_extensions.iran_accounting.stock_entry.before_submit_stock_entry",
+			"erpnext_extensions.consignment_stock.stock_entry_hooks.before_submit",
+		],
+		"on_submit": [
+			"erpnext_extensions.iran_accounting.stock_entry.on_submit_stock_entry",
+			"erpnext_extensions.consignment_stock.stock_entry_hooks.on_submit",
+		],
+		"before_cancel": [
+			"erpnext_extensions.consignment_stock.stock_entry_hooks.before_cancel",
+		],
+		"on_cancel": [
+			"erpnext_extensions.consignment_stock.stock_entry_hooks.on_cancel",
+		],
+	},
+	"Stock Entry Type": {
+		"validate": "erpnext_extensions.consignment_stock.stock_entry_type.validate",
 	},
 	"Stock Reconciliation": {
 		"validate": "erpnext_extensions.iran_accounting.stock_reconciliation.validate_stock_reconciliation",
