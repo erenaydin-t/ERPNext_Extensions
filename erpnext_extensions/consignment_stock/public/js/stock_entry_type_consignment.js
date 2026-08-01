@@ -1,5 +1,5 @@
-# Copyright (c) 2026, ERPNext Extensions contributors
-# License: MIT
+// Copyright (c) 2026, ERPNext Extensions contributors
+// License: MIT
 
 frappe.ui.form.on("Stock Entry Type", {
 	purpose(frm) {

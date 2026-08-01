@@ -1,5 +1,5 @@
-# Copyright (c) 2026, ERPNext Extensions contributors
-# License: MIT
+// Copyright (c) 2026, ERPNext Extensions contributors
+// License: MIT
 
 frappe.ui.form.on("Consignment Stock Settings", {
 	setup(frm) {

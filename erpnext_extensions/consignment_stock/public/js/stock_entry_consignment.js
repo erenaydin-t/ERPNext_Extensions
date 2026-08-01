@@ -1,5 +1,5 @@
-# Copyright (c) 2026, ERPNext Extensions contributors
-# License: MIT
+// Copyright (c) 2026, ERPNext Extensions contributors
+// License: MIT
 
 function is_consignment(frm) {
 	return cint(frm.doc.custom_is_consignment_receipt) || cint(frm.doc.custom_is_consignment_return);
