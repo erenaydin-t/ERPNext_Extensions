@@ -92,9 +92,11 @@ doctype_js = {
 	],
 	"Stock Entry": [
 		"consignment_stock/public/js/stock_entry_consignment.js",
+		"consignment_stock/public/js/stock_entry_material_loan.js",
 	],
 	"Stock Entry Type": [
 		"consignment_stock/public/js/stock_entry_type_consignment.js",
+		"consignment_stock/public/js/stock_entry_type_material_loan.js",
 	],
 }
 doctype_list_js = {
@@ -239,16 +241,20 @@ doc_events = {
 		"on_submit": [
 			"erpnext_extensions.petty_management.journal_entry_hooks.on_journal_entry_submit",
 			"erpnext_extensions.consignment_stock.journal_entry_hooks.on_submit",
+			"erpnext_extensions.consignment_stock.material_loan.journal_entry_hooks.on_submit",
 		],
 		"before_cancel": [
 			"erpnext_extensions.petty_management.journal_entry_hooks.on_journal_entry_before_cancel",
 			"erpnext_extensions.consignment_stock.journal_entry_hooks.before_cancel",
+			"erpnext_extensions.consignment_stock.material_loan.journal_entry_hooks.before_cancel",
 		],
 		"on_cancel": [
 			"erpnext_extensions.consignment_stock.journal_entry_hooks.on_cancel",
+			"erpnext_extensions.consignment_stock.material_loan.journal_entry_hooks.on_cancel",
 		],
 		"on_trash": [
 			"erpnext_extensions.consignment_stock.journal_entry_hooks.on_trash",
+			"erpnext_extensions.consignment_stock.material_loan.journal_entry_hooks.on_trash",
 		],
 	},
 	"Payment Entry": {
@@ -318,28 +324,44 @@ doc_events = {
 	"Stock Entry": {
 		"before_validate": [
 			"erpnext_extensions.consignment_stock.stock_entry_hooks.before_validate",
+			"erpnext_extensions.consignment_stock.material_loan.stock_entry_hooks.before_validate",
 		],
 		"validate": [
 			"erpnext_extensions.iran_accounting.stock_entry.validate_stock_entry",
 			"erpnext_extensions.consignment_stock.stock_entry_hooks.validate",
+			"erpnext_extensions.consignment_stock.material_loan.stock_entry_hooks.validate",
 		],
 		"before_submit": [
 			"erpnext_extensions.iran_accounting.stock_entry.before_submit_stock_entry",
 			"erpnext_extensions.consignment_stock.stock_entry_hooks.before_submit",
+			"erpnext_extensions.consignment_stock.material_loan.stock_entry_hooks.before_submit",
 		],
 		"on_submit": [
 			"erpnext_extensions.iran_accounting.stock_entry.on_submit_stock_entry",
 			"erpnext_extensions.consignment_stock.stock_entry_hooks.on_submit",
+			"erpnext_extensions.consignment_stock.material_loan.stock_entry_hooks.on_submit",
 		],
 		"before_cancel": [
 			"erpnext_extensions.consignment_stock.stock_entry_hooks.before_cancel",
+			"erpnext_extensions.consignment_stock.material_loan.stock_entry_hooks.before_cancel",
 		],
 		"on_cancel": [
 			"erpnext_extensions.consignment_stock.stock_entry_hooks.on_cancel",
+			"erpnext_extensions.consignment_stock.material_loan.stock_entry_hooks.on_cancel",
+		],
+		"on_update_after_submit": [
+			"erpnext_extensions.consignment_stock.material_loan.stock_entry_hooks.on_update_after_submit",
 		],
 	},
 	"Stock Entry Type": {
-		"validate": "erpnext_extensions.consignment_stock.stock_entry_type.validate",
+		"validate": [
+			"erpnext_extensions.consignment_stock.stock_entry_type.validate",
+			"erpnext_extensions.consignment_stock.material_loan.stock_entry_type.validate",
+		],
+	},
+	"Repost Item Valuation": {
+		"validate": "erpnext_extensions.consignment_stock.material_loan.repost_guards.validate_repost_item_valuation",
+		"on_update_after_submit": "erpnext_extensions.consignment_stock.material_loan.repost_guards.on_repost_completed",
 	},
 	"Stock Reconciliation": {
 		"validate": "erpnext_extensions.iran_accounting.stock_reconciliation.validate_stock_reconciliation",

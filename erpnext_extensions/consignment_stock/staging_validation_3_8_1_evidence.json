@@ -1,0 +1,78 @@
+{
+  "generated_at": "2026-08-01 16:34:54.833467",
+  "company": "test",
+  "accounts": {
+    "inventory": "Material Loan Inventory Test - T",
+    "temporary": "Material Loan Temp Clearing Test - T",
+    "difference": "Material Loan Valuation Diff Test - T",
+    "customer_receivable": "Material Loan Receivable Customer Test - T",
+    "supplier_payable": "Material Loan with Suppliers Test - T"
+  },
+  "customer_example": {
+    "issue": "MAT-STE-2026-03470",
+    "recognition_je": "ACC-JV-2026-01856",
+    "return": "MAT-STE-2026-03471",
+    "settlement_je": "ACC-JV-2026-01857",
+    "rate": 10000.0,
+    "party_balance_after": 0.0,
+    "issue_gl": [
+      {
+        "account": "Material Loan Temp Clearing Test - T",
+        "debit": 1000000.0,
+        "credit": 0.0
+      },
+      {
+        "account": "Material Loan Inventory Test - T",
+        "debit": 0.0,
+        "credit": 1000000.0
+      }
+    ],
+    "recognition_gl": [
+      {
+        "account": "Material Loan Temp Clearing Test - T",
+        "party_type": null,
+        "party": null,
+        "debit": 0.0,
+        "credit": 1000000.0
+      },
+      {
+        "account": "Material Loan Receivable Customer Test - T",
+        "party_type": "Customer",
+        "party": "CS-CUST-p6jbY",
+        "debit": 1000000.0,
+        "credit": 0.0
+      }
+    ]
+  },
+  "supplier_example": {
+    "issue": "MAT-STE-2026-03472",
+    "recognition_je": "ACC-JV-2026-01858",
+    "party_account": "Material Loan with Suppliers Test - T",
+    "account_type": "Payable",
+    "party_balance": 100000.0
+  },
+  "ple": {
+    "recognition_ple": [
+      {
+        "against_voucher_type": "Journal Entry",
+        "against_voucher_no": "ACC-JV-2026-01856",
+        "account": "Material Loan Receivable Customer Test - T",
+        "party": "CS-CUST-p6jbY"
+      }
+    ],
+    "stock_entry_against_ple_count": 0
+  },
+  "cancellation": {
+    "blocked_issue_while_returns_exist": true,
+    "full_reverse_ok": true
+  },
+  "repost": {
+    "transaction_repost_blocked_with_returns": true
+  },
+  "reports": {
+    "outstanding_columns": 16,
+    "outstanding_rows": 26,
+    "ledger_columns": 11,
+    "aging_columns": 9
+  }
+}

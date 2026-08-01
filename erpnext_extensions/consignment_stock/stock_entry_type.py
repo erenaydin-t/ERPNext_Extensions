@@ -27,3 +27,16 @@ def validate(doc, method=None):
 		doc.set(F_IS_RECEIPT, 0)
 	if doc.purpose != "Material Issue" and is_return:
 		doc.set(F_IS_RETURN, 0)
+
+	# Mutual exclusion with Material Loan flags (if present)
+	from erpnext_extensions.consignment_stock.material_loan.constants import (
+		F_IS_LOAN_ISSUE,
+		F_IS_LOAN_RETURN,
+	)
+
+	if (is_receipt or is_return) and (
+		cint(doc.get(F_IS_LOAN_ISSUE)) or cint(doc.get(F_IS_LOAN_RETURN))
+	):
+		frappe.throw(
+			_("Consignment Receipt/Return flags cannot be combined with Material Loan flags.")
+		)

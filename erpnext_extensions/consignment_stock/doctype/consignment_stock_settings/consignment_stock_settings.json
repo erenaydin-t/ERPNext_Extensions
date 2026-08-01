@@ -13,7 +13,18 @@
   "section_defaults",
   "default_consignment_warehouse",
   "section_policy",
-  "allow_zero_receipt_rate"
+  "allow_zero_receipt_rate",
+  "section_material_loan",
+  "material_loan_temporary_clearing_account",
+  "material_loan_valuation_difference_account",
+  "column_break_ml_1",
+  "default_material_loan_source_warehouse",
+  "default_material_loan_return_warehouse",
+  "section_material_loan_policy",
+  "require_expected_return_date",
+  "allow_return_to_different_warehouse",
+  "section_material_loan_party_accounts",
+  "material_loan_party_accounts"
  ],
  "fields": [
   {
@@ -28,7 +39,7 @@
   {
    "fieldname": "section_accounts",
    "fieldtype": "Section Break",
-   "label": "Accounts"
+   "label": "Inbound Consignment Accounts"
   },
   {
    "fieldname": "consignment_temporary_clearing_account",
@@ -47,7 +58,7 @@
   {
    "fieldname": "section_defaults",
    "fieldtype": "Section Break",
-   "label": "Defaults"
+   "label": "Inbound Defaults"
   },
   {
    "fieldname": "default_consignment_warehouse",
@@ -58,18 +69,79 @@
   {
    "fieldname": "section_policy",
    "fieldtype": "Section Break",
-   "label": "Policy"
+   "label": "Inbound Policy"
   },
   {
    "default": "0",
    "fieldname": "allow_zero_receipt_rate",
    "fieldtype": "Check",
    "label": "Allow Zero Receipt Rate"
+  },
+  {
+   "fieldname": "section_material_loan",
+   "fieldtype": "Section Break",
+   "label": "Material Loan"
+  },
+  {
+   "fieldname": "material_loan_temporary_clearing_account",
+   "fieldtype": "Link",
+   "label": "Material Loan Temporary Clearing Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "material_loan_valuation_difference_account",
+   "fieldtype": "Link",
+   "label": "Material Loan Valuation Difference Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "column_break_ml_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "default_material_loan_source_warehouse",
+   "fieldtype": "Link",
+   "label": "Default Material Loan Source Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "default_material_loan_return_warehouse",
+   "fieldtype": "Link",
+   "label": "Default Material Loan Return Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "section_material_loan_policy",
+   "fieldtype": "Section Break",
+   "label": "Material Loan Policy"
+  },
+  {
+   "default": "0",
+   "fieldname": "require_expected_return_date",
+   "fieldtype": "Check",
+   "label": "Require Expected Return Date"
+  },
+  {
+   "default": "1",
+   "fieldname": "allow_return_to_different_warehouse",
+   "fieldtype": "Check",
+   "label": "Allow Return to Different Warehouse"
+  },
+  {
+   "fieldname": "section_material_loan_party_accounts",
+   "fieldtype": "Section Break",
+   "label": "Material Loan Party Accounts"
+  },
+  {
+   "fieldname": "material_loan_party_accounts",
+   "fieldtype": "Table",
+   "label": "Material Loan Party Account Mapping",
+   "options": "Material Loan Party Account"
   }
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-08-01 00:00:00.000000",
+ "modified": "2026-08-01 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Consignment Stock",
  "name": "Consignment Stock Settings",
