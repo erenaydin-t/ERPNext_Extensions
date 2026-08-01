@@ -84,23 +84,27 @@ Optional Desk module `Consignment Stock` in `modules.txt` when shipping Settings
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `company` | Link/Company | Yes | Unique |
-| `consignment_inventory_account` | Link/Account | Yes | Validate vs warehouse usage |
-| `consignment_temporary_clearing_account` | Link/Account | Yes | Not Stock; not group |
-| `consignment_valuation_difference_account` | Link/Account | Yes | **Only** here — not Company, not Stock Settings |
-| `default_cost_center` | Link/Cost Center | No | Optional default |
-| `default_finance_book` | Link/Finance Book | No | Optional default |
+| `company` | Link/Company | Yes | Unique document key |
+| `consignment_temporary_clearing_account` | Link/Account | Yes | Intermediate consignment liability clearing; not Stock; not group |
+| `consignment_valuation_difference_account` | Link/Account | Yes | Used only for `D = A − R` on settlement; **only** here — not Company, not Stock Settings |
+| `default_consignment_warehouse` | Link/Warehouse | No | UI/default convenience only; transaction warehouse remains authoritative |
+| `allow_zero_receipt_rate` | Check | No | Default 0 |
 
-### Additional policy fields (unchanged recommendations)
+**Removed (warehouse / standard ERPNext own these concerns):**
+
+| Removed field | Reason |
+| --- | --- |
+| `consignment_inventory_account` | Inventory account resolves from selected Warehouse via standard ERPNext warehouse-account map |
+| `default_cost_center` | Cost center follows standard ERPNext document / company / account defaults |
+| `default_finance_book` | Finance book follows source Stock Entry when set, else standard ERPNext behavior |
+
+### Additional policy fields (historical recommendations; 3.8.0 ships only `allow_zero_receipt_rate`)
 
 | Field | Default | Notes |
 | --- | --- | --- |
-| `allow_return_without_receipt_reference` | 0 | |
-| `require_recognition_before_return` | 0 | |
-| `require_recognition_before_settlement` | **1** | |
-| `auto_submit_journal_entries` | **0** (draft-first) | |
-| `allow_zero_receipt_rate` | 0 | |
-| `default_consignment_warehouse` | — | Optional UX |
+| `allow_return_without_receipt_reference` | 0 | Out of scope for 3.8.0 |
+| `require_recognition_before_return` | hard-coded | Recognition before return is mandatory |
+| `auto_submit_journal_entries` | 0 | Draft-first JE creation |
 
 **Removed from earlier draft:** `allow_customer_consignment` gate (Customer is allowed via open Party Type policy).  
 **Removed from earlier draft as Settings account:** dedicated `default_party_payable_account` — party account comes from ERPNext `get_party_account(party_type, party, company)`.
@@ -115,7 +119,25 @@ For every account field on Settings:
 4. Currency compatible with company rules  
 5. Temporary Clearing: `account_type` ≠ `Stock`; prefer Balance Sheet  
 6. Valuation Difference: typically P&L; warn if Balance Sheet  
-7. Inventory: Stock/Asset appropriate; consistent with consignment warehouse account  
+
+For Default Consignment Warehouse (when set):
+
+1. Warehouse.company == Settings.company  
+2. Warehouse.is_group == 0  
+3. Warehouse.disabled == 0  
+4. A stock account is resolvable via standard ERPNext warehouse-account logic  
+
+### Warehouse account resolution
+
+Receipt and Return Stock Entries resolve inventory account from the **selected warehouse** using `erpnext.stock.get_warehouse_account_map` (Warehouse.account → parent warehouse → Company.default_inventory_account → first Stock account). Consignment does **not** store or force a settings inventory account.
+
+This matches standard ERPNext Stock Entry perpetual inventory when **Company.enable_item_wise_inventory_account is disabled** (the configuration on `development.localhost` / company `test`, and the assumption for 3.8.0).
+
+**Compatibility assumption (3.8.0):** Item-wise inventory accounts (`Company.enable_item_wise_inventory_account = 1`) are **not supported**. Consignment warehouse-account validation and documentation cover the warehouse-map path only. Enabling item-wise inventory accounts for a consignment company is out of scope for this release and may cause validation vs actual SE GL account mismatch.
+
+- **Warehouse Account:** Resolved from the Warehouse and standard ERPNext company account configuration.  
+- **Temporary Clearing Account:** Configured in Consignment Stock Settings; intermediate consignment clearing.  
+- **Valuation Difference Account:** Configured in Consignment Stock Settings; used only for differences between original receipt settlement value and actual return valuation.  
 
 On Stock Entry validate: load Settings for `doc.company`; throw if Temporary Clearing / Valuation Difference missing when consignment type requires them (settlement creation also re-validates Diff account).
 
@@ -296,8 +318,8 @@ P0 Settings/fields/flags → P1 Receipt (+ party validation) → P2 Recognition 
 | A1 | Target release **3.8.0** |
 | A2 | Party Type **not** restricted to Supplier; Dynamic Link; Supplier, Customer, and other accounting Party Types with valid flow |
 | A3 | Company-specific **Consignment Stock Settings** |
-| A4 | Settings stores Inventory, Temporary Clearing, Valuation Difference, Default Cost Center, Default Finance Book |
-| A5 | Valuation Difference Account **not** on Company or Stock Settings |
+| A4 | Settings stores Temporary Clearing, Valuation Difference, Default Consignment Warehouse, Allow Zero Receipt Rate |
+| A5 | Valuation Difference Account **not** on Company or Stock Settings; Inventory Account **not** on Settings (warehouse-resolved) |
 
 ### Locked for implementation (2026-07-31)
 

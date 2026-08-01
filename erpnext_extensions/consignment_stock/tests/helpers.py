@@ -149,7 +149,6 @@ def ensure_consignment_warehouse(company: str, inventory_account: str) -> str:
 def ensure_settings(company: str) -> str:
 	accounts = ensure_consignment_accounts(company)
 	wh = ensure_consignment_warehouse(company, accounts["inventory"])
-	cc = frappe.db.get_value("Company", company, "cost_center")
 	name = frappe.db.get_value("Consignment Stock Settings", {"company": company}, "name")
 	if name:
 		doc = frappe.get_doc("Consignment Stock Settings", name)
@@ -157,14 +156,18 @@ def ensure_settings(company: str) -> str:
 		doc = frappe.new_doc("Consignment Stock Settings")
 		doc.company = company
 
-	doc.consignment_inventory_account = accounts["inventory"]
 	doc.consignment_temporary_clearing_account = accounts["temporary"]
 	doc.consignment_valuation_difference_account = accounts["difference"]
-	doc.default_cost_center = cc
 	doc.default_consignment_warehouse = wh
 	doc.allow_zero_receipt_rate = 0
 	doc.save(ignore_permissions=True)
 	return doc.name
+
+
+def resolve_warehouse_inventory_account(warehouse: str, company: str) -> str:
+	from erpnext_extensions.consignment_stock.accounting import resolve_warehouse_account
+
+	return resolve_warehouse_account(warehouse, company)
 
 
 def ensure_stock_entry_types() -> dict:

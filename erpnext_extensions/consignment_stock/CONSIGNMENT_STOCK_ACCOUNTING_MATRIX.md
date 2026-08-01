@@ -13,7 +13,7 @@
 
 | Event | Debit | Credit |
 | --- | --- | --- |
-| Receipt SE | Consignment Inventory | Temporary Clearing |
+| Receipt SE | Warehouse Account (from Warehouse) | Temporary Clearing |
 | Recognition JE (initial request) | Party | Temporary Clearing |
 
 **Problems:** Temporary Clearing credited twice; party debited incorrectly for “goods held”; settlement cannot clear cleanly.
@@ -22,15 +22,24 @@
 
 | Event | Debit | Credit |
 | --- | --- | --- |
-| Receipt SE | Consignment Inventory | Temporary Clearing |
+| Receipt SE | Warehouse Account (from Warehouse) | Temporary Clearing |
 | Recognition JE | Temporary Clearing | Party account |
 
 **Rationale:**
 
 - Receipt SE uses **standard ERPNext Material Receipt perpetual inventory pairing**: Debit warehouse inventory account / Credit Difference Account (`items.expense_account`).
+- Warehouse Account is resolved from the selected Warehouse via standard ERPNext company/warehouse account configuration (`get_warehouse_account_map`) — **not** from Consignment Stock Settings.
 - For consignment, Difference Account is forced to **Temporary Clearing** from Consignment Stock Settings.
 - Recognition reclassifies the Temporary Clearing credit into a **party balance** so party ledgers show the obligation.
 - ERPNext Journal Entry rules: Receivable/Payable accounts require `party_type` + `party`; Party Type’s `account_type` must match the account.
+
+**Account roles:**
+
+| Role | Source |
+| --- | --- |
+| Warehouse Account | Warehouse + standard ERPNext company account configuration |
+| Temporary Clearing Account | Consignment Stock Settings — intermediate consignment liability clearing |
+| Valuation Difference Account | Consignment Stock Settings — only for `D = A − R` on settlement |
 
 ### 1.3 Party types (approved — not Supplier-only)
 
@@ -63,7 +72,7 @@ Must succeed and match Party Type `account_type`. No restriction that Party Type
 
 **`reference_type` / `reference_name`:** Stock Entry is not relied on for invoice outstanding allocation. Use custom Link fields on JE + remarks.
 
-**Dedicated party control account:** Optional future enhancement. v3.8.0 resolves the party’s default account via ERPNext; Settings do **not** store a separate default party payable/receivable override unless later approved. Core Settings accounts remain inventory / temporary / valuation difference only (plus cost center / finance book defaults).
+**Dedicated party control account:** Optional future enhancement. v3.8.0 resolves the party’s default account via ERPNext; Settings do **not** store a separate default party payable/receivable override unless later approved. Core Settings accounts remain Temporary Clearing and Valuation Difference only (plus optional default warehouse and allow-zero-rate policy). Inventory account is warehouse-resolved; cost center and finance book follow standard ERPNext / source Stock Entry behavior.
 
 ---
 
@@ -223,7 +232,9 @@ Unchanged: inventory ↔ `expense_account` pairing from SLE / iran_accounting ro
 
 ### 5.2 Consignment strategy (no duplicate GL)
 
-1. Warehouse → Consignment Inventory (aligned with Settings inventory account validation).
+1. Warehouse → Warehouse Account via standard ERPNext `get_warehouse_account_map`
+   (assumes `Company.enable_item_wise_inventory_account = 0`; item-wise inventory
+   accounts are not covered in 3.8.0).
 2. Force `items.expense_account` = Settings Temporary Clearing.
 3. Manual `basic_rate` drives receipt valuation.
 4. Recognition / settlement are **separate JEs**, not SE GL.

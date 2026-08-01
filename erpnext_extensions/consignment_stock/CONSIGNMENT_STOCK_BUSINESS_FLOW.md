@@ -65,14 +65,14 @@ flowchart TD
 ### 4.1 Setup (one-time / per company)
 
 1. Create Chart of Accounts (per company):
-   - Consignment Inventory (Asset / Stock) — typically linked to the consignment warehouse.
-   - Consignment Temporary Clearing (Balance Sheet clearing — not Stock, not P&L).
+   - Stock / inventory account for the consignment warehouse (Asset / Stock) — set on the **Warehouse** master (or company default inventory account).
+   - Consignment Temporary Clearing (Balance Sheet clearing — not Stock, not P&L) — configured on Consignment Stock Settings.
    - Consignment Valuation Difference (P&L — configured **only** on Consignment Stock Settings, never on Company or Stock Settings).
-2. Create / designate a **Consignment Warehouse** whose Warehouse Account is the Consignment Inventory account.
+2. Create / designate a **Consignment Warehouse** with a resolvable Warehouse Account (standard ERPNext warehouse-account setup).
 3. Create Stock Entry Types:
    - e.g. `Consignment Receipt` — Purpose `Material Receipt`, `is_consignment_receipt = 1`.
    - e.g. `Consignment Return` — Purpose `Material Issue`, `is_consignment_return = 1`.
-4. Configure `Consignment Stock Settings` for the company (required accounts + defaults).
+4. Configure `Consignment Stock Settings` for the company (Temporary Clearing, Valuation Difference, optional default warehouse, allow-zero-rate policy).
 5. Assign roles / permissions.
 
 ### 4.2 Consignment receipt
@@ -86,7 +86,7 @@ flowchart TD
 7. On submit:
    - SLE: stock in at entered rate (Moving Average updates for that warehouse).
    - GL (via standard Material Receipt pairing, constrained accounts):
-     - Debit: Consignment Inventory (warehouse account)
+     - Debit: Warehouse Account (resolved from selected warehouse)
      - Credit: Consignment Temporary Clearing
 8. Status → `Receipt Submitted` (recognition pending).
 

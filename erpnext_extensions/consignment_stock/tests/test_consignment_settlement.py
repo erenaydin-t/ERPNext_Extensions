@@ -106,3 +106,50 @@ class TestConsignmentSettlement(unittest.TestCase):
 		create_consignment_return_settlement(ret.name)
 		with self.assertRaises(frappe.ValidationError):
 			create_consignment_return_settlement(ret.name)
+
+	def test_settlement_does_not_force_settings_finance_book(self):
+		meta = frappe.get_meta("Consignment Stock Settings")
+		self.assertFalse(meta.has_field("default_finance_book"))
+		_receipt, ret = self._return_after_receipt("CS-SET-NOFB", qty=2, rate=1000)
+		if ret.meta.has_field("finance_book"):
+			ret.db_set("finance_book", None)
+		out = create_consignment_return_settlement(ret.name)
+		je = frappe.get_doc("Journal Entry", out["journal_entry"])
+		self.assertFalse(je.get("finance_book"))
+		total_debit = sum(flt(r.debit_in_account_currency) for r in je.accounts)
+		total_credit = sum(flt(r.credit_in_account_currency) for r in je.accounts)
+		self.assertEqual(total_debit, total_credit)
+
+	def test_settlement_cost_center_only_when_rows_agree(self):
+		from erpnext_extensions.consignment_stock.accounting import resolve_cost_center_from_stock_entry
+
+		_receipt, ret = self._return_after_receipt("CS-SET-CC", qty=2, rate=1000)
+		cc = frappe.db.get_value("Company", self.company, "cost_center")
+		other_cc = frappe.db.get_value(
+			"Cost Center",
+			{"company": self.company, "is_group": 0, "name": ("!=", cc)},
+			"name",
+		)
+		# Uniform cost center
+		for row in ret.items:
+			row.cost_center = cc
+		self.assertEqual(resolve_cost_center_from_stock_entry(ret), cc)
+
+		if other_cc and len(ret.items) >= 1:
+			# Mixed → no forced cost center
+			ret.items[0].cost_center = other_cc
+			if len(ret.items) == 1:
+				# append a synthetic view: use two dicts
+				class _Row:
+					def __init__(self, cc):
+						self.cost_center = cc
+
+					def get(self, key):
+						return getattr(self, key, None)
+
+				proxy = frappe._dict(items=[_Row(cc), _Row(other_cc)])
+				self.assertIsNone(resolve_cost_center_from_stock_entry(proxy))
+			else:
+				ret.items[1].cost_center = cc
+				self.assertIsNone(resolve_cost_center_from_stock_entry(ret))
+

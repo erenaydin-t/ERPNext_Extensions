@@ -143,19 +143,22 @@ Design markdown files already present stay as documentation (not runtime).
 | Fieldname | Type | Req | Notes |
 | --- | --- | --- | --- |
 | `company` | Link/Company | Y | Unique |
-| `consignment_inventory_account` | Link/Account | Y | Filter company, non-group |
-| `consignment_temporary_clearing_account` | Link/Account | Y | Not Stock |
-| `consignment_valuation_difference_account` | Link/Account | Y | Diff JE only |
-| `default_cost_center` | Link/Cost Center | N | |
-| `default_finance_book` | Link/Finance Book | N | |
-| `allow_return_without_receipt_reference` | Check | N | Default 0 |
-| `auto_submit_journal_entries` | Check | N | Default 0 |
+| `consignment_temporary_clearing_account` | Link/Account | Y | Intermediate clearing; not Stock |
+| `consignment_valuation_difference_account` | Link/Account | Y | Diff JE only (`D = A − R`) |
+| `default_consignment_warehouse` | Link/Warehouse | N | UX default only |
 | `allow_zero_receipt_rate` | Check | N | Default 0 |
-| `default_consignment_warehouse` | Link/Warehouse | N | UX |
+
+**Removed from Settings (resolve elsewhere):**
+
+| Fieldname | Replacement behavior |
+| --- | --- |
+| `consignment_inventory_account` | `erpnext.stock.get_warehouse_account_map` / Warehouse.account |
+| `default_cost_center` | Standard ERPNext SE/JE cost center resolution |
+| `default_finance_book` | Copy from source Stock Entry when explicitly set |
 
 **Removed vs earlier draft:** `require_recognition_before_return` / `require_recognition_before_settlement` as optional toggles — recognition-before-return is **hard-coded mandatory** (L1). Settlement still requires recognition implicitly because returns cannot exist without it.
 
-**Controller validations:** account company, non-group, not disabled, Temporary Clearing ≠ Stock, inventory consistency helpers.
+**Controller validations:** account company, non-group, not disabled, Temporary Clearing ≠ Stock, default warehouse company/group/disabled + resolvable warehouse account.
 
 ### 3.2 Custom fields (via `create_custom_fields`, not new child DocTypes)
 
@@ -272,8 +275,10 @@ Fieldnames, status values, JE role labels, allowed purposes.
 - `validate_settings_accounts(settings)`  
 - `get_temporary_clearing_account(company)`  
 - `get_valuation_difference_account(company)`  
-- `get_inventory_account(company)`  
-- `apply_default_cost_center(doc)` / finance book helpers  
+- `get_temporary_clearing_account(company)` / `get_valuation_difference_account(company)`  
+- `resolve_warehouse_account(warehouse, company)` via `erpnext.stock.get_warehouse_account_map`  
+- `resolve_cost_center_from_stock_entry(se)` / `resolve_finance_book_from_stock_entry(se)`  
+  (never from Settings)  
 - `force_expense_account_on_items(doc, account)`  
 
 ### 6.3 `party.py`

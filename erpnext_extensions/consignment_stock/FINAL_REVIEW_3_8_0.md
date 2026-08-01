@@ -28,12 +28,15 @@
 
 Accounts used on site `development.localhost` (company `test`):
 
-| Role | Account |
-| --- | --- |
-| Consignment Inventory | `Consignment Inventory Test - T` |
-| Temporary Clearing | `Consignment Temp Clearing Test - T` |
-| Valuation Difference | `Consignment Valuation Diff Test - T` |
-| Party (Supplier) | `Creditors - T` |
+| Role | Account | Source |
+| --- | --- | --- |
+| Warehouse / Inventory | Resolved from Consignment Warehouse (`Warehouse.account`) | Standard ERPNext |
+| Temporary Clearing | Configured on Consignment Stock Settings | Settings |
+| Valuation Difference | Configured on Consignment Stock Settings | Settings |
+| Party (Supplier) | `get_party_account` | ERPNext party |
+
+**Settings fields (approved):** Temporary Clearing, Valuation Difference, Default Consignment Warehouse, Allow Zero Receipt Rate.  
+**Removed from Settings:** `consignment_inventory_account`, `default_cost_center`, `default_finance_book`.
 
 ### 1.1 Consignment Receipt — 100 × 10,000 = 1,000,000
 
@@ -227,9 +230,10 @@ Settings write: Accounts Manager / System Manager only.
 **Upgrade steps for existing sites on prior erpnext_extensions:**
 
 1. Deploy 3.8.0 code  
-2. `bench migrate`  
-3. Configure Consignment Stock Settings + warehouse account alignment  
-4. Create Stock Entry Types with consignment flags  
+2. `bench migrate` (runs custom-field ensure + obsolete Settings field cleanup)  
+3. Configure Consignment Stock Settings (Temporary Clearing, Valuation Difference, optional default warehouse)  
+4. Ensure Consignment Warehouse has a resolvable Warehouse Account  
+5. Create Stock Entry Types with consignment flags  
 
 ---
 

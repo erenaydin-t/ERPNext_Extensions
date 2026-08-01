@@ -6,7 +6,6 @@ from __future__ import annotations
 import unittest
 
 import frappe
-from frappe.utils import random_string
 
 from erpnext_extensions.iran_accounting.e2e_bootstrap import get_irr_company
 from erpnext_extensions.consignment_stock.constants import F_IS_RECEIPT, F_IS_RETURN
@@ -15,6 +14,21 @@ from erpnext_extensions.consignment_stock.tests.helpers import (
 	ensure_module_ready,
 	ensure_settings,
 	ensure_stock_entry_types,
+)
+
+
+OBSOLETE_SETTINGS_FIELDS = (
+	"consignment_inventory_account",
+	"default_cost_center",
+	"default_finance_book",
+)
+
+APPROVED_SETTINGS_FIELDS = (
+	"company",
+	"consignment_temporary_clearing_account",
+	"consignment_valuation_difference_account",
+	"default_consignment_warehouse",
+	"allow_zero_receipt_rate",
 )
 
 
@@ -28,16 +42,20 @@ class TestConsignmentConfig(unittest.TestCase):
 
 	def test_settings_accounts_valid(self):
 		doc = frappe.get_doc("Consignment Stock Settings", self.settings_name)
-		self.assertTrue(doc.consignment_inventory_account)
 		self.assertTrue(doc.consignment_temporary_clearing_account)
 		self.assertTrue(doc.consignment_valuation_difference_account)
+		self.assertTrue(doc.default_consignment_warehouse)
+
+	def test_obsolete_settings_fields_absent(self):
+		meta = frappe.get_meta("Consignment Stock Settings")
+		fieldnames = {f.fieldname for f in meta.fields}
+		for fn in OBSOLETE_SETTINGS_FIELDS:
+			self.assertNotIn(fn, fieldnames)
+		for fn in APPROVED_SETTINGS_FIELDS:
+			self.assertIn(fn, fieldnames)
 
 	def test_group_account_rejected(self):
 		accounts = ensure_consignment_accounts(self.company)
-		doc = frappe.copy_doc(frappe.get_doc("Consignment Stock Settings", self.settings_name))
-		doc.name = None
-		doc.company = f"{self.company}-X-{random_string(3)}"
-		# Use real company but force group account
 		doc = frappe.get_doc("Consignment Stock Settings", self.settings_name)
 		group = frappe.db.get_value(
 			"Account", {"company": self.company, "is_group": 1}, "name", order_by="lft asc"
@@ -45,9 +63,23 @@ class TestConsignmentConfig(unittest.TestCase):
 		doc.consignment_temporary_clearing_account = group
 		with self.assertRaises(frappe.ValidationError):
 			doc.validate()
-		# restore
 		doc.reload()
 		doc.consignment_temporary_clearing_account = accounts["temporary"]
+		doc.save(ignore_permissions=True)
+
+	def test_default_warehouse_must_belong_to_company(self):
+		doc = frappe.get_doc("Consignment Stock Settings", self.settings_name)
+		other = frappe.db.get_value(
+			"Warehouse", {"company": ("!=", self.company), "is_group": 0}, "name"
+		)
+		if not other:
+			self.skipTest("No warehouse from another company available")
+		original = doc.default_consignment_warehouse
+		doc.default_consignment_warehouse = other
+		with self.assertRaises(frappe.ValidationError):
+			doc.validate()
+		doc.reload()
+		doc.default_consignment_warehouse = original
 		doc.save(ignore_permissions=True)
 
 	def test_stock_entry_type_flags(self):

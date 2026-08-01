@@ -66,6 +66,65 @@ class TestConsignmentRecognition(unittest.TestCase):
 		gl = gl_rows_for("Journal Entry", je.name)
 		self.assertTrue(gl)
 
+	def test_recognition_does_not_force_settings_cost_center_or_finance_book(self):
+		meta = frappe.get_meta("Consignment Stock Settings")
+		self.assertFalse(meta.has_field("default_cost_center"))
+		self.assertFalse(meta.has_field("default_finance_book"))
+
+		se = make_consignment_receipt(
+			company=self.company,
+			warehouse=self.wh,
+			item_code=ensure_test_item(self.company, "CS-REC-FB"),
+			qty=2,
+			rate=1000,
+			party_type="Supplier",
+			party=self.supplier,
+			stock_entry_type=self.types["receipt"],
+		)
+		# Clear any incidental cost centers so JE must not invent one from settings
+		for row in se.items:
+			row.cost_center = None
+		se.save()
+		if se.meta.has_field("finance_book"):
+			se.db_set("finance_book", None)
+
+		out = create_consignment_recognition_entry(se.name)
+		je = frappe.get_doc("Journal Entry", out["journal_entry"])
+		self.assertFalse(je.get("finance_book"))
+		for row in je.accounts:
+			self.assertFalse(row.cost_center)
+
+	def test_recognition_copies_stock_entry_finance_book_when_set(self):
+		if not frappe.get_meta("Stock Entry").has_field("finance_book"):
+			self.skipTest("Stock Entry has no finance_book field")
+		if not frappe.get_meta("Journal Entry").has_field("finance_book"):
+			self.skipTest("Journal Entry has no finance_book field")
+
+		fb = frappe.db.get_value("Finance Book", {}, "name")
+		if not fb:
+			fb_doc = frappe.get_doc({"doctype": "Finance Book", "finance_book_name": "CS-FB-Test"})
+			fb_doc.insert(ignore_permissions=True)
+			fb = fb_doc.name
+
+		se = make_consignment_receipt(
+			company=self.company,
+			warehouse=self.wh,
+			item_code=ensure_test_item(self.company, "CS-REC-FB2"),
+			qty=2,
+			rate=1500,
+			party_type="Supplier",
+			party=self.supplier,
+			stock_entry_type=self.types["receipt"],
+		)
+		se.db_set("finance_book", fb)
+		out = create_consignment_recognition_entry(se.name)
+		je = frappe.get_doc("Journal Entry", out["journal_entry"])
+		self.assertEqual(je.finance_book, fb)
+
+		total_debit = sum(flt(r.debit_in_account_currency) for r in je.accounts)
+		total_credit = sum(flt(r.credit_in_account_currency) for r in je.accounts)
+		self.assertEqual(total_debit, total_credit)
+
 	def test_duplicate_recognition_blocked(self):
 		se = make_consignment_receipt(
 			company=self.company,

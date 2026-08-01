@@ -19,15 +19,17 @@ Legend: **P** = pytest/unit integration · **UI** = desk/JS · **E2E** = optiona
 | CFG-04 | Disabled account | Throw | P |
 | CFG-05 | Missing Temporary Clearing on consignment submit | Throw | P |
 | CFG-06 | Missing Valuation Difference on settlement create | Throw | P |
-| CFG-07 | Inventory account valid | Save OK | P |
-| CFG-08 | Temporary Clearing with account_type Stock | Throw / warn per policy | P |
-| CFG-09 | Valuation Difference only on Settings (not read from Company/Stock Settings) | Resolve from Settings | P |
-| CFG-10 | Default Cost Center / Finance Book optional save | OK | P |
+| CFG-07 | Obsolete Settings fields absent (inventory / default CC / default FB) | Meta has no fields | P |
+| CFG-08 | Temporary Clearing with account_type Stock | Throw | P |
+| CFG-09 | Valuation Difference only on Settings (not Company/Stock Settings) | Resolve from Settings | P |
+| CFG-10 | Default warehouse company / group / disabled / resolvable account | Validate | P |
 | CFG-11 | SET: `is_consignment_receipt` on Material Issue | Throw | P |
 | CFG-12 | SET: `is_consignment_return` on Material Receipt | Throw | P |
 | CFG-13 | SET: both consignment checks | Throw | P |
 | CFG-14 | SET: valid receipt / return flags | Save OK | P |
-| CFG-15 | Warehouse account mismatches Settings inventory (if enforced) | Throw / warn | P |
+| CFG-15 | Receipt/return warehouse account via standard ERPNext resolution | GL uses warehouse account | P |
+| CFG-16 | Missing / wrong-company / group warehouse account | Throw | P |
+| CFG-17 | Cleanup patch removes obsolete fields; Settings doc preserved; idempotent | Pass | P |
 
 ---
 
@@ -90,7 +92,7 @@ Legend: **P** = pytest/unit integration · **UI** = desk/JS · **E2E** = optiona
 | REC-07 | Cancel recognition JE | Link cleared | P |
 | REC-08 | Cancel receipt while submitted recognition | Blocked | P |
 | REC-09 | Cancel receipt while draft recognition | Blocked | P |
-| REC-10 | Dimensions / Finance Book from Settings default | Copied when applicable | P |
+| REC-10 | No cost center / finance book forced from Settings; SE finance_book copied only when set; uniform SE cost center applied | Pass | P |
 | REC-11 | Supplier party line account_type Payable | OK | P |
 | REC-12 | Customer party line account_type Receivable | OK | P |
 | REC-13 | Button hidden when JE exists | UI | UI |
@@ -142,7 +144,7 @@ Legend: **P** = pytest/unit integration · **UI** = desk/JS · **E2E** = optiona
 | SET-13 | Without reference uses external rate | R from external | P |
 | SET-14 | Supplier and Customer settlement clear party credit | Party 0 | P |
 | SET-15 | Numerical Scenario A / B (matrix) | Exact amounts | P |
-| SET-16 | Default Finance Book on JE when set | Present | P |
+| SET-16 | Finance book / cost center from source SE only (not Settings); JE balanced for D>, D<, D=0 | Pass | P |
 
 ---
 

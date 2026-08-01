@@ -8,8 +8,9 @@ from frappe import _
 from frappe.utils import flt, nowdate
 
 from erpnext_extensions.consignment_stock.accounting import (
-	get_consignment_settings,
 	get_temporary_clearing_account,
+	resolve_cost_center_from_stock_entry,
+	resolve_finance_book_from_stock_entry,
 )
 from erpnext_extensions.consignment_stock.constants import (
 	F_IS_RECEIPT,
@@ -62,7 +63,6 @@ def create_recognition_journal_entry(stock_entry_name: str) -> str:
 			_("Recognition Journal Entry {0} already exists for {1}.").format(existing, se.name)
 		)
 
-	settings = get_consignment_settings(se.company)
 	temp_account = get_temporary_clearing_account(se.company)
 	party_type = se.get(F_PARTY_TYPE)
 	party = se.get(F_PARTY)
@@ -71,14 +71,17 @@ def create_recognition_journal_entry(stock_entry_name: str) -> str:
 	if amount <= 0:
 		frappe.throw(_("Consignment Receipt value must be greater than zero."))
 
-	cost_center = settings.default_cost_center
+	# Cost center / finance book: source Stock Entry only — never from Settings
+	cost_center = resolve_cost_center_from_stock_entry(se)
+	finance_book = resolve_finance_book_from_stock_entry(se)
+
 	je = frappe.new_doc("Journal Entry")
 	je.voucher_type = "Journal Entry"
 	je.company = se.company
 	je.posting_date = se.posting_date or nowdate()
 	je.user_remark = _("Consignment Recognition for Stock Entry {0}").format(se.name)
-	if settings.default_finance_book and je.meta.has_field("finance_book"):
-		je.finance_book = settings.default_finance_book
+	if finance_book and je.meta.has_field("finance_book"):
+		je.finance_book = finance_book
 	if je.meta.has_field(F_JE_ROLE):
 		je.set(F_JE_ROLE, JE_ROLE_RECOGNITION)
 

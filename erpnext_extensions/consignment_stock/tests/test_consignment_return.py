@@ -18,6 +18,7 @@ from erpnext_extensions.consignment_stock.tests.helpers import (
 	gl_rows_for,
 	make_consignment_receipt,
 	make_consignment_return,
+	resolve_warehouse_inventory_account,
 )
 
 
@@ -30,6 +31,8 @@ class TestConsignmentReturn(unittest.TestCase):
 		cls.types = ensure_stock_entry_types()
 		cls.supplier = ensure_supplier(cls.company)
 		cls.wh = cls.settings.default_consignment_warehouse
+		cls.inv = resolve_warehouse_inventory_account(cls.wh, cls.company)
+		cls.temp = cls.settings.consignment_temporary_clearing_account
 
 	def _recognized_receipt(self, prefix: str, qty=10, rate=1000):
 		item = ensure_test_item(self.company, prefix)
@@ -114,14 +117,10 @@ class TestConsignmentReturn(unittest.TestCase):
 			receipt_name=receipt.name,
 			receipt_detail=receipt.items[0].name,
 		)
-		self.assertEqual(
-			ret.items[0].expense_account, self.settings.consignment_temporary_clearing_account
-		)
+		self.assertEqual(ret.items[0].expense_account, self.temp)
 		gl = gl_rows_for("Stock Entry", ret.name)
-		temp = self.settings.consignment_temporary_clearing_account
-		inv = self.settings.consignment_inventory_account
-		debit_temp = sum(flt(r.debit) for r in gl if r.account == temp)
-		credit_inv = sum(flt(r.credit) for r in gl if r.account == inv)
+		debit_temp = sum(flt(r.debit) for r in gl if r.account == self.temp)
+		credit_inv = sum(flt(r.credit) for r in gl if r.account == self.inv)
 		self.assertEqual(debit_temp, credit_inv)
 		self.assertGreater(debit_temp, 0)
 

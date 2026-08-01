@@ -8,11 +8,10 @@ from frappe import _
 from frappe.utils import cint
 
 from erpnext_extensions.consignment_stock.accounting import (
-	apply_default_cost_center,
 	force_expense_account_on_items,
 	get_consignment_settings,
 	get_temporary_clearing_account,
-	validate_warehouse_inventory_account,
+	validate_stock_entry_warehouses,
 )
 from erpnext_extensions.consignment_stock.additional_costs import validate_no_additional_costs
 from erpnext_extensions.consignment_stock.constants import (
@@ -77,9 +76,8 @@ def validate(doc, method=None):
 	settings = get_consignment_settings(doc.company)
 	validate_consignment_party(doc.get(F_PARTY_TYPE), doc.get(F_PARTY), doc.company)
 	validate_no_additional_costs(doc)
-	apply_default_cost_center(doc, settings)
 	force_expense_account_on_items(doc, settings.consignment_temporary_clearing_account)
-	validate_warehouse_inventory_account(doc, settings)
+	validate_stock_entry_warehouses(doc)
 
 	if _is_receipt(doc):
 		if doc.purpose != "Material Receipt":
@@ -110,6 +108,7 @@ def before_submit(doc, method=None):
 	validate_consignment_party(doc.get(F_PARTY_TYPE), doc.get(F_PARTY), doc.company)
 	validate_no_additional_costs(doc)
 	force_expense_account_on_items(doc, get_temporary_clearing_account(doc.company))
+	validate_stock_entry_warehouses(doc)
 
 	if _is_receipt(doc):
 		prepare_receipt_rates(doc, settings)

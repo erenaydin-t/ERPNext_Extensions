@@ -179,7 +179,11 @@ def run_accounting_evidence():
 			"recognition_gl": ctx["recognition_gl"],
 			"recognition_gl_balances": _bal(ctx["recognition_gl"]),
 			"accounts": {
-				"inventory": ctx["settings"].consignment_inventory_account,
+				"inventory": __import__(
+					"erpnext_extensions.consignment_stock.accounting", fromlist=["resolve_warehouse_account"]
+				).resolve_warehouse_account(
+					ctx["settings"].default_consignment_warehouse, ctx["settings"].company
+				),
 				"temporary": ctx["settings"].consignment_temporary_clearing_account,
 				"difference": ctx["settings"].consignment_valuation_difference_account,
 			},

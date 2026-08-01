@@ -8,9 +8,10 @@ from frappe import _
 from frappe.utils import flt, nowdate
 
 from erpnext_extensions.consignment_stock.accounting import (
-	get_consignment_settings,
 	get_temporary_clearing_account,
 	get_valuation_difference_account,
+	resolve_cost_center_from_stock_entry,
+	resolve_finance_book_from_stock_entry,
 )
 from erpnext_extensions.consignment_stock.constants import (
 	F_IS_RETURN,
@@ -72,7 +73,6 @@ def create_settlement_journal_entry(stock_entry_name: str) -> str:
 			_("Settlement Journal Entry {0} already exists for {1}.").format(existing, se.name)
 		)
 
-	settings = get_consignment_settings(se.company)
 	amounts = compute_settlement_amounts(se)
 	R = amounts["receipt_settlement_amount"]
 	A = amounts["actual_return_valuation_amount"]
@@ -88,14 +88,10 @@ def create_settlement_journal_entry(stock_entry_name: str) -> str:
 	party_account = resolve_party_account(party_type, party, se.company)
 	temp_account = get_temporary_clearing_account(se.company)
 	diff_account = get_valuation_difference_account(se.company)
-	cost_center = settings.default_cost_center
 
-	# Primary receipt for reference (first row)
-	receipt_name = None
-	for row in se.get("items") or []:
-		if row.get(F_RECEIPT_SE):
-			receipt_name = row.get(F_RECEIPT_SE)
-			break
+	# Cost center / finance book: source Stock Entry only — never from Settings
+	cost_center = resolve_cost_center_from_stock_entry(se)
+	finance_book = resolve_finance_book_from_stock_entry(se)
 
 	je = frappe.new_doc("Journal Entry")
 	je.voucher_type = "Journal Entry"
@@ -104,8 +100,8 @@ def create_settlement_journal_entry(stock_entry_name: str) -> str:
 	je.user_remark = _(
 		"Consignment Settlement for Return {0}: R={1}, A={2}, D={3}"
 	).format(se.name, R, A, D)
-	if settings.default_finance_book and je.meta.has_field("finance_book"):
-		je.finance_book = settings.default_finance_book
+	if finance_book and je.meta.has_field("finance_book"):
+		je.finance_book = finance_book
 	if je.meta.has_field(F_JE_ROLE):
 		je.set(F_JE_ROLE, JE_ROLE_SETTLEMENT)
 
