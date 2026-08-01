@@ -19,5 +19,9 @@ class ConsignmentStockSettings(Document):
 			frappe.throw(_("Consignment Stock Settings already exists for company {0}.").format(self.company))
 
 		from erpnext_extensions.consignment_stock.accounting import validate_settings_accounts
+		from erpnext_extensions.consignment_stock.material_loan.accounting import (
+			validate_material_loan_settings,
+		)
 
 		validate_settings_accounts(self)
+		validate_material_loan_settings(self)

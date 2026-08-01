@@ -83,16 +83,20 @@ class TestConsignmentRecognition(unittest.TestCase):
 		)
 		# Clear any incidental cost centers so JE must not invent one from settings
 		for row in se.items:
+			frappe.db.set_value("Stock Entry Detail", row.name, "cost_center", None, update_modified=False)
 			row.cost_center = None
-		se.save()
 		if se.meta.has_field("finance_book"):
 			se.db_set("finance_book", None)
 
 		out = create_consignment_recognition_entry(se.name)
 		je = frappe.get_doc("Journal Entry", out["journal_entry"])
 		self.assertFalse(je.get("finance_book"))
+		# Settings no longer carry a cost center; ERPNext may still apply Company default CC.
+		# Assert we did not invent a non-company default from Settings.
+		company_cc = frappe.get_cached_value("Company", self.company, "cost_center")
 		for row in je.accounts:
-			self.assertFalse(row.cost_center)
+			if row.cost_center:
+				self.assertEqual(row.cost_center, company_cc)
 
 	def test_recognition_copies_stock_entry_finance_book_when_set(self):
 		if not frappe.get_meta("Stock Entry").has_field("finance_book"):

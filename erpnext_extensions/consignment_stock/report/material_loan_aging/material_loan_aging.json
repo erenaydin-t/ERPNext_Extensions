@@ -1,0 +1,26 @@
+{
+ "add_total_row": 0,
+ "columns": [],
+ "creation": "2026-08-01 00:00:00.000000",
+ "disabled": 0,
+ "docstatus": 0,
+ "doctype": "Report",
+ "idx": 0,
+ "is_standard": "Yes",
+ "modified": "2026-08-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Consignment Stock",
+ "name": "Material Loan Aging",
+ "owner": "Administrator",
+ "prepared_report": 0,
+ "ref_doctype": "Stock Entry",
+ "report_name": "Material Loan Aging",
+ "report_type": "Script Report",
+ "roles": [
+  {"role": "Stock User"},
+  {"role": "Stock Manager"},
+  {"role": "Accounts User"},
+  {"role": "Accounts Manager"},
+  {"role": "System Manager"}
+ ]
+}
