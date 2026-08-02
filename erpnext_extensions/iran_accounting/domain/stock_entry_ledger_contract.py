@@ -165,6 +165,52 @@ def _assert_row_composition(doc, company: str) -> list[str]:
 	return failures
 
 
+def _assert_irr_rate_rounding_residual_gl(doc, gl_rows: list[dict], company: str) -> list[str]:
+	"""Round Off GL must match IRR rate residual; zero residual → no residual lines."""
+	from erpnext_extensions.iran_accounting.domain.irr_rounding_residual import (
+		IRR_RATE_ROUNDING_RESIDUAL_REMARK,
+		expected_round_off_gl_totals,
+		resolve_company_round_off,
+	)
+
+	failures = []
+	exp = expected_round_off_gl_totals(doc)
+	residual_rows = [
+		r for r in gl_rows if IRR_RATE_ROUNDING_RESIDUAL_REMARK in (r.get("remarks") or "")
+	]
+	if not exp["net_signed_debit"]:
+		if residual_rows:
+			failures.append(
+				f"{doc.doctype} {doc.name}: zero IRR rate residual but Round Off residual GL present"
+			)
+		return failures
+
+	if len(residual_rows) != 1:
+		failures.append(
+			f"{doc.doctype} {doc.name}: expected 1 IRR Round Off residual GL row, got {len(residual_rows)}"
+		)
+		return failures
+
+	cfg = resolve_company_round_off(company, require=False)
+	row = residual_rows[0]
+	if cfg.get("account") and row.get("account") != cfg["account"]:
+		failures.append(
+			f"{doc.doctype} {doc.name}: residual Round Off account {row.get('account')} "
+			f"!= Company.round_off_account {cfg.get('account')}"
+		)
+	if cfg.get("cost_center") and row.get("cost_center") != cfg["cost_center"]:
+		failures.append(
+			f"{doc.doctype} {doc.name}: residual Round Off cost center {row.get('cost_center')} "
+			f"!= Company.round_off_cost_center {cfg.get('cost_center')}"
+		)
+	if flt(row.get("debit")) != flt(exp["debit"]) or flt(row.get("credit")) != flt(exp["credit"]):
+		failures.append(
+			f"{doc.doctype} {doc.name}: residual Round Off GL debit/credit "
+			f"{row.get('debit')}/{row.get('credit')} != expected {exp['debit']}/{exp['credit']}"
+		)
+	return failures
+
+
 def _assert_additional_cost_gl(doc, gl_rows: list[dict]) -> list[str]:
 	failures = []
 	add_accounts = {
@@ -288,6 +334,7 @@ def collect_ledger_contract_failures(voucher_no: str, company: str) -> list[str]
 				failures.append(f"{doc.doctype} {doc.name}: GL debit-credit net must be 0, got {gl_net}")
 			failures.extend(_assert_additional_cost_gl(doc, gl_rows))
 			failures.extend(_assert_lcv_gl(doc, gl_rows))
+			failures.extend(_assert_irr_rate_rounding_residual_gl(doc, gl_rows, company))
 
 		if not assert_no_fractional_irr_gl("Stock Entry", voucher_no, company):
 			bad = []

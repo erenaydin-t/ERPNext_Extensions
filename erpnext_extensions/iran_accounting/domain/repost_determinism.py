@@ -201,6 +201,11 @@ def _reconcile_stock_reconciliation_after_repost(voucher_no: str, company: str) 
 		ensure_stock_reconciliation_gl_entries(doc)
 		actions.append("created_sr_gl")
 
+	from erpnext_extensions.iran_accounting.domain.irr_rounding_residual import (
+		rebuild_irr_rate_rounding_residual_after_repost,
+	)
+
+	actions.extend(rebuild_irr_rate_rounding_residual_after_repost(doc))
 	return actions
 
 
@@ -258,7 +263,13 @@ def _reconcile_stock_entry_after_repost(voucher_no: str, company: str) -> list[s
 	if mirror_failures:
 		actions.append(f"sle_mirror_warnings:{len(mirror_failures)}")
 
-	# Contract verifies composition + GL ownership (add-cost/LCV when present).
+	from erpnext_extensions.iran_accounting.domain.irr_rounding_residual import (
+		rebuild_irr_rate_rounding_residual_after_repost,
+	)
+
+	actions.extend(rebuild_irr_rate_rounding_residual_after_repost(doc))
+
+	# Contract verifies composition + GL ownership after residual Round Off rebuild.
 	from erpnext_extensions.iran_accounting.domain.stock_entry_ledger_contract import (
 		collect_ledger_contract_failures,
 	)

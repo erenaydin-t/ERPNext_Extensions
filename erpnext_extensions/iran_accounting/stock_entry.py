@@ -50,6 +50,11 @@ def validate_stock_entry(doc, method=None):
 	align_stock_entry_item_amounts(doc)
 	round_stock_entry_totals(doc)
 	align_manufacture_finished_good_residual(doc)
+	from erpnext_extensions.iran_accounting.domain.irr_rounding_residual import (
+		assert_round_off_ready_if_needed,
+	)
+
+	assert_round_off_ready_if_needed(doc)
 
 
 def before_submit_stock_entry(doc, method=None):
@@ -60,6 +65,11 @@ def before_submit_stock_entry(doc, method=None):
 		doc.set_total_incoming_outgoing_value()
 	align_manufacture_finished_good_residual(doc)
 	align_zero_value_transfer_totals(doc)
+	from erpnext_extensions.iran_accounting.domain.irr_rounding_residual import (
+		assert_round_off_ready_if_needed,
+	)
+
+	assert_round_off_ready_if_needed(doc)
 
 
 def on_submit_stock_entry(doc, method=None):

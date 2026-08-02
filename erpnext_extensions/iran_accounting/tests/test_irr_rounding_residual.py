@@ -1,0 +1,348 @@
+# Copyright (c) 2026, ERPNext Extensions contributors
+"""IRR rate rounding residual → Company Round Off Account (unit tests, no DB submit)."""
+
+from __future__ import annotations
+
+import unittest
+from contextlib import contextmanager
+from unittest import mock
+
+from erpnext_extensions.iran_accounting.domain.irr_rounding_residual import (
+	IRR_RATE_ROUNDING_RESIDUAL_REMARK,
+	apply_irr_rate_rounding_residual_gl,
+	collect_stock_entry_residuals,
+	compute_rounding_residual,
+	expected_round_off_gl_totals,
+	rate_derived_amount,
+	round_off_signed_debit,
+	strip_irr_rate_rounding_residual_gl,
+)
+from erpnext_extensions.iran_accounting.tests.hardening.fixtures import (
+	STE_03516_AMOUNT,
+	STE_03516_INT_RATE,
+	STE_03516_QTY,
+	STE_03516_RAW_RATE,
+)
+
+
+class _Row:
+	def __init__(self, **kw):
+		self.__dict__.update(kw)
+
+	def get(self, k, default=None):
+		return self.__dict__.get(k, default)
+
+
+class _Doc:
+	def __init__(self, **kw):
+		self.__dict__.update(kw)
+
+	def get(self, k, default=None):
+		return self.__dict__.get(k, default)
+
+
+@contextmanager
+def _patches(account="RO - T", cost_center="CC-RO"):
+	def resolve(company, require=True):
+		if require and not account:
+			raise Exception("missing Round Off Account")
+		if require and not cost_center:
+			raise Exception("missing Round Off Cost Center")
+		return {"account": account, "cost_center": cost_center}
+
+	def is_stock(acc):
+		return acc == "Stock - T"
+
+	with (
+		mock.patch(
+			"erpnext_extensions.iran_accounting.domain.irr_rounding_residual.is_irr_company",
+			return_value=True,
+		),
+		mock.patch(
+			"erpnext_extensions.iran_accounting.domain.irr_rounding_residual.get_company_currency",
+			return_value="IRR",
+		),
+		mock.patch(
+			"erpnext_extensions.iran_accounting.domain.irr_rounding_residual.resolve_company_round_off",
+			side_effect=resolve,
+		),
+		mock.patch(
+			"erpnext_extensions.iran_accounting.domain.irr_rounding_residual._is_stock_account",
+			side_effect=is_stock,
+		),
+		mock.patch(
+			"erpnext_extensions.iran_accounting.domain.irr_rounding_residual._populate_round_off_dimensions",
+			return_value=None,
+		),
+		mock.patch(
+			"erpnext_extensions.iran_accounting.zero_value_transfer._should_force_balanced_transfer_gl",
+			return_value=False,
+		),
+	):
+		yield
+
+
+class TestIRRRoundingResidualFormula(unittest.TestCase):
+	def test_zero_residual_no_round_off(self):
+		self.assertEqual(rate_derived_amount(7, 196, "IRR"), 1372)
+		self.assertEqual(compute_rounding_residual(1372, 7, 196, "IRR"), 0)
+
+	def test_negative_residual_incoming_debits_round_off(self):
+		residual = compute_rounding_residual(1371, 7, 196, "IRR")
+		self.assertEqual(residual, -1)
+		self.assertEqual(round_off_signed_debit(residual, incoming=True), 1)
+
+	def test_positive_residual_incoming_credits_round_off(self):
+		residual = compute_rounding_residual(1373, 7, 196, "IRR")
+		self.assertEqual(residual, 1)
+		self.assertEqual(round_off_signed_debit(residual, incoming=True), -1)
+
+	def test_positive_residual_outgoing_debits_round_off(self):
+		self.assertEqual(round_off_signed_debit(1, incoming=False), 1)
+
+	def test_mat_ste_03516_rate_first_zero_residual(self):
+		from erpnext_extensions.iran_accounting.core.rounding import round_rate, round_row_amount
+
+		int_rate = round_rate(STE_03516_RAW_RATE, 0)
+		self.assertEqual(int_rate, int(STE_03516_INT_RATE))
+		amount = round_row_amount(STE_03516_QTY, int_rate, 0)
+		self.assertEqual(amount, int(STE_03516_AMOUNT))
+		self.assertEqual(compute_rounding_residual(amount, STE_03516_QTY, int_rate, "IRR"), 0)
+
+	def test_manufacture_add_lcv_residual_plus_two(self):
+		self.assertEqual(rate_derived_amount(7, 204, "IRR"), 1428)
+		self.assertEqual(compute_rounding_residual(1430, 7, 204, "IRR"), 2)
+		self.assertEqual(round_off_signed_debit(2, incoming=True), -2)
+
+
+class TestIRRRoundingResidualGLMap(unittest.TestCase):
+	def _irr_doc(self, amount, qty, rate, *, purpose="Material Receipt", additional=0, lcv=0):
+		row = _Row(
+			name="row1",
+			idx=1,
+			item_code="ITEM",
+			qty=qty,
+			transfer_qty=qty,
+			amount=amount,
+			basic_amount=amount - additional - lcv,
+			additional_cost=additional,
+			landed_cost_voucher_amount=lcv,
+			valuation_rate=rate,
+			basic_rate=rate,
+			t_warehouse="Stores",
+			s_warehouse=None,
+			cost_center="Main",
+			is_finished_item=0,
+		)
+		return _Doc(
+			doctype="Stock Entry",
+			name="STE-TEST",
+			company="Test IRR Co",
+			purpose=purpose,
+			posting_date="2026-01-01",
+			items=[row],
+			project=None,
+		)
+
+	def _base_gl(self, inv_debit, expense_credit):
+		return [
+			{
+				"account": "Stock - T",
+				"debit": inv_debit,
+				"credit": 0,
+				"company": "Test IRR Co",
+				"posting_date": "2026-01-01",
+				"voucher_type": "Stock Entry",
+				"voucher_no": "STE-TEST",
+				"remarks": "Accounting Entry for Stock",
+				"cost_center": "Main",
+			},
+			{
+				"account": "Expense - T",
+				"debit": 0,
+				"credit": expense_credit,
+				"company": "Test IRR Co",
+				"posting_date": "2026-01-01",
+				"voucher_type": "Stock Entry",
+				"voucher_no": "STE-TEST",
+				"remarks": "Accounting Entry for Stock",
+				"cost_center": "Main",
+			},
+		]
+
+	def test_zero_residual_does_not_append_round_off(self):
+		doc = self._irr_doc(1372, 7, 196)
+		gl = self._base_gl(1372, 1372)
+		with _patches():
+			apply_irr_rate_rounding_residual_gl(doc, gl)
+		self.assertEqual(len(gl), 2)
+		self.assertFalse(any(IRR_RATE_ROUNDING_RESIDUAL_REMARK in (e.get("remarks") or "") for e in gl))
+
+	def test_negative_residual_posts_debit_round_off(self):
+		doc = self._irr_doc(1371, 7, 196)
+		gl = self._base_gl(1371, 1371)
+		with _patches(account="RO - T", cost_center="CC-RO"):
+			apply_irr_rate_rounding_residual_gl(doc, gl)
+		ro = [e for e in gl if IRR_RATE_ROUNDING_RESIDUAL_REMARK in (e.get("remarks") or "")]
+		self.assertEqual(len(ro), 1)
+		self.assertEqual(ro[0]["account"], "RO - T")
+		self.assertEqual(ro[0]["cost_center"], "CC-RO")
+		self.assertEqual(ro[0]["debit"], 1)
+		self.assertEqual(ro[0]["credit"], 0)
+		inv = [e for e in gl if e.get("account") == "Stock - T"][0]
+		self.assertEqual(inv["debit"], 1371)
+		self.assertEqual(sum(e.get("debit") or 0 for e in gl), sum(e.get("credit") or 0 for e in gl))
+
+	def test_positive_one_rial_residual_credits_round_off(self):
+		doc = self._irr_doc(1373, 7, 196)
+		gl = self._base_gl(1373, 1373)
+		with _patches(account="RO - T", cost_center="CC-RO"):
+			apply_irr_rate_rounding_residual_gl(doc, gl)
+		ro = [e for e in gl if IRR_RATE_ROUNDING_RESIDUAL_REMARK in (e.get("remarks") or "")]
+		self.assertEqual(len(ro), 1)
+		self.assertEqual(ro[0]["credit"], 1)
+		self.assertEqual(ro[0]["debit"], 0)
+		inv = [e for e in gl if e.get("account") == "Stock - T"][0]
+		self.assertEqual(inv["debit"], 1373)
+		self.assertEqual(sum(e.get("debit") or 0 for e in gl), sum(e.get("credit") or 0 for e in gl))
+
+	def test_manufacture_add_lcv_residual_two(self):
+		doc = self._irr_doc(1430, 7, 204, purpose="Manufacture", additional=137, lcv=59)
+		gl = self._base_gl(1430, 1430)
+		with _patches(account="RO - T", cost_center="CC-RO"):
+			apply_irr_rate_rounding_residual_gl(doc, gl)
+			exp = expected_round_off_gl_totals(doc)
+			self.assertEqual(exp["credit"], 2)
+			self.assertEqual(exp["debit"], 0)
+		ro = [e for e in gl if IRR_RATE_ROUNDING_RESIDUAL_REMARK in (e.get("remarks") or "")]
+		self.assertEqual(len(ro), 1)
+		self.assertEqual(ro[0]["credit"], 2)
+		inv = [e for e in gl if e.get("account") == "Stock - T"][0]
+		self.assertEqual(inv["debit"], 1430)
+		self.assertEqual(sum(e.get("debit") or 0 for e in gl), sum(e.get("credit") or 0 for e in gl))
+
+	def test_idempotent_strip_and_reapply(self):
+		doc = self._irr_doc(1371, 7, 196)
+		with _patches(account="RO - T", cost_center="CC-RO"):
+			fresh = self._base_gl(1371, 1371)
+			apply_irr_rate_rounding_residual_gl(doc, fresh)
+			apply_irr_rate_rounding_residual_gl(doc, fresh)
+		ro = [e for e in fresh if IRR_RATE_ROUNDING_RESIDUAL_REMARK in (e.get("remarks") or "")]
+		self.assertEqual(len(ro), 1)
+		self.assertEqual(ro[0]["debit"], 1)
+
+	def test_missing_round_off_account_raises(self):
+		doc = self._irr_doc(1371, 7, 196)
+		gl = self._base_gl(1371, 1371)
+		with _patches(account=None, cost_center="CC-RO"):
+			with self.assertRaises(Exception):
+				apply_irr_rate_rounding_residual_gl(doc, gl)
+
+	def test_missing_round_off_cost_center_raises(self):
+		doc = self._irr_doc(1371, 7, 196)
+		gl = self._base_gl(1371, 1371)
+		with _patches(account="RO - T", cost_center=None):
+			with self.assertRaises(Exception):
+				apply_irr_rate_rounding_residual_gl(doc, gl)
+
+	def test_transfer_rows_skipped_in_collector(self):
+		row = _Row(
+			name="t1",
+			idx=1,
+			item_code="X",
+			qty=7,
+			transfer_qty=7,
+			amount=1371,
+			valuation_rate=196,
+			s_warehouse="A",
+			t_warehouse="B",
+			cost_center="Main",
+		)
+		doc = _Doc(doctype="Stock Entry", company="Test IRR Co", items=[row])
+		with mock.patch(
+			"erpnext_extensions.iran_accounting.domain.irr_rounding_residual.get_company_currency",
+			return_value="IRR",
+		):
+			self.assertEqual(collect_stock_entry_residuals(doc), [])
+
+	def test_strip_removes_residual_lines_only(self):
+		gl = self._base_gl(100, 100)
+		gl.append(
+			{
+				"account": "RO",
+				"debit": 1,
+				"credit": 0,
+				"remarks": f"{IRR_RATE_ROUNDING_RESIDUAL_REMARK}: row 1",
+			}
+		)
+		strip_irr_rate_rounding_residual_gl(gl)
+		self.assertEqual(len(gl), 2)
+
+	def test_multi_item_aggregation(self):
+		rows = [
+			_Row(
+				name="r1",
+				idx=1,
+				item_code="A",
+				qty=7,
+				transfer_qty=7,
+				amount=1371,
+				valuation_rate=196,
+				t_warehouse="S",
+				s_warehouse=None,
+				cost_center="Main",
+			),
+			_Row(
+				name="r2",
+				idx=2,
+				item_code="B",
+				qty=7,
+				transfer_qty=7,
+				amount=1373,
+				valuation_rate=196,
+				t_warehouse="S",
+				s_warehouse=None,
+				cost_center="Main",
+			),
+		]
+		# residuals -1 and +1 → net Round Off 0
+		doc = _Doc(
+			doctype="Stock Entry",
+			name="STE-MULTI",
+			company="Test IRR Co",
+			purpose="Material Receipt",
+			posting_date="2026-01-01",
+			items=rows,
+			project=None,
+		)
+		gl = [
+			{
+				"account": "Stock - T",
+				"debit": 2744,
+				"credit": 0,
+				"company": "Test IRR Co",
+				"posting_date": "2026-01-01",
+				"voucher_type": "Stock Entry",
+				"voucher_no": "STE-MULTI",
+				"remarks": "stock",
+				"cost_center": "Main",
+			},
+			{
+				"account": "Expense - T",
+				"debit": 0,
+				"credit": 2744,
+				"company": "Test IRR Co",
+				"posting_date": "2026-01-01",
+				"voucher_type": "Stock Entry",
+				"voucher_no": "STE-MULTI",
+				"remarks": "exp",
+				"cost_center": "Main",
+			},
+		]
+		with _patches():
+			apply_irr_rate_rounding_residual_gl(doc, gl)
+		self.assertFalse(any(IRR_RATE_ROUNDING_RESIDUAL_REMARK in (e.get("remarks") or "") for e in gl))
+
+
+if __name__ == "__main__":
+	unittest.main()

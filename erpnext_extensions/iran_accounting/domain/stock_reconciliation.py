@@ -31,6 +31,12 @@ def before_submit_stock_reconciliation(doc, method=None) -> None:
 
 	apply()
 	override_difference_amount(doc)
+	if is_irr_company(doc.company):
+		from erpnext_extensions.iran_accounting.domain.irr_rounding_residual import (
+			assert_round_off_ready_if_needed,
+		)
+
+		assert_round_off_ready_if_needed(doc)
 
 
 def ensure_stock_reconciliation_gl_entries(doc) -> None:
