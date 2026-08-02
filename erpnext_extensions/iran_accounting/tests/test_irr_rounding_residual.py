@@ -8,11 +8,13 @@ from contextlib import contextmanager
 from unittest import mock
 
 from erpnext_extensions.iran_accounting.domain.irr_rounding_residual import (
+	IRR_RATE_ROUNDING_RESIDUAL_MARKER,
 	IRR_RATE_ROUNDING_RESIDUAL_REMARK,
 	apply_irr_rate_rounding_residual_gl,
 	collect_stock_entry_residuals,
 	compute_rounding_residual,
 	expected_round_off_gl_totals,
+	is_irr_rate_rounding_residual_gl,
 	rate_derived_amount,
 	round_off_signed_debit,
 	strip_irr_rate_rounding_residual_gl,
@@ -187,11 +189,22 @@ class TestIRRRoundingResidualGLMap(unittest.TestCase):
 		self.assertEqual(len(ro), 1)
 		self.assertEqual(ro[0]["account"], "RO - T")
 		self.assertEqual(ro[0]["cost_center"], "CC-RO")
+		self.assertEqual(ro[0].get(IRR_RATE_ROUNDING_RESIDUAL_MARKER), 1)
+		self.assertTrue(is_irr_rate_rounding_residual_gl(ro[0], company="Test IRR Co", round_off_account="RO - T"))
 		self.assertEqual(ro[0]["debit"], 1)
 		self.assertEqual(ro[0]["credit"], 0)
 		inv = [e for e in gl if e.get("account") == "Stock - T"][0]
 		self.assertEqual(inv["debit"], 1371)
 		self.assertEqual(sum(e.get("debit") or 0 for e in gl), sum(e.get("credit") or 0 for e in gl))
+
+	def test_remarks_alone_are_not_enough_without_round_off_account(self):
+		entry = {
+			"account": "Expense - T",
+			"remarks": f"{IRR_RATE_ROUNDING_RESIDUAL_REMARK}: fake",
+		}
+		self.assertFalse(
+			is_irr_rate_rounding_residual_gl(entry, company="Test IRR Co", round_off_account="RO - T")
+		)
 
 	def test_positive_one_rial_residual_credits_round_off(self):
 		doc = self._irr_doc(1373, 7, 196)
@@ -272,6 +285,7 @@ class TestIRRRoundingResidualGLMap(unittest.TestCase):
 				"account": "RO",
 				"debit": 1,
 				"credit": 0,
+				IRR_RATE_ROUNDING_RESIDUAL_MARKER: 1,
 				"remarks": f"{IRR_RATE_ROUNDING_RESIDUAL_REMARK}: row 1",
 			}
 		)

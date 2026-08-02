@@ -38,12 +38,69 @@ from erpnext_extensions.iran_accounting.domain.currency import (
 )
 
 IRR_RATE_ROUNDING_RESIDUAL_REMARK = "IRR rate rounding residual"
+# Explicit in-memory GL-map marker (not a DocType field). Durable twin after persist is
+# Company.round_off_account + IRR_RATE_ROUNDING_RESIDUAL_REMARK in remarks.
+IRR_RATE_ROUNDING_RESIDUAL_MARKER = "_irr_rate_rounding_residual"
 
 SUPPORTED_RESIDUAL_DOCTYPES = (
 	"Stock Entry",
 	"Purchase Receipt",
 	"Stock Reconciliation",
 )
+
+
+def is_irr_rate_rounding_residual_gl(
+	entry,
+	*,
+	company: str | None = None,
+	round_off_account: str | None = None,
+) -> bool:
+	"""Structural detection of IRR residual Round Off GL rows.
+
+	Prefer the explicit in-memory marker. After persist (marker stripped by make_entry),
+	require both Company.round_off_account and the residual remark — never remarks alone.
+	"""
+	if not entry:
+		return False
+	if entry.get(IRR_RATE_ROUNDING_RESIDUAL_MARKER):
+		return True
+
+	account = entry.get("account")
+	if not account:
+		return False
+	if round_off_account is None and company:
+		round_off_account = frappe.get_cached_value("Company", company, "round_off_account")
+	if not round_off_account or account != round_off_account:
+		return False
+	return IRR_RATE_ROUNDING_RESIDUAL_REMARK in (entry.get("remarks") or "")
+
+
+def assert_irr_residual_round_off_masters(entry, company: str) -> None:
+	"""Fail closed: residual Round Off must use Company Round Off Account + Cost Center only."""
+	cfg = resolve_company_round_off(company, require=True)
+	if entry.get("account") != cfg["account"]:
+		frappe.throw(
+			_("IRR Round Off GL account {0} must equal Company.round_off_account {1}.").format(
+				frappe.bold(entry.get("account")), frappe.bold(cfg["account"])
+			),
+			title=_("IRR Round Off Account"),
+		)
+	if entry.get("cost_center") != cfg["cost_center"]:
+		frappe.throw(
+			_("IRR Round Off GL cost center {0} must equal Company.round_off_cost_center {1}.").format(
+				frappe.bold(entry.get("cost_center")), frappe.bold(cfg["cost_center"])
+			),
+			title=_("IRR Round Off Cost Center"),
+		)
+
+
+def stamp_irr_residual_round_off_masters(entry, company: str) -> None:
+	"""Set account/cost_center solely from Company Round Off masters + residual marker."""
+	cfg = resolve_company_round_off(company, require=True)
+	entry["account"] = cfg["account"]
+	entry["cost_center"] = cfg["cost_center"]
+	entry[IRR_RATE_ROUNDING_RESIDUAL_MARKER] = 1
+	assert_irr_residual_round_off_masters(entry, company)
 
 
 def rate_derived_amount(qty, valuation_rate, currency: str | None):
@@ -267,12 +324,14 @@ def strip_irr_rate_rounding_residual_gl(gl_map: list) -> list:
 	"""Remove prior IRR residual Round Off rows (idempotent rebuild)."""
 	if not gl_map:
 		return gl_map
-	kept = []
-	for entry in gl_map:
-		remarks = entry.get("remarks") or ""
-		if IRR_RATE_ROUNDING_RESIDUAL_REMARK in remarks:
-			continue
-		kept.append(entry)
+	company = None
+	if gl_map:
+		company = gl_map[0].get("company")
+	kept = [
+		entry
+		for entry in gl_map
+		if not is_irr_rate_rounding_residual_gl(entry, company=company)
+	]
 	gl_map[:] = kept
 	return gl_map
 
@@ -347,17 +406,25 @@ def _apply_signed_debit_to_entry(entry, signed_debit: float, precision: int, cur
 
 
 def _populate_round_off_dimensions(gle: dict, voucher_type: str, voucher_no: str, company: str) -> None:
-	"""Copy voucher / Company default dimensions for mandatory accounting dimensions."""
+	"""Copy voucher / Company default dimensions for mandatory accounting dimensions.
+
+	Never sets or overrides cost_center — Company.round_off_cost_center is sole authority.
+	"""
 	from erpnext.accounts.doctype.accounting_dimension.accounting_dimension import (
 		get_accounting_dimensions,
 		get_checks_for_pl_and_bs_accounts,
 	)
+
+	# Preserve Company Round Off Cost Center across dimension enrichment.
+	locked_cost_center = gle.get("cost_center")
 
 	dimensions = get_accounting_dimensions()
 	meta = frappe.get_meta(voucher_type)
 	if dimensions and all(meta.has_field(d) for d in dimensions) and voucher_no:
 		values = frappe.db.get_value(voucher_type, voucher_no, dimensions, as_dict=True) or {}
 		for dimension in dimensions:
+			if dimension == "cost_center":
+				continue
 			if values.get(dimension):
 				gle[dimension] = values.get(dimension)
 
@@ -366,6 +433,8 @@ def _populate_round_off_dimensions(gle: dict, voucher_type: str, voucher_no: str
 		if dimension.company != company:
 			continue
 		fieldname = dimension.fieldname
+		if fieldname == "cost_center":
+			continue
 		if gle.get(fieldname):
 			continue
 		mandatory = (report_type == "Profit and Loss" and dimension.mandatory_for_pl) or (
@@ -380,6 +449,9 @@ def _populate_round_off_dimensions(gle: dict, voucher_type: str, voucher_no: str
 					title=_("Missing Accounting Dimension"),
 				)
 			gle[fieldname] = dimension.default_dimension
+
+	if locked_cost_center:
+		gle["cost_center"] = locked_cost_center
 
 
 def apply_irr_rate_rounding_residual_gl(doc, gl_map: list | None) -> list | None:
@@ -410,14 +482,16 @@ def apply_irr_rate_rounding_residual_gl(doc, gl_map: list | None) -> list | None
 	)
 
 	existing_ro = [
-		e for e in gl_map if IRR_RATE_ROUNDING_RESIDUAL_REMARK in (e.get("remarks") or "")
+		e for e in gl_map if is_irr_rate_rounding_residual_gl(e, company=doc.company)
 	]
 	if not net_ro_debit:
 		# Zero residual: drop any stale residual Round Off lines (should not exist).
 		strip_irr_rate_rounding_residual_gl(gl_map)
 		return gl_map
 	if existing_ro:
-		# Already applied to this GL map (idempotent). Rebuilds must remake ERPNext GL first.
+		# Already applied — re-stamp Company masters (CCA must not have remapped them).
+		for e in existing_ro:
+			stamp_irr_residual_round_off_masters(e, doc.company)
 		return gl_map
 
 	cfg = resolve_company_round_off(doc.company, require=True)
@@ -445,6 +519,7 @@ def apply_irr_rate_rounding_residual_gl(doc, gl_map: list | None) -> list | None
 		{
 			"account": cfg["account"],
 			"cost_center": cfg["cost_center"],
+			IRR_RATE_ROUNDING_RESIDUAL_MARKER: 1,
 			"company": doc.company,
 			"posting_date": template.get("posting_date") or doc.get("posting_date"),
 			"voucher_type": doc.doctype,
@@ -467,6 +542,8 @@ def apply_irr_rate_rounding_residual_gl(doc, gl_map: list | None) -> list | None
 	if template.get("finance_book"):
 		ro["finance_book"] = template.get("finance_book")
 	_populate_round_off_dimensions(ro, doc.doctype, doc.name, doc.company)
+	# Sole authority after any dimension enrichment — never inherit row/leg/CCA/dimension CC.
+	stamp_irr_residual_round_off_masters(ro, doc.company)
 	gl_map.append(ro)
 	return gl_map
 
@@ -488,9 +565,10 @@ def fetch_irr_residual_gl_rows(voucher_type: str, voucher_no: str) -> list[dict]
 	rows = frappe.get_all(
 		"GL Entry",
 		filters={"voucher_type": voucher_type, "voucher_no": voucher_no, "is_cancelled": 0},
-		fields=["name", "account", "debit", "credit", "cost_center", "remarks"],
+		fields=["name", "account", "debit", "credit", "cost_center", "remarks", "company"],
 	)
-	return [r for r in rows if IRR_RATE_ROUNDING_RESIDUAL_REMARK in (r.get("remarks") or "")]
+	company = rows[0].get("company") if rows else None
+	return [r for r in rows if is_irr_rate_rounding_residual_gl(r, company=company)]
 
 
 def rebuild_irr_rate_rounding_residual_after_repost(doc) -> list[str]:

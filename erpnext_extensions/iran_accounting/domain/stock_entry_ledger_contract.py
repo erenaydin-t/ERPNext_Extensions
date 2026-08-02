@@ -168,16 +168,14 @@ def _assert_row_composition(doc, company: str) -> list[str]:
 def _assert_irr_rate_rounding_residual_gl(doc, gl_rows: list[dict], company: str) -> list[str]:
 	"""Round Off GL must match IRR rate residual; zero residual → no residual lines."""
 	from erpnext_extensions.iran_accounting.domain.irr_rounding_residual import (
-		IRR_RATE_ROUNDING_RESIDUAL_REMARK,
 		expected_round_off_gl_totals,
+		is_irr_rate_rounding_residual_gl,
 		resolve_company_round_off,
 	)
 
 	failures = []
 	exp = expected_round_off_gl_totals(doc)
-	residual_rows = [
-		r for r in gl_rows if IRR_RATE_ROUNDING_RESIDUAL_REMARK in (r.get("remarks") or "")
-	]
+	residual_rows = [r for r in gl_rows if is_irr_rate_rounding_residual_gl(r, company=company)]
 	if not exp["net_signed_debit"]:
 		if residual_rows:
 			failures.append(
