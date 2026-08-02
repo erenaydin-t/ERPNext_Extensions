@@ -249,10 +249,12 @@ class TestManufactureRounding(unittest.TestCase):
 		self.assertEqual(flt(fg.amount), expected)
 		self.assertEqual(flt(fg.additional_cost), add_cost)
 		self.assertEqual(flt(doc.value_difference), add_cost)
+		# Integer valuation_rate from amount; may differ from rounded basic_rate
+		self.assertEqual(flt(fg.valuation_rate), round(expected / qty))
 		self.assertNotEqual(flt(fg.valuation_rate), flt(fg.basic_rate))
 
-	def test_repack_with_additional_cost_not_force_equal(self):
-		# 1234 outgoing / 7 qty; FG amount 1234+137 with repeating rate
+	def test_repack_with_additional_cost_rate_first(self):
+		# Rate-first: basic_rate 176, basic 1232, +137 → amount 1369 (not 1371)
 		items = [
 			_SteRow(
 				qty=7,
@@ -293,8 +295,57 @@ class TestManufactureRounding(unittest.TestCase):
 		with _irr_patches():
 			validate_stock_entry(doc)
 		fg = items[-1]
-		self.assertEqual(flt(fg.amount), 1371)
+		self.assertEqual(flt(fg.basic_rate), 176)
+		self.assertEqual(flt(fg.basic_amount), 1232)
+		self.assertEqual(flt(fg.amount), 1369)
+		self.assertEqual(flt(fg.valuation_rate), 196)  # round(1369/7)
 		self.assertEqual(flt(doc.value_difference), 137)
+
+	def test_manufacture_amount_1371_residual_minus_one(self):
+		"""Preferred residual: amount 1371 stays; valuation_rate 196; residual -1."""
+		items = [
+			_SteRow(
+				qty=7,
+				transfer_qty=7,
+				basic_rate=176,
+				basic_amount=1232,
+				additional_cost=0,
+				landed_cost_voucher_amount=0,
+				amount=1232,
+				valuation_rate=176,
+				s_warehouse="RM",
+				t_warehouse=None,
+				is_finished_item=0,
+			),
+			_SteRow(
+				qty=7,
+				transfer_qty=7,
+				basic_rate=176,
+				basic_amount=1232,
+				additional_cost=139,
+				landed_cost_voucher_amount=0,
+				amount=1371,
+				valuation_rate=1371 / 7,
+				s_warehouse=None,
+				t_warehouse="FG",
+				is_finished_item=1,
+			),
+		]
+		doc = _SteDoc(
+			doctype="Stock Entry",
+			purpose="Manufacture",
+			company="Test IRR Co",
+			items=items,
+			total_outgoing_value=1232,
+			total_incoming_value=1371,
+			value_difference=139,
+		)
+		with _irr_patches():
+			align_manufacture_finished_good_residual(doc)
+		fg = items[-1]
+		self.assertEqual(flt(fg.amount), 1371)
+		self.assertEqual(flt(fg.valuation_rate), 196)
+		self.assertEqual(1371 - 196 * 7, -1)
 
 	def test_manufacture_without_additional_cost_residual_only(self):
 		items = _staging_rm_rows()
@@ -324,9 +375,12 @@ class TestManufactureRounding(unittest.TestCase):
 			value_difference=0,
 		)
 		with _irr_patches():
-			validate_stock_entry(doc)
+			# Residual path only — avoid re-deriving RM rates (fixture uses stored amounts)
+			align_manufacture_finished_good_residual(doc)
 		self.assertEqual(doc.value_difference, 0)
 		self.assertEqual(doc.total_incoming_value, doc.total_outgoing_value)
+		fg = items[-1]
+		self.assertEqual(flt(fg.valuation_rate), round(outgoing / 2968.0))
 
 	def test_large_value_difference_not_treated_as_residual(self):
 		# Δ=5 IRR is beyond ±1 residual tolerance — must not force-equal

@@ -140,9 +140,20 @@ def assert_detail_composition(details: list[dict], *, precision: int = IRR_PRECI
 		money_equal(row.get("amount"), exp, precision=precision, label=f"{label} amount composition")
 		tq = D(row.get("transfer_qty") if row.get("transfer_qty") not in (None, "") else row.get("qty"))
 		if tq != 0:
-			exp_rate = valuation_from_amount(row.get("amount"), tq)
-			rate_equal(row.get("valuation_rate"), exp_rate, places=9, label=f"{label} valuation_rate")
-		# conversion identity
+			from erpnext_extensions.iran_accounting.tests.hardening.decimal_money import (
+				integer_valuation_rate,
+			)
+
+			exp_rate = integer_valuation_rate(row.get("amount"), tq, precision=precision)
+			rate_equal(row.get("valuation_rate"), exp_rate, places=0, label=f"{label} valuation_rate")
+			# basic_rate must be integer IRR
+			if row.get("basic_rate") not in (None, ""):
+				money_equal(
+					row.get("basic_rate"),
+					quantize_money(row.get("basic_rate"), precision),
+					precision=precision,
+					label=f"{label} basic_rate integer",
+				)		# conversion identity
 		if D(row.get("conversion_factor") or 0) and D(row.get("qty") or 0):
 			exp_tq = quantize_money(D(row["qty"]) * D(row["conversion_factor"]), 6)
 			# allow stock qty precision residual of 1e-6
