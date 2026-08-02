@@ -155,6 +155,7 @@ def _reconcile_stock_reconciliation_after_repost(voucher_no: str, company: str) 
 		return ["skip_not_submitted"]
 
 	override_difference_amount(doc)
+# Persist valuation_rate / current_valuation_rate after rate-first SR normalize
 	for row in doc.items:
 		frappe.db.set_value(
 			"Stock Reconciliation Item",
@@ -164,6 +165,8 @@ def _reconcile_stock_reconciliation_after_repost(voucher_no: str, company: str) 
 				"current_amount": row.current_amount,
 				"amount_difference": row.amount_difference,
 				"quantity_difference": row.quantity_difference,
+				"valuation_rate": row.get("valuation_rate"),
+				"current_valuation_rate": row.get("current_valuation_rate"),
 			},
 			update_modified=False,
 		)
@@ -222,6 +225,7 @@ def _reconcile_stock_entry_after_repost(voucher_no: str, company: str) -> list[s
 			{
 				"amount": row.amount,
 				"basic_amount": row.get("basic_amount"),
+				"basic_rate": row.get("basic_rate"),
 				"valuation_rate": row.get("valuation_rate"),
 				# Never clear capitalization fields — leave ERPNext-owned values intact.
 				"additional_cost": row.get("additional_cost"),
