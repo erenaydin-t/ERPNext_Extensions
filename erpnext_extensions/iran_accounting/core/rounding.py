@@ -37,8 +37,13 @@ def round_row_amount(qty, rate, precision: int):
 
 
 def rate_qty_amount_residual(amount, qty, valuation_rate, precision: int) -> int | float:
-	"""amount − (valuation_rate × qty) at currency precision (amount remains authoritative)."""
+	"""amount − ROUND(qty × ROUND(valuation_rate)) (amount remains authoritative).
+
+	Must use the same rate-first product as ``round_row_amount``. Using the unrounded
+	float product (amount − rate×qty) falsely yields ±1 when qty×rate ends in .5 and
+	amount already equals the half-up rounded product.
+	"""
 	if amount in (None, "") or qty in (None, "") or not float(qty or 0):
 		return round_currency(0, precision)
-	product = float(valuation_rate or 0) * float(qty)
-	return round_currency(float(amount) - product, precision)
+	derived = round_row_amount(qty, valuation_rate, precision)
+	return round_currency(float(amount) - float(derived), precision)

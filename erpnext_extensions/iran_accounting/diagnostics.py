@@ -163,16 +163,41 @@ def check_voucher(doctype: str, voucher_no: str, *, include_print: bool = False)
 	print_result = _print_check(doctype, voucher_no) if include_print else None
 	extra = {}
 	if doctype == "Stock Entry":
+		from erpnext_extensions.iran_accounting.zero_value_transfer import (
+			ZERO_VALUE_TRANSFER_STOCK_ENTRY_PURPOSES,
+			_should_force_balanced_transfer_gl,
+		)
+
 		debit_total, credit_total = gl_debit_credit_totals(gl_rows)
 		expected_in = round_currency(doc.total_incoming_value, get_company_currency(company))
 		expected_out = round_currency(doc.total_outgoing_value, get_company_currency(company))
 		adj = stock_adj_round_off_rows(gl_rows, company)
+		is_transfer = doc.purpose in ZERO_VALUE_TRANSFER_STOCK_ENTRY_PURPOSES
+		zvt_balanced = _should_force_balanced_transfer_gl(doc, 0)
+
+		# Stock Adjustment is the normal offset for Material Receipt/Issue/Manufacture.
+		# Only zero-value transfers must not post Stock Adjustment / Round Off.
+		if is_transfer:
+			no_adj = not adj
+			if zvt_balanced and not gl_rows:
+				gl_in_ok = gl_out_ok = True
+			else:
+				gl_in_ok = flt(debit_total) == flt(expected_in)
+				gl_out_ok = flt(credit_total) == flt(expected_out)
+			vd_ok = flt(doc.value_difference) == 0
+		else:
+			no_adj = True
+			gl_in_ok = flt(debit_total) == flt(expected_in) if expected_in else True
+			# Offset leg equals debit (balanced perpetual); outgoing may be 0 on receipts.
+			gl_out_ok = flt(credit_total) == flt(debit_total)
+			vd_ok = True
+
 		extra = {
-			"no_stock_adjustment_or_round_off": not adj,
-			"gl_debit_matches_incoming": flt(debit_total) == flt(expected_in),
-			"gl_credit_matches_outgoing": flt(credit_total) == flt(expected_out),
+			"no_stock_adjustment_or_round_off": no_adj,
+			"gl_debit_matches_incoming": gl_in_ok,
+			"gl_credit_matches_outgoing": gl_out_ok,
 			"not_doubled": not is_doubled_gl(debit_total, expected_in),
-			"value_difference_zero_at_precision": flt(doc.value_difference) == 0,
+			"value_difference_zero_at_precision": vd_ok,
 		}
 
 	result = summarize_voucher_check(

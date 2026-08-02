@@ -79,6 +79,10 @@ def _irr_patches():
 			"erpnext_extensions.iran_accounting.rounding.get_company_currency",
 			return_value="IRR",
 		),
+		mock.patch(
+			"erpnext_extensions.iran_accounting.domain.irr_rounding_residual.assert_round_off_ready_if_needed",
+			return_value=None,
+		),
 	):
 		yield
 

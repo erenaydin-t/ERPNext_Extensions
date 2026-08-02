@@ -5,7 +5,6 @@ from __future__ import annotations
 import unittest
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
 
 from erpnext_extensions.iran_accounting.rounding import SLE_MONETARY_FIELDS, amount_is_fractional
 from erpnext_extensions.iran_accounting.sql_validation import (
@@ -14,12 +13,14 @@ from erpnext_extensions.iran_accounting.sql_validation import (
 )
 
 
-class TestStrictIrrSleDb(FrappeTestCase):
+class TestStrictIrrSleDb(unittest.TestCase):
 	VOUCHER = "MAT-STE-2026-00102"
 
 	@classmethod
 	def setUpClass(cls):
-		super().setUpClass()
+		from erpnext_extensions.iran_accounting.integration.bootstrap import apply
+
+		apply()
 		frappe.set_user("Administrator")
 		import erpnext_extensions.iran_accounting  # noqa: F401
 

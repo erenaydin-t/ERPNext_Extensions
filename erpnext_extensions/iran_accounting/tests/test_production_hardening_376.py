@@ -40,13 +40,14 @@ from erpnext_extensions.iran_accounting.tests.hardening.decimal_money import (
 	compose_amount,
 	money_equal,
 	quantize_money,
+	rate_first_amount,
 	valuation_from_amount,
 )
 from erpnext_extensions.iran_accounting.tests.hardening.fixtures import (
 	ADD_COST,
 	AMT_A,
-	AMT_C,
-	AMT_D,
+	BASIC_A,
+	INT_RATE_A,
 	IRR_PRECISION,
 	LCV_AMT,
 	QTY_A,
@@ -95,9 +96,12 @@ class TestStockEntryScenarios376(_HardeningBase):
 		se = submit_receipt(self.company, item, QTY_A, RATE_A, self.wh)
 		out = assert_full_stock_entry(se.name, purpose="Material Receipt")
 		row = out["details"][0]
-		math_amt = quantize_money(D(QTY_A) * D(RATE_A), IRR_PRECISION)
+		# Rate-first: ROUND(RATE_A)=INT_RATE_A; amount = qty × integer rate (not product-first AMT_A).
+		math_amt = rate_first_amount(QTY_A, INT_RATE_A, precision=IRR_PRECISION)
+		self.assertEqual(math_amt, BASIC_A)
 		money_equal(row["amount"], math_amt, precision=IRR_PRECISION, label="MR amount")
-		rep = rounding_residual_report(row["amount"], D(QTY_A) * D(RATE_A))
+		money_equal(row["basic_rate"], INT_RATE_A, precision=IRR_PRECISION, label="MR basic_rate")
+		rep = rounding_residual_report(row["amount"], D(QTY_A) * D(INT_RATE_A))
 		self.assertIn(rep["residual"], ("0", "0.0"))
 
 	def test_material_issue(self):

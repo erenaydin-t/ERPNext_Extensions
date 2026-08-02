@@ -56,6 +56,12 @@ class TestIRRRateFirstRounding(unittest.TestCase):
 		# Must not force amount to rate×qty
 		self.assertNotEqual(int(VAL_RATE_E) * int(QTY_A), int(AMT_E))
 
+	def test_residual_uses_rounded_product_not_half_float(self):
+		# qty×rate ends in .5; amount already equals ROUND_HALF_UP(product).
+		qty, rate, amount = 30292.02, 5325, 161305007
+		self.assertEqual(round_row_amount(qty, rate, 0), amount)
+		self.assertEqual(rate_qty_amount_residual(amount, qty, rate, 0), 0)
+
 
 if __name__ == "__main__":
 	unittest.main()

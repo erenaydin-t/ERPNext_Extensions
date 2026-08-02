@@ -75,6 +75,11 @@ def before_submit_stock_entry(doc, method=None):
 def on_submit_stock_entry(doc, method=None):
 	if not is_irr_company(doc.company):
 		return
+	# ERPNext may rewrite row rates from moving-average floats after before_submit.
+	# Re-apply rate-first integers and persist so Desk / contract see the contract rates.
+	align_stock_entry_item_amounts(doc)
+	for row in doc.get("items") or []:
+		row.db_update()
 	from erpnext_extensions.iran_accounting.domain.stock_entry_ledger_contract import (
 		enforce_stock_entry_ledger_contract,
 	)

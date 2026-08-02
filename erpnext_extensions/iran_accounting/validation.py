@@ -31,6 +31,8 @@ GL_ROW_FIELDS = [
 	"credit_in_transaction_currency",
 	"debit_in_reporting_currency",
 	"credit_in_reporting_currency",
+	"remarks",
+	"cost_center",
 ]
 
 SLE_ROW_FIELDS = [

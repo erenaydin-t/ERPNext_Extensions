@@ -5,7 +5,6 @@ from __future__ import annotations
 import unittest
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt
 
 from erpnext_extensions.iran_accounting.diagnostics import (
@@ -29,10 +28,12 @@ from erpnext_extensions.iran_accounting.validation import (
 )
 
 
-class TestIranAccountingStockE2E(FrappeTestCase):
+class TestIranAccountingStockE2E(unittest.TestCase):
 	@classmethod
 	def setUpClass(cls):
-		super().setUpClass()
+		from erpnext_extensions.iran_accounting.integration.bootstrap import apply
+
+		apply()
 		frappe.set_user("Administrator")
 		try:
 			cls.company = get_irr_company("ESPAD")
@@ -66,7 +67,7 @@ class TestIranAccountingStockE2E(FrappeTestCase):
 		se = submit_material_transfer(self.company, item, qty=2, from_wh=self.warehouse, to_wh=to_wh)
 		chk = check_stock_entry(se.name)
 		self.assertEqual(chk["status"], "PASS", msg=chk)
-		self.assertFalse(chk["checks"].get("no_stock_adjustment_or_round_off", False), msg=chk)
+		self.assertTrue(chk["checks"].get("no_stock_adjustment_or_round_off", False), msg=chk)
 
 	def test_mtfm_preview_submit_repost_no_adjustment_no_double_no_decimals(self):
 		if frappe.db.exists("Stock Entry", "PO-JOB00049-1"):
