@@ -16,13 +16,28 @@ For company currency IRR:
 4. `valuation_rate = ROUND_HALF_UP(amount / transfer_qty, 0)`
 5. **Amount is authoritative.** Residual = `amount − valuation_rate × qty` may be non-zero (±1 typical). Never force `amount := valuation_rate × qty`.
 
+## Round Off residual GL (Phase 1.1)
+
+```
+rate_derived_amount = ROUND_HALF_UP(qty × integer_valuation_rate, 0)
+rounding_residual   = authoritative_amount − rate_derived_amount
+```
+
+- SLE / inventory GL keep `authoritative_amount`
+- When residual ≠ 0, post to `Company.round_off_account` / `Company.round_off_cost_center`
+- Reclassify the same magnitude from a non-Stock GL leg (inventory unchanged)
+- Round Off signed debit: incoming → `−residual`; outgoing → `+residual`
+- Zero residual → no Round Off residual line
+- Zero-value transfer GL path is skipped (isolated)
+- Remarks marker: `IRR rate rounding residual`
+
 ## Residual rule (preferred)
 
 Example: amount=1371, qty=7 → valuation_rate=196 → 196×7=1372 → residual=−1.
 
 - SLE `stock_value_difference` = 1371
-- GL inventory movement = 1371
-- Stored `valuation_rate` = 196
+- Inventory GL = 1371
+- Round Off Debit = 1 (incoming)
 
 ## Detection
 
