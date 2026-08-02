@@ -33,7 +33,13 @@ SLE_MONETARY_FIELDS = (
 )
 
 STOCK_ENTRY_TOTAL_FIELDS = ("total_incoming_value", "total_outgoing_value", "value_difference")
-STOCK_ENTRY_ITEM_MONETARY_FIELDS = ("amount", "basic_amount")
+STOCK_ENTRY_ITEM_MONETARY_FIELDS = (
+	"amount",
+	"basic_amount",
+	"additional_cost",
+	"landed_cost_voucher_amount",
+)
+STOCK_ENTRY_ITEM_RATE_FIELDS = ("basic_rate", "valuation_rate")
 
 
 def _entry_company(entry) -> str | None:
@@ -153,10 +159,15 @@ def round_stock_entry_totals(stock_entry_doc) -> None:
 	if not is_irr_company(stock_entry_doc.company):
 		return
 	currency = get_company_currency(stock_entry_doc.company)
+	from erpnext_extensions.iran_accounting.domain.currency import round_monetary_rate
+
 	for row in stock_entry_doc.get("items") or []:
 		for field in STOCK_ENTRY_ITEM_MONETARY_FIELDS:
 			if row.get(field) is not None:
 				row.set(field, round_currency(row.get(field), currency))
+		for field in STOCK_ENTRY_ITEM_RATE_FIELDS:
+			if row.get(field) is not None:
+				row.set(field, round_monetary_rate(row.get(field), currency))
 	# Header totals = sum of per-row rounded amounts only (no post-aggregation round).
 	inc = sum(flt(d.amount) for d in stock_entry_doc.get("items") or [] if d.get("t_warehouse"))
 	out = sum(flt(d.amount) for d in stock_entry_doc.get("items") or [] if d.get("s_warehouse"))

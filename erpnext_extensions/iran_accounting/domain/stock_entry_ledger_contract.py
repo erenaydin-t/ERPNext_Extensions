@@ -10,7 +10,9 @@ from frappe.utils import flt
 from erpnext_extensions.iran_accounting.domain.currency import (
 	get_company_currency,
 	get_currency_precision,
+	integer_valuation_rate_from_amount,
 	is_irr_company,
+	rate_is_fractional,
 	round_row_amount_financial,
 )
 from erpnext_extensions.iran_accounting.domain.qty_rate_amount import compose_stock_entry_row_amount
@@ -94,7 +96,13 @@ def _gl_stock_account_net(gl_rows: list[dict], company: str) -> float:
 
 
 def _assert_row_composition(doc, company: str) -> list[str]:
-	"""Verify basic_amount / amount / valuation_rate relationships (verifier, not calculator)."""
+	"""Verify rate-first IRR composition (verifier, not calculator).
+
+	- basic_rate / valuation_rate must be integer (IRR)
+	- basic_amount == ROUND_HALF_UP(transfer_qty × integer basic_rate)
+	- amount == basic_amount + additional_cost + LCV
+	- valuation_rate == ROUND_HALF_UP(amount / transfer_qty); amount remains authoritative
+	"""
 	failures = []
 	ccy = get_company_currency(company)
 	tol = _tol(company)
@@ -102,6 +110,21 @@ def _assert_row_composition(doc, company: str) -> list[str]:
 		transfer_qty = flt(
 			row.get("transfer_qty") if row.get("transfer_qty") not in (None, "") else row.get("qty")
 		)
+		if row.get("basic_rate") is not None and rate_is_fractional(row.basic_rate, ccy):
+			failures.append(
+				_fail(doc, row, "basic_rate integer IRR", "ROUND_HALF_UP(basic_rate,0)", row.basic_rate)
+			)
+		if row.get("valuation_rate") is not None and rate_is_fractional(row.valuation_rate, ccy):
+			failures.append(
+				_fail(
+					doc,
+					row,
+					"valuation_rate integer IRR",
+					"ROUND_HALF_UP(valuation_rate,0)",
+					row.valuation_rate,
+				)
+			)
+
 		if row.get("basic_rate") is not None and transfer_qty:
 			exp_basic = round_row_amount_financial(transfer_qty, row.basic_rate, ccy)
 			if abs(flt(row.basic_amount) - exp_basic) > tol:
@@ -109,7 +132,7 @@ def _assert_row_composition(doc, company: str) -> list[str]:
 					_fail(
 						doc,
 						row,
-						"basic_amount ≈ transfer_qty × basic_rate",
+						"basic_amount == transfer_qty × integer basic_rate",
 						exp_basic,
 						row.basic_amount,
 					)
@@ -128,13 +151,13 @@ def _assert_row_composition(doc, company: str) -> list[str]:
 			)
 
 		if transfer_qty and flt(row.amount):
-			exp_rate = flt(row.amount) / transfer_qty
-			if abs(flt(row.valuation_rate) - exp_rate) > max(tol / transfer_qty, 1e-9):
+			exp_rate = integer_valuation_rate_from_amount(row.amount, transfer_qty, ccy)
+			if abs(flt(row.valuation_rate) - exp_rate) > tol:
 				failures.append(
 					_fail(
 						doc,
 						row,
-						"valuation_rate ≈ amount / transfer_qty",
+						"valuation_rate == ROUND_HALF_UP(amount / transfer_qty)",
 						exp_rate,
 						row.valuation_rate,
 					)
