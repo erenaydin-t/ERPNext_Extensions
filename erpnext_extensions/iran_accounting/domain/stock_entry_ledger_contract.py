@@ -10,7 +10,9 @@ from frappe.utils import flt
 from erpnext_extensions.iran_accounting.domain.currency import (
 	get_company_currency,
 	get_currency_precision,
+	integer_valuation_rate_from_amount,
 	is_irr_company,
+	rate_is_fractional,
 	round_row_amount_financial,
 )
 from erpnext_extensions.iran_accounting.domain.qty_rate_amount import compose_stock_entry_row_amount
@@ -94,7 +96,13 @@ def _gl_stock_account_net(gl_rows: list[dict], company: str) -> float:
 
 
 def _assert_row_composition(doc, company: str) -> list[str]:
-	"""Verify basic_amount / amount / valuation_rate relationships (verifier, not calculator)."""
+	"""Verify rate-first IRR composition (verifier, not calculator).
+
+	- basic_rate / valuation_rate must be integer (IRR)
+	- basic_amount == ROUND_HALF_UP(transfer_qty × integer basic_rate)
+	- amount == basic_amount + additional_cost + LCV
+	- valuation_rate == ROUND_HALF_UP(amount / transfer_qty); amount remains authoritative
+	"""
 	failures = []
 	ccy = get_company_currency(company)
 	tol = _tol(company)
@@ -102,6 +110,21 @@ def _assert_row_composition(doc, company: str) -> list[str]:
 		transfer_qty = flt(
 			row.get("transfer_qty") if row.get("transfer_qty") not in (None, "") else row.get("qty")
 		)
+		if row.get("basic_rate") is not None and rate_is_fractional(row.basic_rate, ccy):
+			failures.append(
+				_fail(doc, row, "basic_rate integer IRR", "ROUND_HALF_UP(basic_rate,0)", row.basic_rate)
+			)
+		if row.get("valuation_rate") is not None and rate_is_fractional(row.valuation_rate, ccy):
+			failures.append(
+				_fail(
+					doc,
+					row,
+					"valuation_rate integer IRR",
+					"ROUND_HALF_UP(valuation_rate,0)",
+					row.valuation_rate,
+				)
+			)
+
 		if row.get("basic_rate") is not None and transfer_qty:
 			exp_basic = round_row_amount_financial(transfer_qty, row.basic_rate, ccy)
 			if abs(flt(row.basic_amount) - exp_basic) > tol:
@@ -109,7 +132,7 @@ def _assert_row_composition(doc, company: str) -> list[str]:
 					_fail(
 						doc,
 						row,
-						"basic_amount ≈ transfer_qty × basic_rate",
+						"basic_amount == transfer_qty × integer basic_rate",
 						exp_basic,
 						row.basic_amount,
 					)
@@ -128,17 +151,61 @@ def _assert_row_composition(doc, company: str) -> list[str]:
 			)
 
 		if transfer_qty and flt(row.amount):
-			exp_rate = flt(row.amount) / transfer_qty
-			if abs(flt(row.valuation_rate) - exp_rate) > max(tol / transfer_qty, 1e-9):
+			exp_rate = integer_valuation_rate_from_amount(row.amount, transfer_qty, ccy)
+			if abs(flt(row.valuation_rate) - exp_rate) > tol:
 				failures.append(
 					_fail(
 						doc,
 						row,
-						"valuation_rate ≈ amount / transfer_qty",
+						"valuation_rate == ROUND_HALF_UP(amount / transfer_qty)",
 						exp_rate,
 						row.valuation_rate,
 					)
 				)
+	return failures
+
+
+def _assert_irr_rate_rounding_residual_gl(doc, gl_rows: list[dict], company: str) -> list[str]:
+	"""Round Off GL must match IRR rate residual; zero residual → no residual lines."""
+	from erpnext_extensions.iran_accounting.domain.irr_rounding_residual import (
+		expected_round_off_gl_totals,
+		is_irr_rate_rounding_residual_gl,
+		resolve_company_round_off,
+	)
+
+	failures = []
+	exp = expected_round_off_gl_totals(doc)
+	residual_rows = [r for r in gl_rows if is_irr_rate_rounding_residual_gl(r, company=company)]
+	if not exp["net_signed_debit"]:
+		if residual_rows:
+			failures.append(
+				f"{doc.doctype} {doc.name}: zero IRR rate residual but Round Off residual GL present"
+			)
+		return failures
+
+	if len(residual_rows) != 1:
+		failures.append(
+			f"{doc.doctype} {doc.name}: expected 1 IRR Round Off residual GL row, got {len(residual_rows)}"
+		)
+		return failures
+
+	cfg = resolve_company_round_off(company, require=False)
+	row = residual_rows[0]
+	if cfg.get("account") and row.get("account") != cfg["account"]:
+		failures.append(
+			f"{doc.doctype} {doc.name}: residual Round Off account {row.get('account')} "
+			f"!= Company.round_off_account {cfg.get('account')}"
+		)
+	if cfg.get("cost_center") and row.get("cost_center") != cfg["cost_center"]:
+		failures.append(
+			f"{doc.doctype} {doc.name}: residual Round Off cost center {row.get('cost_center')} "
+			f"!= Company.round_off_cost_center {cfg.get('cost_center')}"
+		)
+	if flt(row.get("debit")) != flt(exp["debit"]) or flt(row.get("credit")) != flt(exp["credit"]):
+		failures.append(
+			f"{doc.doctype} {doc.name}: residual Round Off GL debit/credit "
+			f"{row.get('debit')}/{row.get('credit')} != expected {exp['debit']}/{exp['credit']}"
+		)
 	return failures
 
 
@@ -265,6 +332,7 @@ def collect_ledger_contract_failures(voucher_no: str, company: str) -> list[str]
 				failures.append(f"{doc.doctype} {doc.name}: GL debit-credit net must be 0, got {gl_net}")
 			failures.extend(_assert_additional_cost_gl(doc, gl_rows))
 			failures.extend(_assert_lcv_gl(doc, gl_rows))
+			failures.extend(_assert_irr_rate_rounding_residual_gl(doc, gl_rows, company))
 
 		if not assert_no_fractional_irr_gl("Stock Entry", voucher_no, company):
 			bad = []

@@ -10,6 +10,7 @@ from erpnext_extensions.iran_accounting.domain.currency import (
 	get_company_currency,
 	is_irr_company,
 	round_currency,
+	round_monetary_rate,
 	round_row_amount_financial,
 )
 
@@ -19,7 +20,7 @@ def stock_entry_row_amount(row, company: str) -> float:
 
 	Prefer stored ``amount`` (already ERPNext composition after align).
 	If missing, recompose: basic_amount + additional_cost + landed_cost_voucher_amount,
-	with basic_amount from transfer_qty × basic_rate when needed.
+	with basic_amount from transfer_qty × integer basic_rate when needed.
 	"""
 	ccy = get_company_currency(company)
 	if row.get("amount") not in (None, ""):
@@ -49,8 +50,17 @@ def signed_movement_from_row_amount(magnitude: float, actual_qty: float) -> floa
 	return 0.0
 
 
+def _sle_rate_from_row(row, ccy: str) -> float:
+	"""Prefer integer valuation_rate; fall back to integer basic_rate."""
+	if row.get("valuation_rate") not in (None, ""):
+		return float(round_monetary_rate(row.valuation_rate, ccy))
+	if row.get("basic_rate") not in (None, ""):
+		return float(round_monetary_rate(row.basic_rate, ccy))
+	return 0.0
+
+
 def sync_irr_sle_from_stock_entry_row(sle) -> None:
-	"""SLE movement mirrors signed row.amount (never raw engine output). Idempotent."""
+	"""SLE movement mirrors signed row.amount; rates mirror integer SE rates. Idempotent."""
 	if not sle.company or not is_irr_company(sle.company):
 		return
 	if sle.voucher_type != "Stock Entry" or not sle.voucher_detail_no:
@@ -78,16 +88,25 @@ def sync_irr_sle_from_stock_entry_row(sle) -> None:
 
 	ccy = get_company_currency(sle.company)
 	magnitude = stock_entry_row_amount(row, sle.company)
-
 	movement = round_currency(signed_movement_from_row_amount(magnitude, flt(sle.actual_qty)), ccy)
-	if flt(sle.stock_value_difference) == movement and flt(sle.stock_value) == round_currency(
-		flt(sle.stock_value), ccy
-	):
-		return
+	rate = _sle_rate_from_row(row, ccy)
+
 	value_after = flt(sle.stock_value)
 	value_before = value_after - flt(sle.stock_value_difference)
 	sle.stock_value_difference = movement
 	sle.stock_value = round_currency(value_before + movement, ccy)
+
+	# Integer IRR rates — amount remains source of truth for stock_value_difference.
+	sle.valuation_rate = rate
+	if flt(sle.actual_qty) > 0:
+		sle.incoming_rate = rate
+		sle.outgoing_rate = round_monetary_rate(sle.outgoing_rate or 0, ccy)
+	elif flt(sle.actual_qty) < 0:
+		sle.outgoing_rate = rate
+		sle.incoming_rate = round_monetary_rate(sle.incoming_rate or 0, ccy)
+	else:
+		sle.incoming_rate = round_monetary_rate(sle.incoming_rate or 0, ccy)
+		sle.outgoing_rate = round_monetary_rate(sle.outgoing_rate or 0, ccy)
 
 
 def gl_movement_from_row_only(item_row, sle, company: str) -> float:

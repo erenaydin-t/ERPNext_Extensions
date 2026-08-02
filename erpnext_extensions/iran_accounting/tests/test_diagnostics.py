@@ -5,7 +5,6 @@ from __future__ import annotations
 import unittest
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
 
 from erpnext_extensions.iran_accounting.diagnostics import (
 	check_company_fractional_irr,
@@ -15,7 +14,14 @@ from erpnext_extensions.iran_accounting.diagnostics import (
 )
 
 
-class TestDiagnostics(FrappeTestCase):
+class TestDiagnostics(unittest.TestCase):
+	@classmethod
+	def setUpClass(cls):
+		from erpnext_extensions.iran_accounting.integration.bootstrap import apply
+
+		apply()
+		frappe.set_user("Administrator")
+
 	def test_check_stock_entry_missing(self):
 		with self.assertRaises(Exception):
 			check_stock_entry("STE-DOES-NOT-EXIST-99999")

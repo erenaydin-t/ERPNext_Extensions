@@ -5,6 +5,10 @@ from __future__ import annotations
 
 from frappe.utils import flt
 
+from erpnext_extensions.iran_accounting.domain.currency import (
+	integer_valuation_rate_from_amount,
+	round_monetary_rate,
+)
 from erpnext_extensions.iran_accounting.rounding import (
 	get_company_currency,
 	get_currency_precision,
@@ -31,6 +35,10 @@ def align_manufacture_finished_good_residual(doc) -> None:
 	Never force Incoming = Outgoing or value_difference = 0 when capitalized
 	cost exceeds residual tolerance. Multi-FG is skipped. Repack is skipped
 	(purpose must be Manufacture).
+
+	IRR residual rule for valuation_rate:
+	  amount remains authoritative; valuation_rate = ROUND_HALF_UP(amount/qty);
+	  residual = amount − valuation_rate × qty may be non-zero (±1 typical).
 	"""
 	if doc.doctype != "Stock Entry" or doc.purpose != "Manufacture":
 		return
@@ -69,6 +77,7 @@ def align_manufacture_finished_good_residual(doc) -> None:
 		if abs(flt(fg.amount) - target) > tol:
 			return
 		if abs(flt(fg.amount) - target) == 0:
+			_apply_integer_rates(fg, qty, currency)
 			_refresh_header_totals(doc)
 			return
 		_apply_fg_amount(fg, target, qty, currency)
@@ -76,12 +85,13 @@ def align_manufacture_finished_good_residual(doc) -> None:
 		return
 
 	# No material capitalization on FG: absorb Incoming vs Outgoing only within residual tol.
-	expected_incoming = round_currency(outgoing_total + other_incoming, currency)
-	# With single FG and no other incoming, expected_incoming == outgoing.
 	delta = abs(incoming_total - outgoing_total)
 	if delta > tol:
+		_apply_integer_rates(fg, qty, currency)
+		_refresh_header_totals(doc)
 		return
 	if delta == 0:
+		_apply_integer_rates(fg, qty, currency)
 		_refresh_header_totals(doc)
 		return
 
@@ -90,8 +100,18 @@ def align_manufacture_finished_good_residual(doc) -> None:
 	_apply_fg_amount(fg, target_fg, qty, currency)
 	# Keep basic_* consistent with material-only target when no capitalized cost.
 	fg.basic_amount = target_fg
-	fg.basic_rate = flt(target_fg / qty) if qty else fg.basic_rate
+	fg.basic_rate = round_monetary_rate(flt(target_fg / qty) if qty else fg.basic_rate, currency)
 	_refresh_header_totals(doc)
+
+
+def _apply_integer_rates(fg, qty: float, currency: str) -> None:
+	"""Amount authoritative; integer valuation_rate; residual may be non-zero."""
+	if fg.get("basic_rate") is not None:
+		fg.basic_rate = round_monetary_rate(fg.basic_rate, currency)
+	if qty and flt(fg.amount):
+		fg.valuation_rate = integer_valuation_rate_from_amount(fg.amount, qty, currency)
+	elif fg.get("valuation_rate") is not None:
+		fg.valuation_rate = round_monetary_rate(fg.valuation_rate, currency)
 
 
 def _apply_fg_amount(fg, amount: float, qty: float, currency: str) -> None:
@@ -99,11 +119,11 @@ def _apply_fg_amount(fg, amount: float, qty: float, currency: str) -> None:
 	capitalized = _row_capitalized_cost(fg)
 	if capitalized > _residual_tolerance(currency):
 		# Preserve ERPNext basic_* ownership; only amount/valuation absorb residual.
-		fg.valuation_rate = flt(fg.amount) / qty if qty else fg.valuation_rate
+		_apply_integer_rates(fg, qty, currency)
 		return
 	fg.basic_amount = fg.amount
-	fg.basic_rate = flt(fg.amount / qty) if qty else fg.basic_rate
-	fg.valuation_rate = fg.basic_rate
+	fg.basic_rate = round_monetary_rate(flt(fg.amount / qty) if qty else fg.basic_rate, currency)
+	fg.valuation_rate = integer_valuation_rate_from_amount(fg.amount, qty, currency)
 
 
 def _refresh_header_totals(doc) -> None:

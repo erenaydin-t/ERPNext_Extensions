@@ -72,13 +72,17 @@ export class StockEntryPage {
   async submitIfDraft(): Promise<boolean> {
     const doc = await this.readDoc();
     if (doc.docstatus !== 0) return false;
+    // Close any leftover modal (e.g. Preview) that would intercept the Submit click.
+    await this.page.keyboard.press("Escape");
+    await this.page.waitForTimeout(300);
     const submit = this.page.getByRole("button", { name: "Submit" }).first();
     await expect(submit).toBeEnabled({ timeout: 30_000 });
-    await submit.click();
+    await submit.click({ force: true });
     const confirmDialog = this.page.getByRole("dialog").filter({ hasText: /Permanently Submit|Confirm/i });
     const yes = confirmDialog.getByRole("button", { name: "Yes" });
-    await expect(yes).toBeVisible({ timeout: 30_000 });
-    await yes.click();
+    if (await yes.count()) {
+      await yes.click({ timeout: 30_000 });
+    }
     await expect
       .poll(async () => (await this.readDoc()).docstatus, { timeout: 180_000 })
       .toBe(1);

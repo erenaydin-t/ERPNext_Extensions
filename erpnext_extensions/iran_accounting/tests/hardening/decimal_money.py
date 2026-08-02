@@ -45,7 +45,26 @@ def compose_amount(basic: Any, additional: Any = 0, lcv: Any = 0, *, precision: 
 
 
 def valuation_from_amount(amount: Any, qty: Any) -> Decimal:
+	"""Exact (possibly fractional) amount/qty — prefer ``integer_valuation_rate`` for IRR."""
 	qty_d = D(qty)
 	if qty_d == 0:
 		return Decimal("0")
 	return D(amount) / qty_d
+
+
+def integer_valuation_rate(amount: Any, qty: Any, *, precision: int = 0) -> Decimal:
+	"""ROUND_HALF_UP(amount / qty) at currency precision (IRR → integer)."""
+	qty_d = D(qty)
+	if qty_d == 0:
+		return Decimal("0")
+	return quantize_money(D(amount) / qty_d, precision)
+
+
+def rate_first_amount(qty: Any, rate: Any, *, precision: int = 0) -> Decimal:
+	"""ROUND_HALF_UP(qty × ROUND_HALF_UP(rate))."""
+	return quantize_money(D(qty) * quantize_money(rate, precision), precision)
+
+
+def amount_vs_rate_qty_residual(amount: Any, qty: Any, valuation_rate: Any, *, precision: int = 0) -> Decimal:
+	"""amount − valuation_rate × qty (amount authoritative)."""
+	return quantize_money(D(amount) - D(valuation_rate) * D(qty), precision)

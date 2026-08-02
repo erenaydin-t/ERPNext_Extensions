@@ -15,7 +15,8 @@ class TestImportStability(unittest.TestCase):
 			mod = importlib.import_module("erpnext_extensions.iran_accounting.core.rounding")
 			self.assertTrue(hasattr(mod, "round_row_amount"))
 			self.assertTrue(hasattr(mod, "round_currency_amount"))
-			self.assertEqual(mod.round_row_amount(3, 10.5, 0), 32)
+			self.assertEqual(mod.round_row_amount(3, 10.5, 0), 33)  # rate-first: 11×3
+
 
 	def test_worker_guard_after_simulated_partial_state(self):
 		ensure_runtime_ready()

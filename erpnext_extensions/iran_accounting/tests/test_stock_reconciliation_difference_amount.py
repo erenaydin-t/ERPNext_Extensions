@@ -52,6 +52,6 @@ class TestStockReconciliationDifferenceAmount(unittest.TestCase):
 		sr2 = _create_opening_sr(self.company, self.warehouse, item2, 2, valuation_rate=1800)
 		frappe.db.commit()
 		sr2.reload()
-		self.assertEqual(flt(sr2.difference_amount), self._sum_opening_header_base(sr2))
+		self.assertEqual(flt(sr2.difference_amount), self._sum_net_header(sr2))
 		chk = check_qty_rate_amount_consistency("Stock Reconciliation", sr2.name, self.company)
 		self.assertEqual(chk["status"], "PASS", chk.get("totals"))

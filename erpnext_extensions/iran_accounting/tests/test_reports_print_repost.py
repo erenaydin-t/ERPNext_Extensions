@@ -5,7 +5,6 @@ from __future__ import annotations
 import unittest
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, today
 
 from erpnext_extensions.iran_accounting.diagnostics import (
@@ -22,10 +21,12 @@ from erpnext_extensions.iran_accounting.reports import (
 from erpnext_extensions.iran_accounting.validation import assert_report_rows_no_irr_decimals
 
 
-class TestIranAccountingReportsPrintRepost(FrappeTestCase):
+class TestIranAccountingReportsPrintRepost(unittest.TestCase):
 	@classmethod
 	def setUpClass(cls):
-		super().setUpClass()
+		from erpnext_extensions.iran_accounting.integration.bootstrap import apply
+
+		apply()
 		frappe.set_user("Administrator")
 		try:
 			cls.company = get_irr_company("ESPAD")

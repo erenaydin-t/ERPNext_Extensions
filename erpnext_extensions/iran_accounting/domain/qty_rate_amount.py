@@ -40,7 +40,7 @@ def compute_row_amount(row, currency: str, *, rate_field: str = "rate") -> float
 
 
 def normalize_stock_reconciliation_row(row, currency: str, *, purpose: str = "") -> None:
-	"""Per-row financial amounts: round(qty×rate) at currency precision; difference = new − current."""
+	"""Per-row financial amounts: rate-first ROUND_HALF_UP; difference = new − current."""
 	_ = purpose
 	qty = row.get("qty")
 	rate = _row_rate(row, SR_RATE_FIELD)
@@ -50,11 +50,17 @@ def normalize_stock_reconciliation_row(row, currency: str, *, purpose: str = "")
 			row.idx,
 		)
 
-	row.amount = flt(rounding.round_row_amount(qty, rate, currency))
+	if rate not in (None, ""):
+		row.valuation_rate = rounding.round_monetary_rate(rate, currency)
+	current_rate = _row_rate(row, SR_CURRENT_RATE_FIELD)
+	if current_rate not in (None, ""):
+		row.current_valuation_rate = rounding.round_monetary_rate(current_rate, currency)
+
+	row.amount = flt(rounding.round_row_amount(qty, row.get("valuation_rate"), currency))
 	row.current_amount = flt(
 		rounding.round_row_amount(
 			row.current_qty,
-			_row_rate(row, SR_CURRENT_RATE_FIELD),
+			row.get("current_valuation_rate"),
 			currency,
 		)
 	)
@@ -182,38 +188,63 @@ def compose_stock_entry_row_amount(row, currency: str) -> float:
 
 
 def align_stock_entry_item_amounts(doc) -> None:
-	"""Round SE row amounts while preserving ERPNext capitalization ownership.
+	"""IRR rate-first Stock Entry row alignment.
 
-	basic_amount = round(transfer_qty × basic_rate)
-	amount = round(basic_amount + additional_cost + landed_cost_voucher_amount)
-	valuation_rate stays consistent with amount / transfer_qty when transfer_qty > 0.
+	Contract (IRR):
+	1. basic_rate = ROUND_HALF_UP(raw_rate, 0)  — persist integer rate
+	2. basic_amount = ROUND_HALF_UP(transfer_qty × integer basic_rate, 0)
+	3. amount = ROUND_HALF_UP(basic_amount + additional_cost + LCV, 0)
+	4. valuation_rate = ROUND_HALF_UP(amount / transfer_qty, 0)
+	5. amount remains authoritative: residual = amount − valuation_rate × qty
+	   (never force amount := valuation_rate × qty)
+
+	additional_cost and landed_cost_voucher_amount are preserved (rounded to IRR).
 	"""
 	if not rounding.is_irr_company(doc.company):
 		return
 	currency = rounding.get_company_currency(doc.company)
 	for row in doc.get("items") or []:
-		transfer_qty = flt(row.get("transfer_qty") if row.get("transfer_qty") not in (None, "") else row.get("qty"))
+		transfer_qty = flt(
+			row.get("transfer_qty") if row.get("transfer_qty") not in (None, "") else row.get("qty")
+		)
+
+		if row.get("additional_cost") not in (None, ""):
+			row.additional_cost = rounding.round_currency(row.additional_cost, currency)
+		if row.get("landed_cost_voucher_amount") not in (None, ""):
+			row.landed_cost_voucher_amount = rounding.round_currency(
+				row.landed_cost_voucher_amount, currency
+			)
+
 		if row.get("basic_rate") is not None:
+			row.basic_rate = rounding.round_monetary_rate(row.basic_rate, currency)
 			if transfer_qty:
 				row.basic_amount = rounding.round_row_amount(transfer_qty, row.basic_rate, currency)
 			else:
 				row.basic_amount = rounding.round_currency(flt(row.get("basic_amount")), currency)
+		elif row.get("basic_amount") is not None:
+			row.basic_amount = rounding.round_currency(flt(row.get("basic_amount")), currency)
 
-		# Never discard capitalized costs; compose amount from ERPNext fields.
+		# Never discard capitalized costs; compose amount from integer components.
 		row.amount = compose_stock_entry_row_amount(row, currency)
-		if transfer_qty:
-			row.valuation_rate = flt(row.amount) / transfer_qty
+		if transfer_qty and flt(row.amount):
+			row.valuation_rate = rounding.integer_valuation_rate_from_amount(
+				row.amount, transfer_qty, currency
+			)
+			# Residual is intentional when valuation_rate × qty ≠ amount; amount wins.
+			_ = rounding.amount_rate_qty_residual(
+				row.amount, transfer_qty, row.valuation_rate, currency
+			)
 		elif row.get("valuation_rate") is not None:
-			row.valuation_rate = flt(row.valuation_rate)
+			row.valuation_rate = rounding.round_monetary_rate(row.valuation_rate, currency)
 
 
 def _align_po_pi_si_row(row, company_currency: str, transaction_currency: str) -> None:
 	qty = flt(row.qty)
 	if row.get("rate") is not None:
-		row.rate = rounding.round_currency(row.rate, transaction_currency)
+		row.rate = rounding.round_monetary_rate(row.rate, transaction_currency)
 		row.amount = rounding.round_row_amount(qty, row.rate, transaction_currency)
 	if row.get("net_rate") is not None:
-		row.net_rate = rounding.round_currency(row.net_rate, transaction_currency)
+		row.net_rate = rounding.round_monetary_rate(row.net_rate, transaction_currency)
 		row.net_amount = rounding.round_row_amount(qty, row.net_rate, transaction_currency)
 	for base_field, tx_field in (
 		("base_rate", "rate"),
@@ -230,7 +261,7 @@ def _align_po_pi_si_row(row, company_currency: str, transaction_currency: str) -
 					src_rate = row.get("base_net_rate" if "net" in base_field else "base_rate")
 					row.set(base_field, rounding.round_row_amount(qty, src_rate, company_currency))
 				elif br is not None:
-					row.set(base_field, rounding.round_currency(br, company_currency))
+					row.set(base_field, rounding.round_monetary_rate(br, company_currency))
 
 
 def align_purchase_order_item_amounts(doc) -> None:
@@ -251,6 +282,7 @@ def align_sales_invoice_item_amounts(doc) -> None:
 
 
 def align_purchase_receipt_item_amounts(doc) -> None:
+	"""Rate-first PR/DN alignment (IRR integer rates and amounts)."""
 	if not rounding.is_irr_company(doc.company):
 		return
 	ccy = rounding.get_company_currency(doc.company)
@@ -258,11 +290,13 @@ def align_purchase_receipt_item_amounts(doc) -> None:
 	for row in doc.get("items") or []:
 		qty = flt(row.qty)
 		if row.get("rate") is not None:
-			row.rate = rounding.round_currency(row.rate, tx)
+			row.rate = rounding.round_monetary_rate(row.rate, tx)
 			row.amount = rounding.round_row_amount(qty, row.rate, tx)
 		if row.get("base_rate") is not None:
-			row.base_rate = rounding.round_currency(row.base_rate, ccy)
+			row.base_rate = rounding.round_monetary_rate(row.base_rate, ccy)
 			row.base_amount = rounding.round_row_amount(qty, row.base_rate, ccy)
+		if row.get("valuation_rate") is not None:
+			row.valuation_rate = rounding.round_monetary_rate(row.valuation_rate, ccy)
 
 
 def align_delivery_note_item_amounts(doc) -> None:

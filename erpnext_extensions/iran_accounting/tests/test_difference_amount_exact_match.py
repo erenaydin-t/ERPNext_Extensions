@@ -56,28 +56,27 @@ class TestDifferenceAmountExactMatch(unittest.TestCase):
 
 	def test_large_opening_sr_many_rows(self):
 		"""Regression: header must equal Σ per-row rounded qty×rate (100+ lines)."""
-		template = "MAT-RECO-2026-00174"
-		if not frappe.db.exists("Stock Reconciliation", template):
-			self.skipTest(f"template {template} missing")
-		src = frappe.get_doc("Stock Reconciliation", template)
 		sr = frappe.new_doc("Stock Reconciliation")
 		sr.purpose = "Opening Stock"
-		sr.company = src.company
+		sr.company = self.company
 		sr.posting_date = today()
 		sr.posting_time = nowtime()
 		sr.set_posting_time = 1
-		sr.expense_account = src.expense_account
-		sr.cost_center = src.cost_center
-		sr.difference_account = src.expense_account
-		for r in (src.items or [])[:105]:
+		expense = frappe.get_cached_value("Company", self.company, "stock_adjustment_account")
+		cc = frappe.get_cached_value("Company", self.company, "cost_center")
+		sr.expense_account = expense
+		sr.cost_center = cc
+		sr.difference_account = expense
+		for i in range(105):
+			item = ensure_test_item(self.company, prefix=f"IA-SR-EXACT-L{i}")
 			sr.append(
 				"items",
 				{
-					"item_code": r.item_code,
-					"warehouse": r.warehouse,
-					"qty": flt(r.qty) + 1,
-					"valuation_rate": flt(r.valuation_rate) + 1,
-					"allow_zero_valuation_rate": r.allow_zero_valuation_rate or 0,
+					"item_code": item,
+					"warehouse": self.warehouse,
+					"qty": 1.234567 + (i % 7) * 0.1,
+					"valuation_rate": 1000.75 + i,
+					"allow_zero_valuation_rate": 0,
 				},
 			)
 		compute_final_difference_amount(sr)

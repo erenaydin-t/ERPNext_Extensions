@@ -1,5 +1,5 @@
 # Copyright (c) 2026, ERPNext Extensions contributors
-"""Commit 5: repost must preserve Stock Entry capitalization."""
+"""Commit 5: repost must preserve Stock Entry capitalization (rate-first)."""
 
 from __future__ import annotations
 
@@ -11,22 +11,25 @@ from erpnext_extensions.iran_accounting.domain.qty_rate_amount import align_stoc
 from erpnext_extensions.iran_accounting.manufacture_rounding import (
 	align_manufacture_finished_good_residual,
 )
-from erpnext_extensions.iran_accounting.tests.hardening.decimal_money import (
-	compose_amount,
-	money_equal,
-	valuation_from_amount,
-)
+from erpnext_extensions.iran_accounting.tests.hardening.decimal_money import money_equal
 from erpnext_extensions.iran_accounting.tests.hardening.fixtures import (
 	ADD_COST,
-	AMT_A,
+	BASIC_A,
+	CAP_AMOUNT_A,
+	CAP_AMOUNT_B,
+	CAP_VAL_RATE_A,
+	INT_RATE_A,
+	INT_RATE_B,
 	IRR_PRECISION,
 	LCV_AMT,
 	PROD_ADD,
-	PROD_FG,
+	PROD_AMOUNT,
+	PROD_BASIC,
 	PROD_OUTGOING,
 	PROD_QTY,
 	QTY_A,
-	RATE_A,
+	BASIC_B,
+	QTY_B,
 )
 
 
@@ -87,9 +90,9 @@ def _irr():
 class TestRepostPreservesCapitalization(unittest.TestCase):
 	def test_reconcile_path_preserves_additional_cost(self):
 		qty = float(PROD_QTY)
-		outgoing = float(PROD_OUTGOING)
+		outgoing = float(PROD_BASIC)
 		add_cost = float(PROD_ADD)
-		expected = float(PROD_FG)
+		expected = float(PROD_AMOUNT)
 		rm = _Row(
 			qty=1,
 			transfer_qty=1,
@@ -106,12 +109,12 @@ class TestRepostPreservesCapitalization(unittest.TestCase):
 		fg = _Row(
 			qty=qty,
 			transfer_qty=qty,
-			basic_rate=outgoing / qty,
-			basic_amount=outgoing,
+			basic_rate=float(PROD_OUTGOING / PROD_QTY),
+			basic_amount=float(PROD_OUTGOING),
 			additional_cost=add_cost,
 			landed_cost_voucher_amount=0,
-			amount=expected,
-			valuation_rate=expected / qty,
+			amount=float(PROD_OUTGOING + PROD_ADD),
+			valuation_rate=float((PROD_OUTGOING + PROD_ADD) / PROD_QTY),
 			s_warehouse=None,
 			t_warehouse="FG",
 			is_finished_item=1,
@@ -128,21 +131,20 @@ class TestRepostPreservesCapitalization(unittest.TestCase):
 		with _irr():
 			align_stock_entry_item_amounts(doc)
 			align_manufacture_finished_good_residual(doc)
-		money_equal(fg.amount, PROD_FG, precision=IRR_PRECISION)
+		money_equal(fg.amount, PROD_AMOUNT, precision=IRR_PRECISION)
 		money_equal(fg.additional_cost, PROD_ADD, precision=IRR_PRECISION)
 		money_equal(doc.value_difference, PROD_ADD, precision=IRR_PRECISION)
 
 	def test_reconcile_path_preserves_lcv(self):
-		amount = compose_amount(AMT_A, 0, LCV_AMT, precision=IRR_PRECISION)
 		row = _Row(
-			qty=float(QTY_A),
-			transfer_qty=float(QTY_A),
-			basic_rate=float(RATE_A),
-			basic_amount=float(AMT_A),
+			qty=float(QTY_B),
+			transfer_qty=float(QTY_B),
+			basic_rate=float(INT_RATE_B),
+			basic_amount=float(BASIC_B),
 			additional_cost=0,
 			landed_cost_voucher_amount=float(LCV_AMT),
-			amount=float(amount),
-			valuation_rate=float(valuation_from_amount(amount, QTY_A)),
+			amount=float(CAP_AMOUNT_B),
+			valuation_rate=0,
 			s_warehouse=None,
 			t_warehouse="Stores",
 			is_finished_item=0,
@@ -150,20 +152,19 @@ class TestRepostPreservesCapitalization(unittest.TestCase):
 		doc = _Doc(doctype="Stock Entry", purpose="Material Receipt", company="Test", items=[row])
 		with _irr():
 			align_stock_entry_item_amounts(doc)
-		money_equal(row.amount, amount, precision=IRR_PRECISION)
+		money_equal(row.amount, CAP_AMOUNT_B, precision=IRR_PRECISION)
 		money_equal(row.landed_cost_voucher_amount, LCV_AMT, precision=IRR_PRECISION)
 
 	def test_idempotent_double_align(self):
-		amount = compose_amount(AMT_A, ADD_COST, LCV_AMT, precision=IRR_PRECISION)
 		row = _Row(
 			qty=float(QTY_A),
 			transfer_qty=float(QTY_A),
-			basic_rate=float(RATE_A),
-			basic_amount=float(AMT_A),
+			basic_rate=float(INT_RATE_A),
+			basic_amount=float(BASIC_A),
 			additional_cost=float(ADD_COST),
 			landed_cost_voucher_amount=float(LCV_AMT),
-			amount=float(amount),
-			valuation_rate=float(valuation_from_amount(amount, QTY_A)),
+			amount=float(CAP_AMOUNT_A + LCV_AMT),
+			valuation_rate=float(CAP_VAL_RATE_A),
 			s_warehouse=None,
 			t_warehouse="Stores",
 			is_finished_item=0,
@@ -172,10 +173,13 @@ class TestRepostPreservesCapitalization(unittest.TestCase):
 		with _irr():
 			align_stock_entry_item_amounts(doc)
 			a1 = row.amount
+			v1 = row.valuation_rate
 			align_stock_entry_item_amounts(doc)
 			a2 = row.amount
-		money_equal(a1, amount, precision=IRR_PRECISION)
-		money_equal(a2, amount, precision=IRR_PRECISION)
+			v2 = row.valuation_rate
+		money_equal(a1, a2, precision=IRR_PRECISION)
+		money_equal(v1, v2, precision=IRR_PRECISION)
+		money_equal(row.basic_rate, INT_RATE_A, precision=IRR_PRECISION)
 
 
 if __name__ == "__main__":

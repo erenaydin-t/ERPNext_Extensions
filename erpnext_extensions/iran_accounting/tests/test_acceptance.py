@@ -7,11 +7,6 @@ from unittest import mock
 
 import frappe
 
-try:
-	from frappe.tests.utils import FrappeTestCase
-except ImportError:
-	FrappeTestCase = unittest.TestCase
-
 from erpnext_extensions.iran_accounting.acceptance import (
 	_check_irr_settings,
 	_overall_status,
@@ -54,7 +49,14 @@ class TestAcceptanceRunner(unittest.TestCase):
 
 
 @unittest.skipUnless(getattr(frappe, "db", None), "needs site")
-class TestAcceptanceRunnerSite(FrappeTestCase):
+class TestAcceptanceRunnerSite(unittest.TestCase):
+	@classmethod
+	def setUpClass(cls):
+		from erpnext_extensions.iran_accounting.integration.bootstrap import apply
+
+		apply()
+		frappe.set_user("Administrator")
+
 	def test_run_structure_without_synthetic(self):
 		from erpnext_extensions.iran_accounting.acceptance import run as acceptance_run
 

@@ -28,7 +28,8 @@ class TestStockReconciliationRowAmount(unittest.TestCase):
 	def test_compute_row_amount_qty_times_rate_irr_integer(self):
 		row = frappe._dict(qty=3, valuation_rate=1234.567)
 		amount = compute_row_amount(row, self.currency, rate_field="valuation_rate")
-		self.assertEqual(amount, 3704)
+		# Rate-first: ROUND(1234.567)=1235; 3×1235=3705 (not product-first 3704)
+		self.assertEqual(amount, 3705)
 		self.assertEqual(get_currency_precision(self.currency), 0)
 
 	def test_compute_row_amount_missing_inputs_zero(self):
@@ -49,9 +50,9 @@ class TestStockReconciliationRowAmount(unittest.TestCase):
 		self.assertIsNotNone(row.amount)
 		self.assertIsNotNone(row.current_amount)
 		self.assertIsNotNone(row.amount_difference)
-		self.assertEqual(flt(row.amount), 201)
+		self.assertEqual(flt(row.amount), 200)
 		self.assertEqual(flt(row.current_amount), 50)
-		self.assertEqual(flt(row.amount_difference), 151)
+		self.assertEqual(flt(row.amount_difference), 150)
 
 	def test_opening_sr_rows_have_amounts_after_validate(self):
 		item = ensure_test_item(self.company, prefix="IA-SR-ROW-UT")

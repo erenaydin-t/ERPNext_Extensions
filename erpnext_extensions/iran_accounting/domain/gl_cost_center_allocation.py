@@ -9,6 +9,11 @@ import frappe
 from frappe.utils import flt
 
 from erpnext_extensions.iran_accounting.domain.currency import get_currency_precision, is_irr_company
+from erpnext_extensions.iran_accounting.domain.irr_rounding_residual import (
+	assert_irr_residual_round_off_masters,
+	is_irr_rate_rounding_residual_gl,
+	stamp_irr_residual_round_off_masters,
+)
 
 _SPLIT_FIELDS = (
 	"debit",
@@ -34,7 +39,11 @@ def absorb_irr_cost_center_split_residual(gle_list: list, template: dict, precis
 
 
 def distribute_gl_based_on_cost_center_allocation_irr(gl_map, precision=None, from_repost=False):
-	"""Drop-in replacement for ERPNext distribute_gl with exact IRR splits."""
+	"""Drop-in replacement for ERPNext distribute_gl with exact IRR splits.
+
+	IRR residual Round Off rows are excluded from allocation and always keep
+	Company.round_off_cost_center (never first allocation child / dimension fallback).
+	"""
 	from erpnext.accounts.general_ledger import (
 		distribute_gl_based_on_cost_center_allocation as _orig,
 	)
@@ -58,6 +67,13 @@ def distribute_gl_based_on_cost_center_allocation_irr(gl_map, precision=None, fr
 
 	new_gl_map = []
 	for d in gl_map:
+		# IRR residual Round Off: never allocate; Company Round Off masters only.
+		if is_irr_rate_rounding_residual_gl(d, company=company, round_off_account=round_off_account):
+			stamp_irr_residual_round_off_masters(d, company)
+			assert_irr_residual_round_off_masters(d, company)
+			new_gl_map.append(d)
+			continue
+
 		cost_center = d.get("cost_center")
 		cost_center_allocation = get_cost_center_allocation_data(
 			company, gl_map[0]["posting_date"], cost_center
@@ -71,6 +87,7 @@ def distribute_gl_based_on_cost_center_allocation_irr(gl_map, precision=None, fr
 				d, expense_amount=flt(d.debit, precision) - flt(d.credit, precision)
 			)
 
+		# Ordinary (non-IRR-residual) Round Off: ERPNext behaviour — single child, no split.
 		if d.account == round_off_account:
 			d.cost_center = cost_center_allocation[0][0]
 			new_gl_map.append(d)
