@@ -7,13 +7,16 @@ import sys
 
 import erpnext_extensions.iran_accounting.core.rounding as core_rounding
 
-CORE_REQUIRED = ("round_currency", "round_currency_amount", "round_row_amount")
+CORE_REQUIRED = ("round_currency", "round_currency_amount", "round_row_amount", "round_rate")
 
 DOMAIN_CURRENCY_REQUIRED = (
 	"round_currency_amount",
 	"round_row_amount",
+	"round_monetary_rate",
+	"round_irr_rate",
 	"get_currency_precision",
 	"amount_is_fractional",
+	"rate_is_fractional",
 )
 
 
