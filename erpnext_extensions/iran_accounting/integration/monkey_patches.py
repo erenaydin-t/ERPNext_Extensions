@@ -25,6 +25,7 @@ def apply_monkey_patches():
 
 	_patch_stock_controller()
 	_patch_stock_entry()
+	_patch_stock_entry_mr_alternative()
 	_patch_general_ledger()
 	_patch_accounts_controller()
 	_patch_stock_ledger_engine()
@@ -32,6 +33,12 @@ def apply_monkey_patches():
 	_patch_accounting_ledger_preview()
 	_patch_stock_reconciliation()
 	_patch_repost_compatibility()
+
+
+def _patch_stock_entry_mr_alternative():
+	from erpnext_extensions.stock_extensions.mr_alternative_item import apply_patch
+
+	apply_patch()
 
 
 def _patch_repost_compatibility():
