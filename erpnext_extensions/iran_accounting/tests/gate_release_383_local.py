@@ -320,6 +320,7 @@ def run_gate(full_stress: int = 0):
 
 	apply()
 	frappe.set_user("Administrator")
+	frappe.flags.iran_gate_defaults = True
 	company = get_irr_company("ESPAD")
 	enable_perpetual_inventory(company)
 	wh = get_warehouse(company)

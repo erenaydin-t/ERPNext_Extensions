@@ -31,7 +31,12 @@ def _expense_account(company: str) -> str:
 
 
 def _cost_center(company: str) -> str:
-	return frappe.get_cached_value("Company", company, "cost_center")
+	cc = frappe.get_cached_value("Company", company, "cost_center")
+	if cc:
+		return cc
+	return frappe.db.get_value(
+		"Cost Center", {"company": company, "is_group": 0}, "name", order_by="creation asc"
+	)
 
 
 def _uom(item: str) -> str:
@@ -219,6 +224,13 @@ def apply_lcv_to_stock_entry(company: str, stock_entry_name: str, amount=LCV_AMT
 	lcv.get_items_from_purchase_receipts()
 	lcv.insert(ignore_permissions=True)
 	lcv.submit()
+	frappe.db.commit()
+	# Belt-and-suspenders: ensure IRR header matches capitalized LCV rows
+	# (also covered by Landed Cost Voucher on_submit hook).
+	from erpnext_extensions.iran_accounting.stock_entry import persist_irr_stock_entry_header_and_rows
+
+	se = frappe.get_doc("Stock Entry", stock_entry_name)
+	persist_irr_stock_entry_header_and_rows(se)
 	frappe.db.commit()
 	return lcv, oh
 

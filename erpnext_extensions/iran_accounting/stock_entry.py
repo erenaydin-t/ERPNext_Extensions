@@ -44,7 +44,16 @@ def align_zero_value_transfer_totals(doc) -> None:
 		doc.value_difference = 0
 
 
+def before_validate_stock_entry(doc, method=None):
+	from erpnext_extensions.iran_accounting.e2e_bootstrap import apply_stock_entry_site_defaults
+
+	apply_stock_entry_site_defaults(doc)
+
+
 def validate_stock_entry(doc, method=None):
+	from erpnext_extensions.iran_accounting.e2e_bootstrap import apply_stock_entry_site_defaults
+
+	apply_stock_entry_site_defaults(doc)
 	if not is_irr_company(doc.company):
 		return
 	align_stock_entry_item_amounts(doc)
@@ -76,15 +85,77 @@ def on_submit_stock_entry(doc, method=None):
 	if not is_irr_company(doc.company):
 		return
 	# ERPNext may rewrite row rates from moving-average floats after before_submit.
-	# Re-apply rate-first integers and persist so Desk / contract see the contract rates.
+	# Re-apply rate-first integers and Manufacture identity, then persist.
 	align_stock_entry_item_amounts(doc)
+	align_manufacture_finished_good_residual(doc)
+	align_zero_value_transfer_totals(doc)
+	if hasattr(doc, "set_total_incoming_outgoing_value"):
+		doc.set_total_incoming_outgoing_value()
 	for row in doc.get("items") or []:
 		row.db_update()
+	doc.db_set(
+		{
+			"total_incoming_value": doc.total_incoming_value,
+			"total_outgoing_value": doc.total_outgoing_value,
+			"value_difference": doc.value_difference,
+		},
+		update_modified=False,
+	)
 	from erpnext_extensions.iran_accounting.domain.stock_entry_ledger_contract import (
 		enforce_stock_entry_ledger_contract,
 	)
 
 	enforce_stock_entry_ledger_contract(doc.name, doc.company, raise_on_fail=True)
+
+
+def persist_irr_stock_entry_header_and_rows(doc) -> None:
+	"""Persist IRR-aligned row economics and header totals (submit / LCV / RIV)."""
+	if not is_irr_company(doc.company):
+		return
+	align_stock_entry_item_amounts(doc)
+	if doc.purpose in ("Manufacture", "Repack"):
+		align_manufacture_finished_good_residual(doc)
+	align_zero_value_transfer_totals(doc)
+	if hasattr(doc, "set_total_incoming_outgoing_value"):
+		doc.set_total_incoming_outgoing_value()
+	for row in doc.get("items") or []:
+		frappe.db.set_value(
+			"Stock Entry Detail",
+			row.name,
+			{
+				"basic_rate": row.basic_rate,
+				"basic_amount": row.get("basic_amount"),
+				"amount": row.amount,
+				"valuation_rate": row.valuation_rate,
+				"additional_cost": row.get("additional_cost"),
+				"landed_cost_voucher_amount": row.get("landed_cost_voucher_amount"),
+			},
+			update_modified=False,
+		)
+	doc.db_set(
+		{
+			"total_incoming_value": doc.total_incoming_value,
+			"total_outgoing_value": doc.total_outgoing_value,
+			"value_difference": doc.value_difference,
+		},
+		update_modified=False,
+	)
+
+
+def on_submit_landed_cost_voucher(doc, method=None):
+	"""After LCV capitalizes into Stock Entry rows, refresh IRR header totals.
+
+	ERPNext updates Stock Entry Detail amounts/LCV fields but may leave
+	total_incoming_value / value_difference stale until a later RIV.
+	"""
+	for row in doc.get("purchase_receipts") or []:
+		if row.receipt_document_type != "Stock Entry" or not row.receipt_document:
+			continue
+		company = frappe.db.get_value("Stock Entry", row.receipt_document, "company")
+		if not company or not is_irr_company(company):
+			continue
+		se = frappe.get_doc("Stock Entry", row.receipt_document)
+		persist_irr_stock_entry_header_and_rows(se)
 
 
 def before_gl_preview_stock_entry(doc, method=None):

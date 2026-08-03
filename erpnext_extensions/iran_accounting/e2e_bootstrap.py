@@ -53,6 +53,10 @@ def _create_stock_reconciliation(**args):
 			)
 		)
 	sr.cost_center = args.cost_center or frappe.get_cached_value("Company", sr.company, "cost_center")
+	if not sr.cost_center:
+		sr.cost_center = frappe.db.get_value(
+			"Cost Center", {"company": sr.company, "is_group": 0}, "name", order_by="creation asc"
+		)
 	if sr.purpose == "Opening Stock":
 		sr.difference_account = sr.expense_account
 	sr.append(
@@ -83,7 +87,10 @@ def get_irr_company(preferred: str | None = None) -> str:
 
 def get_warehouse(company: str) -> str:
 	wh = frappe.db.get_value(
-		"Warehouse", {"company": company, "is_group": 0}, "name", order_by="creation asc"
+		"Warehouse",
+		{"company": company, "is_group": 0, "disabled": 0},
+		"name",
+		order_by="creation asc",
 	)
 	if not wh:
 		raise frappe.ValidationError(f"No warehouse for company {company}")
@@ -93,7 +100,7 @@ def get_warehouse(company: str) -> str:
 def get_second_warehouse(company: str, exclude: str) -> str:
 	wh = frappe.db.get_value(
 		"Warehouse",
-		{"company": company, "is_group": 0, "name": ("!=", exclude)},
+		{"company": company, "is_group": 0, "disabled": 0, "name": ("!=", exclude)},
 		"name",
 		order_by="creation asc",
 	)
@@ -101,14 +108,62 @@ def get_second_warehouse(company: str, exclude: str) -> str:
 
 
 def ensure_test_item(company: str, prefix: str = "IRR-TEST", stock_uom: str | None = None) -> str:
+	"""Create a stock item and return the persisted Item name.
+
+	On sites with Item Auto Name rules, ``item_code`` may be rewritten at insert;
+	callers must use the returned ``doc.name``, never the pre-insert code.
+	"""
 	item_code = f"{prefix}-{random_string(6)}"
 	if frappe.db.exists("Item", item_code):
 		return item_code
 	props: dict = {"is_stock_item": 1}
 	if stock_uom:
 		props["stock_uom"] = stock_uom
-	_make_item(item_code, props)
-	return item_code
+	# Prefer an existing leaf Item Group when "Products" is absent (restore sites).
+	if not frappe.db.exists("Item Group", "Products"):
+		leaf = frappe.db.get_value(
+			"Item Group", {"is_group": 0}, "name", order_by="creation asc"
+		)
+		if leaf:
+			props["item_group"] = leaf
+	doc = _make_item(item_code, props)
+	return doc.name
+
+
+def apply_stock_entry_site_defaults(doc) -> None:
+	"""Fill restore-site mandatory Stock Entry fields when gate/test builders omit them.
+
+	Enabled only when ``frappe.flags.iran_gate_defaults`` is set so interactive Desk
+	users still see real mandatory validation.
+	"""
+	if not getattr(frappe.flags, "iran_gate_defaults", False):
+		return
+	if not doc or doc.doctype != "Stock Entry":
+		return
+	meta = frappe.get_meta("Stock Entry")
+	row_meta = frappe.get_meta("Stock Entry Detail")
+	if meta.has_field("custom_rahkaran_no") and not doc.get("custom_rahkaran_no"):
+		doc.custom_rahkaran_no = f"GATE-{random_string(8)}"
+	if meta.has_field("department") and not doc.get("department"):
+		dept = frappe.db.get_value("Department", {"company": doc.company}, "name")
+		if dept:
+			doc.department = dept
+	default_cc = frappe.get_cached_value("Company", doc.company, "cost_center")
+	if not default_cc:
+		default_cc = frappe.db.get_value(
+			"Cost Center", {"company": doc.company, "is_group": 0}, "name", order_by="creation asc"
+		)
+	for row in doc.get("items") or []:
+		if row_meta.has_field("department") and not row.get("department"):
+			row.department = doc.get("department")
+		if row_meta.has_field("cost_center") and not row.get("cost_center") and default_cc:
+			row.cost_center = default_cc
+		if row_meta.has_field("expense_account") and not row.get("expense_account"):
+			# leave blank unless Material Issue / Manufacture needs it — ERPNext often fills
+			pass
+	if meta.has_field("cost_center") and not doc.get("cost_center") and default_cc:
+		doc.cost_center = default_cc
+
 
 
 def fractional_uom() -> str | None:

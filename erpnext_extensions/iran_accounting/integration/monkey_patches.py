@@ -19,20 +19,19 @@ def apply_monkey_patches():
 	from erpnext_extensions.iran_accounting.worker.guard import ensure_runtime_ready
 
 	ensure_runtime_ready()
-	if _PATCHED:
-		return
-	_PATCHED = True
-
-	_patch_stock_controller()
-	_patch_stock_entry()
-	_patch_stock_entry_mr_alternative()
-	_patch_general_ledger()
-	_patch_accounts_controller()
+	if not _PATCHED:
+		_PATCHED = True
+		_patch_stock_controller()
+		_patch_stock_entry()
+		_patch_stock_entry_mr_alternative()
+		_patch_general_ledger()
+		_patch_accounts_controller()
+		_patch_stock_ledger_report()
+		_patch_accounting_ledger_preview()
+		_patch_stock_reconciliation()
+		_patch_repost_compatibility()
+	# Always (re)ensure stock-ledger engine patches — idempotent + fail-closed upgrade guard.
 	_patch_stock_ledger_engine()
-	_patch_stock_ledger_report()
-	_patch_accounting_ledger_preview()
-	_patch_stock_reconciliation()
-	_patch_repost_compatibility()
 
 
 def _patch_stock_entry_mr_alternative():
@@ -588,6 +587,10 @@ def _patch_stock_ledger_engine():
 
 	from erpnext_extensions.iran_accounting.domain.currency import is_irr_company
 	from erpnext_extensions.iran_accounting.domain.ledger_rounding import round_sle_monetary_fields
+	from erpnext_extensions.iran_accounting.domain.riv_rate_guard import (
+		assert_erpnext_riv_rate_patch_supported,
+		make_update_rate_on_stock_entry_wrapper,
+	)
 	from erpnext_extensions.iran_accounting.domain.sle_persistence import (
 		persist_processed_sle_if_possible,
 	)
@@ -598,31 +601,49 @@ def _patch_stock_ledger_engine():
 		sync_irr_sle_from_stock_reconciliation_row,
 	)
 
-	if getattr(sl, "_iran_patched_update_entries_after", None):
-		return
+	# Fail-closed upgrade guard before (re)installing the rate wrapper.
+	assert_erpnext_riv_rate_patch_supported()
 
-	_orig_set_precision = sl.update_entries_after.set_precision
-	_orig_process_sle = sl.update_entries_after.process_sle
+	if not getattr(sl, "_iran_patched_update_entries_after", None):
+		_orig_set_precision = sl.update_entries_after.set_precision
+		_orig_process_sle = sl.update_entries_after.process_sle
 
-	def set_precision(self):
-		_orig_set_precision(self)
-		company_currency = erpnext.get_company_currency(self.company)
-		self.currency_precision = get_currency_precision(company_currency)
+		def set_precision(self):
+			_orig_set_precision(self)
+			company_currency = erpnext.get_company_currency(self.company)
+			self.currency_precision = get_currency_precision(company_currency)
 
-	sl.update_entries_after.set_precision = set_precision
+		sl.update_entries_after.set_precision = set_precision
 
-	def process_sle(self, sle):
-		_orig_process_sle(self, sle)
-		company = getattr(self, "company", None) or (sle.get("company") if hasattr(sle, "get") else None)
-		if company and is_irr_company(company):
-			sync_irr_sle_from_stock_reconciliation_row(sle)
-			sync_irr_sle_from_stock_entry_row(sle)
-			round_sle_monetary_fields(sle, company)
-			sync_irr_sle_from_stock_entry_row(sle)
-			persist_processed_sle_if_possible(sle)
+		def process_sle(self, sle):
+			_orig_process_sle(self, sle)
+			company = getattr(self, "company", None) or (
+				sle.get("company") if hasattr(sle, "get") else None
+			)
+			if company and is_irr_company(company):
+				sync_irr_sle_from_stock_reconciliation_row(sle)
+				sync_irr_sle_from_stock_entry_row(sle)
+				round_sle_monetary_fields(sle, company)
+				sync_irr_sle_from_stock_entry_row(sle)
+				persist_processed_sle_if_possible(sle)
 
-	sl.update_entries_after.process_sle = process_sle
-	sl._iran_patched_update_entries_after = True
+		sl.update_entries_after.process_sle = process_sle
+		sl._iran_patched_update_entries_after = True
+
+	# Idempotent install of rate-first RIV wrapper (may run after older process_sle-only patch).
+	if not getattr(sl, "_iran_patched_update_rate_on_stock_entry", None):
+		live = sl.update_entries_after.update_rate_on_stock_entry
+		if getattr(live, "_iran_riv_rate_wrapper", None):
+			_orig_update_rate_on_stock_entry = live._iran_original
+		else:
+			_orig_update_rate_on_stock_entry = live
+		sl.update_entries_after._iran_original_update_rate_on_stock_entry = (
+			_orig_update_rate_on_stock_entry
+		)
+		sl.update_entries_after.update_rate_on_stock_entry = make_update_rate_on_stock_entry_wrapper(
+			_orig_update_rate_on_stock_entry
+		)
+		sl._iran_patched_update_rate_on_stock_entry = True
 
 
 def _patch_stock_ledger_report():

@@ -48,6 +48,23 @@ SUPPORTED_RESIDUAL_DOCTYPES = (
 	"Stock Reconciliation",
 )
 
+# Manufacture / Repack: incoming≠outgoing from integer-rate policy is a stock valuation
+# difference → Company Stock Adjustment (vanilla ERPNext). Round Off must NOT compensate
+# IRR rate residuals on these purposes.
+IRR_RESIDUAL_ROUND_OFF_EXCLUDED_STOCK_ENTRY_PURPOSES = frozenset(
+	{
+		"Manufacture",
+		"Repack",
+	}
+)
+
+
+def stock_entry_excludes_irr_residual_round_off(doc) -> bool:
+	"""True when IRR residual Round Off must not touch this Stock Entry."""
+	if getattr(doc, "doctype", None) != "Stock Entry":
+		return False
+	return (doc.get("purpose") or "") in IRR_RESIDUAL_ROUND_OFF_EXCLUDED_STOCK_ENTRY_PURPOSES
+
 
 def is_irr_rate_rounding_residual_gl(
 	entry,
@@ -69,7 +86,10 @@ def is_irr_rate_rounding_residual_gl(
 	if not account:
 		return False
 	if round_off_account is None and company:
-		round_off_account = frappe.get_cached_value("Company", company, "round_off_account")
+		try:
+			round_off_account = frappe.get_cached_value("Company", company, "round_off_account")
+		except Exception:
+			round_off_account = None
 	if not round_off_account or account != round_off_account:
 		return False
 	return IRR_RATE_ROUNDING_RESIDUAL_REMARK in (entry.get("remarks") or "")
@@ -192,7 +212,12 @@ def _transfer_qty(row) -> float:
 
 
 def collect_stock_entry_residuals(doc) -> list[dict[str, Any]]:
-	"""Per-row residuals; skip dual-warehouse transfer rows (in/out cancel)."""
+	"""Per-row residuals; skip dual-warehouse transfer rows (in/out cancel).
+
+	Manufacture / Repack are excluded: valuation gaps use Stock Adjustment, not Round Off.
+	"""
+	if stock_entry_excludes_irr_residual_round_off(doc):
+		return []
 	ccy = get_company_currency(doc.company)
 	out: list[dict[str, Any]] = []
 	for row in doc.get("items") or []:
@@ -315,6 +340,8 @@ def assert_round_off_ready_if_needed(doc) -> None:
 		return
 	if doc.doctype not in SUPPORTED_RESIDUAL_DOCTYPES:
 		return
+	if stock_entry_excludes_irr_residual_round_off(doc):
+		return
 	if not document_has_rounding_residual(doc):
 		return
 	resolve_company_round_off(doc.company, require=True)
@@ -342,8 +369,41 @@ def _is_stock_account(account: str | None) -> bool:
 	return frappe.get_cached_value("Account", account, "account_type") == "Stock"
 
 
-def _pick_adjustable_non_stock_leg(gl_map: list, company: str, round_off_account: str):
-	"""Largest non-Stock, non-Round-Off monetary leg (reclassification partner)."""
+def _is_stock_adjustment_account(account: str | None, company: str | None = None) -> bool:
+	"""Stock Adjustment holds inventory valuation differences — never reclassify into Round Off."""
+	if not account:
+		return False
+	try:
+		account_type = frappe.get_cached_value("Account", account, "account_type")
+	except Exception:
+		account_type = None
+	if account_type == "Stock Adjustment":
+		return True
+	if company:
+		try:
+			company_adj = frappe.get_cached_value("Company", company, "stock_adjustment_account")
+		except Exception:
+			company_adj = None
+		if company_adj and account == company_adj:
+			return True
+	return False
+
+
+def _pick_adjustable_non_stock_leg(
+	gl_map: list,
+	company: str,
+	round_off_account: str,
+	*,
+	protected_accounts: set[str] | None = None,
+	reclass_magnitude: float = 0,
+):
+	"""Largest non-Stock, non-Round-Off, non-Stock-Adjustment monetary leg.
+
+	Protected accounts (e.g. Additional Cost expense) may be used only when their
+	magnitude strictly exceeds the reclass amount so the Add Cost GL remains visible.
+	"""
+	protected = protected_accounts or set()
+	need = abs(flt(reclass_magnitude))
 	candidates = []
 	for entry in gl_map:
 		account = entry.get("account")
@@ -351,13 +411,28 @@ def _pick_adjustable_non_stock_leg(gl_map: list, company: str, round_off_account
 			continue
 		if _is_stock_account(account):
 			continue
+		if _is_stock_adjustment_account(account, company):
+			continue
 		mag = max(flt(entry.get("debit")), flt(entry.get("credit")))
-		if mag:
-			candidates.append((mag, entry))
+		if not mag:
+			continue
+		if account in protected and mag <= need:
+			continue
+		candidates.append((mag, entry))
 	if not candidates:
 		return None
 	candidates.sort(key=lambda x: x[0], reverse=True)
 	return candidates[0][1]
+
+
+def _protected_reclass_accounts(doc) -> set[str]:
+	"""Accounts that must remain visible on the voucher GL (not Round Off fodder)."""
+	protected: set[str] = set()
+	if getattr(doc, "doctype", None) == "Stock Entry":
+		for row in doc.get("additional_costs") or []:
+			if row.get("expense_account"):
+				protected.add(row.get("expense_account"))
+	return protected
 
 
 def _apply_signed_debit_to_entry(entry, signed_debit: float, precision: int, currency: str) -> None:
@@ -455,12 +530,18 @@ def _populate_round_off_dimensions(gle: dict, voucher_type: str, voucher_no: str
 
 
 def apply_irr_rate_rounding_residual_gl(doc, gl_map: list | None) -> list | None:
-	"""Post-process ERPNext GL map: append Round Off residual, keep inventory authoritative."""
+	"""Post-process ERPNext GL map: append Round Off residual, keep inventory authoritative.
+
+	Manufacture / Repack: no IRR residual Round Off — value_difference uses Stock Adjustment.
+	"""
 	if not gl_map:
 		return gl_map
 	if not is_irr_company(doc.company):
 		return gl_map
 	if doc.doctype not in SUPPORTED_RESIDUAL_DOCTYPES:
+		return gl_map
+	if stock_entry_excludes_irr_residual_round_off(doc):
+		strip_irr_rate_rounding_residual_gl(gl_map)
 		return gl_map
 
 	# Isolate zero-value transfer custom GL builder path.
@@ -498,15 +579,17 @@ def apply_irr_rate_rounding_residual_gl(doc, gl_map: list | None) -> list | None
 	ccy = get_company_currency(doc.company)
 	precision = 0 if (ccy or "").upper() == "IRR" else 2
 
-	adjustable = _pick_adjustable_non_stock_leg(gl_map, doc.company, cfg["account"])
+	adjustable = _pick_adjustable_non_stock_leg(
+		gl_map,
+		doc.company,
+		cfg["account"],
+		protected_accounts=_protected_reclass_accounts(doc),
+		reclass_magnitude=net_ro_debit,
+	)
 	if not adjustable:
-		frappe.throw(
-			_(
-				"{0} {1}: IRR rate rounding residual {2} cannot be posted — "
-				"no non-inventory GL leg available to reclassify against Round Off Account."
-			).format(doc.doctype, doc.name or "new", net_ro_debit),
-			title=_("IRR Round Off Residual"),
-		)
+		# No safe non-inventory partner (Stock Adj protected; Add Cost too small to reclass).
+		# Keep vanilla GL; inventory amounts stay authoritative without inventing Round Off.
+		return gl_map
 
 	# Reclassify: Round Off gets net_ro_debit; adjustable gets the opposite.
 	_apply_signed_debit_to_entry(adjustable, -net_ro_debit, precision, ccy)
