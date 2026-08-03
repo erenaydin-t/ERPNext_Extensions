@@ -323,6 +323,7 @@ doc_events = {
 	},
 	"Stock Entry": {
 		"before_validate": [
+			"erpnext_extensions.iran_accounting.stock_entry.before_validate_stock_entry",
 			"erpnext_extensions.consignment_stock.stock_entry_hooks.before_validate",
 			"erpnext_extensions.consignment_stock.material_loan.stock_entry_hooks.before_validate",
 		],
@@ -362,6 +363,9 @@ doc_events = {
 	"Repost Item Valuation": {
 		"validate": "erpnext_extensions.consignment_stock.material_loan.repost_guards.validate_repost_item_valuation",
 		"on_update_after_submit": "erpnext_extensions.consignment_stock.material_loan.repost_guards.on_repost_completed",
+	},
+	"Landed Cost Voucher": {
+		"on_submit": "erpnext_extensions.iran_accounting.stock_entry.on_submit_landed_cost_voucher",
 	},
 	"Stock Reconciliation": {
 		"validate": "erpnext_extensions.iran_accounting.stock_reconciliation.validate_stock_reconciliation",

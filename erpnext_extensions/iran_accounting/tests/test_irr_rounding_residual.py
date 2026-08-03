@@ -116,6 +116,34 @@ class TestIRRRoundingResidualFormula(unittest.TestCase):
 		self.assertEqual(compute_rounding_residual(1430, 7, 204, "IRR"), 2)
 		self.assertEqual(round_off_signed_debit(2, incoming=True), -2)
 
+	def test_manufacture_excluded_from_residual_collector(self):
+		"""Manufacture valuation gaps use Stock Adjustment — not Round Off residual."""
+		row = _Row(
+			name="fg1",
+			idx=1,
+			item_code="FG",
+			qty=7,
+			transfer_qty=7,
+			amount=1430,
+			valuation_rate=204,
+			s_warehouse=None,
+			t_warehouse="Stores",
+			cost_center="Main",
+			is_finished_item=1,
+		)
+		doc = _Doc(
+			doctype="Stock Entry",
+			company="Test IRR Co",
+			purpose="Manufacture",
+			items=[row],
+		)
+		with mock.patch(
+			"erpnext_extensions.iran_accounting.domain.irr_rounding_residual.get_company_currency",
+			return_value="IRR",
+		):
+			self.assertEqual(collect_stock_entry_residuals(doc), [])
+			self.assertEqual(expected_round_off_gl_totals(doc)["net_signed_debit"], 0)
+
 
 class TestIRRRoundingResidualGLMap(unittest.TestCase):
 	def _irr_doc(self, amount, qty, rate, *, purpose="Material Receipt", additional=0, lcv=0):
@@ -219,20 +247,91 @@ class TestIRRRoundingResidualGLMap(unittest.TestCase):
 		self.assertEqual(inv["debit"], 1373)
 		self.assertEqual(sum(e.get("debit") or 0 for e in gl), sum(e.get("credit") or 0 for e in gl))
 
-	def test_manufacture_add_lcv_residual_two(self):
+	def test_manufacture_does_not_post_round_off_residual(self):
+		"""FINAL 3.8.4: Manufacture residual stays out of Round Off; Stock Adj untouched."""
 		doc = self._irr_doc(1430, 7, 204, purpose="Manufacture", additional=137, lcv=59)
 		gl = self._base_gl(1430, 1430)
+		# Simulate Stock Adjustment valuation difference leg (must not be Round Off target).
+		gl.append(
+			{
+				"account": "Stock Adjustment - T",
+				"debit": 0,
+				"credit": 5,
+				"company": "Test IRR Co",
+				"posting_date": "2026-01-01",
+				"voucher_type": "Stock Entry",
+				"voucher_no": "STE-TEST",
+				"remarks": "Accounting Entry for Stock",
+				"cost_center": "Main",
+			}
+		)
 		with _patches(account="RO - T", cost_center="CC-RO"):
-			apply_irr_rate_rounding_residual_gl(doc, gl)
-			exp = expected_round_off_gl_totals(doc)
-			self.assertEqual(exp["credit"], 2)
-			self.assertEqual(exp["debit"], 0)
+			with mock.patch(
+				"erpnext_extensions.iran_accounting.domain.irr_rounding_residual._is_stock_adjustment_account",
+				side_effect=lambda acc, company=None: acc == "Stock Adjustment - T",
+			):
+				apply_irr_rate_rounding_residual_gl(doc, gl)
+				exp = expected_round_off_gl_totals(doc)
+				self.assertEqual(exp["net_signed_debit"], 0)
 		ro = [e for e in gl if IRR_RATE_ROUNDING_RESIDUAL_REMARK in (e.get("remarks") or "")]
-		self.assertEqual(len(ro), 1)
-		self.assertEqual(ro[0]["credit"], 2)
+		self.assertEqual(ro, [])
 		inv = [e for e in gl if e.get("account") == "Stock - T"][0]
 		self.assertEqual(inv["debit"], 1430)
-		self.assertEqual(sum(e.get("debit") or 0 for e in gl), sum(e.get("credit") or 0 for e in gl))
+		adj = [e for e in gl if e.get("account") == "Stock Adjustment - T"][0]
+		self.assertEqual(adj["credit"], 5)
+
+	def test_stock_adjustment_leg_not_reclassified_to_round_off(self):
+		"""Material Receipt residual must reclassify expense, never Stock Adjustment."""
+		doc = self._irr_doc(1371, 7, 196, purpose="Material Receipt")
+		gl = [
+			{
+				"account": "Stock - T",
+				"debit": 1371,
+				"credit": 0,
+				"company": "Test IRR Co",
+				"posting_date": "2026-01-01",
+				"voucher_type": "Stock Entry",
+				"voucher_no": "STE-TEST",
+				"remarks": "Accounting Entry for Stock",
+				"cost_center": "Main",
+			},
+			{
+				"account": "Stock Adjustment - T",
+				"debit": 0,
+				"credit": 1371,
+				"company": "Test IRR Co",
+				"posting_date": "2026-01-01",
+				"voucher_type": "Stock Entry",
+				"voucher_no": "STE-TEST",
+				"remarks": "Accounting Entry for Stock",
+				"cost_center": "Main",
+			},
+			{
+				"account": "Expense - T",
+				"debit": 0,
+				"credit": 100,
+				"company": "Test IRR Co",
+				"posting_date": "2026-01-01",
+				"voucher_type": "Stock Entry",
+				"voucher_no": "STE-TEST",
+				"remarks": "Additional Cost",
+				"cost_center": "Main",
+			},
+		]
+		with _patches(account="RO - T", cost_center="CC-RO"):
+			with mock.patch(
+				"erpnext_extensions.iran_accounting.domain.irr_rounding_residual._is_stock_adjustment_account",
+				side_effect=lambda acc, company=None: acc == "Stock Adjustment - T",
+			):
+				apply_irr_rate_rounding_residual_gl(doc, gl)
+		adj = [e for e in gl if e.get("account") == "Stock Adjustment - T"][0]
+		self.assertEqual(adj["credit"], 1371)
+		expense = [e for e in gl if e.get("account") == "Expense - T"][0]
+		# residual −1 incoming → Round Off debit 1; expense gets −1 signed debit → credit +1
+		self.assertEqual(expense["credit"], 101)
+		ro = [e for e in gl if IRR_RATE_ROUNDING_RESIDUAL_REMARK in (e.get("remarks") or "")]
+		self.assertEqual(len(ro), 1)
+		self.assertEqual(ro[0]["debit"], 1)
 
 	def test_idempotent_strip_and_reapply(self):
 		doc = self._irr_doc(1371, 7, 196)

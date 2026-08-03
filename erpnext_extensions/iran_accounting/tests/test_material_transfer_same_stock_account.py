@@ -70,6 +70,13 @@ class TestMaterialTransferSameStockAccount(unittest.TestCase):
 		enable_perpetual_inventory(cls.company)
 		cls.wh_base = get_warehouse(cls.company)
 		cls.stock_account = frappe.db.get_value("Warehouse", cls.wh_base, "account")
+		# Warehouse.account may be empty; ERPNext then falls back to Company default inventory.
+		if not cls.stock_account:
+			cls.stock_account = frappe.get_cached_value(
+				"Company", cls.company, "default_inventory_account"
+			)
+		if not cls.stock_account:
+			raise unittest.SkipTest("No inventory stock account configured for company")
 		cls.wh_same_a = _create_warehouse_same_stock_account(cls.company, cls.stock_account)
 		cls.wh_same_b = _create_warehouse_same_stock_account(cls.company, cls.stock_account)
 		cls.frac_uom = fractional_uom()
@@ -117,13 +124,32 @@ class TestMaterialTransferSameStockAccount(unittest.TestCase):
 
 	def test_different_stock_accounts_two_legs_submit(self):
 		item = ensure_test_item(self.company, "IA-MTDIFF-1")
-		wh_other = frappe.db.get_value(
+		# Resolve accounts the same way ERPNext does for GL (explicit warehouse account
+		# or company default). Avoid false "different account" picks when base WH.account
+		# is empty and falls back to the same default inventory account.
+		default_inv = frappe.get_cached_value("Company", self.company, "default_inventory_account")
+
+		def _resolved_account(warehouse: str) -> str | None:
+			return frappe.db.get_value("Warehouse", warehouse, "account") or default_inv
+
+		wh_other = None
+		for row in frappe.get_all(
 			"Warehouse",
-			{"company": self.company, "is_group": 0, "account": ("!=", self.stock_account)},
-			"name",
-		)
+			filters={"company": self.company, "is_group": 0},
+			fields=["name", "account"],
+			limit=100,
+		):
+			resolved = row.account or default_inv
+			if resolved and resolved != self.stock_account:
+				wh_other = row.name
+				break
 		if not wh_other:
 			self.skipTest("No second stock account warehouse on site")
+		self.assertNotEqual(
+			_resolved_account(self.wh_base),
+			_resolved_account(wh_other),
+			"fixture warehouses must resolve to different inventory accounts",
+		)
 		submit_material_receipt(self.company, item, qty=100, rate=5000, warehouse=self.wh_base)
 		se = frappe.new_doc("Stock Entry")
 		se.company = self.company

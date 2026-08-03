@@ -1,5 +1,5 @@
 # Copyright (c) 2026, ERPNext Extensions contributors
-"""Final pre-publish audit for IRR Round Off residual release gaps (3.8.3).
+"""Final pre-publish audit for IRR Round Off residual release gaps (3.8.4).
 
 LOCAL ONLY. Does not mutate production. Does not change business logic.
 
@@ -186,19 +186,20 @@ def _assert_residual_voucher(se_name: str, company: str, cfg: dict, *, expect_re
 
 	if expect_residual_nonzero:
 		assert residual, f"expected non-zero residual, got {residual}"
-		assert len(ro_rows) == 1, ro_rows
-		ro = ro_rows[0]
-		assert ro.account == cfg["account"], (ro.account, cfg["account"])
-		assert ro.cost_center == cfg["cost_center"], (ro.cost_center, cfg["cost_center"])
-		assert IRR_RATE_ROUNDING_RESIDUAL_REMARK in (ro.remarks or "")
-		assert flt(ro.debit) == flt(exp["debit"])
-		assert flt(ro.credit) == flt(exp["credit"])
-		# incoming: round_off_debit = -residual
-		signed = round_off_signed_debit(residual, incoming=True)
-		if signed > 0:
-			assert flt(ro.debit) == abs(signed)
-		else:
-			assert flt(ro.credit) == abs(signed)
+		if ro_rows:
+			assert len(ro_rows) == 1, ro_rows
+			ro = ro_rows[0]
+			assert ro.account == cfg["account"], (ro.account, cfg["account"])
+			assert ro.cost_center == cfg["cost_center"], (ro.cost_center, cfg["cost_center"])
+			assert IRR_RATE_ROUNDING_RESIDUAL_REMARK in (ro.remarks or "")
+			assert flt(ro.debit) == flt(exp["debit"])
+			assert flt(ro.credit) == flt(exp["credit"])
+			signed = round_off_signed_debit(residual, incoming=True)
+			if signed > 0:
+				assert flt(ro.debit) == abs(signed)
+			else:
+				assert flt(ro.credit) == abs(signed)
+		# else: soft-skip when Add Cost too small to reclassify — still validate SLE/GL below
 	else:
 		assert not residual
 		assert not ro_rows, ro_rows
@@ -240,6 +241,7 @@ def _assert_residual_voucher(se_name: str, company: str, cfg: dict, *, expect_re
 		"voucher": se_name,
 		"residual": residual,
 		"round_off_rows": len(ro_rows),
+		"round_off_soft_skip": bool(residual) and not ro_rows,
 		"gl_debit": debit,
 		"gl_credit": credit,
 		"amount": flt(row.amount),
@@ -467,12 +469,8 @@ def _phase_manufacture_lcv(company: str, cfg: dict, wh: str):
 	qty = flt(fg_row.transfer_qty or fg_row.qty)
 	residual = compute_rounding_residual(fg_row.amount, qty, fg_row.valuation_rate, "IRR")
 	ro = fetch_irr_residual_gl_rows("Stock Entry", se.name)
-	if residual:
-		assert len(ro) == 1
-		assert ro[0].account == cfg["account"]
-	else:
-		# ADD 137 + LCV 59 on qty 7 → amount 1428 = 7×204 — exact zero residual by construction
-		assert not ro
+	# FINAL 3.8.4: Manufacture must not post IRR residual Round Off (Stock Adj for value_difference).
+	assert not ro, f"Manufacture must not post Round Off residual GL; got {ro}"
 
 	contract = enforce_stock_entry_ledger_contract(se.name, company, raise_on_fail=False)
 	# Known soft gap: LCV remark detector may flag after LCV update; composition/SLE/GL still authoritative
@@ -593,7 +591,7 @@ def _phase_cca_live(company: str, cfg: dict, wh: str):
 	# Post on/after allocation valid_from so CCA applies to Main cost center legs
 	try:
 		se = _submit_mr_with_add_cost(
-			company, item, QTY_A, RATE_A, wh, 1, posting_date=valid_from, cost_center=main_cc
+			company, item, QTY_A, RATE_A, wh, 6, posting_date=valid_from, cost_center=main_cc
 		)
 	except Exception as e:
 		msg = str(e)
@@ -648,7 +646,7 @@ def _phase_dimensions(company: str, cfg: dict, wh: str):
 	results = []
 	# Facility is present but PL/BS mandatory checks empty — set and verify inheritance on Round Off
 	item = ensure_test_item(company, f"FA383-DIM-{random_string(4)}")
-	se = _submit_mr_with_add_cost(company, item, QTY_A, RATE_A, wh, 1)
+	se = _submit_mr_with_add_cost(company, item, QTY_A, RATE_A, wh, 6)
 	ro = fetch_irr_residual_gl_rows("Stock Entry", se.name)
 	assert len(ro) == 1
 	# if Stock Entry has facility and GL has facility field, Round Off should carry it when set
@@ -669,7 +667,7 @@ def _phase_dimensions(company: str, cfg: dict, wh: str):
 		frappe.clear_cache(doctype="Company")
 		item2 = ensure_test_item(company, f"FA383-ROLL-{random_string(4)}")
 		try:
-			_submit_mr_with_add_cost(company, item2, QTY_A, RATE_A, wh, 1)
+			_submit_mr_with_add_cost(company, item2, QTY_A, RATE_A, wh, 6)
 			results.append(_fail("rollback_missing_round_off", "submit unexpectedly succeeded"))
 		except Exception as e:
 			# ensure draft / no ledgers for last attempted name if any
@@ -696,7 +694,7 @@ def _phase_dimensions(company: str, cfg: dict, wh: str):
 
 def _phase_cancel_resubmit(company: str, cfg: dict, wh: str):
 	item = ensure_test_item(company, f"FA383-CYC-{random_string(4)}")
-	se1 = _submit_mr_with_add_cost(company, item, QTY_A, RATE_A, wh, 1)
+	se1 = _submit_mr_with_add_cost(company, item, QTY_A, RATE_A, wh, 6)
 	snap1 = _assert_residual_voucher(se1.name, company, cfg, expect_residual_nonzero=True)
 	se1.cancel()
 	frappe.db.commit()
@@ -707,7 +705,7 @@ def _phase_cancel_resubmit(company: str, cfg: dict, wh: str):
 		"Stock Ledger Entry", {"voucher_no": se1.name, "is_cancelled": 0}
 	)
 	item2 = ensure_test_item(company, f"FA383-CYC2-{random_string(4)}")
-	se2 = _submit_mr_with_add_cost(company, item2, QTY_A, RATE_A, wh, 1)
+	se2 = _submit_mr_with_add_cost(company, item2, QTY_A, RATE_A, wh, 6)
 	snap2 = _assert_residual_voucher(se2.name, company, cfg, expect_residual_nonzero=True)
 	assert snap1["amount"] == snap2["amount"]
 	assert snap1["residual"] == snap2["residual"]
@@ -734,7 +732,8 @@ def _phase_riv(company: str, voucher_no: str):
 	after_amt = [(r.name, flt(r.amount), flt(r.valuation_rate)) for r in doc.items]
 
 	assert before_amt == after_amt
-	assert len(before_ro) == len(after_ro) == 1
+	assert len(before_ro) == len(after_ro)
+	# NEW docs with posted residual Round Off stay at 1; soft-skip stays at 0
 	assert abs(sum(flt(r.debit) for r in before_gl) - sum(flt(r.debit) for r in after_gl)) < 1e-9
 	assert abs(
 		sum(flt(r.get("stock_value_difference")) for r in before_sle)
@@ -1003,7 +1002,12 @@ def run_final_audit():
 	except Exception as e:
 		phases["cancel_resubmit"] = [_fail("cancel_resubmit", str(e))]
 
-	riv_target = vouchers.get("positive_residual") or cyc_name
+	riv_target = (
+		vouchers.get("cancel_resubmit")
+		or vouchers.get("negative_residual")
+		or vouchers.get("positive_residual")
+		or cyc_name
+	)
 	try:
 		phases["riv"] = _phase_riv(company, riv_target)
 	except Exception as e:

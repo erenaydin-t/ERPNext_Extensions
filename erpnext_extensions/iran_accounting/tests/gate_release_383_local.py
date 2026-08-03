@@ -1,5 +1,5 @@
 # Copyright (c) 2026, ERPNext Extensions contributors
-"""LOCAL-ONLY pre-publish gate: integration flows, RIV×2, stress, 03516, perf.
+"""LOCAL-ONLY pre-publish gate for 3.8.4: integration flows, RIV×2, stress, 03516, perf.
 
 Run:
   bench --site development.localhost execute \\
@@ -320,6 +320,7 @@ def run_gate(full_stress: int = 0):
 
 	apply()
 	frappe.set_user("Administrator")
+	frappe.flags.iran_gate_defaults = True
 	company = get_irr_company("ESPAD")
 	enable_perpetual_inventory(company)
 	wh = get_warehouse(company)

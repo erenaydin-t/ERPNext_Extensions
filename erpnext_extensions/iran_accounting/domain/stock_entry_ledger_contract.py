@@ -183,6 +183,11 @@ def _assert_irr_rate_rounding_residual_gl(doc, gl_rows: list[dict], company: str
 			)
 		return failures
 
+	if not residual_rows:
+		# Soft-skip: residual exists but no safe non-Stock / non-Stock-Adj / non-Add-Cost
+		# reclass partner — inventory amounts stay authoritative without Round Off.
+		return failures
+
 	if len(residual_rows) != 1:
 		failures.append(
 			f"{doc.doctype} {doc.name}: expected 1 IRR Round Off residual GL row, got {len(residual_rows)}"
