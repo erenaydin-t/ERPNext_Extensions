@@ -1,5 +1,5 @@
 # Copyright (c) 2026, ERPNext Extensions contributors
-"""IRR rate-first RIV preservation (3.8.3) — NEW documents only.
+"""IRR rate-first RIV preservation (3.8.4) — NEW documents only.
 
 Mandatory fixtures:
   A) qty=1245, raw=2207006.162248996 → rate 2207006, amount 2747722470; RIV no drift

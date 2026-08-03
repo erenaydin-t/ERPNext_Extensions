@@ -248,7 +248,7 @@ class TestIRRRoundingResidualGLMap(unittest.TestCase):
 		self.assertEqual(sum(e.get("debit") or 0 for e in gl), sum(e.get("credit") or 0 for e in gl))
 
 	def test_manufacture_does_not_post_round_off_residual(self):
-		"""FINAL 3.8.3: Manufacture residual stays out of Round Off; Stock Adj untouched."""
+		"""FINAL 3.8.4: Manufacture residual stays out of Round Off; Stock Adj untouched."""
 		doc = self._irr_doc(1430, 7, 204, purpose="Manufacture", additional=137, lcv=59)
 		gl = self._base_gl(1430, 1430)
 		# Simulate Stock Adjustment valuation difference leg (must not be Round Off target).

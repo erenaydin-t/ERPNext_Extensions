@@ -1,5 +1,5 @@
 # Copyright (c) 2026, ERPNext Extensions contributors
-"""LOCAL-ONLY pre-publish gate: integration flows, RIV×2, stress, 03516, perf.
+"""LOCAL-ONLY pre-publish gate for 3.8.4: integration flows, RIV×2, stress, 03516, perf.
 
 Run:
   bench --site development.localhost execute \\

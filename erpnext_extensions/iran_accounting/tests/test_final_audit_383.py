@@ -1,5 +1,5 @@
 # Copyright (c) 2026, ERPNext Extensions contributors
-"""Final pre-publish audit for IRR Round Off residual release gaps (3.8.3).
+"""Final pre-publish audit for IRR Round Off residual release gaps (3.8.4).
 
 LOCAL ONLY. Does not mutate production. Does not change business logic.
 
@@ -469,7 +469,7 @@ def _phase_manufacture_lcv(company: str, cfg: dict, wh: str):
 	qty = flt(fg_row.transfer_qty or fg_row.qty)
 	residual = compute_rounding_residual(fg_row.amount, qty, fg_row.valuation_rate, "IRR")
 	ro = fetch_irr_residual_gl_rows("Stock Entry", se.name)
-	# FINAL 3.8.3: Manufacture must not post IRR residual Round Off (Stock Adj for value_difference).
+	# FINAL 3.8.4: Manufacture must not post IRR residual Round Off (Stock Adj for value_difference).
 	assert not ro, f"Manufacture must not post Round Off residual GL; got {ro}"
 
 	contract = enforce_stock_entry_ledger_contract(se.name, company, raise_on_fail=False)

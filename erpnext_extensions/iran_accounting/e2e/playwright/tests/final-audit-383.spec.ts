@@ -22,7 +22,7 @@ function isFrac(v: unknown): boolean {
   return Number.isFinite(n) && Math.abs(n - Math.round(n)) > 1e-9;
 }
 
-test.describe("Final audit 3.8.3 UI vs DB @release-blocking", () => {
+test.describe("Final audit 3.8.4 UI vs DB @release-blocking", () => {
   test("residual Stock Entry UI matches DB integers and Round Off GL", async ({
     page,
     loginPage,
