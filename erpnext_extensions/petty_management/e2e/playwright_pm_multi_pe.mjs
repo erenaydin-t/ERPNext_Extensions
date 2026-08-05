@@ -250,11 +250,18 @@ async function run() {
       pass: menuInfo.ok && !/PM Reject/i.test(menuText),
       evidence: menuInfo,
     });
+    // v3.8.5+: View Payment Entries is a custom button (outside workflow Actions menu).
+    const viewPeVisible = await page.evaluate(() =>
+      Array.from(document.querySelectorAll("a, button, .btn")).some((el) =>
+        /View Payment Entries/i.test((el.textContent || "").trim())
+      )
+    );
     results.push({
       test: "actions_menu_has_view_payment_entries",
-      pass: menuInfo.ok && /View Payment Entries/i.test(menuText),
+      pass: viewPeVisible,
+      evidence: { viewPeVisible, menuHadView: /View Payment Entries/i.test(menuText) },
     });
-    if (menuInfo.ok) {
+    if (viewPeVisible || menuInfo.ok) {
       await page.evaluate(
         (args) => {
           frappe.route_options = args.filters || {

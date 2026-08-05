@@ -11,12 +11,14 @@ if ! flock -n 8; then
   exit 2
 fi
 export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-/home/frappe/.cache/ms-playwright}"
-export FRAPPE_E2E_BASE_URL="${FRAPPE_E2E_BASE_URL:-http://development.localhost:8000}"
+export FRAPPE_E2E_BASE_URL="${FRAPPE_E2E_BASE_URL:-http://development.localhost:8001}"
+export FRAPPE_E2E_SITE="${FRAPPE_E2E_SITE:-development.localhost}"
 export FRAPPE_BENCH_ROOT="${FRAPPE_BENCH_ROOT:-/workspace/development/frappe-bench}"
 
 SCRIPTS=(
   playwright_pm_request_form_smoke.mjs
   playwright_pm_request_pe_list_e2e.mjs
+  playwright_pm_request_actions_visibility.mjs
   playwright_pm_multi_pe.mjs
   playwright_pm_clearance_search_link_network_debug.mjs
   playwright_pm_clearance_settlement_lines_e2e.mjs

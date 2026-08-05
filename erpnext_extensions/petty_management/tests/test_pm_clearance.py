@@ -473,9 +473,15 @@ def _make_purchase_order_for_company(qty: float = 5, rate: float = 1000):
 
 	item_doc = frappe.get_cached_doc("Item", item_code)
 	uom = item_doc.stock_uom or "Nos"
+	company_currency = frappe.get_cached_value("Company", COMPANY, "default_currency") or "INR"
 	po = frappe.new_doc("Purchase Order")
 	po.company = COMPANY
 	po.supplier = supplier
+	# Keep PO in company currency so advance settlement validations use
+	# grand_total / base_grand_total consistently (avoids supplier-currency
+	# IRR POs with tiny INR base totals on multi-currency sites).
+	po.currency = company_currency
+	po.conversion_rate = 1
 	po.transaction_date = today()
 	po.schedule_date = today()
 	po.append(

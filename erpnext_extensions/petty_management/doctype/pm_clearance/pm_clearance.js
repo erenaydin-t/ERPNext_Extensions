@@ -40,6 +40,9 @@ frappe.ui.form.on("PM Clearance", {
 		frm.trigger("recalc_totals");
 	},
 	setup(frm) {
+		if (erpnext_extensions?.petty_management?.install_workflow_reject_filter) {
+			erpnext_extensions.petty_management.install_workflow_reject_filter();
+		}
 		if (!frappe._pm_clearance_link_debug_bound) {
 			frappe._pm_clearance_link_debug_bound = true;
 			try {
@@ -310,7 +313,6 @@ frappe.ui.form.on("PM Clearance", {
 	refresh(frm) {
 		frappe.workflow.setup(frm.doctype);
 		setup_settlement_buttons(frm);
-		setTimeout(() => setup_settlement_buttons(frm), 120);
 		if (frm.doc.employee && frm.doc.company && can_mutate_derived_fields(frm)) {
 			frm.trigger("refresh_holder_pending");
 		} else if ((!frm.doc.employee || !frm.doc.company) && can_mutate_derived_fields(frm)) {
@@ -732,89 +734,110 @@ function sync_lifecycle_display_from_flags(frm, flags) {
 }
 
 function hide_workflow_reject_when_locked(frm, flags) {
-	if (!flags || flags.can_reject) {
-		return;
-	}
-	const rejectLabels = [__("PM Reject"), "PM Reject", __("Reject")];
-	if (frm.page && frm.page.actions_menu_items) {
-		frm.page.actions_menu_items = frm.page.actions_menu_items.filter((item) => {
-			const label = (item.label || item.action || "").toString();
-			return !rejectLabels.some((r) => label.indexOf(r) >= 0 || label === r);
-		});
+	frm._pm_action_flags = flags || {};
+	if (erpnext_extensions?.petty_management?.refresh_workflow_actions) {
+		erpnext_extensions.petty_management.refresh_workflow_actions(frm);
 	}
 }
 
 function setup_settlement_buttons(frm) {
-	remove_pm_clearance_toolbar_buttons(frm);
-
+	// Do not wipe buttons before flags return — concurrent refresh races would
+	// briefly remove custom actions (same class of bug as PM Request toolbar).
 	if (frm.is_new()) {
+		remove_pm_clearance_toolbar_buttons(frm);
 		const run_preview = () => preview_settlement_entry(frm);
 		frm.add_custom_button(__("Preview Settlement Entry"), run_preview);
 		return;
 	}
 
+	frm._pm_clearance_toolbar_request_seq = cint(frm._pm_clearance_toolbar_request_seq || 0) + 1;
+	const requestSeq = frm._pm_clearance_toolbar_request_seq;
+
 	frappe.call({
 		method: "erpnext_extensions.petty_management.doctype.pm_clearance.pm_clearance.get_pm_clearance_action_flags",
 		args: { pm_clearance: frm.doc.name },
 		callback(r) {
+			if (r.exc || requestSeq !== frm._pm_clearance_toolbar_request_seq) {
+				return;
+			}
 			const flags = r.message || {};
+			frm._pm_action_flags = flags;
+			frm._pm_clearance_apply_flags = flags;
 			sync_lifecycle_display_from_flags(frm, flags);
 			hide_workflow_reject_when_locked(frm, flags);
-
-			if (flags.can_preview) {
-				frm.add_custom_button(__("Preview Settlement Entry"), () =>
-					preview_settlement_entry(frm)
-				);
-			}
-			if (flags.can_settle) {
-				frm.add_custom_button(
-					__("Settle Petty Cash"),
-					() => {
-						frappe.call({
-							method: "erpnext_extensions.petty_management.doctype.pm_clearance.pm_clearance.settle_petty_cash",
-							args: { pm_clearance: frm.doc.name },
-							freeze: true,
-							freeze_message: __("Settling petty cash…"),
-							callback(res) {
-								if (res.exc) return;
-								const je = res.message && res.message.journal_entry;
-								frappe.show_alert({
-									message: je
-										? __("Settlement Journal Entry {0} created", [je])
-										: __("Settlement Journal Entry created"),
-									indicator: "green",
-								});
-								frm.reload_doc();
-							},
-							error(res) {
-								const msg =
-									(res && res.message) ||
-									(res &&
-										res._server_messages &&
-										frappe.utils.parse_json(res._server_messages)) ||
-									__("Could not settle petty cash");
-								frappe.msgprint({
-									title: __("Settlement failed"),
-									message: msg,
-									indicator: "red",
-								});
-							},
-						});
-					},
-					null
-				);
-				if (frm.change_custom_button_type) {
-					frm.change_custom_button_type(__("Settle Petty Cash"), null, "primary");
-				}
-			}
-			if (flags.can_open_je && flags.journal_entry) {
-				frm.add_custom_button(__("Open Settlement Journal Entry"), () =>
-					frappe.set_route("Form", "Journal Entry", flags.journal_entry)
-				);
-			}
+			apply_pm_clearance_custom_buttons(frm, flags);
 		},
 	});
 }
+
+function apply_pm_clearance_custom_buttons(frm, flags) {
+	remove_pm_clearance_toolbar_buttons(frm);
+	if (!flags) {
+		return;
+	}
+	if (flags.can_preview) {
+		frm.add_custom_button(__("Preview Settlement Entry"), () =>
+			preview_settlement_entry(frm)
+		);
+	}
+	if (flags.can_settle) {
+		frm.add_custom_button(
+			__("Settle Petty Cash"),
+			() => {
+				frappe.call({
+					method: "erpnext_extensions.petty_management.doctype.pm_clearance.pm_clearance.settle_petty_cash",
+					args: { pm_clearance: frm.doc.name },
+					freeze: true,
+					freeze_message: __("Settling petty cash…"),
+					callback(res) {
+						if (res.exc) return;
+						const je = res.message && res.message.journal_entry;
+						frappe.show_alert({
+							message: je
+								? __("Settlement Journal Entry {0} created", [je])
+								: __("Settlement Journal Entry created"),
+							indicator: "green",
+						});
+						frm.reload_doc();
+					},
+					error(res) {
+						const msg =
+							(res && res.message) ||
+							(res &&
+								res._server_messages &&
+								frappe.utils.parse_json(res._server_messages)) ||
+							__("Could not settle petty cash");
+						frappe.msgprint({
+							title: __("Settlement failed"),
+							message: msg,
+							indicator: "red",
+						});
+					},
+				});
+			},
+			null
+		);
+		if (frm.change_custom_button_type) {
+			frm.change_custom_button_type(__("Settle Petty Cash"), null, "primary");
+		}
+	}
+	if (flags.can_open_je && flags.journal_entry) {
+		frm.add_custom_button(__("Open Settlement Journal Entry"), () =>
+			frappe.set_route("Form", "Journal Entry", flags.journal_entry)
+		);
+	}
+}
+
+window.pm_clearance_reapply_custom_toolbar = function (frm) {
+	if (!frm || frm.doctype !== "PM Clearance") {
+		return;
+	}
+	const flags = frm._pm_clearance_apply_flags || frm._pm_action_flags;
+	if (!flags) {
+		return;
+	}
+	apply_pm_clearance_custom_buttons(frm, flags);
+};
 
 frappe.ui.form.on("PM Clearance Detail", {
 	settlement_type(frm, cdt, cdn) {

@@ -95,23 +95,7 @@ async function viewPaymentEntriesActionVisible(page, pmRequest) {
       /View Payment Entries/i.test((el.textContent || "").trim())
     )
   );
-  if (!inDom) {
-    return false;
-  }
-  const actionsBtn = page
-    .locator(".actions-btn-group .btn")
-    .filter({ hasText: /^Actions$/i })
-    .first();
-  if (await actionsBtn.count()) {
-    await actionsBtn.click();
-    const visible =
-      (await page
-        .locator(".actions-btn-group .dropdown-menu a.dropdown-item")
-        .filter({ hasText: /View Payment Entries/i })
-        .count()) > 0;
-    await page.keyboard.press("Escape");
-    return visible;
-  }
+  // Custom button (preferred) or legacy Actions menu item both count.
   return inDom;
 }
 
@@ -297,6 +281,7 @@ async function run() {
         draft: draft.pm_request,
         results,
         screenshot,
+        benign_console_errors: benign.slice(0, 20),
       },
       null,
       2

@@ -38,15 +38,24 @@ def absorb_irr_cost_center_split_residual(gle_list: list, template: dict, precis
 			target[field] = flt(flt(target.get(field)) + residual, precision)
 
 
+def _original_distribute_gl_based_on_cost_center_allocation():
+	"""Resolve ERPNext's unpatched distribute_gl (safe after iran monkey patch)."""
+	import erpnext.accounts.general_ledger as gl
+
+	# After `_patch_general_ledger`, module attribute points at our wrapper.
+	# Calling that as "_orig" causes infinite recursion for non-IRR companies.
+	orig = getattr(gl, "_iran_original_distribute_cc", None)
+	if orig:
+		return orig
+	return gl.distribute_gl_based_on_cost_center_allocation
+
+
 def distribute_gl_based_on_cost_center_allocation_irr(gl_map, precision=None, from_repost=False):
 	"""Drop-in replacement for ERPNext distribute_gl with exact IRR splits.
 
 	IRR residual Round Off rows are excluded from allocation and always keep
 	Company.round_off_cost_center (never first allocation child / dimension fallback).
 	"""
-	from erpnext.accounts.general_ledger import (
-		distribute_gl_based_on_cost_center_allocation as _orig,
-	)
 	from erpnext.accounts.general_ledger import (
 		get_cost_center_allocation_data,
 		validate_expense_against_budget,
@@ -58,7 +67,9 @@ def distribute_gl_based_on_cost_center_allocation_irr(gl_map, precision=None, fr
 	company = gl_map[0].company
 	company_currency = frappe.get_cached_value("Company", company, "default_currency")
 	if not is_irr_company(company):
-		return _orig(gl_map, precision=precision, from_repost=from_repost)
+		return _original_distribute_gl_based_on_cost_center_allocation()(
+			gl_map, precision=precision, from_repost=from_repost
+		)
 
 	if not precision:
 		precision = get_currency_precision(company_currency)

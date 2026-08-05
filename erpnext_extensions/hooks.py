@@ -98,6 +98,9 @@ doctype_js = {
 		"consignment_stock/public/js/stock_entry_type_consignment.js",
 		"consignment_stock/public/js/stock_entry_type_material_loan.js",
 	],
+	# Autoloads doctype JS; extras keep custom buttons clear_actions_menu-safe.
+	"PM Request": "public/js/pm_desk_workflow_actions.js",
+	"PM Clearance": "public/js/pm_desk_workflow_actions.js",
 }
 doctype_list_js = {
 	"PM Clearance": "erpnext_extensions/petty_management/doctype/pm_clearance/pm_clearance_list.js",
