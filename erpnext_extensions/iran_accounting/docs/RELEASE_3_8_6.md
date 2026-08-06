@@ -70,6 +70,33 @@ RIV / RIV×2 use the same `evaluate_irr_rate_rounding_residual` contract.
 Patch `ensure_company_round_off_dimension_defaults`: schema only, no default rows,
 no AD defaults, no historical GL/SLE repair.
 
+## Company validate hook
+
+Frappe does not call child `Document.validate()` when saving a parent Table
+field. `company_round_off_defaults.validate_company_round_off_dimension_defaults`
+runs child validation on Company save so duplicate / forbidden / invalid defaults
+are rejected from Desk.
+
+## Playwright E2E (development.localhost :8001)
+
+Release-blocking specs:
+
+- `round-off-dimension-defaults.spec.ts` — Company child table CRUD + validations
+- `purchase-receipt-round-off.spec.ts` — PR Class B / Class A (header, Company default,
+  missing default) + RIV×2
+
+Helpers: `iran_accounting/e2e_round_off_ui.py` (test-support only; Class A fixtures
+temporarily preserve amount≠qty×rate through submit).
+
+## UAT checklist
+
+- [x] Company Round Off Dimension Defaults grid (Playwright)
+- [x] PR Class B clear error (VR=0 shape) (Playwright)
+- [x] PR Class A header / Company default / missing (Playwright)
+- [ ] Manufacture uses Stock Adjustment, not custom Round Off
+- [x] RIV×2 deterministic (Playwright on Class A PR)
+- [ ] Trial Balance / Round Off / Stock Adjustment movements reviewed
+
 ## Historical repair
 
 **OUT OF SCOPE.**
@@ -78,13 +105,4 @@ no AD defaults, no historical GL/SLE repair.
 
 Revert app to prior version; empty child table is harmless. Do not delete
 submitted accounting data.
-
-## UAT checklist
-
-- [ ] Company Round Off Dimension Defaults grid
-- [ ] PR Class B clear error (VR=0 shape)
-- [ ] PR Class A header / item / Company default Department
-- [ ] Manufacture uses Stock Adjustment, not custom Round Off
-- [ ] RIV×2 deterministic
-- [ ] Trial Balance / Round Off / Stock Adjustment movements reviewed
 """

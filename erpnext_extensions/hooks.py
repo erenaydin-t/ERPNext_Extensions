@@ -378,6 +378,9 @@ doc_events = {
 	"Purchase Order": {
 		"validate": "erpnext_extensions.iran_accounting.buying_selling.validate_purchase_order",
 	},
+	"Company": {
+		"validate": "erpnext_extensions.iran_accounting.company_round_off_defaults.validate_company_round_off_dimension_defaults",
+	},
 	"Purchase Receipt": {
 		"validate": "erpnext_extensions.iran_accounting.buying_selling.validate_purchase_receipt",
 	},
