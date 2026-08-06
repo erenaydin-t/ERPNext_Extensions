@@ -1,5 +1,5 @@
 # Copyright (c) 2026, ERPNext Extensions contributors
-"""Final pre-publish audit for IRR Round Off residual release gaps (3.8.4).
+"""Final pre-publish audit for IRR Round Off residual + 3.8.6 architecture.
 
 LOCAL ONLY. Does not mutate production. Does not change business logic.
 
@@ -257,10 +257,14 @@ def _phase_round_off_config(company: str):
 
 def _phase_residuals(company: str, cfg: dict, wh: str):
 	results = []
-	# qty=7, RATE_A≈176.2857 → INT 176, basic 1232
-	# add=1 → amount 1233 residual +1; add=6 → amount 1238 residual -1; add=0 → residual 0
+	# qty=7, RATE_A→INT 176, basic 1232; amount=basic+add; VR=ROUND(amount/qty)
+	# Class A residual requires Add Cost GL magnitude > |residual| so protected
+	# Add Cost remains visible and can still be the safe partner.
+	# add=10 → amount 1242, VR 177, residual +3 (partner ok)
+	# add=6  → amount 1238, VR 177, residual -1 (partner ok)
+	# add=0  → residual 0 (bypass)
 	cases = [
-		("positive_residual", 1, True),
+		("positive_residual", 10, True),
 		("negative_residual", 6, True),
 		("zero_residual", 0, False),
 	]

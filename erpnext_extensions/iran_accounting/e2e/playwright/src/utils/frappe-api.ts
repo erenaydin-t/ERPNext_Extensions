@@ -89,13 +89,42 @@ export async function frappeCall<T>(
   return page.evaluate(
     async ({ method, args }) => {
       const w = window as unknown as {
-        frappe?: { call: (o: { method: string; args: Record<string, unknown> }) => Promise<{ message: unknown }> };
+        frappe?: {
+          call: (o: {
+            method: string;
+            args: Record<string, unknown>;
+            freeze?: boolean;
+          }) => Promise<{ message: unknown }>;
+          msg_print?: unknown;
+        };
       };
       if (!w.frappe?.call) {
         throw new Error("frappe.call not available — open a Desk form first");
       }
-      const r = await w.frappe.call({ method, args, freeze: true });
-      return r.message as T;
+      try {
+        const r = await w.frappe.call({ method, args, freeze: false });
+        return r.message as T;
+      } catch (e: unknown) {
+        const err = e as {
+          message?: string;
+          exc?: string;
+          _server_messages?: string;
+          messages?: unknown;
+        };
+        let detail = err?.message || "";
+        if (!detail && err?._server_messages) {
+          try {
+            const parsed = JSON.parse(err._server_messages);
+            detail = Array.isArray(parsed)
+              ? parsed.map((x: unknown) => (typeof x === "string" ? JSON.parse(x).message : x)).join("; ")
+              : String(err._server_messages);
+          } catch {
+            detail = String(err._server_messages);
+          }
+        }
+        if (!detail) detail = typeof e === "string" ? e : JSON.stringify(e);
+        throw new Error(`${method}: ${detail}`.slice(0, 2000));
+      }
     },
     { method, args }
   );

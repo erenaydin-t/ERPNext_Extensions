@@ -2,6 +2,8 @@
 # Run all Petty Management Playwright E2E scripts with evidence.
 set -euo pipefail
 export PLAYWRIGHT_BROWSERS_PATH="/home/frappe/.cache/ms-playwright"
+export FRAPPE_E2E_BASE_URL="${FRAPPE_E2E_BASE_URL:-http://development.localhost:8001}"
+export FRAPPE_E2E_SITE="${FRAPPE_E2E_SITE:-development.localhost}"
 if [ ! -d "$PLAYWRIGHT_BROWSERS_PATH" ]; then
   echo "Missing Playwright browsers at $PLAYWRIGHT_BROWSERS_PATH" >&2
   exit 2
@@ -13,6 +15,7 @@ OUT="${1:-/tmp/pm_playwright_results.txt}"
 SCRIPTS=(
   "playwright_pm_request_form_smoke.mjs"
   "playwright_pm_request_pe_list_e2e.mjs"
+  "playwright_pm_request_actions_visibility.mjs"
   "playwright_pm_multi_pe.mjs"
   "playwright_pm_clearance_search_link_network_debug.mjs"
   "playwright_pm_clearance_settlement_lines_e2e.mjs"

@@ -251,6 +251,7 @@ def collect_stock_entry_residuals(doc) -> list[dict[str, Any]]:
 
 
 def collect_purchase_receipt_residuals(doc) -> list[dict[str, Any]]:
+	"""Legacy collector (raw residual math). Prefer classify_document_residuals for 3.8.6+."""
 	ccy = get_company_currency(doc.company)
 	out: list[dict[str, Any]] = []
 	for row in doc.get("items") or []:
@@ -259,20 +260,31 @@ def collect_purchase_receipt_residuals(doc) -> list[dict[str, Any]]:
 		rate = row.get("valuation_rate")
 		if rate in (None, "") and row.get("base_rate") not in (None, ""):
 			rate = row.get("base_rate")
-		if rate in (None, "") or not qty:
+		if not qty:
 			continue
-		residual = compute_rounding_residual(auth, qty, rate, ccy)
-		if not residual:
-			continue
+		# Include rate<=0 with non-zero amount so Class B classifier can see them.
+		if rate in (None, ""):
+			if not auth:
+				continue
+			residual = auth
+			derived = 0
+		elif flt(rate) <= 0 and auth:
+			residual = auth
+			derived = 0
+		else:
+			residual = compute_rounding_residual(auth, qty, rate, ccy)
+			if not residual:
+				continue
+			derived = rate_derived_amount(qty, rate, ccy)
 		out.append(
 			{
 				"row_name": row.get("name"),
 				"idx": row.get("idx"),
 				"item_code": row.get("item_code"),
 				"qty": qty,
-				"valuation_rate": rate,
+				"valuation_rate": rate if rate not in (None, "") else 0,
 				"authoritative_amount": auth,
-				"rate_derived_amount": rate_derived_amount(qty, rate, ccy),
+				"rate_derived_amount": derived,
 				"residual": residual,
 				"incoming": True,
 				"round_off_debit": round_off_signed_debit(residual, incoming=True),
@@ -331,20 +343,34 @@ def collect_document_residuals(doc) -> list[dict[str, Any]]:
 
 
 def document_has_rounding_residual(doc) -> bool:
-	return any(flt(r.get("residual")) for r in collect_document_residuals(doc))
+	"""True when net Class A residual is non-zero (not Class B / not any-row)."""
+	from erpnext_extensions.iran_accounting.domain.irr_residual_classification import (
+		evaluate_irr_rate_rounding_residual,
+	)
+
+	decision = evaluate_irr_rate_rounding_residual(doc, gl_entries=None)
+	return bool(flt(decision.net_signed_debit)) and not decision.class_b_rows
 
 
 def assert_round_off_ready_if_needed(doc) -> None:
-	"""Before submit: residual ≠ 0 requires valid Company Round Off config."""
+	"""Before submit: shared ResidualDecision (Class B / config). Partner checked at apply."""
+	from erpnext_extensions.iran_accounting.domain.irr_residual_classification import (
+		STATUS_BYPASS,
+		STATUS_READY,
+		evaluate_irr_rate_rounding_residual,
+		raise_residual_decision,
+	)
+
 	if not is_irr_company(doc.company):
 		return
 	if doc.doctype not in SUPPORTED_RESIDUAL_DOCTYPES:
 		return
-	if stock_entry_excludes_irr_residual_round_off(doc):
+	decision = evaluate_irr_rate_rounding_residual(doc, gl_entries=None)
+	if decision.status == STATUS_BYPASS:
 		return
-	if not document_has_rounding_residual(doc):
+	if decision.status == STATUS_READY:
 		return
-	resolve_company_round_off(doc.company, require=True)
+	raise_residual_decision(decision)
 
 
 def strip_irr_rate_rounding_residual_gl(gl_map: list) -> list:
@@ -481,127 +507,87 @@ def _apply_signed_debit_to_entry(entry, signed_debit: float, precision: int, cur
 
 
 def _populate_round_off_dimensions(gle: dict, voucher_type: str, voucher_no: str, company: str) -> None:
-	"""Copy voucher / Company default dimensions for mandatory accounting dimensions.
+	"""Deprecated path — use resolve_round_off_dimensions via ResidualDecision.
 
-	Never sets or overrides cost_center — Company.round_off_cost_center is sole authority.
+	Kept for older unit-test patches; applies per-field header inherit only (no AD defaults).
 	"""
 	from erpnext.accounts.doctype.accounting_dimension.accounting_dimension import (
 		get_accounting_dimensions,
-		get_checks_for_pl_and_bs_accounts,
 	)
 
-	# Preserve Company Round Off Cost Center across dimension enrichment.
 	locked_cost_center = gle.get("cost_center")
-
-	dimensions = get_accounting_dimensions()
 	meta = frappe.get_meta(voucher_type)
-	if dimensions and all(meta.has_field(d) for d in dimensions) and voucher_no:
-		values = frappe.db.get_value(voucher_type, voucher_no, dimensions, as_dict=True) or {}
-		for dimension in dimensions:
-			if dimension == "cost_center":
-				continue
-			if values.get(dimension):
-				gle[dimension] = values.get(dimension)
-
-	report_type = frappe.get_cached_value("Account", gle.get("account"), "report_type")
-	for dimension in get_checks_for_pl_and_bs_accounts():
-		if dimension.company != company:
+	for dimension in get_accounting_dimensions():
+		if dimension == "cost_center":
 			continue
-		fieldname = dimension.fieldname
-		if fieldname == "cost_center":
+		if not meta.has_field(dimension):
 			continue
-		if gle.get(fieldname):
-			continue
-		mandatory = (report_type == "Profit and Loss" and dimension.mandatory_for_pl) or (
-			report_type == "Balance Sheet" and dimension.mandatory_for_bs
-		)
-		if mandatory:
-			if not dimension.default_dimension:
-				frappe.throw(
-					_(
-						"Mandatory accounting dimension {0} has no default for Round Off residual on {1}."
-					).format(frappe.bold(dimension.label or fieldname), frappe.bold(company)),
-					title=_("Missing Accounting Dimension"),
-				)
-			gle[fieldname] = dimension.default_dimension
-
+		if voucher_no:
+			value = frappe.db.get_value(voucher_type, voucher_no, dimension)
+			if value:
+				gle[dimension] = value
 	if locked_cost_center:
 		gle["cost_center"] = locked_cost_center
 
 
 def apply_irr_rate_rounding_residual_gl(doc, gl_map: list | None) -> list | None:
-	"""Post-process ERPNext GL map: append Round Off residual, keep inventory authoritative.
+	"""Post-process ERPNext GL map using shared ResidualDecision (3.8.6).
 
 	Manufacture / Repack: no IRR residual Round Off — value_difference uses Stock Adjustment.
 	"""
+	from erpnext_extensions.iran_accounting.domain.irr_residual_classification import (
+		STATUS_BYPASS,
+		STATUS_READY,
+		evaluate_irr_rate_rounding_residual,
+		raise_residual_decision,
+	)
+
 	if not gl_map:
 		return gl_map
-	if not is_irr_company(doc.company):
-		return gl_map
-	if doc.doctype not in SUPPORTED_RESIDUAL_DOCTYPES:
-		return gl_map
-	if stock_entry_excludes_irr_residual_round_off(doc):
+
+	decision = evaluate_irr_rate_rounding_residual(doc, gl_entries=gl_map)
+
+	if decision.status == STATUS_BYPASS:
 		strip_irr_rate_rounding_residual_gl(gl_map)
 		return gl_map
 
-	# Isolate zero-value transfer custom GL builder path.
-	if doc.doctype == "Stock Entry":
-		from erpnext_extensions.iran_accounting.zero_value_transfer import (
-			_should_force_balanced_transfer_gl,
-		)
+	if decision.status != STATUS_READY:
+		raise_residual_decision(decision)
+		return gl_map
 
-		precision = 0
-		if hasattr(doc, "get_debit_field_precision"):
-			precision = doc.get_debit_field_precision()
-		if _should_force_balanced_transfer_gl(doc, precision):
-			return gl_map
-
-	residuals = collect_document_residuals(doc)
-	net_ro_debit = round_currency(
-		sum(flt(r["round_off_debit"]) for r in residuals),
-		get_company_currency(doc.company),
-	)
-
+	net_ro_debit = flt(decision.net_signed_debit)
 	existing_ro = [
 		e for e in gl_map if is_irr_rate_rounding_residual_gl(e, company=doc.company)
 	]
-	if not net_ro_debit:
-		# Zero residual: drop any stale residual Round Off lines (should not exist).
-		strip_irr_rate_rounding_residual_gl(gl_map)
-		return gl_map
 	if existing_ro:
-		# Already applied — re-stamp Company masters (CCA must not have remapped them).
 		for e in existing_ro:
 			stamp_irr_residual_round_off_masters(e, doc.company)
+			for fieldname, value in (decision.dimensions or {}).items():
+				if fieldname != "cost_center" and value:
+					e[fieldname] = value
 		return gl_map
 
-	cfg = resolve_company_round_off(doc.company, require=True)
+	cfg_account = decision.round_off_account
+	cfg_cc = decision.round_off_cost_center
 	ccy = get_company_currency(doc.company)
 	precision = 0 if (ccy or "").upper() == "IRR" else 2
 
-	adjustable = _pick_adjustable_non_stock_leg(
-		gl_map,
-		doc.company,
-		cfg["account"],
-		protected_accounts=_protected_reclass_accounts(doc),
-		reclass_magnitude=net_ro_debit,
-	)
+	adjustable = decision.partner
 	if not adjustable:
-		# No safe non-inventory partner (Stock Adj protected; Add Cost too small to reclass).
-		# Keep vanilla GL; inventory amounts stay authoritative without inventing Round Off.
+		raise_residual_decision(decision)
 		return gl_map
 
-	# Reclassify: Round Off gets net_ro_debit; adjustable gets the opposite.
 	_apply_signed_debit_to_entry(adjustable, -net_ro_debit, precision, ccy)
 
 	template = gl_map[0]
 	row_trace = ", ".join(
-		f"row {r.get('idx')} {r.get('item_code')} residual={r.get('residual')}" for r in residuals[:8]
+		f"row {r.get('idx')} {r.get('item_code')} residual={r.get('residual')}"
+		for r in decision.class_a_rows[:8]
 	)
 	ro = frappe._dict(
 		{
-			"account": cfg["account"],
-			"cost_center": cfg["cost_center"],
+			"account": cfg_account,
+			"cost_center": cfg_cc,
 			IRR_RATE_ROUNDING_RESIDUAL_MARKER: 1,
 			"company": doc.company,
 			"posting_date": template.get("posting_date") or doc.get("posting_date"),
@@ -613,7 +599,6 @@ def apply_irr_rate_rounding_residual_gl(doc, gl_map: list | None) -> list | None
 			"party": None,
 			"against_voucher_type": None,
 			"against_voucher": None,
-			"project": doc.get("project"),
 			"debit": abs(net_ro_debit) if net_ro_debit > 0 else 0,
 			"credit": abs(net_ro_debit) if net_ro_debit < 0 else 0,
 			"debit_in_account_currency": abs(net_ro_debit) if net_ro_debit > 0 else 0,
@@ -622,25 +607,32 @@ def apply_irr_rate_rounding_residual_gl(doc, gl_map: list | None) -> list | None
 			"credit_in_transaction_currency": abs(net_ro_debit) if net_ro_debit < 0 else 0,
 		}
 	)
+	for fieldname, value in (decision.dimensions or {}).items():
+		if fieldname != "cost_center" and value:
+			ro[fieldname] = value
 	if template.get("finance_book"):
 		ro["finance_book"] = template.get("finance_book")
-	_populate_round_off_dimensions(ro, doc.doctype, doc.name, doc.company)
-	# Sole authority after any dimension enrichment — never inherit row/leg/CCA/dimension CC.
+	# Sole authority — never inherit row/leg/CCA/dimension CC.
 	stamp_irr_residual_round_off_masters(ro, doc.company)
 	gl_map.append(ro)
 	return gl_map
 
 
 def expected_round_off_gl_totals(doc) -> dict[str, float]:
-	"""Expected Round Off debit/credit from document residuals (for validators/tests)."""
-	residuals = collect_document_residuals(doc)
-	ccy = get_company_currency(doc.company)
-	net = round_currency(sum(flt(r["round_off_debit"]) for r in residuals), ccy)
+	"""Expected Round Off debit/credit from Class A residuals only (for validators/tests)."""
+	from erpnext_extensions.iran_accounting.domain.irr_residual_classification import (
+		evaluate_irr_rate_rounding_residual,
+	)
+
+	decision = evaluate_irr_rate_rounding_residual(doc, gl_entries=None)
+	net = flt(decision.net_signed_debit)
 	return {
-		"net_signed_debit": flt(net),
-		"debit": abs(flt(net)) if flt(net) > 0 else 0.0,
-		"credit": abs(flt(net)) if flt(net) < 0 else 0.0,
-		"residuals": residuals,
+		"net_signed_debit": net,
+		"debit": abs(net) if net > 0 else 0.0,
+		"credit": abs(net) if net < 0 else 0.0,
+		"residuals": decision.class_a_rows,
+		"class_b_rows": decision.class_b_rows,
+		"status": decision.status,
 	}
 
 

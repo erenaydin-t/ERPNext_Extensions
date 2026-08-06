@@ -106,42 +106,52 @@ async function createPeFromToolbar(page, amount) {
   await page.evaluate(() => {
     window.cur_frm?.trigger?.("setup_pm_request_toolbar");
   });
-  const actionsBtn = page
-    .locator(".actions-btn-group .btn")
-    .filter({ hasText: /^Actions$/i })
-    .first();
-  const menuItem = page
-    .locator(".actions-btn-group .dropdown-menu a.dropdown-item")
-    .filter({ hasText: /Create Payment Entry/i })
-    .first();
+  // Prefer custom button (v3.8.5+); Actions menu item is legacy / race-prone.
   try {
-    if (await actionsBtn.count()) {
-      await actionsBtn.click({ timeout: 15000 });
-      await menuItem.click({ timeout: 15000 });
-    } else {
-      await page
-        .getByRole("button", { name: /Create Payment Entry/i })
-        .click({ timeout: 15000 });
-    }
+    await page
+      .getByRole("button", { name: /Create Payment Entry/i })
+      .click({ timeout: 20000 });
     const modal = page.locator(".modal-dialog:visible");
     await modal
       .locator('input[data-fieldname="paid_amount"]')
       .fill(String(amount));
     await confirmFrappePrompt(page);
-    return { via: "ui" };
-  } catch (uiErr) {
-    const peName = await page.evaluate(async (amt) => {
-      const r = await frappe.call({
-        method:
-          "erpnext_extensions.petty_management.doctype.pm_request.pm_request.create_payment_entry",
-        args: { pm_request: window.cur_frm.doc.name, paid_amount: amt },
-      });
-      return r.message;
-    }, amount);
-    if (!peName) {
-      throw uiErr;
+    return { via: "ui-button" };
+  } catch (buttonErr) {
+    const actionsBtn = page
+      .locator(".actions-btn-group .btn")
+      .filter({ hasText: /^Actions$/i })
+      .first();
+    const menuItem = page
+      .locator(".actions-btn-group .dropdown-menu a.dropdown-item")
+      .filter({ hasText: /Create Payment Entry/i })
+      .first();
+    try {
+      if (await actionsBtn.count()) {
+        await actionsBtn.click({ timeout: 15000 });
+        await menuItem.click({ timeout: 15000 });
+        const modal = page.locator(".modal-dialog:visible");
+        await modal
+          .locator('input[data-fieldname="paid_amount"]')
+          .fill(String(amount));
+        await confirmFrappePrompt(page);
+        return { via: "ui-actions-menu" };
+      }
+      throw buttonErr;
+    } catch (uiErr) {
+      const peName = await page.evaluate(async (amt) => {
+        const r = await frappe.call({
+          method:
+            "erpnext_extensions.petty_management.doctype.pm_request.pm_request.create_payment_entry",
+          args: { pm_request: window.cur_frm.doc.name, paid_amount: amt },
+        });
+        return r.message;
+      }, amount);
+      if (!peName) {
+        throw uiErr;
+      }
+      return { via: "api", payment_entry: peName };
     }
-    return { via: "api", payment_entry: peName };
   }
 }
 
@@ -196,15 +206,33 @@ async function deleteDraftPeFromDesk(page) {
 }
 
 async function createPeVisible(page) {
-  return page.evaluate(() => {
-    const w = window;
-    const items = Array.from(
-      document.querySelectorAll(
-        ".actions-btn-group .dropdown-menu a.dropdown-item, .custom-actions .btn"
-      )
-    ).map((el) => (el.textContent || "").trim());
-    return items.some((t) => /Create Payment Entry/i.test(t));
+  // Custom buttons live outside workflow Actions (v3.8.5+); wait for flags UI.
+  await page.evaluate(() => {
+    window.cur_frm?.trigger?.("setup_pm_request_toolbar");
   });
+  try {
+    await page.waitForFunction(
+      () => {
+        const labels = Array.from(
+          document.querySelectorAll(
+            "button, a.btn, .custom-actions .btn, .page-head .btn, .actions-btn-group .dropdown-menu a.dropdown-item"
+          )
+        ).map((el) => (el.textContent || "").trim());
+        return labels.some((t) => /Create Payment Entry/i.test(t));
+      },
+      { timeout: 30000 }
+    );
+    return true;
+  } catch (_e) {
+    return page.evaluate(() => {
+      const labels = Array.from(
+        document.querySelectorAll(
+          "button, a.btn, .custom-actions .btn, .page-head .btn, .actions-btn-group .dropdown-menu a.dropdown-item"
+        )
+      ).map((el) => (el.textContent || "").trim());
+      return labels.some((t) => /Create Payment Entry/i.test(t));
+    });
+  }
 }
 
 async function run() {

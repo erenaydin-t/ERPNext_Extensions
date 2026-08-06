@@ -6,6 +6,9 @@ frappe.ui.form.on("PM Request", {
 		frm._pm_toolbar_applied_version = 0;
 		frm._pm_pe_list_applied_version = 0;
 		frm._pm_pe_response_version = "0";
+		if (erpnext_extensions?.petty_management?.install_workflow_reject_filter) {
+			erpnext_extensions.petty_management.install_workflow_reject_filter();
+		}
 		bind_pm_request_funding_realtime(frm);
 		frm.set_query("employee_bank_account", () => {
 			if (!frm.doc.employee) {
@@ -137,8 +140,8 @@ frappe.ui.form.on("PM Request", {
 		});
 	},
 	setup_pm_request_toolbar(frm) {
-		remove_pm_request_toolbar_buttons(frm);
 		if (frm.is_new() || !frm.doc.name) {
+			remove_pm_request_toolbar_buttons(frm);
 			return;
 		}
 		frm._pm_toolbar_request_seq = cint(frm._pm_toolbar_request_seq || 0) + 1;
@@ -243,12 +246,24 @@ function expand_pm_request_main_sections(frm) {
 }
 
 function apply_pm_request_action_ui(frm, f) {
+	frm._pm_action_flags = f || {};
 	remove_pm_request_toolbar_buttons(frm);
 	apply_pm_request_toolbar(frm, f);
 	apply_pm_request_intro(frm, f);
-	hide_pm_request_reject_when_not_allowed(frm, f);
-	setTimeout(() => hide_pm_request_reject_when_not_allowed(frm, f), 0);
+	// Rebuild workflow Actions with can_reject filter (survives clear_actions_menu races).
+	if (erpnext_extensions?.petty_management?.refresh_workflow_actions) {
+		erpnext_extensions.petty_management.refresh_workflow_actions(frm);
+	}
 }
+
+/** Re-apply custom buttons from cached flags (called after workflow Actions rebuild). */
+window.pm_request_reapply_custom_toolbar = function (frm) {
+	if (!frm || frm.doctype !== "PM Request" || !frm._pm_action_flags) {
+		return;
+	}
+	remove_pm_request_toolbar_buttons(frm);
+	apply_pm_request_toolbar(frm, frm._pm_action_flags);
+};
 
 function apply_pm_request_pe_list_payload(frm, $wrapper, payload, currency) {
 	const incoming = cint(payload.response_version_id || 0);
@@ -386,16 +401,21 @@ function apply_pm_request_toolbar(frm, f) {
 		);
 	};
 
+	// Use add_custom_button (not page.add_action_item): Frappe workflow show_actions()
+	// calls clear_actions_menu() and would wipe custom funding actions.
 	if (f.workflow_state_title === "Approved" && !cint(f.is_closed)) {
 		if (f.can_create_payment_entry) {
-			add_pm_request_action_item(frm, __("Create Payment Entry"), promptCreatePe);
+			add_pm_request_toolbar_button(frm, __("Create Payment Entry"), promptCreatePe);
+			if (frm.change_custom_button_type) {
+				frm.change_custom_button_type(__("Create Payment Entry"), null, "primary");
+			}
 		}
 		if (f.can_close_pm_request) {
-			add_pm_request_action_item(frm, __("Close PM Request"), runClose);
+			add_pm_request_toolbar_button(frm, __("Close PM Request"), runClose);
 		}
 	}
 	if (f.can_view_payment_entries) {
-		add_pm_request_action_item(frm, __("View Payment Entries"), () =>
+		add_pm_request_toolbar_button(frm, __("View Payment Entries"), () =>
 			route_pm_request_payment_entries(frm, f)
 		);
 	}
@@ -492,12 +512,8 @@ function format_currency(amount, currency) {
 	return flt(amount);
 }
 
-function add_pm_request_action_item(frm, label, fn) {
-	if (!frm.page || typeof frm.page.add_action_item !== "function") {
-		frm.add_custom_button(label, fn);
-		return;
-	}
-	frm.page.add_action_item(label, fn);
+function add_pm_request_toolbar_button(frm, label, fn) {
+	frm.add_custom_button(label, fn);
 }
 
 function remove_pm_request_toolbar_buttons(frm) {
@@ -514,45 +530,11 @@ function remove_pm_request_toolbar_buttons(frm) {
 		if (frm.page) {
 			frm.page.remove_inner_button(L);
 			frm.page.remove_inner_button(L, __("Actions"));
-			remove_pm_request_action_menu_item(frm, L);
-		}
-	});
-}
-
-function remove_pm_request_action_menu_item(frm, label) {
-	if (!frm.page || !frm.page.actions) {
-		return;
-	}
-	const enc = encodeURIComponent(label);
-	frm.page.actions.find(`a.dropdown-item[data-label="${enc}"]`).remove();
-}
-
-function hide_pm_request_reject_when_not_allowed(frm, flags) {
-	const blockReject =
-		!flags ||
-		!flags.can_reject ||
-		cint(flags.submitted_payment_entry_count) > 0 ||
-		flt(flags.total_paid_amount) > 0;
-	if (!blockReject) {
-		return;
-	}
-	const rejectLabels = [__("PM Reject"), "PM Reject", __("Reject")];
-	if (frm.page && frm.page.actions_menu_items) {
-		frm.page.actions_menu_items = frm.page.actions_menu_items.filter((item) => {
-			const label = (item.label || item.action || "").toString();
-			return !rejectLabels.some((r) => label.indexOf(r) >= 0 || label === r);
-		});
-	}
-	rejectLabels.forEach((label) => {
-		remove_pm_request_action_menu_item(frm, label);
-	});
-	const $menu = $(frm.wrapper || document).find(
-		".actions-btn-group .dropdown-item, .workflow-actions .dropdown-item"
-	);
-	$menu.each(function () {
-		const t = ($(this).text() || "").trim();
-		if (rejectLabels.some((r) => t.indexOf(r) >= 0 || t === r)) {
-			$(this).remove();
+			// Legacy cleanup if an older build left items in the workflow Actions menu.
+			if (frm.page.actions) {
+				const enc = encodeURIComponent(L);
+				frm.page.actions.find(`a.dropdown-item[data-label="${enc}"]`).remove();
+			}
 		}
 	});
 }
