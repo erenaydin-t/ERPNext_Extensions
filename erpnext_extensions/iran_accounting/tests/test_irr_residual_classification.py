@@ -495,5 +495,61 @@ class TestPurchaseReceiptStockValuationAuth(unittest.TestCase):
 		self.assertEqual(b[0]["reason"], "amount_rate_mismatch_not_reproducible_by_approved_pipeline")
 
 
+class TestRegionalValuationRateHook(unittest.TestCase):
+	"""UVR regional extension must reuse align_purchase_receipt_item_amounts."""
+
+	def test_regional_hook_integerizes_fractional_valuation_rate(self):
+		from erpnext_extensions.iran_accounting.buying_selling import (
+			update_regional_item_valuation_rate,
+		)
+
+		class _R:
+			def __init__(self):
+				self.qty = 10
+				self.rate = 1000000
+				self.base_rate = 1000000
+				self.amount = 10000000
+				self.base_amount = 10000000
+				self.valuation_rate = 1000000.1
+
+			def get(self, k, default=None):
+				return getattr(self, k, default)
+
+		class _D:
+			doctype = "Purchase Receipt"
+			company = "C"
+			currency = "IRR"
+			items = None
+
+			def __init__(self, row):
+				self.items = [row]
+
+			def get(self, k, default=None):
+				return getattr(self, k, default)
+
+		row = _R()
+		doc = _D(row)
+		with (
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.currency.is_irr_company",
+				return_value=True,
+			),
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.currency.get_company_currency",
+				return_value="IRR",
+			),
+		):
+			# domain.qty_rate_amount imports currency as rounding
+			with mock.patch(
+				"erpnext_extensions.iran_accounting.domain.qty_rate_amount.rounding.is_irr_company",
+				return_value=True,
+			), mock.patch(
+				"erpnext_extensions.iran_accounting.domain.qty_rate_amount.rounding.get_company_currency",
+				return_value="IRR",
+			):
+				update_regional_item_valuation_rate(doc)
+		self.assertEqual(row.valuation_rate, 1000000.0)
+
+
 if __name__ == "__main__":
 	unittest.main()
