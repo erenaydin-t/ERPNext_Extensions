@@ -30,6 +30,11 @@ update_valuation_rate()
 
 Classifier still mirrors ERPNext stock numerator (no tax re-derivation).
 
+UVR binding is fail-closed via ``uvr_regional_guard`` (same allow-list /
+normalized AST fingerprint architecture as ``riv_rate_guard``). Unsupported
+ERPNext/Frappe versions or UVR/regional fingerprint drift blocks bootstrap and
+does **not** install the regional monkey patch.
+
 ## Frozen (unchanged)
 
 - Stock Entry / Manufacture / Repack / Material Transfer / Additional Cost

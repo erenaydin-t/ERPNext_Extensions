@@ -43,8 +43,18 @@ def _patch_buying_regional_valuation_rate():
 	This is the single valuation integerization pipeline for PR / LCV / RIV / PI
 	update-stock — not an LCV-specific workaround. Reuses
 	align_purchase_receipt_item_amounts (no duplicated rounding).
+
+	Fail-closed: assert_erpnext_uvr_regional_patch_supported() must pass before
+	install (same architecture as riv_rate_guard / stock-ledger engine).
 	"""
 	import erpnext.controllers.buying_controller as buying_controller
+
+	from erpnext_extensions.iran_accounting.domain.uvr_regional_guard import (
+		assert_erpnext_uvr_regional_patch_supported,
+	)
+
+	# Fail-closed upgrade guard before (re)installing the regional UVR binding.
+	assert_erpnext_uvr_regional_patch_supported()
 
 	if getattr(buying_controller, "_iran_patched_regional_valuation_rate", False):
 		return
