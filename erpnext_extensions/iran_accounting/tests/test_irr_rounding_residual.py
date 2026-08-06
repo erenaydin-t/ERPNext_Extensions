@@ -65,8 +65,20 @@ def _patches(account="RO - T", cost_center="CC-RO"):
 			return_value="IRR",
 		),
 		mock.patch(
+			"erpnext_extensions.iran_accounting.domain.irr_residual_classification.is_irr_company",
+			return_value=True,
+		),
+		mock.patch(
+			"erpnext_extensions.iran_accounting.domain.irr_residual_classification.get_company_currency",
+			return_value="IRR",
+		),
+		mock.patch(
 			"erpnext_extensions.iran_accounting.domain.irr_rounding_residual.resolve_company_round_off",
 			side_effect=resolve,
+		),
+		mock.patch(
+			"erpnext_extensions.iran_accounting.domain.irr_rounding_residual.validate_round_off_configuration",
+			return_value=None,
 		),
 		mock.patch(
 			"erpnext_extensions.iran_accounting.domain.irr_rounding_residual._is_stock_account",
@@ -75,6 +87,14 @@ def _patches(account="RO - T", cost_center="CC-RO"):
 		mock.patch(
 			"erpnext_extensions.iran_accounting.domain.irr_rounding_residual._populate_round_off_dimensions",
 			return_value=None,
+		),
+		mock.patch(
+			"erpnext_extensions.iran_accounting.domain.irr_residual_classification.resolve_round_off_dimensions",
+			return_value={},
+		),
+		mock.patch(
+			"erpnext_extensions.iran_accounting.domain.irr_residual_classification._dimension_fieldnames",
+			return_value=[],
 		),
 		mock.patch(
 			"erpnext_extensions.iran_accounting.zero_value_transfer._should_force_balanced_transfer_gl",
@@ -137,9 +157,15 @@ class TestIRRRoundingResidualFormula(unittest.TestCase):
 			purpose="Manufacture",
 			items=[row],
 		)
-		with mock.patch(
-			"erpnext_extensions.iran_accounting.domain.irr_rounding_residual.get_company_currency",
-			return_value="IRR",
+		with (
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.irr_rounding_residual.get_company_currency",
+				return_value="IRR",
+			),
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.irr_residual_classification.is_irr_company",
+				return_value=True,
+			),
 		):
 			self.assertEqual(collect_stock_entry_residuals(doc), [])
 			self.assertEqual(expected_round_off_gl_totals(doc)["net_signed_debit"], 0)

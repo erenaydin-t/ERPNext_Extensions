@@ -184,8 +184,13 @@ def _assert_irr_rate_rounding_residual_gl(doc, gl_rows: list[dict], company: str
 		return failures
 
 	if not residual_rows:
-		# Soft-skip: residual exists but no safe non-Stock / non-Stock-Adj / non-Add-Cost
-		# reclass partner — inventory amounts stay authoritative without Round Off.
+		# 3.8.6: missing partner / Class B must fail at apply — soft-skip is not allowed.
+		# If expected net is non-zero but no residual GL, report failure (apply should have thrown).
+		failures.append(
+			f"{doc.doctype} {doc.name}: expected IRR Round Off residual GL "
+			f"(net_signed_debit={exp['net_signed_debit']}) but none posted "
+			f"(no Stock Adjustment fallback; partner/config must fail closed)"
+		)
 		return failures
 
 	if len(residual_rows) != 1:
