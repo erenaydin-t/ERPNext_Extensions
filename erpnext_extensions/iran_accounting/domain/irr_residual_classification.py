@@ -1,7 +1,7 @@
 # Copyright (c) 2026, ERPNext Extensions contributors
 """Provenance-based IRR residual classification and shared ResidualDecision evaluator.
 
-Contract (3.8.6)
+Contract (3.8.7)
 ----------------
 Class A: residual reproduced exactly by approved iran_accounting rounding helpers
          for the voucher flow (provenance-first; path-derived bound only after).
@@ -9,6 +9,11 @@ Class B: valuation inconsistency / invalid rate / unexplained gap — fail close
 Net Class A == 0 → full Round Off subsystem bypass (no Account/CC/dim/partner).
 Net Class A != 0 → Company Round Off Account/CC + Company Round Off Dimension
 Defaults + safe non-stock partner (never Stock Adjustment fallback).
+
+Purchase Receipt (3.8.7): authoritative stock amount follows ERPNext's
+BuyingController.update_valuation_rate numerator (base_net_amount + item_tax_amount
++ landed_cost_voucher_amount + …) and the same stock-UOM qty divisor. Never
+amount/base_amount ÷ qty.
 """
 
 from __future__ import annotations
@@ -18,7 +23,7 @@ from typing import Any
 
 import frappe
 from frappe import _
-from frappe.utils import flt
+from frappe.utils import cint, flt
 
 from erpnext_extensions.iran_accounting.domain.currency import (
 	amount_rate_qty_residual,
@@ -206,6 +211,68 @@ def enrich_candidate_dimensions(candidate: dict, row) -> dict:
 	return candidate
 
 
+def purchase_receipt_valuation_stock_qty(row) -> float:
+	"""Stock-UOM qty used as the divisor in BuyingController.update_valuation_rate.
+
+	Mirrors erpnext.controllers.buying_controller.BuyingController.update_valuation_rate:
+	``qty_in_stock_uom = qty * conversion_factor`` (rejected_qty fallback when qty is 0).
+	ERPNext does not expose a reusable helper for this divisor.
+	"""
+	conversion_factor = flt(row.get("conversion_factor"))
+	if not conversion_factor:
+		conversion_factor = 1.0
+	qty_in_stock_uom = flt(flt(row.get("qty")) * conversion_factor)
+	if not qty_in_stock_uom and row.get("rejected_qty"):
+		qty_in_stock_uom = flt(flt(row.get("rejected_qty")) * conversion_factor)
+	return qty_in_stock_uom
+
+
+def purchase_receipt_stock_valuation_amount(row, doc=None) -> float:
+	"""Authoritative PR stock valuation amount (numerator of valuation_rate).
+
+	ERPNext has no reusable public API for this sum. The formula is inlined in
+	``BuyingController.update_valuation_rate``
+	(``erpnext/controllers/buying_controller.py``). This helper mirrors that
+	numerator using fields ERPNext already computed on the item row
+	(``base_net_amount`` / internal transfer net, ``item_tax_amount``,
+	``landed_cost_voucher_amount``, …). It does **not** re-derive purchase taxes
+	or landed-cost allocation.
+	"""
+	# Net leg — same branching as BuyingController.update_valuation_rate
+	# Use flt(...) for truthiness so incomplete mocks / empty strings do not
+	# accidentally select the internal-transfer or rejected branches.
+	sir = row.get("sales_incoming_rate")
+	if sir not in (None, "") and flt(sir):
+		net_rate = flt(row.get("qty")) * flt(sir)
+	else:
+		net_rate = flt(row.get("base_net_amount"))
+		rejected_qty = flt(row.get("rejected_qty"))
+		if not net_rate and rejected_qty:
+			# Match ERPNext: only when Buying Settings allow rejected valuation.
+			try:
+				allow_rejected = frappe.get_single_value(
+					"Buying Settings", "set_valuation_rate_for_rejected_materials"
+				)
+			except Exception:
+				allow_rejected = 0
+			if allow_rejected:
+				net_rate = rejected_qty * flt(row.get("net_rate"))
+
+	item_tax_amount = flt(row.get("item_tax_amount"))
+	lcv = flt(row.get("landed_cost_voucher_amount"))
+
+	# Old subcontract branch includes rm_supp_cost and omits PI rate difference.
+	if doc is not None and cint(doc.get("is_old_subcontracting_flow")):
+		return net_rate + item_tax_amount + flt(row.get("rm_supp_cost")) + lcv
+
+	return (
+		net_rate
+		+ item_tax_amount
+		+ lcv
+		+ flt(row.get("amount_difference_with_purchase_invoice"))
+	)
+
+
 def classify_document_residuals(doc) -> tuple[list[dict], list[dict]]:
 	"""Collect and classify residual candidates for supported doctypes."""
 	from erpnext_extensions.iran_accounting.domain.irr_rounding_residual import (
@@ -224,15 +291,9 @@ def classify_document_residuals(doc) -> tuple[list[dict], list[dict]]:
 
 	if doc.doctype == "Purchase Receipt":
 		for row in doc.get("items") or []:
-			qty = flt(row.get("qty"))
-			auth = flt(
-				row.get("base_amount")
-				if row.get("base_amount") not in (None, "")
-				else row.get("amount")
-			)
+			qty = purchase_receipt_valuation_stock_qty(row)
+			auth = purchase_receipt_stock_valuation_amount(row, doc)
 			rate = row.get("valuation_rate")
-			if rate in (None, "") and row.get("base_rate") not in (None, ""):
-				rate = row.get("base_rate")
 			classified = classify_amount_rate_residual(
 				qty=qty,
 				authoritative_amount=auth,
@@ -244,8 +305,12 @@ def classify_document_residuals(doc) -> tuple[list[dict], list[dict]]:
 				extra={
 					"base_rate": row.get("base_rate"),
 					"base_amount": row.get("base_amount"),
+					"base_net_amount": row.get("base_net_amount"),
 					"amount": row.get("amount"),
+					"item_tax_amount": row.get("item_tax_amount"),
 					"landed_cost_voucher_amount": row.get("landed_cost_voucher_amount"),
+					"conversion_factor": row.get("conversion_factor"),
+					"stock_qty": qty,
 				},
 			)
 			enrich_candidate_dimensions(classified, row)
