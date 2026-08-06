@@ -30,8 +30,44 @@ def apply_monkey_patches():
 		_patch_accounting_ledger_preview()
 		_patch_stock_reconciliation()
 		_patch_repost_compatibility()
+		_patch_buying_regional_valuation_rate()
 	# Always (re)ensure stock-ledger engine patches — idempotent + fail-closed upgrade guard.
 	_patch_stock_ledger_engine()
+	# Idempotent: UVR regional hook must stay bound even if apply is re-entered.
+	_patch_buying_regional_valuation_rate()
+
+
+def _patch_buying_regional_valuation_rate():
+	"""Bind IRR align to ERPNext update_regional_item_valuation_rate (end of UVR).
+
+	This is the single valuation integerization pipeline for PR / LCV / RIV / PI
+	update-stock — not an LCV-specific workaround. Reuses
+	align_purchase_receipt_item_amounts (no duplicated rounding).
+
+	Fail-closed: assert_erpnext_uvr_regional_patch_supported() must pass before
+	install (same architecture as riv_rate_guard / stock-ledger engine).
+	"""
+	import erpnext.controllers.buying_controller as buying_controller
+
+	from erpnext_extensions.iran_accounting.domain.uvr_regional_guard import (
+		assert_erpnext_uvr_regional_patch_supported,
+	)
+
+	# Fail-closed upgrade guard before (re)installing the regional UVR binding.
+	assert_erpnext_uvr_regional_patch_supported()
+
+	if getattr(buying_controller, "_iran_patched_regional_valuation_rate", False):
+		return
+
+	from erpnext_extensions.iran_accounting.buying_selling import (
+		update_regional_item_valuation_rate as iran_update_regional_item_valuation_rate,
+	)
+
+	buying_controller._iran_original_regional_valuation_rate = (
+		buying_controller.update_regional_item_valuation_rate
+	)
+	buying_controller.update_regional_item_valuation_rate = iran_update_regional_item_valuation_rate
+	buying_controller._iran_patched_regional_valuation_rate = True
 
 
 def _patch_stock_entry_mr_alternative():

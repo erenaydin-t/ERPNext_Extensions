@@ -1,5 +1,5 @@
 # Copyright (c) 2026, ERPNext Extensions contributors
-"""Unit tests: Class A/B classification, net gate, dimension resolution (3.8.6)."""
+"""Unit tests: Class A/B classification, net gate, dimension resolution (3.8.7)."""
 
 from __future__ import annotations
 
@@ -12,7 +12,10 @@ from erpnext_extensions.iran_accounting.domain.irr_residual_classification impor
 	STATUS_PARTNER,
 	STATUS_READY,
 	classify_amount_rate_residual,
+	classify_document_residuals,
 	evaluate_irr_rate_rounding_residual,
+	purchase_receipt_stock_valuation_amount,
+	purchase_receipt_valuation_stock_qty,
 )
 
 
@@ -86,13 +89,17 @@ class TestEvaluateNetGate(unittest.TestCase):
 		row = mock.Mock(
 			qty=1,
 			base_amount=4050000000,
+			base_net_amount=4050000000,
 			amount=4050000000,
 			valuation_rate=0,
 			base_rate=4050000000,
 			item_code="230049",
 			idx=2,
 			name="r1",
+			item_tax_amount=0,
 			landed_cost_voucher_amount=0,
+			amount_difference_with_purchase_invoice=0,
+			conversion_factor=1,
 			department="Dept-A",
 		)
 		row.get = lambda k, d=None: getattr(row, k, d)
@@ -102,6 +109,7 @@ class TestEvaluateNetGate(unittest.TestCase):
 			name="MAT-PRE-TEST",
 			items=[row],
 			department=None,
+			is_old_subcontracting_flow=0,
 		)
 		doc.get = lambda k, d=None: getattr(doc, k, d)
 
@@ -138,18 +146,27 @@ class TestEvaluateNetGate(unittest.TestCase):
 		row = mock.Mock(
 			qty=7,
 			base_amount=1372,
+			base_net_amount=1372,
 			amount=1372,
 			valuation_rate=196,
 			base_rate=196,
 			item_code="X",
 			idx=1,
 			name="r1",
+			item_tax_amount=0,
 			landed_cost_voucher_amount=0,
+			amount_difference_with_purchase_invoice=0,
+			conversion_factor=1,
 			department="D",
 		)
 		row.get = lambda k, d=None: getattr(row, k, d)
 		doc = mock.Mock(
-			company="C", doctype="Purchase Receipt", name="PR-OK", items=[row], department="D"
+			company="C",
+			doctype="Purchase Receipt",
+			name="PR-OK",
+			items=[row],
+			department="D",
+			is_old_subcontracting_flow=0,
 		)
 		doc.get = lambda k, d=None: getattr(doc, k, d)
 		resolve_calls = []
@@ -266,6 +283,272 @@ class TestEvaluateNetGate(unittest.TestCase):
 		self.assertEqual(d.status, STATUS_PARTNER)
 		self.assertTrue(d.class_a_rows)
 		self.assertEqual(d.net_signed_debit, 1.0)
+
+
+class TestPurchaseReceiptStockValuationAuth(unittest.TestCase):
+	"""3.8.7: PR classifier follows ERPNext update_valuation_rate numerator + stock qty."""
+
+	@staticmethod
+	def _row(**kw):
+		defaults = {
+			"qty": 10,
+			"conversion_factor": 1,
+			"base_amount": 117000000,
+			"amount": 117000000,
+			"base_net_amount": 117000000,
+			"item_tax_amount": 0,
+			"landed_cost_voucher_amount": 0,
+			"amount_difference_with_purchase_invoice": 0,
+			"sales_incoming_rate": None,
+			"rejected_qty": 0,
+			"rm_supp_cost": 0,
+			"valuation_rate": 11700000,
+			"base_rate": 11700000,
+			"item_code": "ITEM",
+			"idx": 1,
+			"name": "r1",
+			"department": None,
+		}
+		defaults.update(kw)
+
+		class _R:
+			def __init__(self, data):
+				self.__dict__.update(data)
+
+			def get(self, k, default=None):
+				return self.__dict__.get(k, default)
+
+		return _R(defaults)
+
+	@staticmethod
+	def _doc(row, **kw):
+		data = {
+			"company": "C",
+			"doctype": "Purchase Receipt",
+			"name": "PR-1",
+			"items": [row],
+			"is_old_subcontracting_flow": 0,
+		}
+		data.update(kw)
+
+		class _D:
+			def __init__(self, d):
+				self.__dict__.update(d)
+
+			def get(self, k, default=None):
+				return self.__dict__.get(k, default)
+
+		return _D(data)
+
+	def test_helpers_mirror_erpnext_numerator_and_stock_qty(self):
+		row = self._row(
+			qty=2,
+			conversion_factor=10,
+			base_net_amount=2000000,
+			item_tax_amount=100000,
+			landed_cost_voucher_amount=50000,
+			amount_difference_with_purchase_invoice=25,
+		)
+		self.assertEqual(purchase_receipt_valuation_stock_qty(row), 20.0)
+		self.assertEqual(purchase_receipt_stock_valuation_amount(row), 2150025.0)
+
+	def test_excluded_vat_total_only_not_class_b(self):
+		# Gross amount may equal net; VR = net/qty. Category Total tax not in item_tax_amount.
+		row = self._row(
+			base_amount=117000000,
+			amount=117000000,
+			base_net_amount=117000000,
+			item_tax_amount=0,
+			valuation_rate=11700000,
+		)
+		doc = self._doc(row)
+		with (
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.irr_residual_classification.is_irr_company",
+				return_value=True,
+			),
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.irr_residual_classification.get_company_currency",
+				return_value="IRR",
+			),
+		):
+			a, b = classify_document_residuals(doc)
+		self.assertEqual(a, [])
+		self.assertEqual(b, [])
+
+	def test_included_vat_uses_base_net_not_gross_amount(self):
+		# Production-shaped: amount 117M inclusive, base_net 106470000, VR 10647000.
+		row = self._row(
+			base_amount=117000000,
+			amount=117000000,
+			base_net_amount=106470000,
+			item_tax_amount=0,
+			valuation_rate=10647000,
+		)
+		doc = self._doc(row)
+		with (
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.irr_residual_classification.is_irr_company",
+				return_value=True,
+			),
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.irr_residual_classification.get_company_currency",
+				return_value="IRR",
+			),
+		):
+			a, b = classify_document_residuals(doc)
+		self.assertEqual(b, [], "valid inclusive VAT must not be Class B")
+		self.assertEqual(a, [])
+
+	def test_valuation_tax_included_in_auth(self):
+		row = self._row(
+			base_amount=117000000,
+			base_net_amount=117000000,
+			item_tax_amount=11700000,
+			valuation_rate=12870000,
+		)
+		doc = self._doc(row)
+		with (
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.irr_residual_classification.is_irr_company",
+				return_value=True,
+			),
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.irr_residual_classification.get_company_currency",
+				return_value="IRR",
+			),
+		):
+			a, b = classify_document_residuals(doc)
+		self.assertEqual(b, [])
+		self.assertEqual(a, [])
+
+	def test_landed_cost_included_in_auth(self):
+		row = self._row(
+			base_amount=10000000,
+			base_net_amount=10000000,
+			landed_cost_voucher_amount=500000,
+			valuation_rate=1050000,
+		)
+		doc = self._doc(row)
+		with (
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.irr_residual_classification.is_irr_company",
+				return_value=True,
+			),
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.irr_residual_classification.get_company_currency",
+				return_value="IRR",
+			),
+		):
+			a, b = classify_document_residuals(doc)
+		self.assertEqual(b, [])
+		self.assertEqual(a, [])
+
+	def test_conversion_factor_uses_stock_qty(self):
+		# qty=2, CF=10 → stock qty 20; base_net 2000000 → VR 100000
+		row = self._row(
+			qty=2,
+			conversion_factor=10,
+			base_amount=2000000,
+			base_net_amount=2000000,
+			amount=2000000,
+			valuation_rate=100000,
+			base_rate=1000000,
+		)
+		doc = self._doc(row)
+		with (
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.irr_residual_classification.is_irr_company",
+				return_value=True,
+			),
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.irr_residual_classification.get_company_currency",
+				return_value="IRR",
+			),
+		):
+			a, b = classify_document_residuals(doc)
+		self.assertEqual(b, [])
+		self.assertEqual(a, [])
+
+	def test_true_inconsistency_still_class_b(self):
+		# Stock numerator 10M but VR implies 12M — still Class B.
+		row = self._row(
+			base_net_amount=10000000,
+			item_tax_amount=0,
+			landed_cost_voucher_amount=0,
+			valuation_rate=1200000,
+		)
+		doc = self._doc(row)
+		with (
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.irr_residual_classification.is_irr_company",
+				return_value=True,
+			),
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.irr_residual_classification.get_company_currency",
+				return_value="IRR",
+			),
+		):
+			a, b = classify_document_residuals(doc)
+		self.assertEqual(a, [])
+		self.assertEqual(len(b), 1)
+		self.assertEqual(b[0]["reason"], "amount_rate_mismatch_not_reproducible_by_approved_pipeline")
+
+
+class TestRegionalValuationRateHook(unittest.TestCase):
+	"""UVR regional extension must reuse align_purchase_receipt_item_amounts."""
+
+	def test_regional_hook_integerizes_fractional_valuation_rate(self):
+		from erpnext_extensions.iran_accounting.buying_selling import (
+			update_regional_item_valuation_rate,
+		)
+
+		class _R:
+			def __init__(self):
+				self.qty = 10
+				self.rate = 1000000
+				self.base_rate = 1000000
+				self.amount = 10000000
+				self.base_amount = 10000000
+				self.valuation_rate = 1000000.1
+
+			def get(self, k, default=None):
+				return getattr(self, k, default)
+
+		class _D:
+			doctype = "Purchase Receipt"
+			company = "C"
+			currency = "IRR"
+			items = None
+
+			def __init__(self, row):
+				self.items = [row]
+
+			def get(self, k, default=None):
+				return getattr(self, k, default)
+
+		row = _R()
+		doc = _D(row)
+		with (
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.currency.is_irr_company",
+				return_value=True,
+			),
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.currency.get_company_currency",
+				return_value="IRR",
+			),
+		):
+			# domain.qty_rate_amount imports currency as rounding
+			with mock.patch(
+				"erpnext_extensions.iran_accounting.domain.qty_rate_amount.rounding.is_irr_company",
+				return_value=True,
+			), mock.patch(
+				"erpnext_extensions.iran_accounting.domain.qty_rate_amount.rounding.get_company_currency",
+				return_value="IRR",
+			):
+				update_regional_item_valuation_rate(doc)
+		self.assertEqual(row.valuation_rate, 1000000.0)
 
 
 if __name__ == "__main__":

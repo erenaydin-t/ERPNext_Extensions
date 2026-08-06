@@ -454,6 +454,17 @@ before_request = [
 ]
 # after_request = ["erpnext_extensions.utils.after_request"]
 
+# ERPNext regional extension: end of BuyingController.update_valuation_rate.
+# Bound for Iran region; monkey_patches also installs the same function so IRR
+# companies work regardless of Desk country setting.
+regional_overrides = {
+	"Iran": {
+		"erpnext.controllers.buying_controller.update_regional_item_valuation_rate": [
+			"erpnext_extensions.iran_accounting.buying_selling.update_regional_item_valuation_rate"
+		],
+	},
+}
+
 # Job Events
 # ----------
 before_job = [

@@ -57,12 +57,24 @@ def _apply_force_to_doc(doc) -> None:
 			row.base_rate = CLASS_A_RATE
 			row.amount = CLASS_A_AMOUNT
 			row.base_amount = CLASS_A_AMOUNT
+			# 3.8.7: PR auth is ERPNext stock numerator (base_net + item_tax + LCV…)
+			row.net_amount = CLASS_A_AMOUNT
+			row.base_net_amount = CLASS_A_AMOUNT
+			row.item_tax_amount = 0
+			row.landed_cost_voucher_amount = 0
+			row.amount_difference_with_purchase_invoice = 0
+			row.conversion_factor = 1
 			row.valuation_rate = CLASS_A_RATE
 			row.stock_qty = CLASS_A_QTY
 		elif kind == "class_b":
 			row.valuation_rate = 0
 			if row.get("amount") in (None, "", 0) and row.get("base_amount") not in (None, "", 0):
 				row.amount = row.base_amount
+			# Ensure Class B VR=0 still has a non-zero ERPNext stock numerator.
+			if row.get("base_net_amount") in (None, "", 0):
+				row.base_net_amount = row.get("base_amount") or row.get("amount") or 0
+			if row.get("net_amount") in (None, "", 0):
+				row.net_amount = row.base_net_amount
 	# Keep header totals consistent with Class A residual fixture
 	if kind == "class_a":
 		for field in (
@@ -388,6 +400,9 @@ def create_class_b_pr_draft(company: str | None = None) -> dict:
 			"amount": 1_000_000,
 			"base_rate": 1_000_000,
 			"base_amount": 1_000_000,
+			"net_amount": 1_000_000,
+			"base_net_amount": 1_000_000,
+			"item_tax_amount": 0,
 			"valuation_rate": 0,
 		},
 	)
@@ -414,11 +429,16 @@ def create_class_a_pr(
 	department: str | None = None,
 	submit: int = 1,
 ) -> dict:
-	"""Create Class A PR (amount 1371, qty 7, VR 196).
+	"""Create Class A PR (stock auth 1371, qty 7, VR 196).
+
+	3.8.7 authoritative stock amount is ERPNext's valuation numerator
+	(base_net_amount + item_tax_amount + LCV …), not gross amount.
 
 	mode:
 	  - header: set PR.department (+ item)
-	  - company_default: no dept on header/item; relies on Company child default
+	  - company_default: no dept on header; item gets Company Round Off Dimension
+	    Default so ERPNext divisional-loss PL legs can post when Department is
+	    mandatory_for_pl; Round Off residual still resolves via Company defaults
 	  - missing: no dept anywhere → config_error on submit when dims mandatory
 	"""
 	_assert_admin()
@@ -437,6 +457,25 @@ def create_class_a_pr(
 	pr.conversion_rate = 1
 	if mode == "header" and department and pr.meta.has_field("department"):
 		pr.department = department
+
+	item_department = None
+	if mode == "header" and department:
+		item_department = department
+	elif mode == "company_default":
+		# Native ERPNext divisional loss may post to a PL expense when Class A
+		# stock auth ≠ VR×stock_qty. Supply the same Department value configured
+		# on Company Round Off Dimension Defaults so that leg can post without
+		# inventing AD default_dimension.
+		item_department = frappe.db.get_value(
+			"Round Off Dimension Default",
+			{
+				"parent": company,
+				"parenttype": "Company",
+				"accounting_dimension": "department",
+			},
+			"default_value",
+		)
+
 	item = {
 		"item_code": m["item"],
 		"qty": CLASS_A_QTY,
@@ -448,24 +487,29 @@ def create_class_a_pr(
 		"base_rate": CLASS_A_RATE,
 		"amount": CLASS_A_AMOUNT,
 		"base_amount": CLASS_A_AMOUNT,
+		"net_amount": CLASS_A_AMOUNT,
+		"base_net_amount": CLASS_A_AMOUNT,
+		"item_tax_amount": 0,
+		"landed_cost_voucher_amount": 0,
 		"valuation_rate": CLASS_A_RATE,
+		"stock_qty": CLASS_A_QTY,
 	}
-	if mode == "header" and department and frappe.get_meta("Purchase Receipt Item").has_field(
-		"department"
-	):
-		item["department"] = department
+	if item_department and frappe.get_meta("Purchase Receipt Item").has_field("department"):
+		item["department"] = item_department
 	pr.append("items", item)
-	# Register under temporary key before insert assigns name — use after insert
 	pr.insert(ignore_permissions=True)
 	_register_force(pr.name, "class_a")
 	pr.reload()
 	_apply_force_to_doc(pr)
 	pr.flags.ignore_validate_update_after_submit = True
-	# Persist forced amounts without full validate rewrite
+	# Persist forced stock-auth fields without full validate rewrite
 	frappe.db.sql(
 		"""
 		update `tabPurchase Receipt Item`
-		set qty=%s, rate=%s, base_rate=%s, amount=%s, base_amount=%s, valuation_rate=%s, stock_qty=%s
+		set qty=%s, rate=%s, base_rate=%s, amount=%s, base_amount=%s,
+			net_amount=%s, base_net_amount=%s, item_tax_amount=0,
+			landed_cost_voucher_amount=0, valuation_rate=%s, stock_qty=%s,
+			conversion_factor=1
 		where parent=%s
 		""",
 		(
@@ -474,11 +518,18 @@ def create_class_a_pr(
 			CLASS_A_RATE,
 			CLASS_A_AMOUNT,
 			CLASS_A_AMOUNT,
+			CLASS_A_AMOUNT,
+			CLASS_A_AMOUNT,
 			CLASS_A_RATE,
 			CLASS_A_QTY,
 			pr.name,
 		),
 	)
+	if item_department and frappe.get_meta("Purchase Receipt Item").has_field("department"):
+		frappe.db.sql(
+			"update `tabPurchase Receipt Item` set department=%s where parent=%s",
+			(item_department, pr.name),
+		)
 	frappe.db.commit()
 	pr.reload()
 	_apply_force_to_doc(pr)
