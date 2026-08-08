@@ -24,6 +24,10 @@ from erpnext_extensions.asset_usage_depreciation.services.ads_replace import (
 	recompute_accumulated,
 	replace_asset_depr_schedule,
 )
+from erpnext_extensions.asset_usage_depreciation.services.accounting_amounts import (
+	sum_unposted_amounts,
+	to_depr_amount,
+)
 from erpnext_extensions.asset_usage_depreciation.services.locks import lock_ads, lock_asset
 from erpnext_extensions.asset_usage_depreciation.services.mode_a import apply_mode_a_extension
 from erpnext_extensions.asset_usage_depreciation.services.mode_b import redistribute_unposted_amounts
@@ -88,7 +92,13 @@ def _replan_asset_usage_depreciation(asset_name: str, trigger_doc=None, context:
 		validate_timeline_consistency(timeline)
 
 	policy = get_reduced_depreciation_handling(asset.company)
-	precision = asset.precision("net_purchase_amount")
+	# Whole-number accounting amounts (Iran Accounting ROUND_HALF_UP precision 0)
+	precision = 0
+
+	# Re-validate timeline under Asset lock
+	timeline = load_submitted_usage_periods(asset_name)
+	if timeline:
+		validate_timeline_consistency(timeline)
 
 	# Discover Active ADS for each finance book row
 	ads_jobs: list[tuple[Any, Any]] = []
@@ -125,38 +135,42 @@ def _replan_asset_usage_depreciation(asset_name: str, trigger_doc=None, context:
 		temp.create_depreciation_schedule(fb)
 
 		rows = _schedule_to_row_dicts(temp)
-		_apply_usage_factors(rows, timeline, fb, asset, temp, precision)
+		_apply_usage_factors(rows, timeline, fb, asset, temp)
 
-		remaining = flt(fb.value_after_depreciation - fb.expected_value_after_useful_life, precision)
+		remaining = to_depr_amount(
+			flt(fb.value_after_depreciation) - flt(fb.expected_value_after_useful_life)
+		)
 		suspended_message = None
 
 		if not timeline:
-			# Usage cancelled away: keep standard regenerated amounts (already in rows without factors)
-			pass
+			# Usage cancelled: keep ERPNext standard amounts, still normalize to whole numbers
+			for row in rows:
+				if not row.get("journal_entry"):
+					row["depreciation_amount"] = to_depr_amount(row["depreciation_amount"])
+			_enforce_salvage(rows, remaining, allow_incomplete=False)
 		elif policy == HANDLING_REDISTRIBUTE:
-			redistribute_unposted_amounts(rows, remaining, precision)
+			redistribute_unposted_amounts(rows, remaining)
+			_enforce_salvage(rows, remaining, allow_incomplete=False)
 		else:
-			base_installment = _estimate_base_installment(rows, precision)
+			base_installment = _estimate_base_installment(rows)
 			meta = apply_mode_a_extension(
 				rows,
 				remaining,
 				timeline,
 				frequency_of_depreciation=cint(fb.frequency_of_depreciation),
 				base_installment=base_installment,
-				precision=precision,
-				resolve_factor_for_date=lambda d, _fb=fb, _asset=asset, _temp=temp: _factor_for_extension_date(
-					timeline, d, _fb, _asset, _temp
-				),
+				resolve_factor_for_date=lambda d: factor_on_date(timeline, d),
 				daily_prorata_based=cint(fb.daily_prorata_based),
 			)
 			suspended_message = meta.get("message")
+			_enforce_salvage(rows, remaining, allow_incomplete=bool(suspended_message))
 
-		_enforce_salvage(rows, remaining, precision, allow_incomplete=bool(suspended_message))
-		recompute_accumulated(rows, flt(asset.opening_accumulated_depreciation), precision)
-		_assert_posted_unchanged(posted_snapshot, rows, precision)
+		recompute_accumulated(rows, flt(asset.opening_accumulated_depreciation))
+		_assert_whole_unposted_amounts(rows)
+		_assert_posted_unchanged(posted_snapshot, rows)
 
 		notes = build_replan_notes(asset.name, trigger_doc, suspended_message)
-		row_diffs = _build_row_diffs(ads, rows, precision)
+		row_diffs = _build_row_diffs(ads, rows)
 
 		prepared.append(
 			{
@@ -285,44 +299,22 @@ def _schedule_to_row_dicts(ads) -> list[dict[str, Any]]:
 	return rows
 
 
-def _coverage_window(ads_or_temp, row_idx: int, fb, asset) -> tuple:
-	"""Return inclusive [start, end] coverage for schedule row at index."""
-	schedule = ads_or_temp.get("depreciation_schedule") or []
-	end = getdate(schedule[row_idx].schedule_date if hasattr(schedule[row_idx], "schedule_date") else schedule[row_idx]["schedule_date"])
-	if row_idx > 0:
-		prev = schedule[row_idx - 1]
-		prev_date = getdate(prev.schedule_date if hasattr(prev, "schedule_date") else prev["schedule_date"])
-		start = add_days(prev_date, 1)
-	else:
-		# Align with ERPNext daily window helper when possible
-		if cint(fb.daily_prorata_based):
-			from erpnext.assets.doctype.asset_depreciation_schedule.deppreciation_schedule_controller import (
-				DepreciationScheduleController,
-			)
-
-			# Use controller helper via temp if available
-			if hasattr(ads_or_temp, "_get_total_days"):
-				start, _days = ads_or_temp._get_total_days(fb.depreciation_start_date, row_idx)
-				return getdate(start), end
-		start = getdate(asset.available_for_use_date)
-	return start, end
-
-
-def _apply_usage_factors(rows, timeline, fb, asset, temp, precision) -> None:
+def _apply_usage_factors(rows, timeline, fb, asset, temp) -> None:
 	if not timeline:
 		return
 
 	for idx, row in enumerate(rows):
 		if row.get("journal_entry"):
 			continue
-		standard = flt(row["depreciation_amount"], precision)
+		standard = flt(row["depreciation_amount"])
 		if cint(fb.daily_prorata_based):
 			start, end = _coverage_window_from_rows(rows, idx, fb, asset, temp)
 			factor = day_weighted_factor(timeline, start, end)
 		else:
 			factor = factor_on_date(timeline, row["schedule_date"])
 		row["usage_factor"] = factor
-		row["depreciation_amount"] = flt(standard * factor, precision)
+		# Keep full float until Mode A/B / salvage; normalize there
+		row["depreciation_amount"] = standard * factor
 
 
 def _coverage_window_from_rows(rows, idx, fb, asset, temp) -> tuple:
@@ -330,7 +322,6 @@ def _coverage_window_from_rows(rows, idx, fb, asset, temp) -> tuple:
 	if idx > 0:
 		start = add_days(getdate(rows[idx - 1]["schedule_date"]), 1)
 		return start, end
-	# First row: use ERPNext _get_total_days when possible
 	if hasattr(temp, "_get_total_days"):
 		try:
 			start, _days = temp._get_total_days(fb.depreciation_start_date, idx)
@@ -340,13 +331,7 @@ def _coverage_window_from_rows(rows, idx, fb, asset, temp) -> tuple:
 	return getdate(asset.available_for_use_date), end
 
 
-def _factor_for_extension_date(timeline, on_date, fb, asset, temp) -> float:
-	# Extensions use schedule-date factor (non-daily) or same factor_on_date for daily
-	# Day-weighted needs a window; for appended monthly rows use factor_on_date
-	return factor_on_date(timeline, on_date)
-
-
-def _estimate_base_installment(rows, precision) -> float:
+def _estimate_base_installment(rows) -> float:
 	"""Prefer a Normal (factor~1) unposted standard-equivalent installment."""
 	candidates = []
 	for row in rows:
@@ -355,20 +340,24 @@ def _estimate_base_installment(rows, precision) -> float:
 		factor = flt(row.get("usage_factor") or 1)
 		amt = flt(row.get("depreciation_amount"))
 		if factor > 0 and amt > 0:
-			candidates.append(flt(amt / factor, precision))
+			candidates.append(amt / factor)
 	if candidates:
-		# Use the first (earliest) standard installment
 		return candidates[0]
 	return 0.0
 
 
-def _enforce_salvage(rows, remaining, precision, allow_incomplete: bool = False) -> None:
-	unposted = [r for r in rows if not r.get("journal_entry")]
-	total = flt(sum(flt(r["depreciation_amount"]) for r in unposted), precision)
-	target = flt(remaining, precision)
+def _enforce_salvage(rows, remaining, allow_incomplete: bool = False) -> None:
+	target = to_depr_amount(remaining)
+	# Normalize unposted first
+	for row in rows:
+		if row.get("journal_entry"):
+			continue
+		row["depreciation_amount"] = to_depr_amount(row["depreciation_amount"])
+
+	total = sum_unposted_amounts(rows)
 
 	if allow_incomplete:
-		if total - target > 1.0 / (10**precision):
+		if total > target:
 			frappe.throw(
 				_("Usage replan would depreciate below salvage value (unposted {0} > remaining {1}).").format(
 					total, target
@@ -376,19 +365,35 @@ def _enforce_salvage(rows, remaining, precision, allow_incomplete: bool = False)
 			)
 		return
 
-	diff = flt(target - total, precision)
+	diff = target - total
+	unposted = [r for r in rows if not r.get("journal_entry")]
 	if not unposted:
 		if abs(diff) > 0:
-			frappe.throw(_("No unposted rows available to allocate remaining depreciable value {0}.").format(diff))
+			frappe.throw(
+				_("No unposted rows available to allocate remaining depreciable value {0}.").format(diff)
+			)
 		return
 
-	# Adjust last unposted row to hit salvage exactly
-	unposted[-1]["depreciation_amount"] = flt(unposted[-1]["depreciation_amount"] + diff, precision)
+	unposted[-1]["depreciation_amount"] = to_depr_amount(unposted[-1]["depreciation_amount"] + diff)
 	if unposted[-1]["depreciation_amount"] < 0:
 		frappe.throw(_("Salvage enforcement produced a negative depreciation amount."))
 
 
-def _assert_posted_unchanged(snapshot, rows, precision) -> None:
+def _assert_whole_unposted_amounts(rows) -> None:
+	for row in rows:
+		if row.get("journal_entry"):
+			continue
+		amount = flt(row["depreciation_amount"])
+		if abs(amount - int(amount)) > 1e-9:
+			frappe.throw(
+				_("Unposted depreciation amount {0} on {1} is not a whole number.").format(
+					amount, row.get("schedule_date")
+				)
+			)
+		row["depreciation_amount"] = int(amount)
+
+
+def _assert_posted_unchanged(snapshot, rows) -> None:
 	posted_rows = [r for r in rows if r.get("journal_entry")]
 	if len(posted_rows) < len(snapshot):
 		frappe.throw(_("Usage replan dropped posted depreciation rows. Aborted."))
@@ -396,18 +401,19 @@ def _assert_posted_unchanged(snapshot, rows, precision) -> None:
 		actual = posted_rows[i]
 		if getdate(actual["schedule_date"]) != expected["schedule_date"]:
 			frappe.throw(_("Posted schedule_date changed during usage replan. Aborted."))
-		if flt(actual["depreciation_amount"], precision) != flt(expected["depreciation_amount"], precision):
+		# Exact stored amount — do not re-round posted accounting history
+		if flt(actual["depreciation_amount"]) != flt(expected["depreciation_amount"]):
 			frappe.throw(_("Posted depreciation_amount changed during usage replan. Aborted."))
 		if actual.get("journal_entry") != expected["journal_entry"]:
 			frappe.throw(_("Posted journal_entry link changed during usage replan. Aborted."))
 
 
-def _build_row_diffs(old_ads, new_rows, precision) -> list[dict[str, Any]]:
+def _build_row_diffs(old_ads, new_rows) -> list[dict[str, Any]]:
 	old_map = {}
 	for row in old_ads.get("depreciation_schedule") or []:
 		if row.journal_entry:
 			continue
-		old_map[getdate(row.schedule_date)] = flt(row.depreciation_amount, precision)
+		old_map[getdate(row.schedule_date)] = to_depr_amount(row.depreciation_amount)
 
 	diffs = []
 	for row in new_rows:
@@ -415,8 +421,8 @@ def _build_row_diffs(old_ads, new_rows, precision) -> list[dict[str, Any]]:
 			continue
 		d = getdate(row["schedule_date"])
 		old_amt = old_map.get(d)
-		new_amt = flt(row["depreciation_amount"], precision)
-		if old_amt is None or flt(old_amt, precision) != new_amt:
+		new_amt = to_depr_amount(row["depreciation_amount"])
+		if old_amt is None or old_amt != new_amt:
 			diffs.append({"schedule_date": d, "old_amount": old_amt, "new_amount": new_amt})
 	return diffs
 

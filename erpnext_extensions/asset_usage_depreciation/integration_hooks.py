@@ -52,28 +52,40 @@ def on_asset_repair_cancel(doc, method=None):
 
 
 def on_sales_invoice_submit(doc, method=None):
-	for asset_name in _assets_on_sales_invoice(doc):
+	# Narrow: only invoices that dispose fixed assets
+	for asset_name in _disposed_assets_on_sales_invoice(doc):
 		_reapply_for_asset(asset_name, trigger_doc=doc)
 
 
 def on_sales_invoice_cancel(doc, method=None):
-	for asset_name in _assets_on_sales_invoice(doc):
+	for asset_name in _disposed_assets_on_sales_invoice(doc):
 		_reapply_for_asset(asset_name, trigger_doc=doc)
 
 
-def _assets_on_sales_invoice(doc) -> list[str]:
-	names = []
+def _disposed_assets_on_sales_invoice(doc) -> list[str]:
+	"""Return asset names only when SI items reference Asset (disposal path)."""
+	names: list[str] = []
 	for item in doc.get("items") or []:
-		if getattr(item, "asset", None):
-			names.append(item.asset)
+		asset_name = getattr(item, "asset", None)
+		if not asset_name:
+			continue
+		# is_fixed_asset on item is the ERPNext disposal signal when present
+		if getattr(item, "is_fixed_asset", None) in (None, 1):
+			names.append(asset_name)
 	return names
 
 
 @frappe.whitelist()
 def scrap_asset(*args, **kwargs):
-	from erpnext.assets.doctype.asset.depreciation import scrap_asset as _scrap_asset
+	"""Whitelist wrapper: run core scrap, then re-apply usage factors.
 
-	result = _scrap_asset(*args, **kwargs)
+	Uses ``override_whitelisted_methods`` (same pattern as other modules in this
+	app). Imports the original function from the ERPNext module object so this
+	is not a monkey patch of the module attribute.
+	"""
+	from erpnext.assets.doctype.asset import depreciation as depr_mod
+
+	result = depr_mod.scrap_asset(*args, **kwargs)
 	asset_name = kwargs.get("asset_name") or (args[0] if args else None)
 	_reapply_for_asset(asset_name)
 	return result
@@ -81,9 +93,10 @@ def scrap_asset(*args, **kwargs):
 
 @frappe.whitelist()
 def restore_asset(*args, **kwargs):
-	from erpnext.assets.doctype.asset.depreciation import restore_asset as _restore_asset
+	"""Whitelist wrapper: run core restore, then re-apply usage factors."""
+	from erpnext.assets.doctype.asset import depreciation as depr_mod
 
-	result = _restore_asset(*args, **kwargs)
+	result = depr_mod.restore_asset(*args, **kwargs)
 	asset_name = kwargs.get("asset_name") or (args[0] if args else None)
 	_reapply_for_asset(asset_name)
 	return result

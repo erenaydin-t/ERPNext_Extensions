@@ -9,6 +9,8 @@ import frappe
 from frappe import _
 from frappe.utils import flt, get_link_to_form
 
+from erpnext_extensions.asset_usage_depreciation.services.accounting_amounts import to_depr_amount
+
 
 def replace_asset_depr_schedule(
 	old_ads,
@@ -22,12 +24,23 @@ def replace_asset_depr_schedule(
 	new_ads.status = "Draft"
 
 	for row in new_rows:
+		amount = (
+			flt(row["depreciation_amount"])
+			if row.get("journal_entry")
+			else to_depr_amount(row["depreciation_amount"])
+		)
+		accum = row.get("accumulated_depreciation_amount")
+		if accum is None:
+			accum = 0
+		elif not row.get("journal_entry"):
+			accum = to_depr_amount(accum)
+
 		new_ads.append(
 			"depreciation_schedule",
 			{
 				"schedule_date": row["schedule_date"],
-				"depreciation_amount": row["depreciation_amount"],
-				"accumulated_depreciation_amount": row.get("accumulated_depreciation_amount") or 0,
+				"depreciation_amount": amount,
+				"accumulated_depreciation_amount": accum,
 				"journal_entry": row.get("journal_entry"),
 				"shift": row.get("shift"),
 			},
@@ -60,12 +73,11 @@ def build_replan_notes(asset_name: str, trigger_doc=None, suspended_message: str
 	return " ".join(parts)
 
 
-def recompute_accumulated(rows: list[dict[str, Any]], opening_accumulated: float, precision: int) -> None:
-	accum = flt(opening_accumulated, precision)
+def recompute_accumulated(rows: list[dict[str, Any]], opening_accumulated: float, precision: int | None = None) -> None:
+	accum = to_depr_amount(opening_accumulated)
 	for row in rows:
 		if row.get("journal_entry") and row.get("accumulated_depreciation_amount") is not None:
-			# Preserve posted accumulated; continue from it
-			accum = flt(row["accumulated_depreciation_amount"], precision)
+			accum = to_depr_amount(row["accumulated_depreciation_amount"])
 			continue
-		accum = flt(accum + flt(row["depreciation_amount"]), precision)
+		accum = to_depr_amount(accum + to_depr_amount(row["depreciation_amount"]))
 		row["accumulated_depreciation_amount"] = accum

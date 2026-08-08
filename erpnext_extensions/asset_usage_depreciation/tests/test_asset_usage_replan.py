@@ -18,12 +18,21 @@ import unittest
 import frappe
 from frappe.utils import flt, getdate, random_string
 
+from erpnext.assets.doctype.asset.depreciation import make_depreciation_entry
+from erpnext.assets.doctype.asset_depreciation_schedule.asset_depreciation_schedule import (
+	get_asset_depr_schedule_doc,
+)
+
 from erpnext_extensions.asset_usage_depreciation.constants import (
 	COMPANY_FIELD_REDUCED_HANDLING,
 	HANDLING_EXTEND,
 	HANDLING_REDISTRIBUTE,
 )
 from erpnext_extensions.asset_usage_depreciation.custom_fields import ensure_custom_fields
+from erpnext_extensions.asset_usage_depreciation.services.accounting_amounts import to_depr_amount
+from erpnext_extensions.asset_usage_depreciation.services.replan_service import (
+	replan_asset_usage_depreciation,
+)
 
 
 def _ensure_company_handling(company: str, handling: str):
@@ -38,6 +47,22 @@ def _unique_asset_name(prefix: str) -> str:
 def _make_sl_asset(**kwargs):
 	company = kwargs.get("company") or "_Test Company"
 	asset_name = kwargs.get("asset_name") or _unique_asset_name("AUD-Asset")
+
+	finance_books = kwargs.get("finance_books")
+	if finance_books is None:
+		finance_books = [
+			{
+				"finance_book": kwargs.get("finance_book"),
+				"depreciation_method": kwargs.get("depreciation_method") or "Straight Line",
+				"frequency_of_depreciation": kwargs.get("frequency_of_depreciation") or 1,
+				"total_number_of_depreciations": kwargs.get("total_number_of_depreciations") or 12,
+				"expected_value_after_useful_life": kwargs.get("expected_value_after_useful_life") or 0,
+				"depreciation_start_date": kwargs.get("depreciation_start_date") or "2026-01-31",
+				"daily_prorata_based": kwargs.get("daily_prorata_based") or 0,
+				"shift_based": kwargs.get("shift_based") or 0,
+				"rate_of_depreciation": kwargs.get("rate_of_depreciation") or 0,
+			}
+		]
 
 	asset = frappe.get_doc(
 		{
@@ -56,19 +81,7 @@ def _make_sl_asset(**kwargs):
 			"asset_owner": "Company",
 			"asset_type": "Existing Asset",
 			"asset_quantity": 1,
-			"finance_books": [
-				{
-					"finance_book": kwargs.get("finance_book"),
-					"depreciation_method": kwargs.get("depreciation_method") or "Straight Line",
-					"frequency_of_depreciation": kwargs.get("frequency_of_depreciation") or 1,
-					"total_number_of_depreciations": kwargs.get("total_number_of_depreciations") or 12,
-					"expected_value_after_useful_life": kwargs.get("expected_value_after_useful_life") or 0,
-					"depreciation_start_date": kwargs.get("depreciation_start_date") or "2026-01-31",
-					"daily_prorata_based": kwargs.get("daily_prorata_based") or 0,
-					"shift_based": kwargs.get("shift_based") or 0,
-					"rate_of_depreciation": kwargs.get("rate_of_depreciation") or 0,
-				}
-			],
+			"finance_books": finance_books,
 		}
 	)
 	asset.insert()
@@ -93,13 +106,11 @@ def _submit_usage(asset, from_date, mode, percentage=None, to_date=None, reason=
 	return doc
 
 
-def _active_schedule(asset_name):
-	from erpnext.assets.doctype.asset_depreciation_schedule.asset_depreciation_schedule import (
-		get_asset_depr_schedule_doc,
-	)
-
+def _active_schedule(asset_name, finance_book=None):
 	asset = frappe.get_doc("Asset", asset_name)
-	fb = asset.finance_books[0].finance_book
+	fb = finance_book
+	if fb is None:
+		fb = asset.finance_books[0].finance_book
 	return get_asset_depr_schedule_doc(asset_name, "Active", fb)
 
 
@@ -107,12 +118,18 @@ def _unposted_amounts(ads):
 	return [flt(r.depreciation_amount) for r in ads.depreciation_schedule if not r.journal_entry]
 
 
-def _post_first_n(ads_name, n):
-	"""Mark the first n schedule rows as posted by linking a real submitted Depreciation Entry JE.
+def _assert_whole_amounts(test_case, ads):
+	for row in ads.depreciation_schedule:
+		amount = flt(row.depreciation_amount)
+		test_case.assertEqual(
+			amount,
+			float(int(amount)),
+			msg=f"Non-whole depreciation amount {amount} on {row.schedule_date}",
+		)
 
-	Uses direct link after creating a JE so the test does not depend on ERPNext's
-	JE↔schedule matching quirks in this site (persian_calendar overrides).
-	"""
+
+def _post_first_n_simulated(ads_name, n):
+	"""Legacy simulated JE link helper (kept for non-JE-path coverage)."""
 	from erpnext.assets.doctype.asset.depreciation import get_depreciation_accounts
 
 	ads = frappe.get_doc("Asset Depreciation Schedule", ads_name)
@@ -151,13 +168,10 @@ def _post_first_n(ads_name, n):
 			}
 		)
 		je.flags.ignore_permissions = True
-		# Avoid double NBV updates from JE.submit asset hooks during test setup
 		je.flags.ignore_links = True
 		je.insert()
-		# Submit without relying on schedule matcher — link manually
 		frappe.db.set_value("Journal Entry", je.name, "docstatus", 1)
 		frappe.db.set_value("Depreciation Schedule", row.name, "journal_entry", je.name)
-		# Reduce NBV like core would
 		fb = asset.finance_books[0]
 		fb.value_after_depreciation = flt(fb.value_after_depreciation) - flt(row.depreciation_amount)
 		fb.db_update()
@@ -179,15 +193,26 @@ class TestAssetUsageReplanIntegration(unittest.TestCase):
 		_ensure_company_handling("_Test Company", HANDLING_EXTEND)
 		asset = _make_sl_asset()
 		ads = _active_schedule(asset.name)
-		standard = flt(ads.depreciation_schedule[0].depreciation_amount)
+		standard = to_depr_amount(ads.depreciation_schedule[0].depreciation_amount)
 
 		_submit_usage(asset, "2026-02-01", "Percentage", 30, to_date="2026-02-28")
 
 		ads = _active_schedule(asset.name)
-		self.assertAlmostEqual(flt(ads.depreciation_schedule[0].depreciation_amount), standard)
-		self.assertAlmostEqual(flt(ads.depreciation_schedule[1].depreciation_amount), flt(standard * 0.3))
-		self.assertAlmostEqual(flt(ads.depreciation_schedule[2].depreciation_amount), standard)
+		_assert_whole_amounts(self, ads)
+		self.assertEqual(to_depr_amount(ads.depreciation_schedule[0].depreciation_amount), standard)
+		self.assertEqual(
+			to_depr_amount(ads.depreciation_schedule[1].depreciation_amount),
+			to_depr_amount(standard * 0.3),
+		)
+		self.assertEqual(to_depr_amount(ads.depreciation_schedule[2].depreciation_amount), standard)
 		self.assertGreaterEqual(len(ads.depreciation_schedule), 12)
+		# Completed schedule reaches salvage exactly
+		asset.reload()
+		remaining = to_depr_amount(
+			flt(asset.finance_books[0].value_after_depreciation)
+			- flt(asset.finance_books[0].expected_value_after_useful_life)
+		)
+		self.assertEqual(sum(to_depr_amount(a) for a in _unposted_amounts(ads)), remaining)
 
 	def test_mid_month_non_daily_uses_schedule_date(self):
 		_ensure_company_handling("_Test Company", HANDLING_EXTEND)
@@ -196,13 +221,13 @@ class TestAssetUsageReplanIntegration(unittest.TestCase):
 		apr_before = next(
 			r for r in ads.depreciation_schedule if getdate(r.schedule_date) == getdate("2026-04-30")
 		)
-		standard = flt(apr_before.depreciation_amount)
+		standard = to_depr_amount(apr_before.depreciation_amount)
 
 		_submit_usage(asset, "2026-04-15", "Percentage", 30, to_date="2026-04-30")
 
 		ads = _active_schedule(asset.name)
 		apr = next(r for r in ads.depreciation_schedule if getdate(r.schedule_date) == getdate("2026-04-30"))
-		self.assertAlmostEqual(flt(apr.depreciation_amount), flt(standard * 0.3))
+		self.assertEqual(to_depr_amount(apr.depreciation_amount), to_depr_amount(standard * 0.3))
 
 	def test_mode_b_spreads_shortfall(self):
 		_ensure_company_handling("_Test Company", HANDLING_REDISTRIBUTE)
@@ -214,16 +239,18 @@ class TestAssetUsageReplanIntegration(unittest.TestCase):
 		_submit_usage(asset, "2026-01-01", "Percentage", 30, to_date="2026-01-31")
 
 		ads = _active_schedule(asset.name)
+		_assert_whole_amounts(self, ads)
 		self.assertEqual(len(ads.depreciation_schedule), count_before)
 		self.assertEqual(getdate(ads.depreciation_schedule[-1].schedule_date), end_before)
-		jan = flt(ads.depreciation_schedule[0].depreciation_amount)
-		feb = flt(ads.depreciation_schedule[1].depreciation_amount)
+		jan = to_depr_amount(ads.depreciation_schedule[0].depreciation_amount)
+		feb = to_depr_amount(ads.depreciation_schedule[1].depreciation_amount)
 		self.assertLess(jan, feb)
 		asset.reload()
-		remaining = flt(asset.finance_books[0].value_after_depreciation) - flt(
-			asset.finance_books[0].expected_value_after_useful_life
+		remaining = to_depr_amount(
+			flt(asset.finance_books[0].value_after_depreciation)
+			- flt(asset.finance_books[0].expected_value_after_useful_life)
 		)
-		self.assertAlmostEqual(sum(_unposted_amounts(ads)), remaining, places=2)
+		self.assertEqual(sum(to_depr_amount(a) for a in _unposted_amounts(ads)), remaining)
 
 	def test_mode_b_all_zero_errors(self):
 		_ensure_company_handling("_Test Company", HANDLING_REDISTRIBUTE)
@@ -231,11 +258,11 @@ class TestAssetUsageReplanIntegration(unittest.TestCase):
 		with self.assertRaises(frappe.ValidationError):
 			_submit_usage(asset, "2026-01-01", "No Depreciation", to_date=None)
 
-	def test_posted_rows_immutable(self):
+	def test_posted_rows_immutable_simulated(self):
 		_ensure_company_handling("_Test Company", HANDLING_EXTEND)
 		asset = _make_sl_asset()
 		ads = _active_schedule(asset.name)
-		_post_first_n(ads.name, 2)
+		_post_first_n_simulated(ads.name, 2)
 		ads = _active_schedule(asset.name)
 		posted = [
 			(getdate(r.schedule_date), flt(r.depreciation_amount), r.journal_entry)
@@ -253,6 +280,75 @@ class TestAssetUsageReplanIntegration(unittest.TestCase):
 			if r.journal_entry
 		]
 		self.assertEqual(posted, posted_after)
+
+	def test_real_je_ads_link_and_posted_immutability(self):
+		"""Real make_depreciation_entry → JE link (via getdate repair) → replan."""
+		_ensure_company_handling("_Test Company", HANDLING_EXTEND)
+		asset = _make_sl_asset()
+		ads = _active_schedule(asset.name)
+		first = ads.depreciation_schedule[0]
+		first_date = getdate(first.schedule_date)
+		first_amount = flt(first.depreciation_amount)
+
+		# Production posting path — must not manually assign journal_entry
+		make_depreciation_entry(ads.name, date=str(first_date))
+
+		ads = _active_schedule(asset.name)
+		linked = ads.depreciation_schedule[0]
+		self.assertTrue(
+			linked.journal_entry,
+			"Depreciation JE must be linked on ADS row after make_depreciation_entry "
+			"(je_link.ensure_depreciation_schedule_je_link repairs core date/str mismatch)",
+		)
+		je_name = linked.journal_entry
+		je = frappe.get_doc("Journal Entry", je_name)
+		self.assertEqual(je.docstatus, 1)
+		self.assertEqual(je.voucher_type, "Depreciation Entry")
+		self.assertEqual(flt(linked.depreciation_amount), first_amount)
+		self.assertEqual(getdate(linked.schedule_date), first_date)
+
+		_submit_usage(asset, "2026-01-01", "Percentage", 30, to_date="2026-06-30")
+
+		ads = _active_schedule(asset.name)
+		posted = [r for r in ads.depreciation_schedule if r.journal_entry]
+		self.assertEqual(len(posted), 1)
+		self.assertEqual(posted[0].journal_entry, je_name)
+		self.assertEqual(flt(posted[0].depreciation_amount), first_amount)
+		self.assertEqual(getdate(posted[0].schedule_date), first_date)
+
+		je.reload()
+		self.assertEqual(je.docstatus, 1)
+		self.assertEqual(je.name, je_name)
+
+		# Future unposted amounts must reflect reduced usage (regenerated base × 30%)
+		feb = next(r for r in ads.depreciation_schedule if getdate(r.schedule_date) == getdate("2026-02-28"))
+		jul = next(r for r in ads.depreciation_schedule if getdate(r.schedule_date) == getdate("2026-07-31"))
+		self.assertFalse(feb.journal_entry)
+		self.assertEqual(to_depr_amount(feb.depreciation_amount), flt(feb.depreciation_amount))
+		self.assertLess(to_depr_amount(feb.depreciation_amount), to_depr_amount(jul.depreciation_amount))
+		# ~30% of a Normal installment (allow Mode A / salvage residue on later rows only)
+		self.assertAlmostEqual(
+			to_depr_amount(feb.depreciation_amount) / to_depr_amount(jul.depreciation_amount),
+			0.3,
+			places=1,
+		)
+		_assert_whole_amounts(self, ads)
+
+		# Automatic posting must not re-post the frozen row
+		make_depreciation_entry(ads.name, date=str(first_date))
+		ads = _active_schedule(asset.name)
+		self.assertEqual(ads.depreciation_schedule[0].journal_entry, je_name)
+		dupes = frappe.db.sql(
+			"""
+			SELECT COUNT(DISTINCT je.name)
+			FROM `tabJournal Entry` je
+			INNER JOIN `tabJournal Entry Account` jea ON jea.parent = je.name
+			WHERE je.voucher_type='Depreciation Entry' AND je.docstatus=1
+				AND jea.reference_name=%s AND je.posting_date=%s
+			""",
+			(asset.name, first_date),
+		)[0][0]
+		self.assertEqual(dupes, 1)
 
 	def test_manual_blocked(self):
 		_ensure_company_handling("_Test Company", HANDLING_EXTEND)
@@ -272,13 +368,13 @@ class TestAssetUsageReplanIntegration(unittest.TestCase):
 		_ensure_company_handling("_Test Company", HANDLING_EXTEND)
 		asset = _make_sl_asset()
 		ads0 = _active_schedule(asset.name)
-		standard = flt(ads0.depreciation_schedule[1].depreciation_amount)
+		standard = to_depr_amount(ads0.depreciation_schedule[1].depreciation_amount)
 		usage = _submit_usage(asset, "2026-02-01", "Percentage", 30, to_date="2026-02-28")
 		usage.cancel()
 		ads = _active_schedule(asset.name)
-		self.assertAlmostEqual(flt(ads.depreciation_schedule[1].depreciation_amount), standard)
+		self.assertEqual(to_depr_amount(ads.depreciation_schedule[1].depreciation_amount), standard)
 
-	def test_daily_prorata_mid_period(self):
+	def test_daily_prorata_mid_period_whole_amount(self):
 		_ensure_company_handling("_Test Company", HANDLING_EXTEND)
 		asset = _make_sl_asset(daily_prorata_based=1)
 		ads = _active_schedule(asset.name)
@@ -290,4 +386,91 @@ class TestAssetUsageReplanIntegration(unittest.TestCase):
 		ads = _active_schedule(asset.name)
 		apr = next(r for r in ads.depreciation_schedule if getdate(r.schedule_date) == getdate("2026-04-30"))
 		expected_factor = (10 * 1.0 + 20 * 0.3) / 30.0
-		self.assertAlmostEqual(flt(apr.depreciation_amount), flt(standard * expected_factor), places=2)
+		self.assertEqual(to_depr_amount(apr.depreciation_amount), to_depr_amount(standard * expected_factor))
+		_assert_whole_amounts(self, ads)
+
+	def test_regression_no_usage_period_replan_noop(self):
+		_ensure_company_handling("_Test Company", HANDLING_EXTEND)
+		asset = _make_sl_asset()
+		ads_before = _active_schedule(asset.name)
+		before_name = ads_before.name
+		before_amounts = [(getdate(r.schedule_date), flt(r.depreciation_amount)) for r in ads_before.depreciation_schedule]
+
+		replan_asset_usage_depreciation(asset.name)
+
+		ads_after = _active_schedule(asset.name)
+		self.assertEqual(ads_after.name, before_name)
+		after_amounts = [(getdate(r.schedule_date), flt(r.depreciation_amount)) for r in ads_after.depreciation_schedule]
+		self.assertEqual(before_amounts, after_amounts)
+		self.assertFalse(
+			frappe.db.exists("Asset Usage Replan Log", {"new_ads": before_name})
+			or frappe.db.exists("Asset Usage Replan Log", {"old_ads": before_name})
+		)
+
+	def test_multi_ads_unsupported_atomic_abort(self):
+		"""SL + WDV: fail before any ADS is replaced."""
+		_ensure_company_handling("_Test Company", HANDLING_EXTEND)
+		if not frappe.db.exists("Finance Book", "AUD-WDV-FB"):
+			frappe.get_doc({"doctype": "Finance Book", "finance_book_name": "AUD-WDV-FB"}).insert()
+
+		asset = _make_sl_asset(
+			finance_books=[
+				{
+					"finance_book": "default",
+					"depreciation_method": "Straight Line",
+					"frequency_of_depreciation": 1,
+					"total_number_of_depreciations": 12,
+					"expected_value_after_useful_life": 0,
+					"depreciation_start_date": "2026-01-31",
+					"daily_prorata_based": 0,
+					"shift_based": 0,
+					"rate_of_depreciation": 0,
+				},
+				{
+					"finance_book": "AUD-WDV-FB",
+					"depreciation_method": "Written Down Value",
+					"frequency_of_depreciation": 1,
+					"total_number_of_depreciations": 12,
+					"expected_value_after_useful_life": 0,
+					"depreciation_start_date": "2026-01-31",
+					"daily_prorata_based": 0,
+					"shift_based": 0,
+					"rate_of_depreciation": 10,
+				},
+			]
+		)
+		sl_ads = _active_schedule(asset.name, finance_book="default")
+		wdv_ads = _active_schedule(asset.name, finance_book="AUD-WDV-FB")
+		self.assertTrue(sl_ads)
+		self.assertTrue(wdv_ads)
+		sl_name = sl_ads.name
+		wdv_name = wdv_ads.name
+		sl_amounts = [flt(r.depreciation_amount) for r in sl_ads.depreciation_schedule]
+
+		with self.assertRaises(frappe.ValidationError):
+			_submit_usage(asset, "2026-02-01", "Percentage", 30, to_date="2026-02-28")
+
+		# Transaction rolled back in tearDown; within the failed submit the DB may
+		# already be rolled back by frappe.throw. Re-check Active schedules still exist.
+		self.assertTrue(frappe.db.exists("Asset Depreciation Schedule", {"name": sl_name, "docstatus": 1}))
+		self.assertTrue(frappe.db.exists("Asset Depreciation Schedule", {"name": wdv_name, "docstatus": 1}))
+		sl_ads = frappe.get_doc("Asset Depreciation Schedule", sl_name)
+		self.assertEqual(sl_ads.status, "Active")
+		self.assertEqual([flt(r.depreciation_amount) for r in sl_ads.depreciation_schedule], sl_amounts)
+
+	def test_replan_log_whole_amounts(self):
+		_ensure_company_handling("_Test Company", HANDLING_EXTEND)
+		asset = _make_sl_asset()
+		usage = _submit_usage(asset, "2026-02-01", "Percentage", 30, to_date="2026-02-28")
+		logs = frappe.get_all(
+			"Asset Usage Replan Log",
+			filters={"parent": usage.name},
+			fields=["old_amount", "new_amount", "old_ads", "new_ads", "schedule_date"],
+		)
+		self.assertTrue(logs)
+		for row in logs:
+			if row.old_amount is not None:
+				self.assertEqual(flt(row.old_amount), float(to_depr_amount(row.old_amount)))
+			self.assertEqual(flt(row.new_amount), float(to_depr_amount(row.new_amount)))
+			self.assertTrue(row.old_ads)
+			self.assertTrue(frappe.db.exists("Asset Depreciation Schedule", row.new_ads))

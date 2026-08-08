@@ -254,6 +254,8 @@ doc_events = {
 			"erpnext_extensions.petty_management.journal_entry_hooks.on_journal_entry_submit",
 			"erpnext_extensions.consignment_stock.journal_entry_hooks.on_submit",
 			"erpnext_extensions.consignment_stock.material_loan.journal_entry_hooks.on_submit",
+			# Repair Depreciation Entry → ADS row link when core date==str compare fails
+			"erpnext_extensions.asset_usage_depreciation.services.je_link.ensure_depreciation_schedule_je_link",
 		],
 		"before_cancel": [
 			"erpnext_extensions.petty_management.journal_entry_hooks.on_journal_entry_before_cancel",
