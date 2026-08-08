@@ -156,6 +156,7 @@ after_migrate = [
 	"erpnext_extensions.iran_accounting.integration.bootstrap.apply",
 	"erpnext_extensions.extentionhrms.install.after_migrate",
 	"erpnext_extensions.consignment_stock.install.after_migrate",
+	"erpnext_extensions.asset_usage_depreciation.install.after_migrate",
 ]
 
 # ERPNext injects Accounting Dimension custom fields onto these DocTypes (see Accounting Dimension on_update).
@@ -237,6 +238,14 @@ override_doctype_class = {
 # Hook on document methods and events
 
 doc_events = {
+	"Asset Value Adjustment": {
+		"on_submit": "erpnext_extensions.asset_usage_depreciation.integration_hooks.on_asset_value_adjustment_submit",
+		"on_cancel": "erpnext_extensions.asset_usage_depreciation.integration_hooks.on_asset_value_adjustment_cancel",
+	},
+	"Asset Repair": {
+		"on_submit": "erpnext_extensions.asset_usage_depreciation.integration_hooks.on_asset_repair_submit",
+		"on_cancel": "erpnext_extensions.asset_usage_depreciation.integration_hooks.on_asset_repair_cancel",
+	},
 	"PM Clearance": {
 		"onload": "erpnext_extensions.petty_management.clearance_onload.sync_pm_clearance_on_load",
 	},
@@ -312,8 +321,14 @@ doc_events = {
 			"erpnext_extensions.cheque_management.pdc_invoice_advance_application.before_invoice_submit",
 			"erpnext_extensions.iran_accounting.accounts_invoice.round_irr_invoice_totals",
 		],
-		"on_submit": "erpnext_extensions.cheque_management.pdc_invoice_advance_application.on_invoice_submit",
-		"on_cancel": "erpnext_extensions.cheque_management.pdc_invoice_advance_application.on_invoice_cancel",
+		"on_submit": [
+			"erpnext_extensions.cheque_management.pdc_invoice_advance_application.on_invoice_submit",
+			"erpnext_extensions.asset_usage_depreciation.integration_hooks.on_sales_invoice_submit",
+		],
+		"on_cancel": [
+			"erpnext_extensions.cheque_management.pdc_invoice_advance_application.on_invoice_cancel",
+			"erpnext_extensions.asset_usage_depreciation.integration_hooks.on_sales_invoice_cancel",
+		],
 	},
 	"GL Entry": {
 		"validate": "erpnext_extensions.iran_accounting.gl_entry.validate_gl_entry",
@@ -427,6 +442,13 @@ override_whitelisted_methods = {
 		"erpnext_extensions.cheque_management.pdc_direct_cancel_policy.can_cancel_document"
 	),
 	"frappe.desk.search.get_link_title": "erpnext_extensions.petty_management.overrides.search.get_link_title",
+	# Re-apply usage factors after core scrap/restore rebuilds ADS.
+	"erpnext.assets.doctype.asset.depreciation.scrap_asset": (
+		"erpnext_extensions.asset_usage_depreciation.integration_hooks.scrap_asset"
+	),
+	"erpnext.assets.doctype.asset.depreciation.restore_asset": (
+		"erpnext_extensions.asset_usage_depreciation.integration_hooks.restore_asset"
+	),
 }
 #
 # each overriding function accepts a `data` argument;
