@@ -93,7 +93,7 @@ def get_custom_fields() -> dict:
 				"fieldname": F_PARTY_TYPE,
 				"label": "Material Loan Party Type",
 				"fieldtype": "Link",
-				"options": "Party Type",
+				"options": "DocType",
 				"insert_after": F_IS_LOAN_RETURN,
 				"depends_on": loan_flag_depends,
 				"mandatory_depends_on": loan_flag_depends,
@@ -297,4 +297,10 @@ def get_custom_fields() -> dict:
 
 
 def ensure_custom_fields() -> None:
+	from erpnext_extensions.consignment_stock.party_type_meta import (
+		repair_stock_entry_party_type_link_options,
+	)
+
+	# Repair invalid Dynamic Link controllers before create_custom_fields validates meta.
+	repair_stock_entry_party_type_link_options()
 	create_custom_fields(get_custom_fields(), update=True)

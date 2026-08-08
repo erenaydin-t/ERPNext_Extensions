@@ -7,6 +7,11 @@ function is_consignment(frm) {
 
 frappe.ui.form.on("Stock Entry", {
 	setup(frm) {
+		frm.set_query("custom_consignment_party_type", () => ({
+			filters: {
+				name: ["in", ["Customer", "Supplier"]],
+			},
+		}));
 		frm.set_query("custom_consignment_receipt_reference", () => ({
 			query: "erpnext_extensions.consignment_stock.queries.consignment_receipt_query",
 			filters: {

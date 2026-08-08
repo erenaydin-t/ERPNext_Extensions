@@ -7,10 +7,16 @@ import frappe
 from frappe import _
 from frappe.utils import cint
 
+from erpnext_extensions.consignment_stock.material_loan.constants import ALLOWED_PARTY_TYPES
+
 
 def validate_party_for_tracking(party_type: str | None, party: str | None) -> None:
 	if not party_type or not party:
 		frappe.throw(_("Material Loan Party Type and Party are required."))
+	if party_type not in ALLOWED_PARTY_TYPES:
+		frappe.throw(
+			_("Material Loan Party Type must be one of {0}.").format(", ".join(ALLOWED_PARTY_TYPES))
+		)
 	if not frappe.db.exists("Party Type", party_type):
 		frappe.throw(_("Party Type {0} does not exist.").format(party_type))
 	account_type = frappe.get_cached_value("Party Type", party_type, "account_type")

@@ -10,6 +10,9 @@ F_IS_LOAN_RETURN = "custom_is_material_loan_return"
 
 F_PARTY_TYPE = "custom_material_loan_party_type"
 F_PARTY = "custom_material_loan_party"
+
+# Stock Entry workflow allowlist (3.8.9). Controller meta is Link/DocType.
+ALLOWED_PARTY_TYPES = ("Customer", "Supplier")
 F_PHYSICAL_STATUS = "custom_material_loan_status"
 F_RECOGNITION_STATUS = "custom_material_loan_recognition_status"
 F_SETTLEMENT_STATUS = "custom_material_loan_settlement_status"
