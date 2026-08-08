@@ -12,6 +12,10 @@ F_IS_RETURN = "custom_is_consignment_return"
 # Stock Entry header
 F_PARTY_TYPE = "custom_consignment_party_type"
 F_PARTY = "custom_consignment_party"
+
+# Stock Entry Dynamic Link controllers must be Link/DocType (Frappe v16).
+# 3.8.9 workflows allow only Customer and Supplier on Stock Entry.
+ALLOWED_PARTY_TYPES = ("Customer", "Supplier")
 F_HAS_RECEIPT_REF = "custom_has_consignment_receipt_reference"
 F_RECEIPT_REF = "custom_consignment_receipt_reference"
 F_RECOGNITION_JE = "custom_consignment_recognition_je"

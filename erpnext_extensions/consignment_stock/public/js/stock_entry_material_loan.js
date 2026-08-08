@@ -9,6 +9,11 @@ function is_material_loan(frm) {
 
 frappe.ui.form.on("Stock Entry", {
 	setup(frm) {
+		frm.set_query("custom_material_loan_party_type", () => ({
+			filters: {
+				name: ["in", ["Customer", "Supplier"]],
+			},
+		}));
 		frm.set_query("custom_material_loan_issue_reference", () => ({
 			query: "erpnext_extensions.consignment_stock.material_loan.queries.material_loan_issue_query",
 			filters: {

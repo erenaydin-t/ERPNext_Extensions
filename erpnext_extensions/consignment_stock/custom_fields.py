@@ -94,7 +94,7 @@ def get_custom_fields() -> dict:
 				"fieldname": F_PARTY_TYPE,
 				"label": "Consignment Party Type",
 				"fieldtype": "Link",
-				"options": "Party Type",
+				"options": "DocType",
 				"insert_after": F_IS_RETURN,
 				"depends_on": f"eval:doc.{F_IS_RECEIPT}||doc.{F_IS_RETURN}",
 				"mandatory_depends_on": f"eval:doc.{F_IS_RECEIPT}||doc.{F_IS_RETURN}",
@@ -273,5 +273,11 @@ def ensure_stock_entry_reference_type_option() -> None:
 
 
 def ensure_custom_fields() -> None:
+	from erpnext_extensions.consignment_stock.party_type_meta import (
+		repair_stock_entry_party_type_link_options,
+	)
+
+	# Repair invalid Dynamic Link controllers before create_custom_fields validates meta.
+	repair_stock_entry_party_type_link_options()
 	create_custom_fields(get_custom_fields(), update=True)
 	ensure_stock_entry_reference_type_option()

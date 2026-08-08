@@ -8,11 +8,18 @@ from frappe import _
 from frappe.utils import cint
 from erpnext.accounts.party import get_party_account
 
+from erpnext_extensions.consignment_stock.constants import ALLOWED_PARTY_TYPES
+
 
 def validate_consignment_party(party_type: str | None, party: str | None, company: str) -> str:
 	"""Validate party and return resolved party account."""
 	if not party_type or not party:
 		frappe.throw(_("Consignment Party Type and Party are required."))
+
+	if party_type not in ALLOWED_PARTY_TYPES:
+		frappe.throw(
+			_("Consignment Party Type must be one of {0}.").format(", ".join(ALLOWED_PARTY_TYPES))
+		)
 
 	if not frappe.db.exists("Party Type", party_type):
 		frappe.throw(_("Party Type {0} does not exist.").format(party_type))
