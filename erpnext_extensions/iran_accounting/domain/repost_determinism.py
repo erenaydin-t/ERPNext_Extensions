@@ -18,7 +18,8 @@ MANDATORY PIPELINE (after every repost)
 OPERATIONAL CONTRACT
 --------------------
 Supported only: ``run_repost_for_voucher`` / ``run_repost_for_voucher_impl`` (engine + pipeline, ``raise_on_fail=True``).
-Hooks (RIV Completed, RAL ``start_repost``): ``run_post_repost_deterministic_pipeline(doc, raise_on_fail=False)``.
+Hooks (RIV Completed, RAL module ``repost`` / legacy ``start_repost``):
+``run_post_repost_deterministic_pipeline(doc, raise_on_fail=False)``.
 Forbidden: raw RIV/RAL; treating engine as final truth; skipping reconcile + validate.
 
 GUARANTEE

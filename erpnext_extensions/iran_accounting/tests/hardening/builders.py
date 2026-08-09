@@ -279,13 +279,24 @@ def run_ral(company: str, voucher_type: str, voucher_no: str):
 	if not frappe.db.exists("DocType", "Repost Accounting Ledger"):
 		return None
 	ensure_ral_allows_stock_entry()
-	from erpnext.accounts.doctype.repost_accounting_ledger.repost_accounting_ledger import start_repost
+	import erpnext.accounts.doctype.repost_accounting_ledger.repost_accounting_ledger as ral_mod
 
 	ral = frappe.new_doc("Repost Accounting Ledger")
 	ral.company = company
 	ral.append("vouchers", {"voucher_type": voucher_type, "voucher_no": voucher_no})
 	ral.insert(ignore_permissions=True)
-	start_repost(ral.name)
+
+	# ERPNext 16.31.1+: submit enqueues module ``repost`` (runs immediately in tests).
+	# Legacy: module-level ``start_repost`` performed the work (required submitted doc).
+	if callable(getattr(ral_mod, "repost", None)):
+		ral.submit()
+	elif callable(getattr(ral_mod, "start_repost", None)):
+		if ral.docstatus == 0:
+			ral.submit()
+		ral_mod.start_repost(ral.name)
+	else:
+		frappe.throw("Repost Accounting Ledger has no supported repost API (repost/start_repost)")
+
 	frappe.db.commit()
 	return ral
 
