@@ -6,7 +6,7 @@ from __future__ import annotations
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import cint, flt, getdate
+from frappe.utils import add_days, cint, flt, getdate
 
 from erpnext_extensions.asset_usage_depreciation.constants import (
 	MODE_NO_DEPRECIATION,
@@ -16,6 +16,10 @@ from erpnext_extensions.asset_usage_depreciation.constants import (
 from erpnext_extensions.asset_usage_depreciation.services.locks import lock_asset
 from erpnext_extensions.asset_usage_depreciation.services.replan_service import (
 	replan_asset_usage_depreciation,
+)
+from erpnext_extensions.asset_usage_depreciation.services.transition_service import (
+	auto_close_previous_open_period,
+	is_usage_transition_in_progress,
 )
 from erpnext_extensions.asset_usage_depreciation.services.usage_timeline import (
 	load_submitted_usage_periods,
@@ -31,17 +35,29 @@ class AssetUsagePeriod(Document):
 		self._validate_dates()
 		self._validate_asset()
 		self._validate_percentage()
-		self._validate_overlap_and_open_ended()
+		if getattr(self, "_action", None) == "submit":
+			# Real amend-close before final timeline validation
+			lock_asset(self.asset)
+			auto_close_previous_open_period(self)
+			self._validate_overlap_and_open_ended(preview_auto_close=False)
+		else:
+			# Draft save: preview closing any earlier open so insert is not blocked
+			self._validate_overlap_and_open_ended(preview_auto_close=True)
 
 	def before_submit(self):
 		lock_asset(self.asset)
 		self._validate_asset()
-		self._validate_overlap_and_open_ended()
+		# Auto-close already done in validate on submit; re-validate under lock
+		self._validate_overlap_and_open_ended(preview_auto_close=False)
 
 	def on_submit(self):
+		if is_usage_transition_in_progress():
+			return
 		replan_asset_usage_depreciation(self.asset, trigger_doc=self)
 
 	def on_cancel(self):
+		if is_usage_transition_in_progress():
+			return
 		lock_asset(self.asset)
 		replan_asset_usage_depreciation(self.asset, trigger_doc=self)
 
@@ -97,8 +113,26 @@ class AssetUsagePeriod(Document):
 			)
 		self.company = asset.company
 
-	def _validate_overlap_and_open_ended(self):
+	def _preview_auto_close_periods(self, periods: list[dict]) -> list[dict]:
+		"""Treat earlier open periods as closed at from_date-1 for draft validation only."""
+		if not self.from_date:
+			return periods
+		new_from = getdate(self.from_date)
+		previewed = []
+		for period in periods:
+			if period.get("to_date") is None and period["from_date"] < new_from:
+				closed = dict(period)
+				closed["to_date"] = add_days(new_from, -1)
+				previewed.append(closed)
+			else:
+				previewed.append(period)
+		return previewed
+
+	def _validate_overlap_and_open_ended(self, preview_auto_close: bool = False):
 		periods = load_submitted_usage_periods(self.asset, exclude=self.name if self.name else None)
+		if preview_auto_close:
+			periods = self._preview_auto_close_periods(periods)
+
 		current = {
 			"name": self.name or "__current__",
 			"from_date": getdate(self.from_date),
