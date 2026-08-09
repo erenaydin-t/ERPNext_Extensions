@@ -390,6 +390,7 @@ class TestAssetUsageReplanIntegration(unittest.TestCase):
 		_assert_whole_amounts(self, ads)
 
 	def test_regression_no_usage_period_replan_noop(self):
+		"""Req 11: zero Usage Periods → standard ERPNext ADS, no unnecessary replace."""
 		_ensure_company_handling("_Test Company", HANDLING_EXTEND)
 		asset = _make_sl_asset()
 		ads_before = _active_schedule(asset.name)
@@ -406,6 +407,31 @@ class TestAssetUsageReplanIntegration(unittest.TestCase):
 			frappe.db.exists("Asset Usage Replan Log", {"new_ads": before_name})
 			or frappe.db.exists("Asset Usage Replan Log", {"old_ads": before_name})
 		)
+
+	def test_non_daily_before_first_usage_period_unchanged(self):
+		"""Req 10: schedule_date before first Usage Period keeps standard ERPNext amount."""
+		_ensure_company_handling("_Test Company", HANDLING_EXTEND)
+		asset = _make_sl_asset()
+		ads = _active_schedule(asset.name)
+		jan = next(r for r in ads.depreciation_schedule if getdate(r.schedule_date) == getdate("2026-01-31"))
+		feb = next(r for r in ads.depreciation_schedule if getdate(r.schedule_date) == getdate("2026-02-28"))
+		mar = next(r for r in ads.depreciation_schedule if getdate(r.schedule_date) == getdate("2026-03-31"))
+		jan_std = to_depr_amount(jan.depreciation_amount)
+		feb_std = to_depr_amount(feb.depreciation_amount)
+		mar_std = to_depr_amount(mar.depreciation_amount)
+
+		# First explicit period starts in April (open 30%) — Jan–Mar stay implicit Normal
+		_submit_usage(asset, "2026-04-01", "Percentage", 30, to_date=None)
+
+		ads = _active_schedule(asset.name)
+		jan = next(r for r in ads.depreciation_schedule if getdate(r.schedule_date) == getdate("2026-01-31"))
+		feb = next(r for r in ads.depreciation_schedule if getdate(r.schedule_date) == getdate("2026-02-28"))
+		mar = next(r for r in ads.depreciation_schedule if getdate(r.schedule_date) == getdate("2026-03-31"))
+		apr = next(r for r in ads.depreciation_schedule if getdate(r.schedule_date) == getdate("2026-04-30"))
+		self.assertEqual(to_depr_amount(jan.depreciation_amount), jan_std)
+		self.assertEqual(to_depr_amount(feb.depreciation_amount), feb_std)
+		self.assertEqual(to_depr_amount(mar.depreciation_amount), mar_std)
+		self.assertEqual(to_depr_amount(apr.depreciation_amount), to_depr_amount(jan_std * 0.3))
 
 	def test_multi_ads_unsupported_atomic_abort(self):
 		"""SL + WDV: fail before any ADS is replaced."""
@@ -474,3 +500,215 @@ class TestAssetUsageReplanIntegration(unittest.TestCase):
 			self.assertEqual(flt(row.new_amount), float(to_depr_amount(row.new_amount)))
 			self.assertTrue(row.old_ads)
 			self.assertTrue(frappe.db.exists("Asset Depreciation Schedule", row.new_ads))
+
+
+class TestRepeatedUsageTransitions(unittest.TestCase):
+	"""Auto-close open periods via amend for repeated status changes."""
+
+	@classmethod
+	def setUpClass(cls):
+		frappe.set_user("Administrator")
+		ensure_custom_fields()
+
+	def tearDown(self):
+		frappe.db.rollback()
+
+	def _submitted_timeline(self, asset_name):
+		from erpnext_extensions.asset_usage_depreciation.services.usage_timeline import (
+			factor_on_date,
+			load_submitted_usage_periods,
+			validate_timeline_consistency,
+		)
+
+		rows = load_submitted_usage_periods(asset_name)
+		validate_timeline_consistency(rows)
+		return rows, factor_on_date
+
+	def test_five_open_transitions_auto_close_chain(self):
+		"""30 → Normal → 30 → Normal → 30 with auto-closed history."""
+		_ensure_company_handling("_Test Company", HANDLING_EXTEND)
+		asset = _make_sl_asset(total_number_of_depreciations=24)
+
+		p1 = _submit_usage(asset, "2026-01-01", "Percentage", 30, to_date=None)
+		p2 = _submit_usage(asset, "2026-04-01", "Normal", to_date=None)
+		p3 = _submit_usage(asset, "2026-09-01", "Percentage", 30, to_date=None)
+		p4 = _submit_usage(asset, "2027-01-01", "Normal", to_date=None)
+		p5 = _submit_usage(asset, "2027-06-01", "Percentage", 30, to_date=None)
+
+		rows, factor_on_date = self._submitted_timeline(asset.name)
+		self.assertEqual(len(rows), 5)
+		opens = [r for r in rows if not r["to_date"]]
+		self.assertEqual(len(opens), 1)
+		self.assertEqual(opens[0]["from_date"], getdate("2027-06-01"))
+		self.assertEqual(opens[0]["factor"], 0.3)
+
+		expected = [
+			(getdate("2026-01-01"), getdate("2026-03-31"), 0.3),
+			(getdate("2026-04-01"), getdate("2026-08-31"), 1.0),
+			(getdate("2026-09-01"), getdate("2026-12-31"), 0.3),
+			(getdate("2027-01-01"), getdate("2027-05-31"), 1.0),
+			(getdate("2027-06-01"), None, 0.3),
+		]
+		for row, (fr, to, fac) in zip(rows, expected, strict=True):
+			self.assertEqual(row["from_date"], fr)
+			self.assertEqual(row["to_date"], to)
+			self.assertEqual(row["factor"], fac)
+
+		self.assertEqual(factor_on_date(rows, "2025-12-01"), 1.0)  # before first → Normal
+		self.assertEqual(factor_on_date(rows, "2026-02-15"), 0.3)
+		self.assertEqual(factor_on_date(rows, "2026-06-15"), 1.0)
+		self.assertEqual(factor_on_date(rows, "2026-10-15"), 0.3)
+		self.assertEqual(factor_on_date(rows, "2027-03-15"), 1.0)
+		self.assertEqual(factor_on_date(rows, "2027-07-15"), 0.3)
+
+		# Amendment chain: original open cancelled; closed successor has amended_from
+		self.assertEqual(frappe.db.get_value("Asset Usage Period", p1.name, "docstatus"), 2)
+		closed1 = frappe.db.get_value(
+			"Asset Usage Period", {"amended_from": p1.name, "docstatus": 1}, "name"
+		)
+		self.assertTrue(closed1)
+		self.assertEqual(
+			getdate(frappe.db.get_value("Asset Usage Period", closed1, "to_date")),
+			getdate("2026-03-31"),
+		)
+		self.assertEqual(frappe.db.get_value("Asset Usage Period", p2.name, "docstatus"), 2)
+		self.assertEqual(frappe.db.get_value("Asset Usage Period", p5.name, "docstatus"), 1)
+		self.assertFalse(frappe.db.get_value("Asset Usage Period", p5.name, "to_date"))
+
+	def test_one_replan_per_transition(self):
+		_ensure_company_handling("_Test Company", HANDLING_EXTEND)
+		asset = _make_sl_asset()
+		_submit_usage(asset, "2026-01-01", "Percentage", 30, to_date=None)
+
+		import erpnext_extensions.asset_usage_depreciation.doctype.asset_usage_period.asset_usage_period as aup_mod
+		import erpnext_extensions.asset_usage_depreciation.services.replan_service as replan_mod
+
+		calls = {"n": 0}
+		orig = replan_mod.replan_asset_usage_depreciation
+
+		def counting(*args, **kwargs):
+			calls["n"] += 1
+			return orig(*args, **kwargs)
+
+		replan_mod.replan_asset_usage_depreciation = counting
+		aup_mod.replan_asset_usage_depreciation = counting
+		try:
+			_submit_usage(asset, "2026-04-01", "Normal", to_date=None)
+			self.assertEqual(calls["n"], 1, "auto-close must not replan; only final submit replans once")
+		finally:
+			replan_mod.replan_asset_usage_depreciation = orig
+			aup_mod.replan_asset_usage_depreciation = orig
+
+	def test_new_from_date_on_or_before_open_fails(self):
+		_ensure_company_handling("_Test Company", HANDLING_EXTEND)
+		asset = _make_sl_asset()
+		_submit_usage(asset, "2026-04-01", "Percentage", 30, to_date=None)
+		with self.assertRaises(frappe.ValidationError):
+			_submit_usage(asset, "2026-04-01", "Normal", to_date=None)
+		with self.assertRaises(frappe.ValidationError):
+			_submit_usage(asset, "2026-03-01", "Normal", to_date=None)
+		# Open period unchanged
+		rows, _ = self._submitted_timeline(asset.name)
+		self.assertEqual(len(rows), 1)
+		self.assertIsNone(rows[0]["to_date"])
+
+	def test_no_depreciation_normal_cycle(self):
+		_ensure_company_handling("_Test Company", HANDLING_EXTEND)
+		asset = _make_sl_asset()
+		_submit_usage(asset, "2026-01-01", "No Depreciation", to_date=None)
+		_submit_usage(asset, "2026-05-01", "Normal", to_date=None)
+		_submit_usage(asset, "2026-09-01", "No Depreciation", to_date=None)
+		rows, factor_on_date = self._submitted_timeline(asset.name)
+		self.assertEqual(len(rows), 3)
+		self.assertEqual(factor_on_date(rows, "2026-02-01"), 0.0)
+		self.assertEqual(factor_on_date(rows, "2026-06-01"), 1.0)
+		self.assertEqual(factor_on_date(rows, "2026-10-01"), 0.0)
+
+	def test_arbitrary_percentage_transition(self):
+		_ensure_company_handling("_Test Company", HANDLING_EXTEND)
+		asset = _make_sl_asset()
+		_submit_usage(asset, "2026-01-01", "Percentage", 45, to_date=None)
+		_submit_usage(asset, "2026-06-01", "Percentage", 10, to_date=None)
+		rows, factor_on_date = self._submitted_timeline(asset.name)
+		self.assertEqual(factor_on_date(rows, "2026-03-01"), 0.45)
+		self.assertEqual(factor_on_date(rows, "2026-07-01"), 0.1)
+		self.assertEqual(rows[0]["to_date"], getdate("2026-05-31"))
+
+	def test_rollback_when_final_replan_fails(self):
+		_ensure_company_handling("_Test Company", HANDLING_EXTEND)
+		asset = _make_sl_asset()
+		first = _submit_usage(asset, "2026-01-01", "Percentage", 30, to_date=None)
+		frappe.db.savepoint("after_first_usage")
+
+		import erpnext_extensions.asset_usage_depreciation.doctype.asset_usage_period.asset_usage_period as aup_mod
+		import erpnext_extensions.asset_usage_depreciation.services.replan_service as replan_mod
+
+		orig = replan_mod.replan_asset_usage_depreciation
+
+		def boom(*args, **kwargs):
+			frappe.throw("forced replan failure")
+
+		replan_mod.replan_asset_usage_depreciation = boom
+		aup_mod.replan_asset_usage_depreciation = boom
+		try:
+			with self.assertRaises(frappe.ValidationError):
+				_submit_usage(asset, "2026-04-01", "Normal", to_date=None)
+		finally:
+			replan_mod.replan_asset_usage_depreciation = orig
+			aup_mod.replan_asset_usage_depreciation = orig
+
+		frappe.db.rollback(save_point="after_first_usage")
+		self.assertEqual(frappe.db.get_value("Asset Usage Period", first.name, "docstatus"), 1)
+		self.assertFalse(frappe.db.get_value("Asset Usage Period", first.name, "to_date"))
+		rows, _ = self._submitted_timeline(asset.name)
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(rows[0]["name"], first.name)
+
+	def test_posted_jes_survive_multiple_transitions(self):
+		_ensure_company_handling("_Test Company", HANDLING_EXTEND)
+		asset = _make_sl_asset()
+		_submit_usage(asset, "2026-01-01", "Percentage", 30, to_date="2026-06-30")
+		ads = _active_schedule(asset.name)
+		# Post first two months via production path
+		d0 = getdate(ads.depreciation_schedule[0].schedule_date)
+		make_depreciation_entry(ads.name, date=str(d0))
+		ads = _active_schedule(asset.name)
+		d1 = getdate(ads.depreciation_schedule[1].schedule_date)
+		make_depreciation_entry(ads.name, date=str(d1))
+		ads = _active_schedule(asset.name)
+		posted_before = [
+			(getdate(r.schedule_date), flt(r.depreciation_amount), r.journal_entry)
+			for r in ads.depreciation_schedule
+			if r.journal_entry
+		]
+		self.assertEqual(len(posted_before), 2)
+		for _d, amt, je in posted_before:
+			self.assertEqual(amt, float(int(amt)))
+			self.assertEqual(frappe.db.get_value("Journal Entry", je, "docstatus"), 1)
+
+		_submit_usage(asset, "2026-07-01", "Normal", to_date=None)
+		_submit_usage(asset, "2026-10-01", "Percentage", 30, to_date=None)
+
+		ads = _active_schedule(asset.name)
+		posted_after = [
+			(getdate(r.schedule_date), flt(r.depreciation_amount), r.journal_entry)
+			for r in ads.depreciation_schedule
+			if r.journal_entry
+		]
+		self.assertEqual(posted_before, posted_after)
+		_assert_whole_amounts(self, ads)
+
+	def test_manual_closed_periods_still_work_with_later_open(self):
+		"""Existing manually closed periods + later open transitions."""
+		_ensure_company_handling("_Test Company", HANDLING_EXTEND)
+		asset = _make_sl_asset()
+		_submit_usage(asset, "2026-01-01", "Percentage", 30, to_date="2026-03-31")
+		_submit_usage(asset, "2026-04-01", "Normal", to_date="2026-06-30")
+		_submit_usage(asset, "2026-07-01", "Percentage", 30, to_date=None)
+		_submit_usage(asset, "2026-10-01", "Normal", to_date=None)
+		rows, factor_on_date = self._submitted_timeline(asset.name)
+		self.assertEqual(len(rows), 4)
+		self.assertEqual(factor_on_date(rows, "2026-08-01"), 0.3)
+		self.assertEqual(factor_on_date(rows, "2026-11-01"), 1.0)
+		# Gap none between first two; after closed Apr–Jun before Jul open was continuous
+		self.assertEqual(rows[-1]["to_date"], None)

@@ -60,6 +60,13 @@ def get_reduced_depreciation_handling(company: str) -> str:
 
 def replan_asset_usage_depreciation(asset_name: str, trigger_doc=None, context: dict | None = None):
 	"""Single orchestration entry point for usage-driven ADS replanning."""
+	from erpnext_extensions.asset_usage_depreciation.services.transition_service import (
+		is_usage_transition_in_progress,
+	)
+
+	if is_usage_transition_in_progress():
+		return
+
 	if frappe.flags.get(_FLAG_USAGE_REPLAN_IN_PROGRESS):
 		return
 
@@ -85,7 +92,8 @@ def _replan_asset_usage_depreciation(asset_name: str, trigger_doc=None, context:
 
 	timeline = load_submitted_usage_periods(asset_name)
 	if not timeline and not (trigger_doc and trigger_doc.doctype == "Asset Usage Period"):
-		# No usage timeline ⇒ leave standard ERPNext schedule alone
+		# LOCKED: no Usage Periods ⇒ implicit Normal; leave standard ERPNext ADS untouched
+		# (do not replace ADS merely to reaffirm default factor 1.0).
 		return
 
 	if timeline:

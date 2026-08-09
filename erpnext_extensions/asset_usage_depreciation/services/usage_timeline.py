@@ -10,6 +10,7 @@ from frappe import _
 from frappe.utils import date_diff, flt, getdate
 
 from erpnext_extensions.asset_usage_depreciation.constants import (
+	DEFAULT_USAGE_FACTOR,
 	MODE_NO_DEPRECIATION,
 	MODE_NORMAL,
 	MODE_PERCENTAGE,
@@ -19,7 +20,7 @@ from erpnext_extensions.asset_usage_depreciation.constants import (
 def mode_to_factor(mode: str, percentage: float | None = None) -> float:
 	"""Return effective usage factor for a mode."""
 	if mode == MODE_NORMAL:
-		return 1.0
+		return DEFAULT_USAGE_FACTOR
 	if mode == MODE_NO_DEPRECIATION:
 		return 0.0
 	if mode == MODE_PERCENTAGE:
@@ -97,7 +98,14 @@ def _ranges_overlap(a_from, a_to, b_from, b_to) -> bool:
 
 
 def factor_on_date(periods: list[dict[str, Any]], on_date) -> float:
-	"""Resolve usage factor for a single date. Gaps => Normal (1.0)."""
+	"""Resolve usage factor for a single date.
+
+	LOCKED DEFAULT USAGE RULE:
+	If no submitted Usage Period covers ``on_date``, return
+	``DEFAULT_USAGE_FACTOR`` (Normal = 1.0). Explicit Normal rows are not
+	required for uncovered dates (before first period, gaps, or after a
+	closed period with no successor).
+	"""
 	on_date = getdate(on_date)
 	for period in periods:
 		start = period["from_date"]
@@ -106,11 +114,15 @@ def factor_on_date(periods: list[dict[str, Any]], on_date) -> float:
 			continue
 		if end is None or on_date <= end:
 			return flt(period["factor"])
-	return 1.0
+	return DEFAULT_USAGE_FACTOR
 
 
 def day_weighted_factor(periods: list[dict[str, Any]], start_date, end_date) -> float:
-	"""Exact calendar-day weighted average factor over [start_date, end_date] inclusive."""
+	"""Exact calendar-day weighted average factor over [start_date, end_date] inclusive.
+
+	Uncovered days use the locked default (Normal = ``DEFAULT_USAGE_FACTOR``)
+	via ``factor_on_date``.
+	"""
 	start_date = getdate(start_date)
 	end_date = getdate(end_date)
 	if end_date < start_date:
@@ -118,12 +130,10 @@ def day_weighted_factor(periods: list[dict[str, Any]], start_date, end_date) -> 
 
 	total_days = date_diff(end_date, start_date) + 1
 	if total_days <= 0:
-		return 1.0
+		return DEFAULT_USAGE_FACTOR
 
 	weighted = 0.0
-	cursor = start_date
-	# Walk day by day in segments for efficiency using period boundaries
-	# Simple O(days) is fine for monthly windows; keep deterministic.
+	# Walk day by day; O(days) is fine for monthly windows and stays deterministic.
 	from frappe.utils import add_days
 
 	for offset in range(total_days):
