@@ -1,5 +1,5 @@
 # Copyright (c) 2026, Farbod Siyahpoosh and contributors
-"""PM Request / PM Clearance workflow alignment with Desk actions."""
+"""PM Request / PM Clearance workflow alignment with Desk actions (v4.0.2)."""
 
 from __future__ import annotations
 
@@ -33,14 +33,27 @@ class TestPMRequestWorkflow(unittest.TestCase):
 
 	def test_pm_request_workflow_pending_approval_state_is_canonical(self):
 		wf = frappe.get_doc("Workflow", "PM Request Workflow")
-		pending = [s.state for s in wf.states if "approval" in (s.state or "").lower()]
+		expected = {
+			resolve_workflow_state_link("Pending Manager Approval"),
+			resolve_workflow_state_link("Pending CEO Approval"),
+			resolve_workflow_state_link("Pending Finance Approval"),
+		}
+		pending = [s.state for s in wf.states if "pending" in (s.state or "").lower() and "approval" in (s.state or "").lower()]
 		self.assertTrue(pending)
 		for st in pending:
-			self.assertEqual(st, resolve_workflow_state_link("Pending Approval"))
+			self.assertIn(st, expected)
+			self.assertEqual(st, resolve_workflow_state_link(st))
 
 	def test_pm_request_draft_allows_submit_for_approval_action(self):
 		emp = pm_ct._make_employee()
 		pm_ct._make_holder(emp)
+		user = frappe.session.user
+		frappe.db.set_value("Employee", emp, "expense_approver", user, update_modified=False)
+		settings = frappe.get_single("PM Settings")
+		settings.db_set("ceo_approver", user, update_modified=False)
+		settings.db_set("finance_manager", user, update_modified=False)
+		settings.db_set("require_named_manager_approver", 1, update_modified=False)
+
 		req = frappe.new_doc("PM Request")
 		req.company = pm_ct.COMPANY
 		req.employee = emp
@@ -55,9 +68,9 @@ class TestPMRequestWorkflow(unittest.TestCase):
 		out = apply_pm_workflow(req, "PM Submit for Approval")
 		self.assertEqual(out.docstatus, 1)
 		title = frappe.db.get_value("Workflow State", out.workflow_state, "workflow_state_name")
-		self.assertEqual(title, "Pending Approval")
+		self.assertEqual(title, "Pending Manager Approval")
 
-	def test_pm_request_direct_jump_to_approved_blocked(self):
+	def test_pm_request_direct_jump_to_waiting_blocked(self):
 		emp = pm_ct._make_employee()
 		pm_ct._make_holder(emp)
 		req = frappe.new_doc("PM Request")
@@ -74,7 +87,7 @@ class TestPMRequestWorkflow(unittest.TestCase):
 			update_modified=False,
 		)
 		req.reload()
-		req.workflow_state = resolve_workflow_state_link("Approved")
+		req.workflow_state = resolve_workflow_state_link("Waiting for Payment")
 		with self.assertRaises(WorkflowPermissionError):
 			req.save()
 
@@ -84,6 +97,9 @@ class TestPMRequestWorkflow(unittest.TestCase):
 		draft = next(r for r in rows if r["state"] == resolve_workflow_state_link("Draft"))
 		action_names = {a["action"] for a in draft["actions"]}
 		self.assertIn("PM Submit for Approval", action_names)
+		states = {r["state"] for r in rows}
+		self.assertIn(resolve_workflow_state_link("Waiting for Payment"), states)
+		self.assertNotIn(resolve_workflow_state_link("Approved"), states)
 
 	def test_pm_clearance_draft_allows_finance_review_action(self):
 		emp = pm_ct._make_employee()

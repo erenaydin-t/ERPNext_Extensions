@@ -130,9 +130,9 @@ class TestPMProductionHardening(unittest.TestCase):
 			create_payment_entry as create_pm_pe,
 		)
 
-		appr = tpm._workflow_state_for("PM Request", "Approved")
+		appr = tpm._workflow_state_for("PM Request", "Waiting for Payment")
 		if not appr:
-			self.skipTest("Active PM Request workflow with Approved state not found.")
+			self.skipTest("Active PM Request workflow with Waiting for Payment state not found.")
 
 		emp = tpm._make_employee()
 		tpm._make_holder(emp)
@@ -143,7 +143,7 @@ class TestPMProductionHardening(unittest.TestCase):
 		req.append("details", {"advance_amount": 5_000})
 		req.insert()
 		req.submit()
-		frappe.db.set_value("PM Request", req.name, "workflow_state", appr, update_modified=False)
+		tpm._finance_clear_pm_request(req.name)
 		req.reload()
 
 		existing = _build_payment_entry(req, tpm.BANK_ACCOUNT, 5_000)
@@ -186,9 +186,9 @@ class TestPMProductionHardening(unittest.TestCase):
 
 		from erpnext_extensions.petty_management.services.request_service import create_payment_entry
 
-		appr = tpm._workflow_state_for("PM Request", "Approved")
+		appr = tpm._workflow_state_for("PM Request", "Waiting for Payment")
 		if not appr:
-			self.skipTest("Active PM Request workflow with Approved state not found.")
+			self.skipTest("Active PM Request workflow with Waiting for Payment state not found.")
 
 		emp = tpm._make_employee()
 		tpm._make_holder(emp)

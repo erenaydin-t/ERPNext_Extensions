@@ -16,6 +16,9 @@ MODULES=(
   erpnext_extensions.petty_management.tests.test_pm_allocation_helpers
   erpnext_extensions.petty_management.tests.test_pm_accounting_parties
   erpnext_extensions.petty_management.tests.test_pm_accounting_remarks
+  erpnext_extensions.petty_management.tests.test_approver_stamp_service
+  erpnext_extensions.petty_management.tests.test_pm_assignment_rules
+  erpnext_extensions.petty_management.tests.test_pm_business_status
   erpnext_extensions.petty_management.tests.test_pm_clearance
   erpnext_extensions.petty_management.tests.test_pm_clearance_naming
   erpnext_extensions.petty_management.tests.test_pm_clearance_settle_availability
@@ -24,6 +27,7 @@ MODULES=(
   erpnext_extensions.petty_management.tests.test_pm_draft_pe_delete
   erpnext_extensions.petty_management.tests.test_pm_funding_history_report
   erpnext_extensions.petty_management.tests.test_pm_holder_ux
+  erpnext_extensions.petty_management.tests.test_pm_multi_approval_integration
   erpnext_extensions.petty_management.tests.test_pm_narration
   erpnext_extensions.petty_management.tests.test_pm_opening_advance
   erpnext_extensions.petty_management.tests.test_pm_opening_advance_over_allocation
@@ -32,6 +36,7 @@ MODULES=(
   erpnext_extensions.petty_management.tests.test_pm_production_hardening
   erpnext_extensions.petty_management.tests.test_pm_request_action_flags_scenarios
   erpnext_extensions.petty_management.tests.test_pm_request_action_flags_uat
+  erpnext_extensions.petty_management.tests.test_pm_request_action_visibility
   erpnext_extensions.petty_management.tests.test_pm_request_allocation_security
   erpnext_extensions.petty_management.tests.test_pm_request_api_static_scan
   erpnext_extensions.petty_management.tests.test_pm_request_multi_pe

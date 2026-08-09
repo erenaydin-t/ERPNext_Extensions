@@ -1,0 +1,567 @@
+# Copyright (c) 2026, ERPNext Extensions contributors
+"""v4.0.2: multi-level PM workflows, business status separation, Assignment Rules."""
+
+from __future__ import annotations
+
+import json
+
+import frappe
+
+from erpnext_extensions.petty_management.services.workflow_utils import (
+	normalize_workflow_definition,
+	realign_doctype_workflow_states,
+	resolve_workflow_state_link,
+)
+
+
+def _wf(name: str) -> str:
+	return resolve_workflow_state_link(name) or name
+
+
+def _ensure_action(action: str) -> None:
+	if frappe.db.exists("Workflow Action Master", action):
+		return
+	doc = frappe.new_doc("Workflow Action Master")
+	doc.workflow_action_name = action
+	doc.insert(ignore_permissions=True)
+
+
+def _rebuild_pm_request_workflow() -> None:
+	name = "PM Request Workflow"
+	for title in (
+		"Draft",
+		"Pending Manager Approval",
+		"Pending CEO Approval",
+		"Pending Finance Approval",
+		"Waiting for Payment",
+		"Rejected",
+	):
+		_wf(title)
+
+	_ensure_action("PM Submit for Approval")
+	_ensure_action("PM Approve")
+	_ensure_action("PM Reject")
+	_ensure_action("PM Manager Approve")
+	_ensure_action("PM CEO Approve")
+	_ensure_action("PM Finance Approve")
+
+	if frappe.db.exists("Workflow", name):
+		w = frappe.get_doc("Workflow", name)
+	else:
+		w = frappe.new_doc("Workflow")
+		w.workflow_name = name
+		w.document_type = "PM Request"
+
+	w.is_active = 1
+	w.workflow_state_field = "workflow_state"
+	w.send_email_alert = 0
+	w.states = []
+	w.transitions = []
+
+	for state, doc_status in (
+		("Draft", "0"),
+		("Pending Manager Approval", "1"),
+		("Pending CEO Approval", "1"),
+		("Pending Finance Approval", "1"),
+		("Waiting for Payment", "1"),
+		("Rejected", "1"),
+	):
+		w.append(
+			"states",
+			{"state": _wf(state), "doc_status": doc_status, "allow_edit": "All"},
+		)
+
+	# Submit: User role, no named-user condition
+	w.append(
+		"transitions",
+		{
+			"state": _wf("Draft"),
+			"action": "PM Submit for Approval",
+			"next_state": _wf("Pending Manager Approval"),
+			"allowed": "Petty Management User",
+			"allow_self_approval": 1,
+		},
+	)
+
+	def _add(state, action, next_state, role, condition, self_ok):
+		w.append(
+			"transitions",
+			{
+				"state": _wf(state),
+				"action": action,
+				"next_state": _wf(next_state),
+				"allowed": role,
+				"allow_self_approval": 1 if self_ok else 0,
+				"condition": condition,
+			},
+		)
+
+	_add(
+		"Pending Manager Approval",
+		"PM Manager Approve",
+		"Pending CEO Approval",
+		"Petty Management Manager",
+		"doc.manager_approver == frappe.session.user",
+		True,
+	)
+	_add(
+		"Pending Manager Approval",
+		"PM Reject",
+		"Rejected",
+		"Petty Management Manager",
+		"doc.manager_approver == frappe.session.user",
+		True,
+	)
+	_add(
+		"Pending CEO Approval",
+		"PM CEO Approve",
+		"Pending Finance Approval",
+		"Petty Management Manager",
+		"doc.ceo_approver == frappe.session.user",
+		False,
+	)
+	_add(
+		"Pending CEO Approval",
+		"PM Reject",
+		"Rejected",
+		"Petty Management Manager",
+		"doc.ceo_approver == frappe.session.user",
+		False,
+	)
+	_add(
+		"Pending Finance Approval",
+		"PM Finance Approve",
+		"Waiting for Payment",
+		"Petty Management Accountant",
+		"doc.finance_approver == frappe.session.user",
+		False,
+	)
+	_add(
+		"Pending Finance Approval",
+		"PM Reject",
+		"Rejected",
+		"Petty Management Accountant",
+		"doc.finance_approver == frappe.session.user",
+		False,
+	)
+	# Legacy reject from Waiting for Payment (still blocked by PE guards)
+	_add(
+		"Waiting for Payment",
+		"PM Reject",
+		"Rejected",
+		"Petty Management Manager",
+		"doc.finance_approver == frappe.session.user or doc.manager_approver == frappe.session.user",
+		False,
+	)
+
+	normalize_workflow_definition(w)
+	if w.is_new():
+		w.insert(ignore_permissions=True)
+	else:
+		w.save(ignore_permissions=True)
+
+
+def _rebuild_pm_clearance_workflow() -> None:
+	name = "PM Clearance Workflow"
+	for title in (
+		"Draft",
+		"Pending Manager Approval",
+		"Pending Finance Review",
+		"Approved",
+		"Rejected",
+	):
+		_wf(title)
+
+	_ensure_action("PM Submit Finance Review")
+	_ensure_action("PM Manager Approve")
+	_ensure_action("PM Finance Approve")
+	_ensure_action("PM Approve")
+	_ensure_action("PM Reject")
+
+	if frappe.db.exists("Workflow", name):
+		w = frappe.get_doc("Workflow", name)
+	else:
+		w = frappe.new_doc("Workflow")
+		w.workflow_name = name
+		w.document_type = "PM Clearance"
+
+	w.is_active = 1
+	w.workflow_state_field = "workflow_state"
+	w.send_email_alert = 0
+	w.states = []
+	w.transitions = []
+
+	for state, doc_status in (
+		("Draft", "0"),
+		("Pending Manager Approval", "1"),
+		("Pending Finance Review", "1"),
+		("Approved", "1"),
+		("Rejected", "1"),
+	):
+		w.append(
+			"states",
+			{"state": _wf(state), "doc_status": doc_status, "allow_edit": "All"},
+		)
+
+	w.append(
+		"transitions",
+		{
+			"state": _wf("Draft"),
+			"action": "PM Submit Finance Review",
+			"next_state": _wf("Pending Manager Approval"),
+			"allowed": "Petty Management User",
+			"allow_self_approval": 1,
+		},
+	)
+	w.append(
+		"transitions",
+		{
+			"state": _wf("Pending Manager Approval"),
+			"action": "PM Manager Approve",
+			"next_state": _wf("Pending Finance Review"),
+			"allowed": "Petty Management Manager",
+			"allow_self_approval": 1,
+			"condition": "doc.manager_approver == frappe.session.user",
+		},
+	)
+	w.append(
+		"transitions",
+		{
+			"state": _wf("Pending Manager Approval"),
+			"action": "PM Reject",
+			"next_state": _wf("Rejected"),
+			"allowed": "Petty Management Manager",
+			"allow_self_approval": 1,
+			"condition": "doc.manager_approver == frappe.session.user",
+		},
+	)
+	w.append(
+		"transitions",
+		{
+			"state": _wf("Pending Finance Review"),
+			"action": "PM Finance Approve",
+			"next_state": _wf("Approved"),
+			"allowed": "Petty Management Accountant",
+			"allow_self_approval": 0,
+			"condition": "doc.finance_approver == frappe.session.user",
+		},
+	)
+	# Keep PM Approve as alias for finance for backward Desk habits
+	w.append(
+		"transitions",
+		{
+			"state": _wf("Pending Finance Review"),
+			"action": "PM Approve",
+			"next_state": _wf("Approved"),
+			"allowed": "Petty Management Accountant",
+			"allow_self_approval": 0,
+			"condition": "doc.finance_approver == frappe.session.user",
+		},
+	)
+	w.append(
+		"transitions",
+		{
+			"state": _wf("Pending Finance Review"),
+			"action": "PM Reject",
+			"next_state": _wf("Rejected"),
+			"allowed": "Petty Management Accountant",
+			"allow_self_approval": 0,
+			"condition": "doc.finance_approver == frappe.session.user",
+		},
+	)
+
+	normalize_workflow_definition(w)
+	if w.is_new():
+		w.insert(ignore_permissions=True)
+	else:
+		w.save(ignore_permissions=True)
+
+
+def _workflow_title(link: str | None) -> str:
+	if not link:
+		return ""
+	return (frappe.db.get_value("Workflow State", link, "workflow_state_name") or link or "").strip()
+
+
+def _migrate_pm_request_docs() -> dict:
+	report = {"remapped": 0, "by_from": {}}
+	pending = _wf("Pending Manager Approval")
+	waiting = _wf("Waiting for Payment")
+	rejected = _wf("Rejected")
+	draft = _wf("Draft")
+
+	for row in frappe.get_all("PM Request", fields=["name", "workflow_state", "status", "payment_status", "is_closed"]):
+		title = _workflow_title(row.workflow_state)
+		new_ws = None
+		new_status = None
+		if title in ("Pending Approval", "Pending"):
+			new_ws = pending
+			new_status = "Pending Approval"
+		elif title == "Approved":
+			new_ws = waiting
+			new_status = "Waiting for Payment"
+		elif title == "Waiting for Payment":
+			new_ws = waiting
+			new_status = "Waiting for Payment"
+		elif title == "Rejected":
+			new_ws = rejected
+			new_status = "Rejected"
+		elif title == "Draft" or not title:
+			new_ws = draft
+			new_status = "Draft"
+
+		if row.payment_status == "Paid":
+			new_status = "Paid"
+			if not new_ws or title == "Approved":
+				new_ws = waiting
+		if row.is_closed:
+			new_status = "Closed"
+			if title == "Approved":
+				new_ws = waiting
+
+		values = {}
+		if new_ws and new_ws != row.workflow_state:
+			values["workflow_state"] = new_ws
+		if new_status and new_status != row.status:
+			values["status"] = new_status
+		if values:
+			frappe.db.set_value("PM Request", row.name, values, update_modified=False)
+			report["remapped"] += 1
+			report["by_from"][title or "(blank)"] = report["by_from"].get(title or "(blank)", 0) + 1
+	return report
+
+
+def _migrate_pm_clearance_docs() -> dict:
+	report = {"remapped": 0, "rewound_accounting": 0, "by_from": {}}
+	approved = _wf("Approved")
+	pending_mgr = _wf("Pending Manager Approval")
+	pending_fin = _wf("Pending Finance Review")
+	rejected = _wf("Rejected")
+	draft = _wf("Draft")
+
+	for row in frappe.get_all(
+		"PM Clearance", fields=["name", "workflow_state", "status", "journal_entry", "docstatus"]
+	):
+		title = _workflow_title(row.workflow_state)
+		new_ws = None
+		new_status = (row.status or "").strip() or None
+		je_ds = None
+		if row.journal_entry and frappe.db.exists("Journal Entry", row.journal_entry):
+			je_ds = frappe.db.get_value("Journal Entry", row.journal_entry, "docstatus")
+
+		if title in ("Settled", "Pending Journal Entry Submission"):
+			new_ws = approved
+			report["rewound_accounting"] += 1
+			if je_ds == 1:
+				new_status = "Settled"
+			elif je_ds == 0:
+				new_status = "Pending Journal Entry Submission"
+			else:
+				new_status = "Approved"
+		elif title == "Approved":
+			new_ws = approved
+			if je_ds == 1:
+				new_status = "Settled"
+			elif je_ds == 0:
+				new_status = "Pending Journal Entry Submission"
+			else:
+				new_status = "Approved"
+		elif title == "Pending Finance Review":
+			new_ws = pending_fin
+			new_status = "Pending Approval"
+		elif title == "Pending Manager Approval":
+			new_ws = pending_mgr
+			new_status = "Pending Approval"
+		elif title == "Rejected":
+			new_ws = rejected
+			new_status = "Rejected"
+		elif title == "Draft" or not title:
+			new_ws = draft
+			new_status = "Draft"
+
+		if row.docstatus == 2:
+			new_status = "Cancelled"
+
+		values = {}
+		if new_ws and new_ws != row.workflow_state:
+			values["workflow_state"] = new_ws
+		if new_status and new_status != row.status:
+			values["status"] = new_status
+		if values:
+			frappe.db.set_value("PM Clearance", row.name, values, update_modified=False)
+			report["remapped"] += 1
+			report["by_from"][title or "(blank)"] = report["by_from"].get(title or "(blank)", 0) + 1
+	return report
+
+
+def _ensure_assignment_rule(
+	*,
+	rule_name: str,
+	document_type: str,
+	assign_condition: str,
+	unassign_condition: str,
+	field: str,
+	priority: int,
+	description: str,
+	close_condition: str | None = None,
+) -> None:
+	"""Create/update native Assignment Rule (Based on Field). Never creates ToDos here."""
+	if frappe.db.exists("Assignment Rule", rule_name):
+		doc = frappe.get_doc("Assignment Rule", rule_name)
+	else:
+		doc = frappe.new_doc("Assignment Rule")
+		doc.name = rule_name
+
+	doc.document_type = document_type
+	doc.rule = "Based on Field"
+	doc.field = field
+	doc.assign_condition = assign_condition
+	doc.unassign_condition = unassign_condition
+	doc.close_condition = close_condition or ""
+	doc.priority = priority
+	doc.disabled = 0
+	doc.description = description
+	# Assignment Rule requires at least one assignment day
+	if not doc.get("assignment_days"):
+		for day in ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"):
+			doc.append("assignment_days", {"day": day})
+
+	if doc.is_new():
+		doc.insert(ignore_permissions=True)
+	else:
+		doc.save(ignore_permissions=True)
+
+
+def _seed_assignment_rules() -> list[str]:
+	created = []
+	# Bake canonical workflow_state link values into conditions (Assignment Rule eval uses bare fields).
+	req_mgr = _wf("Pending Manager Approval")
+	req_ceo = _wf("Pending CEO Approval")
+	req_fin = _wf("Pending Finance Approval")
+	req_wait = _wf("Waiting for Payment")
+	clr_mgr = _wf("Pending Manager Approval")
+	clr_fin = _wf("Pending Finance Review")
+	clr_appr = _wf("Approved")
+
+	rules = [
+		(
+			"PM Request Manager Approval",
+			"PM Request",
+			f'workflow_state == "{req_mgr}"',
+			f'workflow_state != "{req_mgr}"',
+			"manager_approver",
+			30,
+			"PM Request {{ name }} awaiting manager approval",
+			f'workflow_state in ("{req_wait}", "{_wf("Rejected")}")',
+		),
+		(
+			"PM Request CEO Approval",
+			"PM Request",
+			f'workflow_state == "{req_ceo}"',
+			f'workflow_state != "{req_ceo}"',
+			"ceo_approver",
+			20,
+			"PM Request {{ name }} awaiting CEO approval",
+			f'workflow_state in ("{req_wait}", "{_wf("Rejected")}")',
+		),
+		(
+			"PM Request Finance Approval",
+			"PM Request",
+			f'workflow_state == "{req_fin}"',
+			f'workflow_state != "{req_fin}"',
+			"finance_approver",
+			10,
+			"PM Request {{ name }} awaiting finance approval",
+			f'workflow_state in ("{req_wait}", "{_wf("Rejected")}")',
+		),
+		(
+			"PM Clearance Manager Approval",
+			"PM Clearance",
+			f'workflow_state == "{clr_mgr}"',
+			f'workflow_state != "{clr_mgr}"',
+			"manager_approver",
+			20,
+			"PM Clearance {{ name }} awaiting manager approval",
+			f'workflow_state in ("{clr_appr}", "{_wf("Rejected")}")',
+		),
+		(
+			"PM Clearance Finance Review",
+			"PM Clearance",
+			f'workflow_state == "{clr_fin}"',
+			f'workflow_state != "{clr_fin}"',
+			"finance_approver",
+			10,
+			"PM Clearance {{ name }} awaiting finance review",
+			f'workflow_state in ("{clr_appr}", "{_wf("Rejected")}")',
+		),
+	]
+	for args in rules:
+		_ensure_assignment_rule(
+			rule_name=args[0],
+			document_type=args[1],
+			assign_condition=args[2],
+			unassign_condition=args[3],
+			field=args[4],
+			priority=args[5],
+			description=args[6],
+			close_condition=args[7],
+		)
+		created.append(args[0])
+	return created
+
+
+def _bulk_apply_pending_assignments() -> dict:
+	"""Apply Assignment Rules only to pending approval documents (no Paid/Closed/Rejected)."""
+	from frappe.automation.doctype.assignment_rule.assignment_rule import bulk_apply
+
+	stats = {"request": 0, "clearance": 0}
+	req_pending = [
+		_wf("Pending Manager Approval"),
+		_wf("Pending CEO Approval"),
+		_wf("Pending Finance Approval"),
+	]
+	names = frappe.get_all(
+		"PM Request",
+		filters={"workflow_state": ("in", req_pending), "docstatus": 1},
+		pluck="name",
+	)
+	for name in names:
+		try:
+			bulk_apply("PM Request", [name])
+			stats["request"] += 1
+		except Exception:
+			frappe.log_error(frappe.get_traceback(), "PM v402 bulk_apply PM Request")
+
+	clr_pending = [_wf("Pending Manager Approval"), _wf("Pending Finance Review")]
+	names = frappe.get_all(
+		"PM Clearance",
+		filters={"workflow_state": ("in", clr_pending), "docstatus": 1},
+		pluck="name",
+	)
+	for name in names:
+		try:
+			bulk_apply("PM Clearance", [name])
+			stats["clearance"] += 1
+		except Exception:
+			frappe.log_error(frappe.get_traceback(), "PM v402 bulk_apply PM Clearance")
+	return stats
+
+
+def execute():
+	frappe.flags.in_patch = True
+	report = {"request_docs": {}, "clearance_docs": {}, "assignment_rules": [], "bulk_apply": {}}
+	try:
+		_rebuild_pm_request_workflow()
+		_rebuild_pm_clearance_workflow()
+		realign_doctype_workflow_states("PM Request")
+		realign_doctype_workflow_states("PM Clearance")
+		report["request_docs"] = _migrate_pm_request_docs()
+		report["clearance_docs"] = _migrate_pm_clearance_docs()
+		report["assignment_rules"] = _seed_assignment_rules()
+	finally:
+		frappe.flags.in_patch = False
+
+	report["bulk_apply"] = _bulk_apply_pending_assignments()
+	frappe.db.commit()
+	frappe.cache().set_value("pm_workflow_v402_migration_report", report)
+	print(json.dumps({"pm_workflow_v402": report}, indent=2, default=str))

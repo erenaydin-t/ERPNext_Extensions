@@ -6,6 +6,12 @@ from frappe.exceptions import QueryTimeoutError
 from frappe.model.document import Document
 from frappe.utils import cint, flt, getdate, today
 
+from erpnext_extensions.petty_management.services.business_status_service import (
+	REQ_WAITING_FOR_PAYMENT,
+	request_is_finance_cleared,
+	sync_pm_request_business_status,
+)
+
 from erpnext_extensions.petty_management.services.holder_service import (
 	sync_request_holder_fields,
 	validate_petty_cash_account_company,
@@ -80,7 +86,7 @@ def validate_request(doc: Document) -> None:
 
 	holder = sync_request_holder_fields(doc)
 	compute_totals(doc)
-	sync_request_status_from_workflow(doc)
+	sync_pm_request_business_status(doc)
 	enforce_request_state_machine(doc)
 
 	settings = get_pm_settings()
@@ -184,36 +190,8 @@ def compute_totals(doc: Document) -> None:
 
 
 def sync_request_status_from_workflow(doc: Document) -> None:
-	"""Map workflow + accounting into status; rejected and paid are terminal for workflow mapping."""
-	ws_title = workflow_state_title(doc)
-
-	if ws_title == "Rejected" or (doc.status or "") == "Rejected":
-		doc.status = "Rejected"
-		return
-
-	if doc.payment_status == "Paid":
-		doc.status = "Paid"
-		return
-
-	if doc.payment_status == "Partially Paid":
-		if ws_title == "Approved":
-			doc.status = "Payable"
-		return
-
-	if not ws_title:
-		return
-
-	mapping = {
-		"Draft": "Draft",
-		"Pending Approval": "Pending",
-		"Pending": "Pending",
-		"Pending Finance Review": "Pending",
-		"Approved": "Payable",
-		"Cancelled": "Cancelled",
-		"Paid": "Paid",
-	}
-	if ws_title in mapping:
-		doc.status = mapping[ws_title]
+	"""Legacy alias — delegates to business status sync (v4.0.2)."""
+	sync_pm_request_business_status(doc)
 
 
 def validate_payment_accounts(doc: Document) -> None:
@@ -275,8 +253,8 @@ def request_ready_for_payment_entry(doc: Document) -> tuple[bool, str]:
 	ws_title = workflow_state_title(doc)
 	if ws_title == "Rejected" or (doc.status or "").strip() == "Rejected":
 		return False, _("This request was rejected.")
-	if ws_title != "Approved":
-		return False, _("Payment Entry is only available after workflow approval (Approved state).")
+	if not request_is_finance_cleared(doc):
+		return False, _("Payment Entry is only available after finance approval (Waiting for Payment).")
 
 	if cint(getattr(doc, "is_closed", 0)):
 		return False, _("This PM Request is closed.")

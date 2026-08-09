@@ -187,15 +187,15 @@ def on_cancel_clearance(doc: Document) -> None:
 	from erpnext_extensions.petty_management.services.clearance_action_policy import (
 		LIFECYCLE_CANCELLED,
 		sync_clearance_lifecycle,
-		workflow_state_link_for_lifecycle,
 	)
 
 	sync_clearance_lifecycle(doc, persist=True)
-	ws_cancelled = workflow_state_link_for_lifecycle(LIFECYCLE_CANCELLED)
-	values = {"status": LIFECYCLE_CANCELLED}
-	if ws_cancelled:
-		values["workflow_state"] = ws_cancelled
-	frappe.db.set_value("PM Clearance", doc.name, values, update_modified=False)
+	frappe.db.set_value(
+		"PM Clearance",
+		doc.name,
+		{"status": LIFECYCLE_CANCELLED},
+		update_modified=False,
+	)
 	for row_name in frappe.get_all(
 		"PM Clearance Detail",
 		filters={"parent": doc.name, "parenttype": "PM Clearance"},
@@ -373,15 +373,19 @@ def sync_clearance_status_from_workflow(doc: Document) -> None:
 
 
 def clearance_is_approved(doc: Document) -> bool:
+	"""True when clearance is finance-approved for Settle (business ``status == Approved``)."""
 	st = (getattr(doc, "status", None) or "").strip()
-	if st in ("Rejected", "Cancelled"):
+	if st in ("Rejected", "Cancelled", "Settled", "Pending Journal Entry Submission"):
 		return False
 	if st == "Approved":
 		return True
+	# Legacy: status still Pending Finance Review but workflow already Approved and no JE
 	ws = (getattr(doc, "workflow_state", None) or "").strip()
-	if ws == "Approved":
-		return True
-	if ws and (frappe.db.get_value("Workflow State", ws, "workflow_state_name") or ws) == "Approved":
+	ws_title = (
+		frappe.db.get_value("Workflow State", ws, "workflow_state_name") if ws else ""
+	) or ws
+	je = (getattr(doc, "journal_entry", None) or "").strip()
+	if ws_title == "Approved" and not je and st in ("", "Pending Finance Review", "Pending Approval"):
 		return True
 	return False
 

@@ -26,9 +26,6 @@ class TestPMAccountingRemarks(unittest.TestCase):
 		frappe.db.rollback()
 
 	def _approved_pm_request(self, *, remark: str = ""):
-		_require = tpm._workflow_state_for("PM Request", "Approved")
-		if not _require:
-			self.skipTest("PM Request Approved workflow state missing.")
 		emp = tpm._make_employee()
 		tpm._make_holder(emp)
 		req = frappe.new_doc("PM Request")
@@ -40,7 +37,7 @@ class TestPMAccountingRemarks(unittest.TestCase):
 		req.append("details", {"advance_amount": 10_000})
 		req.insert()
 		req.submit()
-		frappe.db.set_value("PM Request", req.name, "workflow_state", _require, update_modified=False)
+		tpm._finance_clear_pm_request(req.name)
 		req.reload()
 		return req
 

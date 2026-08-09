@@ -104,7 +104,26 @@ def apply_pm_workflow(doc: Document | str, action: str) -> Document:
 		)
 
 		validate_pm_request_workflow_action(doc, action)
-	return frappe_apply_workflow(doc, action)
+	result = frappe_apply_workflow(doc, action)
+	# Keep business status aligned (submitted saves may skip full validate).
+	if doc.doctype == "PM Request":
+		from erpnext_extensions.petty_management.services.business_status_service import (
+			sync_pm_request_business_status,
+		)
+
+		result.reload()
+		status = sync_pm_request_business_status(result)
+		frappe.db.set_value(result.doctype, result.name, "status", status, update_modified=False)
+		result.status = status
+	elif doc.doctype == "PM Clearance":
+		from erpnext_extensions.petty_management.services.business_status_service import (
+			sync_pm_clearance_business_status,
+		)
+
+		result.reload()
+		sync_pm_clearance_business_status(result, persist=True)
+		result.reload()
+	return result
 
 
 def workflow_action_table(doctype: str) -> list[dict]:

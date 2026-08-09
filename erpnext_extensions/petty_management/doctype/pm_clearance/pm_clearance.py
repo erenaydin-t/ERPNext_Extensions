@@ -116,7 +116,11 @@ class PMClearance(Document):
 		validate_clearance(self)
 
 	def before_submit(self):
-		return
+		from erpnext_extensions.petty_management.services.approver_stamp_service import (
+			stamp_pm_clearance_approvers,
+		)
+
+		stamp_pm_clearance_approvers(self)
 
 	def on_submit(self):
 		on_submit_clearance(self)
