@@ -1,0 +1,74 @@
+{
+ "actions": [],
+ "creation": "2026-08-08 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "old_ads",
+  "new_ads",
+  "schedule_date",
+  "old_amount",
+  "new_amount",
+  "finance_book"
+ ],
+ "fields": [
+  {
+   "fieldname": "old_ads",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Old ADS",
+   "read_only": 1,
+   "description": "Cancelled ADS name retained for audit (not a Link, because the document is cancelled)."
+  },
+  {
+   "fieldname": "new_ads",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "New ADS",
+   "options": "Asset Depreciation Schedule",
+   "read_only": 1
+  },
+  {
+   "fieldname": "schedule_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Schedule Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "old_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Old Amount",
+   "options": "Company:company:default_currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "new_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "New Amount",
+   "options": "Company:company:default_currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "finance_book",
+   "fieldtype": "Link",
+   "label": "Finance Book",
+   "options": "Finance Book",
+   "read_only": 1
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-08 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Asset Usage Depreciation",
+ "name": "Asset Usage Replan Log",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

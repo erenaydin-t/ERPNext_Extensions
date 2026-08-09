@@ -83,6 +83,84 @@ def _patch_stock_entry_job_card_process_loss():
 	apply_patch()
 
 
+def _run_irr_pipeline_after_ral(account_repost_doc: str) -> None:
+	"""After RAL engine work finishes, re-assert IRR deterministic truth for stock vouchers."""
+	from erpnext_extensions.iran_accounting.domain.currency import is_irr_company
+	from erpnext_extensions.iran_accounting.domain.repost_determinism import (
+		run_post_repost_deterministic_pipeline,
+	)
+
+	try:
+		repost_doc = frappe.get_doc("Repost Accounting Ledger", account_repost_doc)
+	except Exception:
+		return
+
+	for row in repost_doc.get("vouchers") or []:
+		# ERPNext 16.31.1+ tracks per-voucher status; skip non-success rows when present.
+		row_status = getattr(row, "status", None)
+		if row_status in ("Failed", "Skipped"):
+			continue
+		company = frappe.db.get_value(row.voucher_type, row.voucher_no, "company")
+		if not company or not is_irr_company(company):
+			continue
+		if row.voucher_type not in ("Stock Reconciliation", "Stock Entry"):
+			continue
+		try:
+			doc = frappe.get_doc(row.voucher_type, row.voucher_no)
+			run_post_repost_deterministic_pipeline(doc, raise_on_fail=False)
+		except Exception:
+			frappe.log_error(
+				title="IRR accounting repost reconcile failed",
+				message=frappe.get_traceback(),
+			)
+
+
+def _patch_ral_module_level_repost(ral_mod) -> bool:
+	"""Wrap ERPNext 16.31.1+ module-level ``repost`` (actual ledger work / background job)."""
+	if getattr(ral_mod, "_iran_patched_ral_repost", None):
+		return True
+	if not callable(getattr(ral_mod, "repost", None)):
+		return False
+
+	_orig_repost = ral_mod.repost
+
+	def repost(repost_doc_name: str, commit: bool = True):
+		try:
+			return _orig_repost(repost_doc_name, commit=commit)
+		finally:
+			if repost_doc_name:
+				_run_irr_pipeline_after_ral(repost_doc_name)
+
+	ral_mod.repost = repost
+	ral_mod._iran_patched_ral_repost = True
+	return True
+
+
+def _patch_ral_module_level_start_repost(ral_mod) -> bool:
+	"""Wrap legacy module-level ``start_repost`` (pre-16.31.1 synchronous RAL worker)."""
+	if getattr(ral_mod, "_iran_patched_start_repost", None):
+		return True
+	# Document.method ``start_repost`` is not a module attribute — require a real module function.
+	start_fn = getattr(ral_mod, "start_repost", None)
+	if not callable(start_fn):
+		return False
+	# Class methods live on RepostAccountingLedger; skip if this is only the Document API.
+	ral_cls = getattr(ral_mod, "RepostAccountingLedger", None)
+	if ral_cls is not None and start_fn is getattr(ral_cls, "start_repost", None):
+		return False
+
+	_orig_start = start_fn
+
+	def start_repost(account_repost_doc: str | None = None):
+		_orig_start(account_repost_doc)
+		if account_repost_doc:
+			_run_irr_pipeline_after_ral(account_repost_doc)
+
+	ral_mod.start_repost = start_repost
+	ral_mod._iran_patched_start_repost = True
+	return True
+
+
 def _patch_repost_compatibility():
 	from erpnext_extensions.iran_accounting.domain.currency import is_irr_company
 
@@ -128,38 +206,23 @@ def _patch_repost_compatibility():
 	except ImportError:
 		ral_mod = None
 
-	if ral_mod and not getattr(ral_mod, "_iran_patched_start_repost", None):
-		_orig_start = ral_mod.start_repost
+	if not ral_mod:
+		return
 
-		def start_repost(account_repost_doc: str | None = None):
-			_orig_start(account_repost_doc)
-			if not account_repost_doc:
-				return
-			try:
-				repost_doc = frappe.get_doc("Repost Accounting Ledger", account_repost_doc)
-			except Exception:
-				return
-			for row in repost_doc.get("vouchers") or []:
-				company = frappe.db.get_value(row.voucher_type, row.voucher_no, "company")
-				if not company or not is_irr_company(company):
-					continue
-				if row.voucher_type not in ("Stock Reconciliation", "Stock Entry"):
-					continue
-				try:
-					doc = frappe.get_doc(row.voucher_type, row.voucher_no)
-					from erpnext_extensions.iran_accounting.domain.repost_determinism import (
-						run_post_repost_deterministic_pipeline,
-					)
+	# Capability detection (no version pins):
+	# - ERPNext 16.31.1+: module ``repost`` does the work; Document.start_repost only enqueues.
+	# - Older: module ``start_repost`` performed the ledger work synchronously.
+	patched = _patch_ral_module_level_repost(ral_mod)
+	if not patched:
+		patched = _patch_ral_module_level_start_repost(ral_mod)
 
-					run_post_repost_deterministic_pipeline(doc, raise_on_fail=False)
-				except Exception:
-					frappe.log_error(
-						title="IRR accounting repost reconcile failed",
-						message=frappe.get_traceback(),
-					)
-
-		ral_mod.start_repost = start_repost
-		ral_mod._iran_patched_start_repost = True
+	if not patched and not getattr(ral_mod, "_iran_ral_hook_unavailable_logged", False):
+		frappe.logger("erpnext_extensions.iran_accounting").warning(
+			"RAL post-repost IRR hook not installed: neither module-level "
+			"`repost` nor legacy `start_repost` is available on "
+			"erpnext.accounts.doctype.repost_accounting_ledger.repost_accounting_ledger"
+		)
+		ral_mod._iran_ral_hook_unavailable_logged = True
 
 
 def _patch_stock_controller():

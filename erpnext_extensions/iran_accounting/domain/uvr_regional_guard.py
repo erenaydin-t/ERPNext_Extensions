@@ -31,17 +31,26 @@ from erpnext_extensions.iran_accounting.domain.riv_rate_guard import (
 
 # ---------------------------------------------------------------------------
 # Explicit support allow-list (major.minor). Unknown versions → BLOCK.
-# Fingerprints measured on ERPNext 16.30.0 / Frappe 16.29.0 (also valid for
-# 16.29.x when UVR / regional stub bodies are identical).
+# Fingerprints measured on ERPNext 16.31.1 / Frappe 16.30.0.
+# UVR body changed in 16.31 (round_floats_in gains do_not_round_fields for
+# conversion_factor); regional stub + hook call site remain compatible.
 # ---------------------------------------------------------------------------
 
-_SUPPORTED_ERPNEXT_MINOR = frozenset({"16.29", "16.30"})
+_SUPPORTED_ERPNEXT_MINOR = frozenset({"16.29", "16.30", "16.31"})
 _SUPPORTED_FRAPPE_MINOR = frozenset({"16.29", "16.30"})
 
 _FN_FINGERPRINTS = {
 	"update_valuation_rate": {
 		"signature": "(self, reset_outgoing_rate=True)",
-		"source_sha256": "5e898d6e97ff7b39f56c0f710b83b9e69a7c0ae08a97dae10eaf32f0c12c7bac",
+		# 16.31.1 normalized source (also use for 16.31.x). Older minors keep
+		# passing via must_contain + AST regional-hook check when their digest
+		# matches this table only if identical; 16.29/16.30 use the legacy digest
+		# recorded below as an alternate accepted fingerprint.
+		"source_sha256": "a09fe875f076df168c16faaf18a281da824c052160672dcf44c163c6f1166f63",
+		"source_sha256_alternates": (
+			# ERPNext 16.29 / 16.30 (round_floats_in without do_not_round_fields)
+			"5e898d6e97ff7b39f56c0f710b83b9e69a7c0ae08a97dae10eaf32f0c12c7bac",
+		),
 		"must_contain": ("update_regional_item_valuation_rate",),
 	},
 	"update_regional_item_valuation_rate": {
@@ -175,9 +184,10 @@ def assert_erpnext_uvr_regional_patch_supported() -> None:
 			continue
 		norm = normalize_function_source(fn)
 		digest = hashlib.sha256(norm.encode()).hexdigest()
-		if digest != expected["source_sha256"]:
+		accepted = {expected["source_sha256"], *(expected.get("source_sha256_alternates") or ())}
+		if digest not in accepted:
 			errors.append(
-				f"{name}: source fingerprint {digest} != allow-list {expected['source_sha256']}"
+				f"{name}: source fingerprint {digest} != allow-list {sorted(accepted)}"
 			)
 		for token in expected.get("must_contain") or ():
 			if token not in norm:
