@@ -9,7 +9,7 @@ from frappe.utils import cint
 
 # Business lifecycle values stored on ``PM Clearance.status``.
 LIFECYCLE_DRAFT = "Draft"
-LIFECYCLE_PENDING_REVIEW = "Pending Finance Review"
+LIFECYCLE_PENDING_REVIEW = "Pending Approval"  # v4.0.2 business label; workflow may be Manager/Finance
 LIFECYCLE_APPROVED = "Approved"
 LIFECYCLE_PENDING_JE = "Pending Journal Entry Submission"
 LIFECYCLE_SETTLED = "Settled"
@@ -84,57 +84,30 @@ def lifecycle_from_workflow(doc: Document) -> str:
 
 
 def compute_lifecycle_status(doc: Document) -> str:
-	"""Derive business lifecycle from JE (accounting wins) then workflow."""
-	if cint(getattr(doc, "docstatus", 0)) == 2:
-		return LIFECYCLE_CANCELLED
+	"""Derive business lifecycle from JE then approval workflow (status only)."""
+	from erpnext_extensions.petty_management.services.business_status_service import (
+		sync_pm_clearance_business_status,
+	)
 
-	je = (getattr(doc, "journal_entry", None) or "").strip()
-	je_ds = journal_entry_docstatus(je) if je else None
-	if je_ds == 1:
-		return LIFECYCLE_SETTLED
-	if je_ds == 0:
-		return LIFECYCLE_PENDING_JE
-
-	lifecycle = lifecycle_from_workflow(doc)
-	# Workflow row may still say Settled / Pending JE after JE cancel or unlink — not valid without JE.
-	if lifecycle in (LIFECYCLE_SETTLED, LIFECYCLE_PENDING_JE):
-		ws_title = workflow_state_title(getattr(doc, "workflow_state", None))
-		if ws_title == "Pending Finance Review":
-			return LIFECYCLE_PENDING_REVIEW
-		if ws_title == "Rejected":
-			return LIFECYCLE_REJECTED
-		if ws_title == "Cancelled":
-			return LIFECYCLE_CANCELLED
-		if ws_title == "Draft" or not ws_title:
-			return LIFECYCLE_DRAFT
-		return LIFECYCLE_APPROVED
-
+	# Compute without requiring persist; uses same rules as sync.
+	prev = getattr(doc, "status", None)
+	lifecycle = sync_pm_clearance_business_status(doc, persist=False)
+	# Keep in-memory status consistent for callers that only compute.
+	doc.status = lifecycle or prev
 	return lifecycle
 
 
 def sync_clearance_lifecycle(doc: Document, *, persist: bool = False) -> str:
-	"""Set ``status`` and align ``workflow_state`` so list/form never contradict on lifecycle.
+	"""Set ``status`` from JE + approval workflow. Never writes ``workflow_state`` (v4.0.2)."""
+	from erpnext_extensions.petty_management.services.business_status_service import (
+		sync_pm_clearance_business_status,
+	)
 
-	Accounting states override approval workflow display. Returns computed lifecycle.
-	"""
-	lifecycle = compute_lifecycle_status(doc)
-	doc.status = lifecycle
-
-	ws_link = workflow_state_link_for_lifecycle(lifecycle)
-	if ws_link:
-		doc.workflow_state = ws_link
-
-	if persist and getattr(doc, "name", None):
-		values = {"status": lifecycle}
-		if ws_link:
-			values["workflow_state"] = ws_link
-		frappe.db.set_value("PM Clearance", doc.name, values, update_modified=False)
-
-	return lifecycle
+	return sync_pm_clearance_business_status(doc, persist=persist)
 
 
 def sync_clearance_lifecycle_if_stale(doc: Document) -> str:
-	"""Persist lifecycle + workflow when DB row disagrees with accounting-derived state."""
+	"""Persist ``status`` when DB disagrees with accounting/approval-derived lifecycle."""
 	lifecycle = sync_clearance_lifecycle(doc, persist=False)
 	if not getattr(doc, "name", None):
 		return lifecycle
@@ -142,16 +115,15 @@ def sync_clearance_lifecycle_if_stale(doc: Document) -> str:
 	if doc.get("__islocal") or getattr(getattr(doc, "flags", None), "in_insert", False):
 		return lifecycle
 
-	ws_link = workflow_state_link_for_lifecycle(lifecycle)
 	stored_status = (frappe.db.get_value("PM Clearance", doc.name, "status") or "").strip()
-	stored_ws = frappe.db.get_value("PM Clearance", doc.name, "workflow_state")
-	if stored_status != lifecycle or (ws_link and stored_ws != ws_link):
+	if stored_status != lifecycle:
 		sync_clearance_lifecycle(doc, persist=True)
 	return lifecycle
 
 
 # Backward-compatible alias used across services/tests
 def sync_clearance_status_from_workflow(doc: Document) -> None:
+	"""Refresh business status only (does not write workflow_state)."""
 	sync_clearance_lifecycle(doc, persist=False)
 
 
@@ -226,8 +198,6 @@ def get_pm_clearance_action_flags(pm_clearance: str | Document) -> dict:
 		can_reject = False
 	can_cancel = cint(doc.docstatus) == 1 and not locked and lifecycle != LIFECYCLE_CANCELLED
 
-	expected_ws = workflow_state_link_for_lifecycle(lifecycle) or doc.workflow_state
-
 	return {
 		"can_preview": can_preview,
 		"can_settle": can_settle,
@@ -238,18 +208,22 @@ def get_pm_clearance_action_flags(pm_clearance: str | Document) -> dict:
 		"lifecycle_state": lifecycle,
 		"journal_entry": je,
 		"journal_entry_docstatus": je_ds,
-		"workflow_state": expected_ws,
-		"workflow_state_title": lifecycle,
+		"workflow_state": doc.workflow_state,
+		"workflow_state_title": workflow_state_title(getattr(doc, "workflow_state", None)),
 		"allowed_workflow_actions": wf_actions,
 		"docstatus": cint(doc.docstatus),
 	}
 
 
 def clearance_is_approved_for_actions(doc: Document, lifecycle: str) -> bool:
+	"""Settle eligibility uses business ``status`` (Approved), not accounting workflow titles."""
 	if lifecycle == LIFECYCLE_APPROVED:
 		return True
-	ws = (getattr(doc, "workflow_state", None) or "").strip()
-	return workflow_state_title(ws) == "Approved"
+	from erpnext_extensions.petty_management.services.business_status_service import (
+		clearance_is_finance_approved,
+	)
+
+	return clearance_is_finance_approved(doc)
 
 
 def validate_pm_clearance_workflow_change(doc: Document) -> None:

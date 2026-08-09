@@ -35,6 +35,13 @@ class PMRequest(Document):
 	def validate(self):
 		validate_request(self)
 
+	def before_submit(self):
+		from erpnext_extensions.petty_management.services.approver_stamp_service import (
+			stamp_pm_request_approvers,
+		)
+
+		stamp_pm_request_approvers(self)
+
 	def before_cancel(self):
 		validate_request_cancel(self)
 

@@ -56,9 +56,26 @@ def _pm():
 	return mod
 
 
+def _ensure_approval_settings() -> None:
+	"""v4.0.2: stamp service requires CEO/Finance Users on PM Settings for submit."""
+	settings = get_pm_settings()
+	if not settings:
+		return
+	admin = "Administrator"
+	if not getattr(settings, "ceo_approver", None):
+		settings.db_set("ceo_approver", admin, update_modified=False)
+	if not getattr(settings, "finance_manager", None):
+		settings.db_set("finance_manager", admin, update_modified=False)
+	if not getattr(settings, "finance_supervisor", None):
+		settings.db_set("finance_supervisor", admin, update_modified=False)
+	if getattr(settings, "require_named_manager_approver", None) is None:
+		settings.db_set("require_named_manager_approver", 1, update_modified=False)
+
+
 def _ensure_company_context() -> None:
 	"""Set module-level COMPANY / PETTY_ACCOUNT / BANK_ACCOUNT (idempotent)."""
 	global COMPANY, PETTY_ACCOUNT, BANK_ACCOUNT
+	_ensure_approval_settings()
 	if COMPANY:
 		return
 	if frappe.db.exists("Company", "_Test Company"):
@@ -154,6 +171,68 @@ def _workflow_state_for(document_type: str, state_title: str) -> str | None:
 	return None
 
 
+def _finance_clear_pm_request(req_name: str, *, status: str = "Waiting for Payment") -> None:
+	"""Mark PM Request as finance-cleared (v4.0.2 Waiting for Payment)."""
+	from erpnext_extensions.petty_management.services.workflow_utils import resolve_workflow_state_link
+
+	ws = _workflow_state_for("PM Request", "Waiting for Payment") or resolve_workflow_state_link(
+		"Waiting for Payment"
+	)
+	if not ws:
+		raise RuntimeError("PM Request Waiting for Payment workflow state missing")
+	frappe.db.set_value(
+		"PM Request",
+		req_name,
+		{"workflow_state": ws, "status": status},
+		update_modified=False,
+	)
+
+
+def _stamp_and_apply_request_approvals(req_name: str, user: str | None = None) -> None:
+	"""Apply Manager→CEO→Finance as a single user (tests / smoke)."""
+	from erpnext_extensions.petty_management.services.workflow_utils import apply_pm_workflow
+
+	user = user or frappe.session.user
+	frappe.db.set_value(
+		"PM Request",
+		req_name,
+		{
+			"manager_approver": user,
+			"ceo_approver": user,
+			"finance_approver": user,
+		},
+		update_modified=False,
+	)
+	doc = frappe.get_doc("PM Request", req_name)
+	apply_pm_workflow(doc, "PM Manager Approve")
+	doc.reload()
+	apply_pm_workflow(doc, "PM CEO Approve")
+	doc.reload()
+	apply_pm_workflow(doc, "PM Finance Approve")
+
+
+def _stamp_and_apply_clearance_approvals(cl_name: str, user: str | None = None) -> None:
+	"""Apply Manager→Finance as a single user (tests / smoke)."""
+	from erpnext_extensions.petty_management.services.workflow_utils import apply_pm_workflow
+
+	user = user or frappe.session.user
+	frappe.db.set_value(
+		"PM Clearance",
+		cl_name,
+		{"manager_approver": user, "finance_approver": user},
+		update_modified=False,
+	)
+	doc = frappe.get_doc("PM Clearance", cl_name)
+	apply_pm_workflow(doc, "PM Manager Approve")
+	doc.reload()
+	# Prefer new action; keep legacy alias if present
+	try:
+		apply_pm_workflow(doc, "PM Finance Approve")
+	except Exception:
+		doc.reload()
+		apply_pm_workflow(doc, "PM Approve")
+
+
 def _approve_pm_clearance_for_reservation(cl_name: str) -> None:
 	from erpnext_extensions.petty_management.services.clearance_service import (
 		approve_pm_clearance_for_reservation,
@@ -222,6 +301,9 @@ def _make_employee() -> str:
 	doc.date_of_birth = "1990-01-01"
 	doc.status = "Active"
 	doc.gender = "Male"
+	# v4.0.2 manager stamp: Employee.expense_approver (User)
+	if frappe.db.exists("User", "Administrator"):
+		doc.expense_approver = "Administrator"
 	doc.insert(ignore_permissions=True)
 	return doc.name
 
@@ -1996,8 +2078,10 @@ class TestPMClearanceLifecyclePolicy(unittest.TestCase):
 		sync_clearance_lifecycle_if_stale(doc)
 		row = frappe.db.get_value("PM Clearance", cl.name, ["status", "workflow_state"], as_dict=True)
 		self.assertEqual(row.status, "Settled")
+		# v4.0.2: JE updates business status only; approval workflow stays Approved
 		ws_title = frappe.db.get_value("Workflow State", row.workflow_state, "workflow_state_name")
-		self.assertEqual(ws_title, "Settled")
+		self.assertEqual(ws_title, "Approved")
+		self.assertEqual(row.workflow_state, approved or row.workflow_state)
 
 	def test_je_cancel_restores_non_settled_lifecycle(self):
 		cl, je_name = self._settled_clearance()

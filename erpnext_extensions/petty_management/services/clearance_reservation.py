@@ -9,24 +9,15 @@ from erpnext_extensions.petty_management.services.constants import (
 
 
 def clearance_reserves_pm_request_balance_sql(table_alias: str = "p") -> str:
-	"""SQL predicate for clearances whose allocation rows reserve funding."""
+	"""SQL predicate for clearances whose allocation rows reserve funding.
+
+	v4.0.2: business ``status`` is authoritative (workflow no longer carries Settled).
+	"""
 	p = table_alias
 	return f"""
 		{p}.docstatus = 1
-		AND IFNULL({p}.status, '') NOT IN ('Cancelled', 'Rejected', 'Draft')
-		AND NOT EXISTS (
-			SELECT 1 FROM `tabWorkflow State` ws
-			WHERE ws.name = {p}.workflow_state
-			AND IFNULL(ws.workflow_state_name, '') IN ('Cancelled', 'Rejected')
-		)
-		AND (
-			IFNULL({p}.status, '') IN ('Approved', 'Pending Journal Entry Submission', 'Settled')
-			OR EXISTS (
-				SELECT 1 FROM `tabWorkflow State` ws
-				WHERE ws.name = {p}.workflow_state
-				AND IFNULL(ws.workflow_state_name, '') = 'Approved'
-			)
-		)
+		AND IFNULL({p}.status, '') NOT IN ('Cancelled', 'Rejected', 'Draft', 'Pending Approval', 'Pending Finance Review')
+		AND IFNULL({p}.status, '') IN ('Approved', 'Pending Journal Entry Submission', 'Settled')
 	"""
 
 

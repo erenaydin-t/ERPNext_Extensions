@@ -147,12 +147,19 @@ def _repair_pm_clearance_workflow():
 		("Pending Journal Entry Submission", "1"),
 		("Settled", "1"),
 	)
-	existing = {row.state for row in w.states}
-	for state, doc_status in accounting_states:
-		canonical = _wf_state(state)
-		if canonical not in existing and state not in existing:
-			w.append("states", {"state": canonical, "doc_status": doc_status, "allow_edit": "All"})
+	# v4.0.2: accounting titles are business status only — remove from Workflow if present.
+	for row in list(w.states):
+		title = frappe.db.get_value("Workflow State", row.state, "workflow_state_name") or row.state
+		if title in ("Pending Journal Entry Submission", "Settled") or row.state in {
+			_wf_state("Pending Journal Entry Submission"),
+			_wf_state("Settled"),
+			"Pending Journal Entry Submission",
+			"Settled",
+		}:
+			w.remove(row)
 			changed = True
+	# Do not re-add accounting_states (removed intentionally).
+	_ = accounting_states
 	if changed:
 		w.save(ignore_permissions=True)
 	_repair_workflow_common(name, "PM Clearance")
@@ -170,19 +177,35 @@ def _repair_workflow_common(workflow_name: str, doctype: str) -> None:
 
 
 def repair_pm_request_workflow():
-	"""Idempotent repair for existing sites (also called from after_migrate)."""
-	_repair_pm_request_workflow()
+	"""Idempotent repair — delegates to v4.0.2 multi-level workflow migration."""
+	from erpnext_extensions.patches.post_model_sync.migrate_pm_workflow_v402 import (
+		execute as migrate_v402,
+	)
+
+	migrate_v402()
 
 
 def repair_pm_clearance_workflow():
-	"""Idempotent repair for existing sites (also called from after_migrate)."""
-	_repair_pm_clearance_workflow()
+	"""Idempotent repair — delegates to v4.0.2 multi-level workflow migration."""
+	from erpnext_extensions.patches.post_model_sync.migrate_pm_workflow_v402 import (
+		execute as migrate_v402,
+	)
+
+	migrate_v402()
 
 
 def execute():
-	_ensure_pm_request_workflow()
-	_repair_pm_request_workflow()
-	_ensure_pm_clearance_workflow()
-	_repair_pm_clearance_workflow()
+	# Prefer v4.0.2 rebuild when available; fall back to create-if-missing for fresh installs.
+	try:
+		from erpnext_extensions.patches.post_model_sync.migrate_pm_workflow_v402 import (
+			execute as migrate_v402,
+		)
+
+		migrate_v402()
+	except Exception:
+		_ensure_pm_request_workflow()
+		_repair_pm_request_workflow()
+		_ensure_pm_clearance_workflow()
+		_repair_pm_clearance_workflow()
 	frappe.clear_cache(doctype="Workflow")
 	frappe.db.commit()

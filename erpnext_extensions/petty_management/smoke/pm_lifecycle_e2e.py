@@ -70,7 +70,7 @@ def execute():
 		)
 		req.reload()
 		apply_pm_workflow(req, "PM Submit for Approval")
-		apply_pm_workflow(req, "PM Approve")
+		pm_ct._stamp_and_apply_request_approvals(req.name)
 		req.reload()
 		step("pm_request_workflow", True, workflow_state=req.workflow_state, status=req.status)
 		if not pm_ct.BANK_ACCOUNT:
@@ -111,7 +111,7 @@ def execute():
 		)
 		cl.reload()
 		apply_pm_workflow(cl, "PM Submit Finance Review")
-		apply_pm_workflow(cl, "PM Approve")
+		pm_ct._stamp_and_apply_clearance_approvals(cl.name)
 		from erpnext_extensions.petty_management.services import journal_entry_service as jes
 
 		out = jes.settle_petty_cash(cl.name)
@@ -163,7 +163,7 @@ def execute():
 		)
 		cl2.reload()
 		apply_pm_workflow(cl2, "PM Submit Finance Review")
-		apply_pm_workflow(cl2, "PM Approve")
+		pm_ct._stamp_and_apply_clearance_approvals(cl2.name)
 		out2 = jes.settle_petty_cash(cl2.name)
 		je2 = frappe.get_doc("Journal Entry", out2["journal_entry"])
 		if je2.docstatus == 0:

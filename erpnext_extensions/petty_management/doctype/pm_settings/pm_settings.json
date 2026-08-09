@@ -19,6 +19,12 @@
   "allow_negative_balance",
   "require_attachment",
   "require_bill_no",
+  "section_approval_routing",
+  "ceo_approver",
+  "finance_manager",
+  "column_break_approval",
+  "finance_supervisor",
+  "require_named_manager_approver",
   "section_auto",
   "block_new_request_if_pending_clearance",
   "require_workflow_approval",
@@ -80,6 +86,43 @@
    "fieldname": "require_bill_no",
    "fieldtype": "Check",
    "label": "Require Bill No (Clearance)"
+  },
+  {
+   "fieldname": "section_approval_routing",
+   "fieldtype": "Section Break",
+   "label": "Approval Routing"
+  },
+  {
+   "fieldname": "ceo_approver",
+   "fieldtype": "Link",
+   "label": "CEO Approver",
+   "options": "User",
+   "description": "Named CEO user stamped on PM Request at submit."
+  },
+  {
+   "fieldname": "finance_manager",
+   "fieldtype": "Link",
+   "label": "Finance Manager",
+   "options": "User",
+   "description": "Named finance approver for PM Request."
+  },
+  {
+   "fieldname": "column_break_approval",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "finance_supervisor",
+   "fieldtype": "Link",
+   "label": "Finance Supervisor",
+   "options": "User",
+   "description": "Named finance approver for PM Clearance."
+  },
+  {
+   "default": "1",
+   "fieldname": "require_named_manager_approver",
+   "fieldtype": "Check",
+   "label": "Require Named Manager Approver",
+   "description": "Block submit when Employee Expense Approver (and Department fallback) is missing."
   },
   {
    "fieldname": "section_auto",

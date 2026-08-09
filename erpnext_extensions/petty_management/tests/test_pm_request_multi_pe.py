@@ -43,15 +43,7 @@ def _ensure_pm_settings_bank() -> None:
 
 
 def _approve_pm_request(req_name: str) -> None:
-	appr = tpm._workflow_state_for("PM Request", "Approved")
-	if not appr:
-		raise unittest.SkipTest("PM Request workflow Approved state missing")
-	frappe.db.set_value(
-		"PM Request",
-		req_name,
-		{"workflow_state": appr, "status": "Payable"},
-		update_modified=False,
-	)
+	tpm._finance_clear_pm_request(req_name)
 
 
 def _new_submitted_request(employee: str, amount: float) -> str:

@@ -72,12 +72,12 @@ def run_pm_verification_smoke() -> dict[str, Any]:
 			step("FAIL_expected_create_pe_blocked_before_approved")
 			return out
 
-		appr = tpm._workflow_state_for("PM Request", "Approved")
+		appr = tpm._workflow_state_for("PM Request", "Waiting for Payment")
 		if not appr:
 			out["pass"] = False
-			step("FAIL_no_pm_request_approved_workflow_state")
+			step("FAIL_no_pm_request_waiting_for_payment_workflow_state")
 			return out
-		frappe.db.set_value("PM Request", req.name, "workflow_state", appr, update_modified=False)
+		tpm._finance_clear_pm_request(req.name)
 		req = frappe.get_doc("PM Request", req.name)
 		ok_after, reason_after = request_ready_for_payment_entry(req)
 		if not ok_after:
@@ -102,7 +102,7 @@ def run_pm_verification_smoke() -> dict[str, Any]:
 		frappe.db.set_value(
 			"PM Request",
 			req.name,
-			{"payment_entry": None, "payment_status": "Not Paid", "status": "Payable"},
+			{"payment_entry": None, "payment_status": "Not Paid", "status": "Waiting for Payment"},
 			update_modified=False,
 		)
 		req = frappe.get_doc("PM Request", req.name)

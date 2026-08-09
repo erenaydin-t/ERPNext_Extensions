@@ -60,12 +60,15 @@ def build_pm_request_ui_messages(
 		return [str(MSG_SUBMIT_FIRST)]
 
 	parts: list[str] = []
-	ws = workflow_state_title(doc)
+	from erpnext_extensions.petty_management.services.business_status_service import (
+		request_is_finance_cleared,
+	)
+
 	if not can_close and close_block_reason:
 		parts.append(str(close_block_reason))
-	if not can_create and create_block_reason and ws == "Approved":
+	if not can_create and create_block_reason and request_is_finance_cleared(doc):
 		parts.append(str(create_block_reason))
-	if not can_reject_wf and reject_block_reason and ws == "Approved":
+	if not can_reject_wf and reject_block_reason and request_is_finance_cleared(doc):
 		parts.append(str(reject_block_reason))
 	return _unique_ui_messages(*parts)
 

@@ -8,7 +8,7 @@ from frappe.model.workflow import apply_workflow as _apply_workflow
 
 @frappe.whitelist()
 def apply_workflow(doc, action):
-	"""Guard PM Clearance workflow actions before standard apply."""
+	"""Guard PM workflow actions before standard apply; sync business status after."""
 	payload = frappe.parse_json(doc) if isinstance(doc, str) else doc
 	if isinstance(payload, dict) and payload.get("doctype") == "PM Clearance" and payload.get("name"):
 		from erpnext_extensions.petty_management.services.clearance_action_policy import (
@@ -27,4 +27,35 @@ def apply_workflow(doc, action):
 		req_doc = get_pm_request_doc_for_read(payload["name"])
 		validate_pm_request_workflow_action(req_doc, action)
 
-	return _apply_workflow(doc, action)
+	result = _apply_workflow(doc, action)
+	_sync_business_status_after_workflow(result)
+	return result
+
+
+def _sync_business_status_after_workflow(result) -> None:
+	"""Submitted workflow saves may skip validate; persist status from workflow/JE facts."""
+	if not result:
+		return
+	doctype = getattr(result, "doctype", None) or (result.get("doctype") if isinstance(result, dict) else None)
+	name = getattr(result, "name", None) or (result.get("name") if isinstance(result, dict) else None)
+	if not doctype or not name:
+		return
+	if doctype == "PM Request":
+		from erpnext_extensions.petty_management.services.business_status_service import (
+			sync_pm_request_business_status,
+		)
+
+		doc = frappe.get_doc(doctype, name)
+		status = sync_pm_request_business_status(doc)
+		frappe.db.set_value(doctype, name, "status", status, update_modified=False)
+		if hasattr(result, "status"):
+			result.status = status
+	elif doctype == "PM Clearance":
+		from erpnext_extensions.petty_management.services.business_status_service import (
+			sync_pm_clearance_business_status,
+		)
+
+		doc = frappe.get_doc(doctype, name)
+		sync_pm_clearance_business_status(doc, persist=True)
+		if hasattr(result, "status"):
+			result.status = doc.status

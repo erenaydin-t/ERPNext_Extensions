@@ -14,8 +14,11 @@ from erpnext_extensions.petty_management.services.funding_queries import (
 	sum_draft_pe_amount,
 	sum_submitted_pe_amount,
 )
+from erpnext_extensions.petty_management.services.business_status_service import (
+	request_is_finance_cleared,
+	sync_pm_request_business_status,
+)
 from erpnext_extensions.petty_management.services.request_service import (
-	sync_request_status_from_workflow,
 	workflow_state_title,
 )
 
@@ -62,7 +65,7 @@ def sync_pm_request_funding_fields(
 	latest = resolve_latest_payment_entry(doc.name, exclude_pe=exclude_payment_entry)
 	if latest:
 		doc.payment_entry = latest
-	sync_request_status_from_workflow(doc)
+	sync_pm_request_business_status(doc)
 	frappe.db.set_value(
 		"PM Request",
 		doc.name,
@@ -111,8 +114,8 @@ def close_pm_request(
 	ws = workflow_state_title(doc)
 	if ws == "Rejected" or (doc.status or "").strip() == "Rejected":
 		frappe.throw(_("Rejected requests cannot be closed."))
-	if ws != "Approved":
-		frappe.throw(_("Close is only available for Approved PM Requests."))
+	if not request_is_finance_cleared(doc):
+		frappe.throw(_("Close is only available after finance approval (Waiting for Payment)."))
 	if cint(getattr(doc, "is_closed", 0)):
 		frappe.throw(_("This PM Request is already closed."))
 	if has_draft_payment_entry(doc.name):
@@ -152,9 +155,8 @@ def close_pm_request_action_flags(doc: Document) -> tuple[bool, str]:
 		return False, _("Submit the PM Request first.")
 	if cint(getattr(doc, "is_closed", 0)):
 		return False, _("Already closed.")
-	ws = workflow_state_title(doc)
-	if ws != "Approved":
-		return False, _("Close is only available after approval.")
+	if not request_is_finance_cleared(doc):
+		return False, _("Close is only available after finance approval.")
 	if has_draft_payment_entry(doc.name):
 		from erpnext_extensions.petty_management.services.request_action_policy import MSG_CLOSE_DRAFT_PE
 

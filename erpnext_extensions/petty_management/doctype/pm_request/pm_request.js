@@ -403,7 +403,8 @@ function apply_pm_request_toolbar(frm, f) {
 
 	// Use add_custom_button (not page.add_action_item): Frappe workflow show_actions()
 	// calls clear_actions_menu() and would wipe custom funding actions.
-	if (f.workflow_state_title === "Approved" && !cint(f.is_closed)) {
+	// v4.0.2: gate on server business flags (Waiting for Payment), not workflow_state title.
+	if (!cint(f.is_closed)) {
 		if (f.can_create_payment_entry) {
 			add_pm_request_toolbar_button(frm, __("Create Payment Entry"), promptCreatePe);
 			if (frm.change_custom_button_type) {
