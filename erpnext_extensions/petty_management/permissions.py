@@ -10,7 +10,8 @@ extra rights beyond Role Permissions.
 
 Restricted users:
   Only **Petty Management User** when they do **not** also hold any *elevated* Petty (or break-glass)
-  role. Those users see only documents where ``employee`` matches ``User.employee``.
+  role. Those users see only documents where ``employee`` matches the Employee linked to the User
+  via ``Employee.user_id`` (and optionally ``User.employee`` when that column exists).
 
 Elevated roles (no employee-scoped list filter from this module):
   Petty Management Manager, Admin, Accountant, Auditor, and System Manager.
@@ -22,14 +23,33 @@ DocPerm on PM Request / PM Clearance intentionally omits generic ERPNext Account
 accounting roles do not gain access unless given a Petty Management role (or Administrator).
 """
 
+from __future__ import annotations
+
 import frappe
 
 
 def _user_employee(user: str | None = None) -> str | None:
+	"""Resolve Employee for a User without selecting a missing ``User.employee`` column.
+
+	HRMS / ERPNext link users through ``Employee.user_id``. Some sites also have a custom
+	``User.employee`` field; prefer ``user_id`` and only read ``User.employee`` when the
+	column exists. Never raise OperationalError from a missing column during list queries.
+	"""
 	user = user or frappe.session.user
 	if user in ("Administrator", "Guest"):
 		return None
-	return frappe.db.get_value("User", user, "employee")
+
+	emp = frappe.db.get_value("Employee", {"user_id": user, "status": ("!=", "Left")}, "name")
+	if emp:
+		return emp
+	# Fallback: any status if active filter missed (disabled / Left still usable for scoping)
+	emp = frappe.db.get_value("Employee", {"user_id": user}, "name")
+	if emp:
+		return emp
+
+	if frappe.db.has_column("User", "employee"):
+		return frappe.db.get_value("User", user, "employee")
+	return None
 
 
 def _petty_user_restricted(user: str | None = None) -> bool:
