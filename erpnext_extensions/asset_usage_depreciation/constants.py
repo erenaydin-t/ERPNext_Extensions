@@ -10,7 +10,11 @@ MODE_PERCENTAGE = "Percentage"
 MODE_NO_DEPRECIATION = "No Depreciation"
 
 HANDLING_EXTEND = "Extend Depreciation Schedule"
-HANDLING_REDISTRIBUTE = "Redistribute Within Remaining Schedule"
+HANDLING_ADJUST_FINAL = "Adjust Final Depreciation Installment"
+# Legacy stored Company option (pre-4.1.2); treated as HANDLING_ADJUST_FINAL
+HANDLING_REDISTRIBUTE_LEGACY = "Redistribute Within Remaining Schedule"
+# Backward-compatible alias for imports that still use the old name
+HANDLING_REDISTRIBUTE = HANDLING_ADJUST_FINAL
 
 COMPANY_FIELD_REDUCED_HANDLING = "custom_reduced_depreciation_handling"
 
