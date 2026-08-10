@@ -1,8 +1,8 @@
-# Petty Management 4.1.3 — Fix PM Request list for restricted users
+# Petty Management 4.1.3 — Fix PM list permissions for restricted users
 
 ## Summary
 
-PM Request List View failed for normal Petty Management users with:
+PM Request / PM Clearance List View failed for normal Petty Management users with:
 
 ```text
 MySQLdb.OperationalError: (1054, "Unknown column 'employee' in 'SELECT'")
@@ -19,16 +19,23 @@ Restricted Petty Management Users hit `permission_query_conditions` → `_user_e
 → invalid SELECT. Administrator short-circuits `_petty_user_restricted` and never calls
 that path.
 
-The ReportView fields `holder.employee_name as …` / `employee.employee_name as …` are
-standard Frappe Link title enrichment; they were present in the failing request but were
-not the source of the 1054 error.
+## Fix (same release)
 
-## Fix
+1. Resolve employee via `Employee.user_id`, with optional `User.employee` only when the
+   column exists.
+2. Restricted-user row scope is now:
 
-Resolve employee via `Employee.user_id`, with optional `User.employee` only when the
-column exists. Preserve employee-scoped row filters for restricted users.
+   - own `employee`, **or**
+   - stamped `manager_approver` / `finance_approver` (and `ceo_approver` on PM Request)
 
-## Tests
+   so named Manager / Finance approvers with only **Petty Management User** can open
+   assigned documents without elevating them to see all rows.
+3. Users with no Employee link and not stamped as approver remain fail-closed (empty list /
+   deny form) **without** SQL errors.
 
-- Unit/integration: `test_pm_request_list_permission`
-- Playwright: `playwright_pm_request_list_permission.mjs` (non-Administrator Desk list)
+## Coverage
+
+- PM Request list/form (restricted holder, named manager, no-employee)
+- PM Clearance list/form/ReportView (restricted holder, named manager/finance, elevated roles)
+- Playwright Desk: `playwright_pm_request_list_permission.mjs`,
+  `playwright_pm_clearance_list_permission.mjs`

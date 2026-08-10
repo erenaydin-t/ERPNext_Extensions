@@ -17,6 +17,7 @@ SCRIPTS=(
   "playwright_pm_request_pe_list_e2e.mjs"
   "playwright_pm_request_actions_visibility.mjs"
   "playwright_pm_request_list_permission.mjs"
+  "playwright_pm_clearance_list_permission.mjs"
   "playwright_pm_request_multi_approval.mjs"
   "playwright_pm_multi_pe.mjs"
   "playwright_pm_clearance_search_link_network_debug.mjs"

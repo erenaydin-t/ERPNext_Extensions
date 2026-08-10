@@ -10,8 +10,15 @@ extra rights beyond Role Permissions.
 
 Restricted users:
   Only **Petty Management User** when they do **not** also hold any *elevated* Petty (or break-glass)
-  role. Those users see only documents where ``employee`` matches the Employee linked to the User
-  via ``Employee.user_id`` (and optionally ``User.employee`` when that column exists).
+  role. Those users see documents where:
+
+  - ``employee`` matches the Employee linked via ``Employee.user_id`` (or ``User.employee`` when
+    that column exists), **or**
+  - they are a stamped named approver (``manager_approver`` / ``ceo_approver`` /
+    ``finance_approver``).
+
+  Users with no Employee link and who are not stamped as approver on a row are fail-closed
+  (``1=0`` / deny).
 
 Elevated roles (no employee-scoped list filter from this module):
   Petty Management Manager, Admin, Accountant, Auditor, and System Manager.
@@ -69,38 +76,66 @@ def _petty_user_restricted(user: str | None = None) -> bool:
 	return "Petty Management User" in roles
 
 
+def _escape_user(user: str) -> str:
+	return frappe.db.escape(user, percent=False)
+
+
+def _restricted_row_conditions(doctype: str, user: str) -> str:
+	"""OR of own-employee scope and named-approver stamps. Fail-closed when empty."""
+	user = user or frappe.session.user
+	table = f"`tab{doctype}`"
+	parts: list[str] = []
+
+	emp = _user_employee(user)
+	if emp:
+		parts.append(f"{table}.employee = {frappe.db.escape(emp, percent=False)}")
+
+	# Named approvers (Assignment Rule / workflow stamps) must open assigned docs
+	# even when they have only Petty Management User (no elevated role / no Employee).
+	ue = _escape_user(user)
+	parts.append(f"{table}.manager_approver = {ue}")
+	parts.append(f"{table}.finance_approver = {ue}")
+	if doctype == "PM Request" and frappe.db.has_column(doctype, "ceo_approver"):
+		parts.append(f"{table}.ceo_approver = {ue}")
+
+	if not parts:
+		return "1=0"
+	return "(" + " OR ".join(parts) + ")"
+
+
 def pm_request_permission_query_conditions(user: str | None = None, doctype: str | None = None) -> str:
 	if not _petty_user_restricted(user):
 		return ""
-	emp = _user_employee(user)
-	if not emp:
-		return "1=0"
-	return f"`tabPM Request`.employee = {frappe.db.escape(emp, percent=False)}"
+	return _restricted_row_conditions("PM Request", user or frappe.session.user)
 
 
 def pm_clearance_permission_query_conditions(user: str | None = None, doctype: str | None = None) -> str:
 	if not _petty_user_restricted(user):
 		return ""
-	emp = _user_employee(user)
-	if not emp:
-		return "1=0"
-	return f"`tabPM Clearance`.employee = {frappe.db.escape(emp, percent=False)}"
+	return _restricted_row_conditions("PM Clearance", user or frappe.session.user)
 
 
 def has_pm_request_permission(doc, ptype=None, user=None, debug=False):
-	return _check_own_employee_doc(doc, user, "employee")
+	return _check_restricted_doc_access(doc, user, include_ceo=True)
 
 
 def has_pm_clearance_permission(doc, ptype=None, user=None, debug=False):
-	return _check_own_employee_doc(doc, user, "employee")
+	return _check_restricted_doc_access(doc, user, include_ceo=False)
 
 
-def _check_own_employee_doc(doc, user, employee_field: str):
+def _check_restricted_doc_access(doc, user, *, include_ceo: bool) -> bool:
 	if not doc:
 		return True
 	if not _petty_user_restricted(user):
 		return True
+	user = user or frappe.session.user
 	emp = _user_employee(user)
-	if not emp:
-		return False
-	return getattr(doc, employee_field, None) == emp
+	if emp and getattr(doc, "employee", None) == emp:
+		return True
+	if getattr(doc, "manager_approver", None) == user:
+		return True
+	if getattr(doc, "finance_approver", None) == user:
+		return True
+	if include_ceo and getattr(doc, "ceo_approver", None) == user:
+		return True
+	return False

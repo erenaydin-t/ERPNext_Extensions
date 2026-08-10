@@ -157,3 +157,36 @@ class TestPMRequestListPermissionQuery(unittest.TestCase):
 		# Display fields usable when present
 		for key in ("employee", "holder", "employee_name"):
 			self.assertIn(key, out["keys"])
+
+	def test_named_manager_approver_sees_assigned_request(self):
+		mgr = _make_user(
+			"pm_list_named_mgr_v413@example.com",
+			["Petty Management User", "Expense Approver", "Accounts User"],
+		)
+		frappe.db.set_value(
+			"PM Request",
+			self.own_name,
+			"manager_approver",
+			mgr,
+			update_modified=False,
+		)
+		frappe.db.commit()
+		self.assertTrue(_petty_user_restricted(mgr))
+		self.assertIsNone(_user_employee(mgr))
+		frappe.set_user(mgr)
+		rows = frappe.get_list("PM Request", fields=REPORTVIEW_FIELDS, limit_page_length=50)
+		names = {r["name"] for r in rows}
+		self.assertIn(self.own_name, names)
+		self.assertNotIn(self.other_name, names)
+
+	def test_no_employee_user_fail_closed(self):
+		no_emp = _make_user(
+			"pm_list_noemp_req_v413@example.com",
+			["Petty Management User", "Accounts User"],
+		)
+		frappe.db.sql("update `tabEmployee` set user_id=null where user_id=%s", no_emp)
+		frappe.db.commit()
+		self.assertIsNone(_user_employee(no_emp))
+		frappe.set_user(no_emp)
+		rows = frappe.get_list("PM Request", fields=REPORTVIEW_FIELDS, limit_page_length=20)
+		self.assertEqual(rows, [])
