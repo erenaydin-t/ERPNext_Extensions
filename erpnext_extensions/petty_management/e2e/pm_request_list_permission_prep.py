@@ -56,9 +56,14 @@ def prepare_pm_request_list_restricted() -> dict:
 		RESTRICTED_EMAIL,
 		["Petty Management User", "Accounts User", "Employee"],
 	)
+	# Operational unrestricted PM role (Accountant) — no System Manager
+	accountant = _ensure_user(
+		"pm_list_accountant_desk_v413@example.com",
+		["Petty Management Accountant", "Accounts User"],
+	)
 	manager = _ensure_user(
 		MANAGER_EMAIL,
-		["Petty Management Manager", "Petty Management User", "Accounts User", "System Manager"],
+		["Petty Management Manager", "Petty Management User", "Accounts User"],
 	)
 
 	emp = tpm._make_employee()
@@ -71,6 +76,16 @@ def prepare_pm_request_list_restricted() -> dict:
 	req.transaction_date = today()
 	req.append("details", {"description": "v413 desk list", "advance_amount": 12000})
 	req.insert(ignore_permissions=True)
+	frappe.db.set_value(
+		"PM Request",
+		req.name,
+		{
+			"manager_approver": manager,
+			"ceo_approver": manager,
+			"finance_approver": accountant,
+		},
+		update_modified=False,
+	)
 
 	other_emp = tpm._make_employee()
 	tpm._make_holder(other_emp)
@@ -86,6 +101,7 @@ def prepare_pm_request_list_restricted() -> dict:
 		"company": tpm.COMPANY,
 		"password": PASSWORD,
 		"restricted": {"email": restricted, "password": PASSWORD},
+		"accountant": {"email": accountant, "password": PASSWORD},
 		"manager": {"email": manager, "password": PASSWORD},
 		"administrator": {"email": "Administrator", "password": "admin"},
 		"own_pm_request": req.name,

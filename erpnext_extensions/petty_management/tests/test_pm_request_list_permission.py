@@ -112,7 +112,8 @@ class TestPMRequestListPermissionQuery(unittest.TestCase):
 		self.assertIn(self.own_emp, cond)
 		self.assertIn("`tabPM Request`.employee", cond)
 		self.assertEqual(pm_request_permission_query_conditions("Administrator"), "")
-		self.assertEqual(pm_request_permission_query_conditions(self.user_b), "")
+		# Manager alone is NOT unrestricted (Accountant is the operational role)
+		self.assertNotEqual(pm_request_permission_query_conditions(self.user_b), "")
 		clr = pm_clearance_permission_query_conditions(self.user_a)
 		self.assertIn(self.own_emp, clr)
 
@@ -124,10 +125,10 @@ class TestPMRequestListPermissionQuery(unittest.TestCase):
 		self.assertNotIn(self.other_name, names)
 
 	def test_manager_get_list_no_sql_error(self):
+		# Manager without Accountant: scoped list must not raise SQL errors
 		frappe.set_user(self.user_b)
 		rows = frappe.get_list("PM Request", fields=REPORTVIEW_FIELDS, limit_page_length=20)
 		self.assertIsInstance(rows, list)
-		self.assertGreaterEqual(len(rows), 1)
 
 	def test_administrator_get_list_no_regression(self):
 		frappe.set_user("Administrator")

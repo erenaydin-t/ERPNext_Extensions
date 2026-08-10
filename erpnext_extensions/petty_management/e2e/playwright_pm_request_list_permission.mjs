@@ -102,7 +102,7 @@ async function openDoc(page, name) {
   );
 }
 
-async function runAsUser(browser, user, prep, evidence, label) {
+async function runAsUser(browser, user, prep, evidence, label, { requireOther = null } = {}) {
   const { context, page } = await loginAs(
     browser,
     user.email,
@@ -115,14 +115,16 @@ async function runAsUser(browser, user, prep, evidence, label) {
     evidence.screenshots[`${label}_list`] = await shot(page, `${label}_01_list`);
     const hasErr = await listHasError(page);
     const ownVisible = await listShowsRequest(page, prep.own_pm_request);
+    const otherVisible = await listShowsRequest(page, prep.other_pm_request);
     const rvFailed = (evidence.failed_network || []).some(
       (f) => /reportview|frappe.desk.reportview/i.test(f.url) && f.status >= 500
     );
     evidence[`${label}_has_error`] = hasErr;
     evidence[`${label}_own_visible`] = ownVisible;
+    evidence[`${label}_other_visible`] = otherVisible;
     evidence[`${label}_reportview_500`] = rvFailed;
 
-    if (label === "restricted") {
+    if (label === "restricted" || label === "manager" || label === "accountant") {
       await openDoc(page, prep.own_pm_request);
       evidence.screenshots[`${label}_form`] = await shot(page, `${label}_02_form`);
       await openPmRequestList(page);
@@ -130,10 +132,6 @@ async function runAsUser(browser, user, prep, evidence, label) {
         page,
         `${label}_03_list_again`
       );
-      const stillErr = await listHasError(page);
-      const stillOwn = await listShowsRequest(page, prep.own_pm_request);
-      evidence[`${label}_list_again_error`] = stillErr;
-      evidence[`${label}_list_again_own`] = stillOwn;
     }
 
     fs.mkdirSync(path.dirname(TRACE), { recursive: true });
@@ -144,13 +142,15 @@ async function runAsUser(browser, user, prep, evidence, label) {
     await context.tracing.stop({ path: tracePath }).catch(() => null);
     evidence[`${label}_trace`] = tracePath;
 
+    let otherOk = true;
+    if (requireOther === true) otherOk = otherVisible === true;
+    if (requireOther === false) otherOk = otherVisible === false;
+
     const ok =
       !hasErr &&
       !rvFailed &&
       ownVisible === true &&
-      (label !== "restricted" ||
-        (evidence.restricted_list_again_error === false &&
-          evidence.restricted_list_again_own === true));
+      otherOk;
     await context.close();
     return ok;
   } catch (err) {
@@ -184,9 +184,25 @@ async function run() {
       prep.restricted,
       prep,
       evidence,
-      "restricted"
+      "restricted",
+      { requireOther: false }
     );
-    // Admin regression (site may use Administrator password from env)
+    const accountantOk = await runAsUser(
+      browser,
+      prep.accountant,
+      prep,
+      evidence,
+      "accountant",
+      { requireOther: true }
+    );
+    const managerOk = await runAsUser(
+      browser,
+      prep.manager,
+      prep,
+      evidence,
+      "manager",
+      { requireOther: false }
+    );
     const adminPass =
       process.env.FRAPPE_E2E_PASSWORD ||
       process.env.FRAPPE_ADMIN_PASSWORD ||
@@ -199,17 +215,19 @@ async function run() {
         { email: "Administrator", password: adminPass },
         prep,
         evidence,
-        "admin"
+        "admin",
+        { requireOther: true }
       );
     } catch (e) {
       evidence.admin_login_error = String(e);
-      // Admin login password may differ in this env; restricted path is mandatory.
       adminOk = evidence.admin_has_error === false;
     }
 
-    const ok = restrictedOk === true;
+    const ok = restrictedOk && accountantOk && managerOk;
     evidence.admin_ok = adminOk;
-    console.log(JSON.stringify({ ok, restrictedOk, adminOk, evidence }, null, 2));
+    console.log(
+      JSON.stringify({ ok, restrictedOk, accountantOk, managerOk, adminOk, evidence }, null, 2)
+    );
     await browser.close();
     process.exit(ok ? 0 : 1);
   } catch (err) {

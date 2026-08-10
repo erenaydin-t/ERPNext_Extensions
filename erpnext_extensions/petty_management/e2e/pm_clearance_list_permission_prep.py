@@ -56,6 +56,14 @@ def prepare_pm_clearance_list_permission() -> dict:
 		MANAGER,
 		["Petty Management User", "Expense Approver", "Accounts User"],
 	)
+	finance = _ensure_user(
+		"pm_clr_desk_fin_v413@example.com",
+		["Petty Management User", "Accounts User"],
+	)
+	accountant = _ensure_user(
+		"pm_clr_desk_accountant_v413@example.com",
+		["Petty Management Accountant", "Accounts User"],
+	)
 	no_emp = _ensure_user(NO_EMP, ["Petty Management User", "Accounts User"])
 	frappe.db.sql("update `tabEmployee` set user_id=null where user_id=%s", no_emp)
 	frappe.db.commit()
@@ -80,7 +88,7 @@ def prepare_pm_clearance_list_permission() -> dict:
 		cl.name,
 		{
 			"manager_approver": manager,
-			"finance_approver": manager,
+			"finance_approver": finance,
 			"workflow_state": resolve_workflow_state_link("Pending Manager Approval")
 			or "Pending Manager Approval",
 			"status": "Pending Approval",
@@ -103,6 +111,8 @@ def prepare_pm_clearance_list_permission() -> dict:
 		"password": PASSWORD,
 		"holder": {"email": holder, "password": PASSWORD},
 		"manager": {"email": manager, "password": PASSWORD},
+		"finance": {"email": finance, "password": PASSWORD},
+		"accountant": {"email": accountant, "password": PASSWORD},
 		"no_emp": {"email": no_emp, "password": PASSWORD},
 		"own_pm_clearance": cl.name,
 		"other_pm_clearance": other.name,

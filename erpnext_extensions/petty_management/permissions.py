@@ -3,36 +3,48 @@
 
 """Petty Management list and document permissions.
 
-``permission_query_conditions`` narrows **list / report** queries for users who are restricted.
+``permission_query_conditions`` narrows **list / report** queries.
 
 ``has_permission`` on the document controller can **deny** access (return False); it never grants
-extra rights beyond Role Permissions.
+extra rights beyond Role Permissions / Workflow.
 
-Restricted users:
-  Only **Petty Management User** when they do **not** also hold any *elevated* Petty (or break-glass)
-  role. Those users see documents where:
+Visibility model (v4.1.3):
 
-  - ``employee`` matches the Employee linked via ``Employee.user_id`` (or ``User.employee`` when
-    that column exists), **or**
-  - they are a stamped named approver (``manager_approver`` / ``ceo_approver`` /
-    ``finance_approver``).
+- **Administrator** / **System Manager**: unrestricted PM visibility (break-glass).
+- **Petty Management Accountant**: single operational unrestricted PM role — same *document
+  visibility* as Administrator for PM Request / PM Clearance, without Administrator system
+  privileges. Does **not** bypass Workflow transition rules or DocPerm submit/cancel.
+- Everyone else (including Petty Management User / Manager / Admin / Auditor without Accountant):
+  row filter = own Employee **or** stamped named approver fields.
 
-  Users with no Employee link and who are not stamped as approver on a row are fail-closed
-  (``1=0`` / deny).
+Workflow transition roles that must remain (not visibility roles):
 
-Elevated roles (no employee-scoped list filter from this module):
-  Petty Management Manager, Admin, Accountant, Auditor, and System Manager.
-  They can see all PM Request / PM Clearance rows allowed by DocPerm.
-
-Administrator bypasses permission checks in Frappe as usual.
-
-DocPerm on PM Request / PM Clearance intentionally omits generic ERPNext Accounts roles so broad
-accounting roles do not gain access unless given a Petty Management role (or Administrator).
+- Petty Management User — submit
+- Petty Management Manager — manager / CEO approve transitions
+- Petty Management Accountant — finance approve transitions
 """
 
 from __future__ import annotations
 
 import frappe
+
+# Single operational PM role with Administrator-equivalent PM document visibility.
+OPERATIONAL_UNRESTRICTED_PM_ROLE = "Petty Management Accountant"
+
+
+def _is_pm_visibility_unrestricted(user: str | None = None) -> bool:
+	"""Return True when PM Request/Clearance lists must not apply employee/approver filters.
+
+	Administrator and the operational PM role share this path. Does not grant Workflow or
+	DocPerm rights beyond what those roles already have.
+	"""
+	user = user or frappe.session.user
+	if user == "Administrator":
+		return True
+	roles = set(frappe.get_roles(user))
+	if "System Manager" in roles:
+		return True
+	return OPERATIONAL_UNRESTRICTED_PM_ROLE in roles
 
 
 def _user_employee(user: str | None = None) -> str | None:
@@ -49,7 +61,6 @@ def _user_employee(user: str | None = None) -> str | None:
 	emp = frappe.db.get_value("Employee", {"user_id": user, "status": ("!=", "Left")}, "name")
 	if emp:
 		return emp
-	# Fallback: any status if active filter missed (disabled / Left still usable for scoping)
 	emp = frappe.db.get_value("Employee", {"user_id": user}, "name")
 	if emp:
 		return emp
@@ -60,20 +71,8 @@ def _user_employee(user: str | None = None) -> str | None:
 
 
 def _petty_user_restricted(user: str | None = None) -> bool:
-	user = user or frappe.session.user
-	if user == "Administrator":
-		return False
-	roles = set(frappe.get_roles(user))
-	elevated = {
-		"Petty Management Manager",
-		"Petty Management Admin",
-		"Petty Management Accountant",
-		"Petty Management Auditor",
-		"System Manager",
-	}
-	if roles & elevated:
-		return False
-	return "Petty Management User" in roles
+	"""True when row filters apply (not Administrator / System Manager / Accountant)."""
+	return not _is_pm_visibility_unrestricted(user)
 
 
 def _escape_user(user: str) -> str:
@@ -81,7 +80,7 @@ def _escape_user(user: str) -> str:
 
 
 def _restricted_row_conditions(doctype: str, user: str) -> str:
-	"""OR of own-employee scope and named-approver stamps. Fail-closed when empty."""
+	"""OR of own-employee scope and named-approver stamps."""
 	user = user or frappe.session.user
 	table = f"`tab{doctype}`"
 	parts: list[str] = []
@@ -90,8 +89,6 @@ def _restricted_row_conditions(doctype: str, user: str) -> str:
 	if emp:
 		parts.append(f"{table}.employee = {frappe.db.escape(emp, percent=False)}")
 
-	# Named approvers (Assignment Rule / workflow stamps) must open assigned docs
-	# even when they have only Petty Management User (no elevated role / no Employee).
 	ue = _escape_user(user)
 	parts.append(f"{table}.manager_approver = {ue}")
 	parts.append(f"{table}.finance_approver = {ue}")
@@ -104,29 +101,31 @@ def _restricted_row_conditions(doctype: str, user: str) -> str:
 
 
 def pm_request_permission_query_conditions(user: str | None = None, doctype: str | None = None) -> str:
-	if not _petty_user_restricted(user):
+	if _is_pm_visibility_unrestricted(user):
 		return ""
 	return _restricted_row_conditions("PM Request", user or frappe.session.user)
 
 
 def pm_clearance_permission_query_conditions(user: str | None = None, doctype: str | None = None) -> str:
-	if not _petty_user_restricted(user):
+	if _is_pm_visibility_unrestricted(user):
 		return ""
 	return _restricted_row_conditions("PM Clearance", user or frappe.session.user)
 
 
 def has_pm_request_permission(doc, ptype=None, user=None, debug=False):
+	if _is_pm_visibility_unrestricted(user):
+		return True
 	return _check_restricted_doc_access(doc, user, include_ceo=True)
 
 
 def has_pm_clearance_permission(doc, ptype=None, user=None, debug=False):
+	if _is_pm_visibility_unrestricted(user):
+		return True
 	return _check_restricted_doc_access(doc, user, include_ceo=False)
 
 
 def _check_restricted_doc_access(doc, user, *, include_ceo: bool) -> bool:
 	if not doc:
-		return True
-	if not _petty_user_restricted(user):
 		return True
 	user = user or frappe.session.user
 	emp = _user_employee(user)

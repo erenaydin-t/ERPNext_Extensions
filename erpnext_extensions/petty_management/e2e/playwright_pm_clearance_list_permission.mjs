@@ -133,8 +133,41 @@ async function run() {
     evidence.screenshots.manager_list = await shot(page, "04_manager_list");
     const mgrErr = await hasSqlError(page);
     const mgrOwn = await shows(page, prep.own_pm_clearance);
+    const mgrOther = await shows(page, prep.other_pm_clearance);
     await openDoc(page, prep.own_pm_clearance);
     evidence.screenshots.manager_form = await shot(page, "05_manager_form");
+    await context.close();
+
+    // Named finance approver
+    ({ context, page } = await loginAs(
+      browser,
+      prep.finance.email,
+      prep.finance.password,
+      evidence
+    ));
+    await openList(page);
+    evidence.screenshots.finance_list = await shot(page, "06_finance_list");
+    const finErr = await hasSqlError(page);
+    const finOwn = await shows(page, prep.own_pm_clearance);
+    const finOther = await shows(page, prep.other_pm_clearance);
+    await openDoc(page, prep.own_pm_clearance);
+    evidence.screenshots.finance_form = await shot(page, "07_finance_form");
+    await context.close();
+
+    // Operational unrestricted Accountant — sees own + other
+    ({ context, page } = await loginAs(
+      browser,
+      prep.accountant.email,
+      prep.accountant.password,
+      evidence
+    ));
+    await openList(page);
+    evidence.screenshots.accountant_list = await shot(page, "08_accountant_list");
+    const acctErr = await hasSqlError(page);
+    const acctOwn = await shows(page, prep.own_pm_clearance);
+    const acctOther = await shows(page, prep.other_pm_clearance);
+    await openDoc(page, prep.other_pm_clearance);
+    evidence.screenshots.accountant_other_form = await shot(page, "09_accountant_other_form");
     await context.close();
 
     // No-employee fail-closed: list loads empty / no 500
@@ -145,7 +178,7 @@ async function run() {
       evidence
     ));
     await openList(page);
-    evidence.screenshots.noemp_list = await shot(page, "06_noemp_list");
+    evidence.screenshots.noemp_list = await shot(page, "10_noemp_list");
     const noEmpErr = await hasSqlError(page);
     const noEmpOwn = await shows(page, prep.own_pm_clearance);
     fs.mkdirSync(path.dirname(TRACE), { recursive: true });
@@ -160,6 +193,13 @@ async function run() {
       rv500,
       mgrErr,
       mgrOwn,
+      mgrOther,
+      finErr,
+      finOwn,
+      finOther,
+      acctErr,
+      acctOwn,
+      acctOther,
       noEmpErr,
       noEmpOwn,
     };
@@ -170,6 +210,13 @@ async function run() {
       holderOther === false &&
       mgrErr === false &&
       mgrOwn === true &&
+      mgrOther === false &&
+      finErr === false &&
+      finOwn === true &&
+      finOther === false &&
+      acctErr === false &&
+      acctOwn === true &&
+      acctOther === true &&
       noEmpErr === false &&
       noEmpOwn === false;
 

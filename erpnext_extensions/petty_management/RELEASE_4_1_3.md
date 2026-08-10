@@ -1,41 +1,33 @@
-# Petty Management 4.1.3 — Fix PM list permissions for restricted users
+# Petty Management 4.1.3 — List permissions + single unrestricted operator role
 
 ## Summary
 
-PM Request / PM Clearance List View failed for normal Petty Management users with:
+1. Fixed restricted-user list crash (`User.employee` missing column).
+2. Named approvers can open stamped docs without elevated roles.
+3. **Single operational unrestricted visibility role:** `Petty Management Accountant`.
 
-```text
-MySQLdb.OperationalError: (1054, "Unknown column 'employee' in 'SELECT'")
-```
+## Visibility model
 
-Administrator was unaffected.
+| Actor | PM Request / Clearance visibility |
+|--|--|
+| Administrator / System Manager | Unrestricted |
+| **Petty Management Accountant** | Unrestricted (operational operator) |
+| Petty Management User (holder) | Own employee only |
+| Named manager / CEO / finance approver | Stamped docs only |
+| Petty Management Manager / Admin / Auditor (alone) | Scoped (not global) |
+| No Employee + not stamped | Fail-closed empty list |
 
-## Root cause
+Visibility bypass does **not** bypass Workflow transition conditions or DocPerm.
 
-`permissions._user_employee` selected `User.employee`, but this site (standard HRMS)
-has **no** `tabUser.employee` column. Employee linkage is `Employee.user_id`.
+## Role rationalization
 
-Restricted Petty Management Users hit `permission_query_conditions` → `_user_employee`
-→ invalid SELECT. Administrator short-circuits `_petty_user_restricted` and never calls
-that path.
+- **Accountant** — day-to-day finance/petty operator; finance workflow transitions; global PM visibility.
+- **Manager** — workflow manager/CEO approve transitions only; visibility via stamps / own employee.
+- **User** — holders; submit + own docs.
+- **Admin** — DocPerm cancel/settings; not a visibility bypass (pair with Accountant if support needs all docs).
+- **Auditor** — DocPerm read; not a visibility bypass (pair with Accountant for full audit visibility).
 
-## Fix (same release)
+## Tests / E2E
 
-1. Resolve employee via `Employee.user_id`, with optional `User.employee` only when the
-   column exists.
-2. Restricted-user row scope is now:
-
-   - own `employee`, **or**
-   - stamped `manager_approver` / `finance_approver` (and `ceo_approver` on PM Request)
-
-   so named Manager / Finance approvers with only **Petty Management User** can open
-   assigned documents without elevating them to see all rows.
-3. Users with no Employee link and not stamped as approver remain fail-closed (empty list /
-   deny form) **without** SQL errors.
-
-## Coverage
-
-- PM Request list/form (restricted holder, named manager, no-employee)
-- PM Clearance list/form/ReportView (restricted holder, named manager/finance, elevated roles)
-- Playwright Desk: `playwright_pm_request_list_permission.mjs`,
-  `playwright_pm_clearance_list_permission.mjs`
+- `test_pm_visibility_roles`, list permission modules
+- Playwright request + clearance list (holder, manager, finance, accountant, admin)

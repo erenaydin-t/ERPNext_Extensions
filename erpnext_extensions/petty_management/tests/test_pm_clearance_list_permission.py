@@ -185,16 +185,27 @@ class TestPMClearanceListPermission(unittest.TestCase):
 			frappe.has_permission("PM Clearance", "read", doc=frappe.get_doc("PM Clearance", self.own_clr))
 		)
 
-	def test_elevated_manager_and_finance_retain_broad_access(self):
-		self.assertFalse(_petty_user_restricted(self.manager_elev))
-		self.assertEqual(pm_clearance_permission_query_conditions(self.manager_elev), "")
-		self.assertEqual(pm_request_permission_query_conditions(self.finance_elev), "")
-		frappe.set_user(self.manager_elev)
-		rows = frappe.get_list("PM Clearance", fields=["name"], limit_page_length=5)
-		self.assertGreaterEqual(len(rows), 1)
+	def test_accountant_unrestricted_manager_role_is_scoped(self):
+		from erpnext_extensions.petty_management.permissions import _is_pm_visibility_unrestricted
+
+		self.assertTrue(_is_pm_visibility_unrestricted(self.finance_elev))
+		self.assertEqual(pm_clearance_permission_query_conditions(self.finance_elev), "")
+		self.assertFalse(_is_pm_visibility_unrestricted(self.manager_elev))
+		self.assertNotEqual(pm_clearance_permission_query_conditions(self.manager_elev), "")
+
 		frappe.set_user(self.finance_elev)
-		rows = frappe.get_list("PM Clearance", fields=["name"], limit_page_length=5)
-		self.assertGreaterEqual(len(rows), 1)
+		rows = frappe.get_list("PM Clearance", fields=["name"], limit_page_length=200)
+		names = {r["name"] for r in rows}
+		self.assertIn(self.own_clr, names)
+		self.assertIn(self.other_clr, names)
+
+		# Manager role alone: only docs where stamped (none for other_clr unless stamped)
+		frappe.set_user(self.manager_elev)
+		rows = frappe.get_list("PM Clearance", fields=["name"], limit_page_length=200)
+		names = {r["name"] for r in rows}
+		self.assertNotIn(self.own_clr, names)
+		self.assertIn(self.other_clr, names)  # stamped manager_approver on other_clr
+
 
 	def test_clearance_reportview_for_restricted_holder(self):
 		frappe.set_user(self.holder)
