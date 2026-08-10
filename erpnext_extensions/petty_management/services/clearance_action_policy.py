@@ -198,9 +198,22 @@ def get_pm_clearance_action_flags(pm_clearance: str | Document) -> dict:
 		can_reject = False
 	can_cancel = cint(doc.docstatus) == 1 and not locked and lifecycle != LIFECYCLE_CANCELLED
 
+	pi_ready = True
+	pi_readiness_message = ""
+	try:
+		from erpnext_extensions.petty_management.services.purchase_invoice_readiness import (
+			get_purchase_invoice_readiness,
+		)
+
+		readiness = get_purchase_invoice_readiness(doc)
+		pi_ready = bool(readiness.get("ready"))
+		pi_readiness_message = readiness.get("message") or ""
+	except Exception:
+		pi_ready = True
+
 	return {
-		"can_preview": can_preview,
-		"can_settle": can_settle,
+		"can_preview": can_preview and pi_ready,
+		"can_settle": can_settle and pi_ready,
 		"can_reject": can_reject,
 		"can_cancel": can_cancel,
 		"can_open_je": can_open_je,
@@ -212,6 +225,8 @@ def get_pm_clearance_action_flags(pm_clearance: str | Document) -> dict:
 		"workflow_state_title": workflow_state_title(getattr(doc, "workflow_state", None)),
 		"allowed_workflow_actions": wf_actions,
 		"docstatus": cint(doc.docstatus),
+		"pi_ready": pi_ready,
+		"pi_readiness_message": pi_readiness_message,
 	}
 
 
@@ -259,7 +274,8 @@ def validate_pm_clearance_workflow_change(doc: Document) -> None:
 
 def validate_apply_workflow_action(doc: Document, action: str) -> None:
 	"""Called before workflow action is applied (via hook)."""
-	if (action or "").strip() == "PM Reject":
+	action = (action or "").strip()
+	if action == "PM Reject":
 		if is_accounting_locked(doc):
 			frappe.throw(
 				_("Cannot reject after settlement Journal Entry is submitted."),
@@ -272,3 +288,9 @@ def validate_apply_workflow_action(doc: Document, action: str) -> None:
 				),
 				title=_("Reject not allowed"),
 			)
+	if action in ("PM Finance Approve", "PM Approve"):
+		from erpnext_extensions.petty_management.services.purchase_invoice_readiness import (
+			validate_purchase_invoices_for_finance_approval,
+		)
+
+		validate_purchase_invoices_for_finance_approval(doc)

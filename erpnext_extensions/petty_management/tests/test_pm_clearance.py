@@ -1079,7 +1079,8 @@ class TestPMClearanceAllocation(unittest.TestCase):
 		cl.insert(ignore_permissions=True)
 		self._track("PM Clearance", cl.name)
 
-	def test_purchase_invoice_query_excludes_draft(self):
+	def test_purchase_invoice_query_includes_draft(self):
+		"""v4.1.5: Draft PI is selectable during Clearance prepare."""
 		from erpnext_extensions.petty_management.doctype.pm_clearance.pm_clearance import (
 			purchase_invoice_query_for_pm_clearance,
 		)
@@ -1096,9 +1097,12 @@ class TestPMClearanceAllocation(unittest.TestCase):
 			{"company": COMPANY},
 		)
 		names = {r[0] for r in rows}
-		self.assertNotIn(pi.name, names)
+		self.assertIn(pi.name, names)
+		desc = next(r[1] for r in rows if r[0] == pi.name)
+		self.assertIn("Draft", desc)
 
-	def test_draft_purchase_invoice_rejected_on_clearance_save(self):
+	def test_draft_purchase_invoice_allowed_on_clearance_save(self):
+		"""v4.1.5: Draft PI may be saved on Clearance; Finance/Settle still gated."""
 		emp = _make_employee()
 		self._track("Employee", emp)
 		_make_holder(emp)
@@ -1107,10 +1111,12 @@ class TestPMClearanceAllocation(unittest.TestCase):
 		pi = _make_pi_outstanding(1_000)
 		pi.insert(ignore_permissions=True)
 		self._track("Purchase Invoice", pi.name)
-		cl = self._base_clearance(emp, pi, 1_000)
-		cl.append("request_allocations", {"pm_request": req_name, "allocated_amount": 1_000})
-		with self.assertRaises(ValidationError):
-			cl.insert(ignore_permissions=True)
+		alloc = flt(pi.grand_total or 1_000)
+		cl = self._base_clearance(emp, pi, alloc)
+		cl.append("request_allocations", {"pm_request": req_name, "allocated_amount": alloc})
+		cl.insert(ignore_permissions=True)
+		self._track("PM Clearance", cl.name)
+		self.assertEqual(cint(frappe.db.get_value("Purchase Invoice", pi.name, "docstatus")), 0)
 
 	def test_preview_returns_pi_debit_and_petty_credit_without_creating_je(self):
 		mod = _pm()

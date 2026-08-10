@@ -288,11 +288,18 @@ def preview_pm_clearance_settlement(doc=None, pm_clearance: str | None = None) -
 
 @frappe.whitelist()
 def approve_pm_clearance_for_settlement(pm_clearance: str) -> dict:
-	"""Workflow approve + status sync for settlement (Desk/E2E)."""
+	"""Mark clearance Approved for settlement helpers (Desk/E2E).
+
+	Does **not** bypass Finance PI readiness: delegates to
+	``approve_pm_clearance_for_reservation``, which runs
+	``validate_purchase_invoices_for_finance_approval`` before any status write.
+	"""
 	from erpnext_extensions.petty_management.services.clearance_service import (
 		approve_pm_clearance_for_reservation,
 	)
 
+	if not frappe.has_permission("PM Clearance", "write", doc=pm_clearance):
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
 	approve_pm_clearance_for_reservation(pm_clearance)
 	return get_pm_clearance_action_flags(pm_clearance)
 
@@ -309,3 +316,16 @@ def get_pm_clearance_action_flags(pm_clearance: str) -> dict:
 	)
 
 	return _flags(pm_clearance)
+
+
+@frappe.whitelist()
+def get_pm_clearance_pi_readiness(pm_clearance: str) -> dict:
+	"""Desk banner / Finance UX: Draft vs submitted PI readiness (v4.1.5)."""
+	from erpnext_extensions.petty_management.services.purchase_invoice_readiness import (
+		get_purchase_invoice_readiness,
+	)
+
+	doc = frappe.get_doc("PM Clearance", pm_clearance)
+	if not frappe.has_permission("PM Clearance", "read", doc=doc):
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
+	return get_purchase_invoice_readiness(doc)
