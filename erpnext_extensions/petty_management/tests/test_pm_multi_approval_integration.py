@@ -135,7 +135,7 @@ class TestPMMultiApprovalIntegration(FrappeTestCase):
 		req.reload()
 		self.assertEqual(
 			frappe.db.get_value("Workflow State", req.workflow_state, "workflow_state_name"),
-			"Waiting for Payment",
+			"Finance Approved",
 		)
 		self.assertEqual(req.status, "Waiting for Payment")
 		from erpnext_extensions.petty_management.services.request_service import (
@@ -150,12 +150,12 @@ class TestPMMultiApprovalIntegration(FrappeTestCase):
 		frappe.db.set_value("Employee", emp, "expense_approver", self.manager, update_modified=False)
 		tpm._make_holder(emp)
 		pm_request, _pe = tpm._fund_pm_request(emp, 50_000.0)
-		# Force request into Waiting for Payment for funding truth
-		waiting = resolve_workflow_state_link("Waiting for Payment")
+		# Force request into Finance Approved for funding truth
+		waiting = resolve_workflow_state_link("Finance Approved")
 		frappe.db.set_value(
 			"PM Request",
 			pm_request,
-			{"workflow_state": waiting, "status": "Waiting for Payment", "payment_status": "Paid"},
+			{"workflow_state": waiting, "status": "Paid", "payment_status": "Paid"},
 			update_modified=False,
 		)
 

@@ -1,5 +1,5 @@
 # Copyright (c) 2026, ERPNext Extensions contributors
-"""v4.1.3: funding lifecycle status + close sync; workflow_state stays Waiting for Payment."""
+"""v4.1.3 Option A: Finance Approved workflow + business status lifecycle."""
 
 from __future__ import annotations
 
@@ -8,9 +8,14 @@ import unittest
 import frappe
 from frappe.utils import cint, flt
 
+from erpnext_extensions.petty_management.services.business_status_service import (
+	REQ_WORKFLOW_FINANCE_APPROVED,
+	request_is_finance_cleared,
+	sync_pm_request_business_status,
+	workflow_title_is_finance_cleared,
+)
 from erpnext_extensions.petty_management.services.funding_service import close_pm_request
 from erpnext_extensions.petty_management.services.request_action_policy import (
-	build_pm_request_business_status_presentation,
 	compute_pm_request_action_flags,
 )
 from erpnext_extensions.petty_management.services.workflow_utils import resolve_workflow_state_link
@@ -28,7 +33,7 @@ def _ws_title(name: str) -> str:
 	return frappe.db.get_value("Workflow State", ws, "workflow_state_name") or ws or ""
 
 
-class TestPMRequestFundingStatusLifecycle(unittest.TestCase):
+class TestPMRequestFinanceApprovedArchitecture(unittest.TestCase):
 	@classmethod
 	def setUpClass(cls):
 		frappe.set_user("Administrator")
@@ -36,7 +41,7 @@ class TestPMRequestFundingStatusLifecycle(unittest.TestCase):
 		if not tpm.COMPANY:
 			raise unittest.SkipTest("No company")
 		_ensure_pm_settings_bank()
-		cls.waiting = resolve_workflow_state_link("Waiting for Payment")
+		cls.finance_approved = resolve_workflow_state_link(REQ_WORKFLOW_FINANCE_APPROVED)
 
 	def _row(self, name: str) -> dict:
 		d = frappe.db.get_value(
@@ -55,30 +60,33 @@ class TestPMRequestFundingStatusLifecycle(unittest.TestCase):
 		d.workflow_title = _ws_title(name)
 		return d
 
-	def test_scenario_a_full_single_pe_keeps_workflow(self):
+	def test_helper_accepts_finance_approved_and_legacy_waiting(self):
+		self.assertTrue(workflow_title_is_finance_cleared("Finance Approved"))
+		self.assertTrue(workflow_title_is_finance_cleared("Waiting for Payment"))
+		self.assertTrue(workflow_title_is_finance_cleared("Approved"))
+		self.assertFalse(workflow_title_is_finance_cleared("Pending Finance Approval"))
+
+		doc = frappe._dict(
+			workflow_state=resolve_workflow_state_link("Waiting for Payment"),
+			status="Waiting for Payment",
+			payment_status="Not Paid",
+			is_closed=0,
+			docstatus=1,
+		)
+		self.assertTrue(request_is_finance_cleared(doc))
+		doc.workflow_state = self.finance_approved
+		self.assertTrue(request_is_finance_cleared(doc))
+
+	def test_scenario_finance_approval_business_waiting(self):
 		emp = tpm._make_employee()
 		tpm._make_holder(emp)
 		req = _new_submitted_request(emp, 10_000)
-		before = self._row(req)
-		self.assertEqual(before.workflow_title, "Waiting for Payment")
-		self.assertEqual(before.payment_status, "Not Paid")
+		row = self._row(req)
+		self.assertEqual(row.workflow_title, "Finance Approved")
+		self.assertEqual(row.status, "Waiting for Payment")
+		self.assertEqual(row.payment_status, "Not Paid")
 
-		_create_funding_pe(req, 10_000)
-		_sync_funding_fields(req)
-		after = self._row(req)
-		self.assertEqual(after.workflow_title, "Waiting for Payment")
-		self.assertEqual(after.workflow_state, before.workflow_state)
-		self.assertEqual(after.payment_status, "Paid")
-		self.assertEqual(after.status, "Paid")
-		self.assertAlmostEqual(flt(after.remaining_to_pay), 0.0, places=2)
-
-		flags = compute_pm_request_action_flags(frappe.get_doc("PM Request", req))
-		self.assertIn("Fully Funded", flags.get("business_status_headline") or "")
-		self.assertFalse(flags["can_create_payment_entry"])
-		blob = " ".join(flags.get("ui_messages") or [])
-		self.assertIn("fully funded", blob.lower())
-
-	def test_scenario_b_multi_pe_partial_then_full(self):
+	def test_scenario_partial_then_full_then_cancel(self):
 		emp = tpm._make_employee()
 		tpm._make_holder(emp)
 		req = _new_submitted_request(emp, 10_000)
@@ -87,58 +95,62 @@ class TestPMRequestFundingStatusLifecycle(unittest.TestCase):
 		_create_funding_pe(req, 4_000)
 		_sync_funding_fields(req)
 		mid = self._row(req)
-		self.assertEqual(mid.payment_status, "Partially Paid")
-		self.assertEqual(mid.status, "Waiting for Payment")
-		self.assertAlmostEqual(flt(mid.remaining_to_pay), 6_000, places=2)
 		self.assertEqual(mid.workflow_state, ws0)
-		flags_mid = compute_pm_request_action_flags(frappe.get_doc("PM Request", req))
-		self.assertEqual(flags_mid.get("business_status_headline"), "Partially Paid")
+		self.assertEqual(mid.payment_status, "Partially Paid")
+		self.assertEqual(mid.status, "Partially Paid")
+		self.assertAlmostEqual(flt(mid.remaining_to_pay), 6_000, places=2)
 
-		_create_funding_pe(req, 6_000)
-		_sync_funding_fields(req)
-		end = self._row(req)
-		self.assertEqual(end.payment_status, "Paid")
-		self.assertEqual(end.status, "Paid")
-		self.assertAlmostEqual(flt(end.remaining_to_pay), 0.0, places=2)
-		self.assertEqual(end.workflow_state, ws0)
-
-	def test_scenario_c_cancel_second_pe_reverts_partial(self):
-		emp = tpm._make_employee()
-		tpm._make_holder(emp)
-		req = _new_submitted_request(emp, 10_000)
-		ws0 = frappe.db.get_value("PM Request", req, "workflow_state")
-		_create_funding_pe(req, 4_000)
 		pe2 = _create_funding_pe(req, 6_000)
 		_sync_funding_fields(req)
-		self.assertEqual(self._row(req).payment_status, "Paid")
+		full = self._row(req)
+		self.assertEqual(full.workflow_state, ws0)
+		self.assertEqual(full.payment_status, "Paid")
+		self.assertEqual(full.status, "Paid")
+		self.assertAlmostEqual(flt(full.remaining_to_pay), 0.0, places=2)
 
 		frappe.get_doc("Payment Entry", pe2).cancel()
 		frappe.db.commit()
 		after = self._row(req)
-		self.assertEqual(after.payment_status, "Partially Paid")
-		self.assertEqual(after.status, "Waiting for Payment")
-		self.assertAlmostEqual(flt(after.remaining_to_pay), 6_000, places=2)
 		self.assertEqual(after.workflow_state, ws0)
-		flags = compute_pm_request_action_flags(frappe.get_doc("PM Request", req))
-		self.assertEqual(flags.get("business_status_headline"), "Partially Paid")
-		self.assertNotIn("Fully Funded", flags.get("business_status_headline") or "")
+		self.assertEqual(after.payment_status, "Partially Paid")
+		self.assertEqual(after.status, "Partially Paid")
+		self.assertAlmostEqual(flt(after.remaining_to_pay), 6_000, places=2)
 
-	def test_scenario_d_close_sets_status_closed_immediately(self):
+	def test_scenario_close_keeps_workflow_and_payment_status(self):
 		emp = tpm._make_employee()
 		tpm._make_holder(emp)
 		req = _new_submitted_request(emp, 10_000)
 		ws0 = frappe.db.get_value("PM Request", req, "workflow_state")
 		_create_funding_pe(req, 10_000)
 		_sync_funding_fields(req)
-
 		close_pm_request(req)
-		# No extra sync — assert immediately from DB
 		row = self._row(req)
 		self.assertEqual(cint(row.is_closed), 1)
 		self.assertEqual(row.status, "Closed")
 		self.assertEqual(row.payment_status, "Paid")
 		self.assertEqual(row.workflow_state, ws0)
-		self.assertEqual(_ws_title(req), "Waiting for Payment")
+		self.assertEqual(row.workflow_title, "Finance Approved")
 
-		pres = build_pm_request_business_status_presentation(frappe.get_doc("PM Request", req))
-		self.assertEqual(pres.get("business_status_headline"), "Closed")
+	def test_sync_maps_pending_workflow_to_specific_status(self):
+		doc = frappe._dict(
+			docstatus=1,
+			workflow_state=resolve_workflow_state_link("Pending CEO Approval"),
+			payment_status="Not Paid",
+			is_closed=0,
+			status="",
+		)
+		self.assertEqual(sync_pm_request_business_status(doc), "Pending CEO Approval")
+
+	def test_flags_do_not_contradict_finance_approved_with_paid(self):
+		emp = tpm._make_employee()
+		tpm._make_holder(emp)
+		req = _new_submitted_request(emp, 5_000)
+		_create_funding_pe(req, 5_000)
+		_sync_funding_fields(req)
+		flags = compute_pm_request_action_flags(frappe.get_doc("PM Request", req))
+		self.assertEqual(flags.get("workflow_state_title"), "Finance Approved")
+		self.assertEqual(flags.get("status"), "Paid")
+		self.assertEqual(flags.get("payment_status"), "Paid")
+		self.assertFalse(flags.get("can_create_payment_entry"))
+		# No competing "Waiting for Payment" business headline after Option A
+		self.assertNotIn("Waiting for Payment", flags.get("business_status_headline") or "")

@@ -1,3 +1,4 @@
+# Copyright (c) 2026, ERPNext Extensions contributors
 """PM Request Desk/workflow action rules (single source of truth for UI flags)."""
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ _EPS = 1e-6
 MSG_CLOSE_DRAFT_PE = _("Cannot close while draft Payment Entries exist.")
 
 MSG_CLOSED_FROZEN = _(
-	"Closed — This PM Request is closed. Funding is frozen; clearance uses available balance only."
+	"This PM Request is closed. Funding is frozen; clearance uses available balance only."
 )
 MSG_SUBMIT_FIRST = _("Submit the PM Request first.")
 
@@ -49,7 +50,7 @@ def _unique_ui_messages(*parts: str) -> list[str]:
 
 
 def build_pm_request_business_status_presentation(doc: Document) -> dict:
-	"""Funding/business lifecycle copy for Desk (independent of workflow badge)."""
+	"""Desk copy for funding details. Lifecycle is Status / Payment Status (not workflow)."""
 	from erpnext_extensions.petty_management.services.business_status_service import (
 		request_is_finance_cleared,
 	)
@@ -58,17 +59,17 @@ def build_pm_request_business_status_presentation(doc: Document) -> dict:
 	if submitted <= _EPS and getattr(doc, "name", None):
 		submitted = flt(sum_submitted_pe_amount(doc.name))
 	remaining = flt(getattr(doc, "remaining_to_pay", None))
-	if getattr(doc, "name", None) and remaining <= 0 and submitted > 0:
-		remaining = max(0.0, flt(doc.total_requested_amount) - submitted)
-	elif getattr(doc, "name", None) and remaining <= 0 and submitted <= _EPS:
+	if getattr(doc, "name", None):
 		remaining = max(0.0, flt(doc.total_requested_amount) - submitted)
 
 	payment_status = (getattr(doc, "payment_status", None) or "").strip()
+	status = (getattr(doc, "status", None) or "").strip()
 	is_closed = cint(getattr(doc, "is_closed", 0))
 
-	if is_closed:
+	# No competing "second badge" — workflow shows Finance Approved; Status shows lifecycle.
+	if is_closed or status == "Closed":
 		return {
-			"business_status_headline": _("Closed"),
+			"business_status_headline": "",
 			"business_status_indicator": "blue",
 			"ui_messages": [str(MSG_CLOSED_FROZEN)],
 		}
@@ -87,36 +88,29 @@ def build_pm_request_business_status_presentation(doc: Document) -> dict:
 			"ui_messages": [],
 		}
 
-	# After finance approval: present funding lifecycle clearly vs workflow badge.
 	if payment_status == "Paid" or (submitted > _EPS and remaining <= _EPS):
 		return {
-			"business_status_headline": _("Paid / Fully Funded"),
+			"business_status_headline": "",
 			"business_status_indicator": "green",
-			"ui_messages": [
-				_("Paid — Fully Funded"),
-				str(MSG_FULLY_FUNDED_CREATE_BLOCK),
-			],
+			"ui_messages": [str(MSG_FULLY_FUNDED_CREATE_BLOCK)],
 		}
 
 	if payment_status == "Partially Paid" or (submitted > _EPS and remaining > _EPS):
 		return {
-			"business_status_headline": _("Partially Paid"),
+			"business_status_headline": "",
 			"business_status_indicator": "orange",
 			"ui_messages": [
-				_("Partially Paid — Paid {0}, Remaining {1}.").format(
+				_("Paid {0}. Remaining to pay {1}.").format(
 					frappe.format_value(submitted, {"fieldtype": "Currency"}),
 					frappe.format_value(remaining, {"fieldtype": "Currency"}),
 				),
-				_("Approval is complete; funding is still incomplete."),
 			],
 		}
 
 	return {
-		"business_status_headline": _("Waiting for Payment"),
+		"business_status_headline": "",
 		"business_status_indicator": "orange",
-		"ui_messages": [
-			_("Waiting for Payment — No submitted Payment Entry yet."),
-		],
+		"ui_messages": [],
 	}
 
 
@@ -138,7 +132,6 @@ def build_pm_request_ui_messages(
 		request_is_finance_cleared,
 	)
 
-	# Avoid duplicating the fully-funded / closed primary copy via create_block_reason.
 	skip_create_reason = False
 	cbr = (create_block_reason or "").strip().lower()
 	if "fully funded" in cbr or "no additional payment entry" in cbr or "already funded" in cbr:
@@ -147,7 +140,6 @@ def build_pm_request_ui_messages(
 		skip_create_reason = True
 
 	if not can_close and close_block_reason and not cint(getattr(doc, "is_closed", 0)):
-		# Ignore generic "already closed" when closed path already handled.
 		parts.append(str(close_block_reason))
 	if (
 		not can_create

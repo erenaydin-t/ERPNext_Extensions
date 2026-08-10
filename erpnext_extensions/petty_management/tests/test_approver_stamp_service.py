@@ -82,7 +82,7 @@ class TestPMBusinessStatus(FrappeTestCase):
 	def test_request_waiting_and_paid(self):
 		doc = frappe._dict(
 			docstatus=1,
-			workflow_state="Waiting for Payment",
+			workflow_state="Finance Approved",
 			payment_status="Not Paid",
 			is_closed=0,
 			status="Draft",
@@ -90,7 +90,7 @@ class TestPMBusinessStatus(FrappeTestCase):
 		# Ensure workflow state row exists
 		from erpnext_extensions.petty_management.services.workflow_utils import resolve_workflow_state_link
 
-		doc.workflow_state = resolve_workflow_state_link("Waiting for Payment")
+		doc.workflow_state = resolve_workflow_state_link("Finance Approved")
 		sync_pm_request_business_status(doc)
 		self.assertEqual(doc.status, REQ_WAITING_FOR_PAYMENT)
 

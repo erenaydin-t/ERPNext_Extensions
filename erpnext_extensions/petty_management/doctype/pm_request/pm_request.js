@@ -403,7 +403,7 @@ function apply_pm_request_toolbar(frm, f) {
 
 	// Use add_custom_button (not page.add_action_item): Frappe workflow show_actions()
 	// calls clear_actions_menu() and would wipe custom funding actions.
-	// v4.0.2: gate on server business flags (Waiting for Payment), not workflow_state title.
+	// Gate funding actions on server business flags (finance-cleared), not workflow title literals.
 	if (!cint(f.is_closed)) {
 		if (f.can_create_payment_entry) {
 			add_pm_request_toolbar_button(frm, __("Create Payment Entry"), promptCreatePe);
@@ -437,47 +437,21 @@ function unique_pm_ui_messages(messages) {
 }
 
 function apply_pm_request_intro(frm, f) {
+	// Clear any prior dashboard headline workaround (Option A: Status field is lifecycle SoT).
 	if (frm.dashboard && typeof frm.dashboard.clear_headline === "function") {
 		frm.dashboard.clear_headline();
 	}
 	frm.set_intro("");
 	frm._pm_intro_applied_text = "";
 
-	const headline = (f.business_status_headline || "").toString().trim();
 	const messages = unique_pm_ui_messages(f.ui_messages);
-	const color = (f.business_status_indicator || (cint(f.is_closed) ? "blue" : "orange")).toString();
-
-	// Prominent funding/business lifecycle via native dashboard headline (does not touch workflow badge).
-	if (headline && frm.dashboard) {
-		const headlineHtml = `<div class="pm-request-business-status"><strong>${frappe.utils.escape_html(
-			headline
-		)}</strong></div>`;
-		if (typeof frm.dashboard.set_headline_alert === "function") {
-			frm.dashboard.set_headline_alert(headlineHtml, color);
-		} else if (typeof frm.dashboard.set_headline === "function") {
-			frm.dashboard.set_headline(headlineHtml);
-		}
-	}
-
-	const detailParts = messages.filter((m) => {
-		const t = (m || "").toString().trim();
-		if (!t) {
-			return false;
-		}
-		// Avoid repeating the same headline text in the intro strip.
-		if (headline && t === headline) {
-			return false;
-		}
-		return true;
-	});
-	if (!detailParts.length && !headline) {
+	if (!messages.length) {
 		return;
 	}
-	const text = detailParts.length ? detailParts.join(" ") : headline;
+	const text = messages.join(" ");
 	frm._pm_intro_applied_text = text;
-	if (detailParts.length) {
-		frm.set_intro(text, color);
-	}
+	const color = (f.business_status_indicator || (cint(f.is_closed) ? "blue" : "orange")).toString();
+	frm.set_intro(text, color);
 }
 
 function route_pm_request_payment_entries(frm, flags) {

@@ -1,6 +1,6 @@
 /**
  * v4.0.2 PM Request multi-level approval E2E (native Assignment Rule ToDos).
- * Holder → Manager → CEO → Finance → Waiting for Payment + Create Payment Entry.
+ * Holder → Manager → CEO → Finance → Finance Approved + Create Payment Entry.
  */
 import { chromium } from "/tmp/e2e-npm/node_modules/playwright/index.mjs";
 import fs from "fs";
@@ -181,7 +181,7 @@ async function run() {
     evidence.screenshots.finance = await shot(page, "05_finance");
     await applyWorkflowAction(page, "PM Finance Approve");
     await openDoc(page, "pm-request", prep.pm_request);
-    await waitWorkflowTitle(page, "Waiting for Payment");
+    await waitWorkflowTitle(page, "Finance Approved");
     const createVisible = await hasCreatePe(page);
     evidence.screenshots.waiting = await shot(page, "06_waiting_for_payment");
     evidence.create_payment_entry_visible = createVisible;

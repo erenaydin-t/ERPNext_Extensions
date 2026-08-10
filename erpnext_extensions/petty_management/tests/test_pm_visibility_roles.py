@@ -116,7 +116,7 @@ class TestPMVisibilityRoles(unittest.TestCase):
 		cls.req.transaction_date = frappe.utils.today()
 		cls.req.append("details", {"advance_amount": 1000, "description": "vis"})
 		cls.req.insert(ignore_permissions=True)
-		waiting = resolve_workflow_state_link("Waiting for Payment")
+		waiting = resolve_workflow_state_link("Finance Approved")
 		frappe.db.set_value(
 			"PM Request",
 			cls.req.name,

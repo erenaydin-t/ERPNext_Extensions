@@ -115,7 +115,7 @@ def close_pm_request(
 	if ws == "Rejected" or (doc.status or "").strip() == "Rejected":
 		frappe.throw(_("Rejected requests cannot be closed."))
 	if not request_is_finance_cleared(doc):
-		frappe.throw(_("Close is only available after finance approval (Waiting for Payment)."))
+		frappe.throw(_("Close is only available after finance approval."))
 	if cint(getattr(doc, "is_closed", 0)):
 		frappe.throw(_("This PM Request is already closed."))
 	if has_draft_payment_entry(doc.name):

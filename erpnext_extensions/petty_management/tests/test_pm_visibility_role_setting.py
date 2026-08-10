@@ -107,7 +107,7 @@ class TestPMVisibilityRoleSetting(unittest.TestCase):
 			cls.req.name,
 			{
 				"docstatus": 1,
-				"workflow_state": resolve_workflow_state_link("Waiting for Payment"),
+				"workflow_state": resolve_workflow_state_link("Finance Approved"),
 				"status": "Waiting for Payment",
 				"manager_approver": cls.mgr_approver,
 			},

@@ -33,7 +33,8 @@ def _rebuild_pm_request_workflow() -> None:
 		"Pending Manager Approval",
 		"Pending CEO Approval",
 		"Pending Finance Approval",
-		"Waiting for Payment",
+		"Finance Approved",
+		"Waiting for Payment",  # keep state master for legacy doc remaps
 		"Rejected",
 	):
 		_wf(title)
@@ -63,7 +64,7 @@ def _rebuild_pm_request_workflow() -> None:
 		("Pending Manager Approval", "1"),
 		("Pending CEO Approval", "1"),
 		("Pending Finance Approval", "1"),
-		("Waiting for Payment", "1"),
+		("Finance Approved", "1"),
 		("Rejected", "1"),
 	):
 		w.append(
@@ -131,7 +132,7 @@ def _rebuild_pm_request_workflow() -> None:
 	_add(
 		"Pending Finance Approval",
 		"PM Finance Approve",
-		"Waiting for Payment",
+		"Finance Approved",
 		"Petty Management Accountant",
 		"doc.finance_approver == frappe.session.user",
 		False,
@@ -144,9 +145,9 @@ def _rebuild_pm_request_workflow() -> None:
 		"doc.finance_approver == frappe.session.user",
 		False,
 	)
-	# Legacy reject from Waiting for Payment (still blocked by PE guards)
+	# Reject from finance-approved terminal (still blocked by PE guards when funded)
 	_add(
-		"Waiting for Payment",
+		"Finance Approved",
 		"PM Reject",
 		"Rejected",
 		"Petty Management Manager",
@@ -286,9 +287,10 @@ def _workflow_title(link: str | None) -> str:
 def _migrate_pm_request_docs() -> dict:
 	report = {"remapped": 0, "by_from": {}}
 	pending = _wf("Pending Manager Approval")
-	waiting = _wf("Waiting for Payment")
+	finance_approved = _wf("Finance Approved")
 	rejected = _wf("Rejected")
 	draft = _wf("Draft")
+	cleared_titles = ("Approved", "Waiting for Payment", "Finance Approved")
 
 	for row in frappe.get_all("PM Request", fields=["name", "workflow_state", "status", "payment_status", "is_closed"]):
 		title = _workflow_title(row.workflow_state)
@@ -297,11 +299,8 @@ def _migrate_pm_request_docs() -> dict:
 		if title in ("Pending Approval", "Pending"):
 			new_ws = pending
 			new_status = "Pending Approval"
-		elif title == "Approved":
-			new_ws = waiting
-			new_status = "Waiting for Payment"
-		elif title == "Waiting for Payment":
-			new_ws = waiting
+		elif title in cleared_titles:
+			new_ws = finance_approved
 			new_status = "Waiting for Payment"
 		elif title == "Rejected":
 			new_ws = rejected
@@ -310,14 +309,18 @@ def _migrate_pm_request_docs() -> dict:
 			new_ws = draft
 			new_status = "Draft"
 
+		if row.payment_status == "Partially Paid":
+			new_status = "Partially Paid"
+			if not new_ws or title in cleared_titles:
+				new_ws = finance_approved
 		if row.payment_status == "Paid":
 			new_status = "Paid"
-			if not new_ws or title == "Approved":
-				new_ws = waiting
+			if not new_ws or title in cleared_titles:
+				new_ws = finance_approved
 		if row.is_closed:
 			new_status = "Closed"
-			if title == "Approved":
-				new_ws = waiting
+			if title in cleared_titles:
+				new_ws = finance_approved
 
 		values = {}
 		if new_ws and new_ws != row.workflow_state:
@@ -438,7 +441,7 @@ def _seed_assignment_rules() -> list[str]:
 	req_mgr = _wf("Pending Manager Approval")
 	req_ceo = _wf("Pending CEO Approval")
 	req_fin = _wf("Pending Finance Approval")
-	req_wait = _wf("Waiting for Payment")
+	req_finance_approved = _wf("Finance Approved")
 	clr_mgr = _wf("Pending Manager Approval")
 	clr_fin = _wf("Pending Finance Review")
 	clr_appr = _wf("Approved")
@@ -452,7 +455,7 @@ def _seed_assignment_rules() -> list[str]:
 			"manager_approver",
 			30,
 			"PM Request {{ name }} awaiting manager approval",
-			f'workflow_state in ("{req_wait}", "{_wf("Rejected")}")',
+			f'workflow_state in ("{req_finance_approved}", "{_wf("Rejected")}")',
 		),
 		(
 			"PM Request CEO Approval",
@@ -462,7 +465,7 @@ def _seed_assignment_rules() -> list[str]:
 			"ceo_approver",
 			20,
 			"PM Request {{ name }} awaiting CEO approval",
-			f'workflow_state in ("{req_wait}", "{_wf("Rejected")}")',
+			f'workflow_state in ("{req_finance_approved}", "{_wf("Rejected")}")',
 		),
 		(
 			"PM Request Finance Approval",
@@ -472,7 +475,7 @@ def _seed_assignment_rules() -> list[str]:
 			"finance_approver",
 			10,
 			"PM Request {{ name }} awaiting finance approval",
-			f'workflow_state in ("{req_wait}", "{_wf("Rejected")}")',
+			f'workflow_state in ("{req_finance_approved}", "{_wf("Rejected")}")',
 		),
 		(
 			"PM Clearance Manager Approval",

@@ -212,7 +212,7 @@
   },
   {
    "default": "Not Paid",
-   "description": "Funding state from submitted Payment Entries (Not Paid / Partially Paid / Paid). Independent of Workflow State.",
+   "description": "Funding aggregate from submitted Payment Entries (Not Paid / Partially Paid / Paid).",
    "fieldname": "payment_status",
    "fieldtype": "Select",
    "in_list_view": 1,
@@ -226,13 +226,13 @@
   },
   {
    "default": "Draft",
-   "description": "Business lifecycle (Paid / Closed / Waiting for Payment). Updated from funding and Close; not the Frappe Workflow badge.",
+   "description": "Business lifecycle (approval stage, Waiting for Payment, Partially Paid, Paid, Closed). Independent of Workflow State.",
    "fieldname": "status",
    "fieldtype": "Select",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Draft\nPending\nPending Approval\nApproved\nPayable\nWaiting for Payment\nPaid\nClosed\nCancelled\nRejected",
+   "options": "Draft\nPending\nPending Approval\nPending Manager Approval\nPending CEO Approval\nPending Finance Approval\nApproved\nPayable\nWaiting for Payment\nPartially Paid\nPaid\nClosed\nCancelled\nRejected",
    "read_only": 1
   },
   {
@@ -268,7 +268,7 @@
   {
    "allow_on_submit": 1,
    "default": "Draft",
-   "description": "Approval workflow only. After finance approval this stays Waiting for Payment; funding is shown by Payment Status / Status.",
+   "description": "Approval workflow only. Terminal happy-path state is Finance Approved. Payment lifecycle is Status / Payment Status.",
    "fieldname": "workflow_state",
    "fieldtype": "Link",
    "in_list_view": 1,

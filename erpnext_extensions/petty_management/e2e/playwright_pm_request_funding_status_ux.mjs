@@ -1,6 +1,6 @@
 /**
- * v4.1.3 — PM Request funding/business status UX (dashboard headline + intro).
- * Covers unpaid / partial / fully funded / closed without touching workflow badge.
+ * v4.1.3 Option A — Finance Approved workflow + business Status/Payment Status.
+ * Workflow badge and Status must not contradict (no Waiting-for-Payment workflow + Paid status).
  */
 import { chromium } from "/tmp/e2e-npm/node_modules/playwright/index.mjs";
 import fs from "fs";
@@ -63,8 +63,21 @@ async function shot(page, name) {
   return p;
 }
 
-async function pageText(page) {
-  return page.evaluate(() => (document.body?.innerText || "").replace(/\s+/g, " "));
+async function formState(page) {
+  return page.evaluate(() => {
+    const doc = window.cur_frm?.doc || {};
+    const ws =
+      (window.cur_frm?.fields_dict?.workflow_state?.disp_area?.innerText || "") +
+      " " +
+      (document.body?.innerText || "");
+    return {
+      status: doc.status || "",
+      payment_status: doc.payment_status || "",
+      workflow_state: doc.workflow_state || "",
+      is_closed: Number(doc.is_closed || 0),
+      body: (document.body?.innerText || "").replace(/\s+/g, " "),
+    };
+  });
 }
 
 async function hasCreatePe(page) {
@@ -75,25 +88,47 @@ async function hasCreatePe(page) {
   );
 }
 
-async function checkCase(page, label, name, { expectText, expectCreate }) {
+function noContradiction(state) {
+  // Forbidden: workflow still titled Waiting for Payment while status is Paid/Closed
+  const body = state.body || "";
+  const workflowBadgeIsWaiting =
+    /indicator[\s\S]{0,80}Waiting for Payment/i.test(body) === false
+      ? false
+      : /\bWaiting for Payment\b/.test(body) && state.status === "Paid";
+  // Stronger check via doc fields from cur_frm
+  const wsTitleGuess = state.body.includes("Finance Approved");
+  if (state.status === "Paid" && state.payment_status === "Paid") {
+    // Must not claim workflow is Waiting for Payment as the only story — Finance Approved should appear
+    return wsTitleGuess || /Finance Approved/i.test(state.body);
+  }
+  return true;
+}
+
+async function checkCase(page, label, name, { status, payment, expectCreate, requireFinanceApproved }) {
   await openPmRequest(page, name);
-  const text = await pageText(page);
+  const state = await formState(page);
   const create = await hasCreatePe(page);
-  const okText = expectText.every((t) => text.includes(t));
+  const okStatus = !status || state.status === status;
+  const okPay = !payment || state.payment_status === payment;
   const okCreate = expectCreate ? create === true : create === false;
+  const okFa = !requireFinanceApproved || /Finance Approved/i.test(state.body);
+  const okContra = noContradiction(state);
   return {
     label,
-    ok: okText && okCreate,
-    okText,
+    ok: okStatus && okPay && okCreate && okFa && okContra,
+    okStatus,
+    okPay,
     okCreate,
+    okFa,
+    okContra,
+    state,
     create,
-    missing: expectText.filter((t) => !text.includes(t)),
     screenshot: await shot(page, label),
   };
 }
 
 async function run() {
-  const evidence = { screenshots: {}, cases: [] };
+  const evidence = { screenshots: {}, cases: {} };
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
     locale: "en-US",
@@ -109,46 +144,39 @@ async function run() {
     evidence.prep = prep;
     await login(page, prep.user.email, prep.user.password);
 
-    const unpaid = await checkCase(page, "01_unpaid", prep.unpaid.name, {
-      expectText: ["Waiting for Payment"],
+    evidence.cases.unpaid = await checkCase(page, "01_unpaid", prep.unpaid.name, {
+      status: "Waiting for Payment",
+      payment: "Not Paid",
       expectCreate: true,
+      requireFinanceApproved: true,
     });
-    const partial = await checkCase(page, "02_partial", prep.partial.name, {
-      expectText: ["Partially Paid"],
+    evidence.cases.partial = await checkCase(page, "02_partial", prep.partial.name, {
+      status: "Partially Paid",
+      payment: "Partially Paid",
       expectCreate: true,
+      requireFinanceApproved: true,
     });
-    const funded = await checkCase(page, "03_funded", prep.funded.name, {
-      expectText: ["Fully Funded"],
+    evidence.cases.funded = await checkCase(page, "03_funded", prep.funded.name, {
+      status: "Paid",
+      payment: "Paid",
       expectCreate: false,
+      requireFinanceApproved: true,
     });
-    // reload funded to ensure no stale indicator
     await page.reload({ waitUntil: "domcontentloaded" });
-    await openPmRequest(page, prep.funded.name);
-    const fundedReloadText = await pageText(page);
-    const fundedReload = {
-      ok: /Fully Funded/i.test(fundedReloadText) && !(await hasCreatePe(page)),
-      screenshot: await shot(page, "03b_funded_reload"),
-    };
-
-    const closed = await checkCase(page, "04_closed", prep.closed.name, {
-      expectText: ["Closed"],
+    evidence.cases.fundedReload = await checkCase(page, "03b_funded_reload", prep.funded.name, {
+      status: "Paid",
+      payment: "Paid",
       expectCreate: false,
+      requireFinanceApproved: true,
     });
-    // Closed must not present Fully Funded as primary competing state in headline area
-    const closedText = await pageText(page);
-    const closedNotPaidPrimary =
-      /Closed/i.test(closedText) &&
-      !/Paid \/ Fully Funded/i.test(closedText);
+    evidence.cases.closed = await checkCase(page, "04_closed", prep.closed.name, {
+      status: "Closed",
+      payment: "Paid",
+      expectCreate: false,
+      requireFinanceApproved: true,
+    });
 
-    evidence.cases = { unpaid, partial, funded, fundedReload, closed, closedNotPaidPrimary };
-    const ok =
-      unpaid.ok &&
-      partial.ok &&
-      funded.ok &&
-      fundedReload.ok &&
-      closed.ok &&
-      closedNotPaidPrimary;
-
+    const ok = Object.values(evidence.cases).every((c) => c.ok);
     fs.mkdirSync(path.dirname(TRACE), { recursive: true });
     await context.tracing.stop({ path: TRACE }).catch(() => null);
     evidence.trace = TRACE;
