@@ -46,7 +46,7 @@ Draft PI cannot activate funding reservation via this helper.
 
 | Suite | Result |
 |--|--|
-| `tests/test_pm_clearance_draft_pi` (16) | OK |
+| `tests/test_pm_clearance_draft_pi` (17) | OK |
 | `tests/test_pm_clearance` (updated Draft allow/include) | OK |
 | `tests/test_pm_clearance_settlement_query` | OK |
 | `smoke/run_pm_regression.sh` | **exit=0** (all RESULT OK) |
