@@ -6,7 +6,12 @@ from __future__ import annotations
 import frappe
 
 from erpnext_extensions.asset_usage_depreciation.custom_fields import ensure_custom_fields
-from erpnext_extensions.asset_usage_depreciation.constants import MODULE
+from erpnext_extensions.asset_usage_depreciation.constants import (
+	COMPANY_FIELD_REDUCED_HANDLING,
+	HANDLING_ADJUST_FINAL,
+	HANDLING_REDISTRIBUTE_LEGACY,
+	MODULE,
+)
 
 
 def _ensure_module_def():
@@ -22,6 +27,21 @@ def _ensure_module_def():
 	doc.insert(ignore_permissions=True)
 
 
+def _migrate_legacy_reduced_handling_option():
+	"""Map legacy Company option to Adjust Final Depreciation Installment."""
+	if not frappe.db.has_column("Company", COMPANY_FIELD_REDUCED_HANDLING):
+		return
+	frappe.db.sql(
+		f"""
+		UPDATE `tabCompany`
+		SET `{COMPANY_FIELD_REDUCED_HANDLING}` = %s
+		WHERE `{COMPANY_FIELD_REDUCED_HANDLING}` = %s
+		""",
+		(HANDLING_ADJUST_FINAL, HANDLING_REDISTRIBUTE_LEGACY),
+	)
+
+
 def after_migrate():
 	_ensure_module_def()
 	ensure_custom_fields()
+	_migrate_legacy_reduced_handling_option()

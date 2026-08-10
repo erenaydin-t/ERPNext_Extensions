@@ -25,8 +25,8 @@ from erpnext.assets.doctype.asset_depreciation_schedule.asset_depreciation_sched
 
 from erpnext_extensions.asset_usage_depreciation.constants import (
 	COMPANY_FIELD_REDUCED_HANDLING,
+	HANDLING_ADJUST_FINAL,
 	HANDLING_EXTEND,
-	HANDLING_REDISTRIBUTE,
 )
 from erpnext_extensions.asset_usage_depreciation.custom_fields import ensure_custom_fields
 from erpnext_extensions.asset_usage_depreciation.services.accounting_amounts import to_depr_amount
@@ -229,12 +229,14 @@ class TestAssetUsageReplanIntegration(unittest.TestCase):
 		apr = next(r for r in ads.depreciation_schedule if getdate(r.schedule_date) == getdate("2026-04-30"))
 		self.assertEqual(to_depr_amount(apr.depreciation_amount), to_depr_amount(standard * 0.3))
 
-	def test_mode_b_spreads_shortfall(self):
-		_ensure_company_handling("_Test Company", HANDLING_REDISTRIBUTE)
+	def test_mode_b_factors_rows_and_balances_final(self):
+		"""Fixed-end: reduced month stays reduced; later months stay standard; final balances."""
+		_ensure_company_handling("_Test Company", HANDLING_ADJUST_FINAL)
 		asset = _make_sl_asset()
 		ads_before = _active_schedule(asset.name)
 		end_before = getdate(ads_before.depreciation_schedule[-1].schedule_date)
 		count_before = len(ads_before.depreciation_schedule)
+		standards = [to_depr_amount(r.depreciation_amount) for r in ads_before.depreciation_schedule]
 
 		_submit_usage(asset, "2026-01-01", "Percentage", 30, to_date="2026-01-31")
 
@@ -242,9 +244,14 @@ class TestAssetUsageReplanIntegration(unittest.TestCase):
 		_assert_whole_amounts(self, ads)
 		self.assertEqual(len(ads.depreciation_schedule), count_before)
 		self.assertEqual(getdate(ads.depreciation_schedule[-1].schedule_date), end_before)
+
 		jan = to_depr_amount(ads.depreciation_schedule[0].depreciation_amount)
 		feb = to_depr_amount(ads.depreciation_schedule[1].depreciation_amount)
-		self.assertLess(jan, feb)
+		final = to_depr_amount(ads.depreciation_schedule[-1].depreciation_amount)
+		self.assertEqual(jan, to_depr_amount(standards[0] * 0.3))
+		self.assertEqual(feb, standards[1])
+		# Final absorbs January shortfall (and any Iran rounding residue)
+		self.assertGreaterEqual(final, standards[-1] + (standards[0] - jan))
 		asset.reload()
 		remaining = to_depr_amount(
 			flt(asset.finance_books[0].value_after_depreciation)
@@ -252,11 +259,24 @@ class TestAssetUsageReplanIntegration(unittest.TestCase):
 		)
 		self.assertEqual(sum(to_depr_amount(a) for a in _unposted_amounts(ads)), remaining)
 
-	def test_mode_b_all_zero_errors(self):
-		_ensure_company_handling("_Test Company", HANDLING_REDISTRIBUTE)
+	def test_mode_b_no_depreciation_absorbed_by_final(self):
+		"""No Depreciation zeros applicable rows; final balancing row absorbs remaining value."""
+		_ensure_company_handling("_Test Company", HANDLING_ADJUST_FINAL)
 		asset = _make_sl_asset()
-		with self.assertRaises(frappe.ValidationError):
-			_submit_usage(asset, "2026-01-01", "No Depreciation", to_date=None)
+		count_before = len(_active_schedule(asset.name).depreciation_schedule)
+		_submit_usage(asset, "2026-01-01", "No Depreciation", to_date=None)
+		ads = _active_schedule(asset.name)
+		self.assertEqual(len(ads.depreciation_schedule), count_before)
+		_assert_whole_amounts(self, ads)
+		# All non-final rows zero; final = full remaining
+		for row in ads.depreciation_schedule[:-1]:
+			self.assertEqual(to_depr_amount(row.depreciation_amount), 0)
+		asset.reload()
+		remaining = to_depr_amount(
+			flt(asset.finance_books[0].value_after_depreciation)
+			- flt(asset.finance_books[0].expected_value_after_useful_life)
+		)
+		self.assertEqual(to_depr_amount(ads.depreciation_schedule[-1].depreciation_amount), remaining)
 
 	def test_posted_rows_immutable_simulated(self):
 		_ensure_company_handling("_Test Company", HANDLING_EXTEND)
@@ -712,3 +732,162 @@ class TestRepeatedUsageTransitions(unittest.TestCase):
 		self.assertEqual(factor_on_date(rows, "2026-11-01"), 1.0)
 		# Gap none between first two; after closed Apr–Jun before Jul open was continuous
 		self.assertEqual(rows[-1]["to_date"], None)
+
+
+class TestModeBFixedEndIntegration(unittest.TestCase):
+	"""Adjust Final Depreciation Installment — multi-transition + 120-row scenarios."""
+
+	@classmethod
+	def setUpClass(cls):
+		frappe.set_user("Administrator")
+		ensure_custom_fields()
+
+	def tearDown(self):
+		frappe.db.rollback()
+
+	def _make_long_asset(self, periods=120, amount=1_200_000_000, daily=0):
+		return _make_sl_asset(
+			total_number_of_depreciations=periods,
+			net_purchase_amount=amount,
+			purchase_amount=amount,
+			daily_prorata_based=daily,
+			expected_value_after_useful_life=0,
+		)
+
+	def _remaining(self, asset):
+		asset.reload()
+		return to_depr_amount(
+			flt(asset.finance_books[0].value_after_depreciation)
+			- flt(asset.finance_books[0].expected_value_after_useful_life)
+		)
+
+	def test_120_rows_30pct_from_installment_3_then_normal_then_30_again(self):
+		_ensure_company_handling("_Test Company", HANDLING_ADJUST_FINAL)
+		asset = self._make_long_asset()
+		ads0 = _active_schedule(asset.name)
+		self.assertEqual(len(ads0.depreciation_schedule), 120)
+		end0 = getdate(ads0.depreciation_schedule[-1].schedule_date)
+		# Capture original ERPNext standards before any usage replan
+		_submit_usage(asset, "2026-03-01", "Percentage", 30, to_date=None)
+		ads = _active_schedule(asset.name)
+		self.assertEqual(len(ads.depreciation_schedule), 120)
+		self.assertEqual(getdate(ads.depreciation_schedule[-1].schedule_date), end0)
+		_assert_whole_amounts(self, ads)
+
+		amts = [to_depr_amount(r.depreciation_amount) for r in ads.depreciation_schedule]
+		stds = [to_depr_amount(r.depreciation_amount) for r in ads0.depreciation_schedule]
+		self.assertEqual(amts[0], stds[0])
+		self.assertEqual(amts[1], stds[1])
+		for i in range(2, 119):
+			self.assertEqual(amts[i], to_depr_amount(stds[i] * 0.3), f"installment {i+1}")
+		shortfall = sum(stds[i] - amts[i] for i in range(2, 119))
+		self.assertEqual(amts[119], stds[119] + shortfall)
+		self.assertEqual(sum(amts), self._remaining(asset))
+		final_after_30 = amts[119]
+
+		# Return to Normal at installment 10 (Oct 2026)
+		_submit_usage(asset, "2026-10-01", "Normal", to_date=None)
+		ads = _active_schedule(asset.name)
+		amts = [to_depr_amount(r.depreciation_amount) for r in ads.depreciation_schedule]
+		self.assertEqual(len(amts), 120)
+		self.assertEqual(getdate(ads.depreciation_schedule[-1].schedule_date), end0)
+		for i in range(2, 9):
+			self.assertEqual(amts[i], to_depr_amount(stds[i] * 0.3), f"installment {i+1} stays 30%")
+		for i in range(9, 119):
+			self.assertEqual(amts[i], stds[i], f"installment {i+1} restored")
+		self.assertLess(amts[119], final_after_30)
+		shortfall_7 = sum(stds[i] - amts[i] for i in range(2, 9))
+		self.assertEqual(amts[119], stds[119] + shortfall_7)
+		self.assertEqual(sum(amts), self._remaining(asset))
+		final_after_normal = amts[119]
+
+		# 30% again from installment 30 (row index 29)
+		from_30 = getdate(ads.depreciation_schedule[29].schedule_date)
+		_submit_usage(asset, str(from_30), "Percentage", 30, to_date=None)
+		ads = _active_schedule(asset.name)
+		amts = [to_depr_amount(r.depreciation_amount) for r in ads.depreciation_schedule]
+		self.assertEqual(len(amts), 120)
+		self.assertEqual(getdate(ads.depreciation_schedule[-1].schedule_date), end0)
+		for i in range(29, 119):
+			self.assertEqual(amts[i], to_depr_amount(stds[i] * 0.3), f"installment {i+1} reduced again")
+		self.assertGreater(amts[119], final_after_normal)
+		self.assertEqual(sum(amts), self._remaining(asset))
+
+	def test_mode_b_no_depr_then_normal_final_moves(self):
+		_ensure_company_handling("_Test Company", HANDLING_ADJUST_FINAL)
+		asset = _make_sl_asset(total_number_of_depreciations=12)
+		ads0 = _active_schedule(asset.name)
+		end0 = getdate(ads0.depreciation_schedule[-1].schedule_date)
+		count0 = len(ads0.depreciation_schedule)
+
+		_submit_usage(asset, "2026-01-01", "No Depreciation", to_date=None)
+		ads = _active_schedule(asset.name)
+		final_zero_period = to_depr_amount(ads.depreciation_schedule[-1].depreciation_amount)
+		self.assertEqual(final_zero_period, self._remaining(asset))
+
+		_submit_usage(asset, "2026-05-01", "Normal", to_date=None)
+		ads = _active_schedule(asset.name)
+		self.assertEqual(len(ads.depreciation_schedule), count0)
+		self.assertEqual(getdate(ads.depreciation_schedule[-1].schedule_date), end0)
+		final_after = to_depr_amount(ads.depreciation_schedule[-1].depreciation_amount)
+		self.assertLess(final_after, final_zero_period)
+		# Jan–Apr still zero (closed No Depreciation through Apr 30)
+		for row in ads.depreciation_schedule:
+			if getdate(row.schedule_date) <= getdate("2026-04-30"):
+				self.assertEqual(to_depr_amount(row.depreciation_amount), 0)
+		self.assertEqual(sum(to_depr_amount(a) for a in _unposted_amounts(ads)), self._remaining(asset))
+
+	def test_mode_b_posted_excluded_from_retroactive_shortfall(self):
+		_ensure_company_handling("_Test Company", HANDLING_ADJUST_FINAL)
+		asset = _make_sl_asset()
+		ads = _active_schedule(asset.name)
+		d0 = getdate(ads.depreciation_schedule[0].schedule_date)
+		make_depreciation_entry(ads.name, date=str(d0))
+		ads = _active_schedule(asset.name)
+		posted = [
+			(getdate(r.schedule_date), flt(r.depreciation_amount), r.journal_entry)
+			for r in ads.depreciation_schedule
+			if r.journal_entry
+		]
+		self.assertEqual(len(posted), 1)
+		std_jan = posted[0][1]
+
+		# Retroactive 30% covering January — posted Jan unchanged
+		_submit_usage(asset, "2026-01-01", "Percentage", 30, to_date=None)
+		ads = _active_schedule(asset.name)
+		posted_after = [
+			(getdate(r.schedule_date), flt(r.depreciation_amount), r.journal_entry)
+			for r in ads.depreciation_schedule
+			if r.journal_entry
+		]
+		self.assertEqual(posted, posted_after)
+		self.assertEqual(posted_after[0][1], std_jan)
+		_assert_whole_amounts(self, ads)
+		self.assertEqual(sum(to_depr_amount(a) for a in _unposted_amounts(ads)), self._remaining(asset))
+
+	def test_mode_b_daily_prorata_balances_final(self):
+		_ensure_company_handling("_Test Company", HANDLING_ADJUST_FINAL)
+		asset = self._make_long_asset(periods=12, amount=120_000, daily=1)
+		ads0 = _active_schedule(asset.name)
+		count0 = len(ads0.depreciation_schedule)
+		end0 = getdate(ads0.depreciation_schedule[-1].schedule_date)
+
+		_submit_usage(asset, "2026-03-01", "Percentage", 30, to_date=None)
+		ads = _active_schedule(asset.name)
+		self.assertEqual(len(ads.depreciation_schedule), count0)
+		self.assertEqual(getdate(ads.depreciation_schedule[-1].schedule_date), end0)
+		_assert_whole_amounts(self, ads)
+		self.assertEqual(sum(to_depr_amount(a) for a in _unposted_amounts(ads)), self._remaining(asset))
+
+	def test_legacy_company_option_maps_to_adjust_final(self):
+		from erpnext_extensions.asset_usage_depreciation.constants import HANDLING_REDISTRIBUTE_LEGACY
+		from erpnext_extensions.asset_usage_depreciation.services.replan_service import (
+			get_reduced_depreciation_handling,
+		)
+
+		ensure_custom_fields()
+		# Temporarily store legacy label (may not be in Select options after migrate)
+		frappe.db.set_value(
+			"Company", "_Test Company", COMPANY_FIELD_REDUCED_HANDLING, HANDLING_REDISTRIBUTE_LEGACY
+		)
+		self.assertEqual(get_reduced_depreciation_handling("_Test Company"), HANDLING_ADJUST_FINAL)

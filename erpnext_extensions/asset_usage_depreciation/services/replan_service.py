@@ -16,8 +16,9 @@ from erpnext.assets.doctype.asset_depreciation_schedule.asset_depreciation_sched
 
 from erpnext_extensions.asset_usage_depreciation.constants import (
 	COMPANY_FIELD_REDUCED_HANDLING,
+	HANDLING_ADJUST_FINAL,
 	HANDLING_EXTEND,
-	HANDLING_REDISTRIBUTE,
+	HANDLING_REDISTRIBUTE_LEGACY,
 )
 from erpnext_extensions.asset_usage_depreciation.services.ads_replace import (
 	build_replan_notes,
@@ -30,7 +31,7 @@ from erpnext_extensions.asset_usage_depreciation.services.accounting_amounts imp
 )
 from erpnext_extensions.asset_usage_depreciation.services.locks import lock_ads, lock_asset
 from erpnext_extensions.asset_usage_depreciation.services.mode_a import apply_mode_a_extension
-from erpnext_extensions.asset_usage_depreciation.services.mode_b import redistribute_unposted_amounts
+from erpnext_extensions.asset_usage_depreciation.services.mode_b import apply_fixed_end_usage_adjustment
 from erpnext_extensions.asset_usage_depreciation.services.usage_timeline import (
 	day_weighted_factor,
 	factor_on_date,
@@ -52,9 +53,16 @@ def asset_has_submitted_usage_periods(asset_name: str) -> bool:
 
 
 def get_reduced_depreciation_handling(company: str) -> str:
+	"""Return the Company reduced-depreciation policy.
+
+	Maps legacy ``Redistribute Within Remaining Schedule`` to
+	``Adjust Final Depreciation Installment``.
+	"""
 	value = frappe.db.get_value("Company", company, COMPANY_FIELD_REDUCED_HANDLING)
-	if value in (HANDLING_EXTEND, HANDLING_REDISTRIBUTE):
-		return value
+	if value in (HANDLING_ADJUST_FINAL, HANDLING_REDISTRIBUTE_LEGACY):
+		return HANDLING_ADJUST_FINAL
+	if value == HANDLING_EXTEND:
+		return HANDLING_EXTEND
 	return HANDLING_EXTEND
 
 
@@ -143,7 +151,10 @@ def _replan_asset_usage_depreciation(asset_name: str, trigger_doc=None, context:
 		temp.create_depreciation_schedule(fb)
 
 		rows = _schedule_to_row_dicts(temp)
-		_apply_usage_factors(rows, timeline, fb, asset, temp)
+		# Capture ERPNext standard baseline BEFORE any usage factoring so Mode B
+		# (and Mode A base estimates) never start from a prior balancing row.
+		for row in rows:
+			row["_standard_amount"] = flt(row["depreciation_amount"])
 
 		remaining = to_depr_amount(
 			flt(fb.value_after_depreciation) - flt(fb.expected_value_after_useful_life)
@@ -156,10 +167,22 @@ def _replan_asset_usage_depreciation(asset_name: str, trigger_doc=None, context:
 				if not row.get("journal_entry"):
 					row["depreciation_amount"] = to_depr_amount(row["depreciation_amount"])
 			_enforce_salvage(rows, remaining, allow_incomplete=False)
-		elif policy == HANDLING_REDISTRIBUTE:
-			redistribute_unposted_amounts(rows, remaining)
-			_enforce_salvage(rows, remaining, allow_incomplete=False)
+		elif policy == HANDLING_ADJUST_FINAL:
+			# Fixed-end: factor every unposted row except the final balancing row.
+			# Do NOT pre-multiply via _apply_usage_factors (avoids double-counting).
+			# Do NOT call _enforce_salvage afterward — final amount is derived once.
+			def _resolve(idx, row, _rows=rows, _timeline=timeline, _fb=fb, _asset=asset, _temp=temp):
+				standard = flt(row.get("_standard_amount", row["depreciation_amount"]))
+				factor = _usage_factor_for_row(_rows, idx, _timeline, _fb, _asset, _temp)
+				return standard, factor
+
+			apply_fixed_end_usage_adjustment(
+				rows,
+				remaining,
+				resolve_amount_and_factor=_resolve,
+			)
 		else:
+			_apply_usage_factors(rows, timeline, fb, asset, temp)
 			base_installment = _estimate_base_installment(rows)
 			meta = apply_mode_a_extension(
 				rows,
@@ -307,6 +330,13 @@ def _schedule_to_row_dicts(ads) -> list[dict[str, Any]]:
 	return rows
 
 
+def _usage_factor_for_row(rows, idx, timeline, fb, asset, temp) -> float:
+	if cint(fb.daily_prorata_based):
+		start, end = _coverage_window_from_rows(rows, idx, fb, asset, temp)
+		return day_weighted_factor(timeline, start, end)
+	return factor_on_date(timeline, rows[idx]["schedule_date"])
+
+
 def _apply_usage_factors(rows, timeline, fb, asset, temp) -> None:
 	if not timeline:
 		return
@@ -314,14 +344,10 @@ def _apply_usage_factors(rows, timeline, fb, asset, temp) -> None:
 	for idx, row in enumerate(rows):
 		if row.get("journal_entry"):
 			continue
-		standard = flt(row["depreciation_amount"])
-		if cint(fb.daily_prorata_based):
-			start, end = _coverage_window_from_rows(rows, idx, fb, asset, temp)
-			factor = day_weighted_factor(timeline, start, end)
-		else:
-			factor = factor_on_date(timeline, row["schedule_date"])
+		standard = flt(row.get("_standard_amount", row["depreciation_amount"]))
+		factor = _usage_factor_for_row(rows, idx, timeline, fb, asset, temp)
 		row["usage_factor"] = factor
-		# Keep full float until Mode A/B / salvage; normalize there
+		# Keep full float until Mode A / salvage; normalize there
 		row["depreciation_amount"] = standard * factor
 
 

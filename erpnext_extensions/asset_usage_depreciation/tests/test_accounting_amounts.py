@@ -11,7 +11,7 @@ from erpnext_extensions.asset_usage_depreciation.services.accounting_amounts imp
 	sum_unposted_amounts,
 	to_depr_amount,
 )
-from erpnext_extensions.asset_usage_depreciation.services.mode_b import redistribute_unposted_amounts
+from erpnext_extensions.asset_usage_depreciation.services.mode_b import apply_fixed_end_usage_adjustment
 from erpnext_extensions.iran_accounting.core.rounding import round_currency
 
 
@@ -29,38 +29,41 @@ class TestAccountingAmounts(unittest.TestCase):
 			self.assertEqual(to_depr_amount(value), round_currency(value, 0))
 			self.assertIsInstance(to_depr_amount(value), int)
 
-	def test_mode_b_awkward_100_with_0_3_0_3_1_0(self):
+	def test_mode_b_balancing_preserves_whole_total(self):
 		rows = [
-			{"journal_entry": None, "usage_factor": 0.3, "depreciation_amount": 0, "schedule_date": "2026-01-31"},
-			{"journal_entry": None, "usage_factor": 0.3, "depreciation_amount": 0, "schedule_date": "2026-02-28"},
-			{"journal_entry": None, "usage_factor": 1.0, "depreciation_amount": 0, "schedule_date": "2026-03-31"},
+			{"journal_entry": None, "depreciation_amount": 10, "_standard_amount": 10},
+			{"journal_entry": None, "depreciation_amount": 10, "_standard_amount": 10},
+			{"journal_entry": None, "depreciation_amount": 10, "_standard_amount": 10},
 		]
-		redistribute_unposted_amounts(rows, 100)
+
+		def resolve(idx, row):
+			return 10, 0.3 if idx < 2 else 1.0
+
+		apply_fixed_end_usage_adjustment(rows, 100, resolve_amount_and_factor=resolve)
 		amounts = [r["depreciation_amount"] for r in rows]
 		self.assertEqual(sum(amounts), 100)
 		for amount in amounts:
 			self.assertEqual(amount, int(amount))
 			self.assertIsInstance(amount, int)
-		# Proportional: reduced rows lower than full-weight row
-		self.assertLess(amounts[0], amounts[2])
-		self.assertLess(amounts[1], amounts[2])
+		self.assertEqual(amounts[0], 3)
+		self.assertEqual(amounts[1], 3)
+		self.assertEqual(amounts[2], 94)  # balancing
 
-	def test_mode_b_awkward_1000001(self):
-		weights = [0.3, 1.0, 0.3, 1.0]
+	def test_mode_b_large_remaining_whole_numbers(self):
 		rows = [
-			{
-				"journal_entry": None,
-				"usage_factor": w,
-				"depreciation_amount": 0,
-				"schedule_date": f"2026-0{i+1}-28",
-			}
-			for i, w in enumerate(weights)
+			{"journal_entry": None, "depreciation_amount": 250_000, "_standard_amount": 250_000}
+			for _ in range(4)
 		]
-		redistribute_unposted_amounts(rows, 1_000_001)
+
+		def resolve(idx, row):
+			return 250_000, 0.3 if idx < 3 else 1.0
+
+		apply_fixed_end_usage_adjustment(rows, 1_000_001, resolve_amount_and_factor=resolve)
 		amounts = [r["depreciation_amount"] for r in rows]
 		self.assertEqual(sum(amounts), 1_000_001)
 		for amount in amounts:
 			self.assertEqual(amount, int(amount))
+		self.assertEqual(amounts[0], to_depr_amount(250_000 * 0.3))
 
 	def test_sum_unposted_skips_posted(self):
 		rows = [
