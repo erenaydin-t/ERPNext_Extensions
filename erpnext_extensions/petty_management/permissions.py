@@ -11,13 +11,12 @@ extra rights beyond Role Permissions / Workflow.
 Visibility model (v4.1.3):
 
 - **Administrator** / **System Manager**: unrestricted PM visibility (break-glass).
-- **Petty Management Accountant**: single operational unrestricted PM role — same *document
-  visibility* as Administrator for PM Request / PM Clearance, without Administrator system
-  privileges. Does **not** bypass Workflow transition rules or DocPerm submit/cancel.
-- Everyone else (including Petty Management User / Manager / Admin / Auditor without Accountant):
-  row filter = own Employee **or** stamped named approver fields.
+- **Operational PM Visibility Role** (PM Settings, default Petty Management Accountant): same
+  *document visibility* as Administrator for PM Request / PM Clearance, without Administrator
+  system privileges. Does **not** bypass Workflow transition rules or DocPerm submit/cancel.
+- Everyone else: row filter = own Employee **or** stamped named approver fields.
 
-Workflow transition roles that must remain (not visibility roles):
+Workflow transition roles (independent of visibility settings):
 
 - Petty Management User — submit
 - Petty Management Manager — manager / CEO approve transitions
@@ -28,15 +27,31 @@ from __future__ import annotations
 
 import frappe
 
-# Single operational PM role with Administrator-equivalent PM document visibility.
-OPERATIONAL_UNRESTRICTED_PM_ROLE = "Petty Management Accountant"
+# Fallback when PM Settings field is missing or empty (v4.1.3 default behaviour).
+DEFAULT_OPERATIONAL_PM_VISIBILITY_ROLE = "Petty Management Accountant"
+
+
+def get_operational_pm_visibility_role() -> str:
+	"""Role that bypasses PM Request / Clearance row filters (from PM Settings)."""
+	try:
+		if not frappe.db.exists("DocType", "PM Settings"):
+			return DEFAULT_OPERATIONAL_PM_VISIBILITY_ROLE
+		meta = frappe.get_meta("PM Settings")
+		if not meta.has_field("operational_pm_visibility_role"):
+			return DEFAULT_OPERATIONAL_PM_VISIBILITY_ROLE
+		role = frappe.db.get_single_value("PM Settings", "operational_pm_visibility_role")
+		if isinstance(role, str) and role.strip():
+			return role.strip()
+	except Exception:
+		pass
+	return DEFAULT_OPERATIONAL_PM_VISIBILITY_ROLE
 
 
 def _is_pm_visibility_unrestricted(user: str | None = None) -> bool:
 	"""Return True when PM Request/Clearance lists must not apply employee/approver filters.
 
-	Administrator and the operational PM role share this path. Does not grant Workflow or
-	DocPerm rights beyond what those roles already have.
+	Administrator and the configured operational PM role share this path. Does not grant
+	Workflow or DocPerm rights beyond what those roles already have.
 	"""
 	user = user or frappe.session.user
 	if user == "Administrator":
@@ -44,7 +59,7 @@ def _is_pm_visibility_unrestricted(user: str | None = None) -> bool:
 	roles = set(frappe.get_roles(user))
 	if "System Manager" in roles:
 		return True
-	return OPERATIONAL_UNRESTRICTED_PM_ROLE in roles
+	return get_operational_pm_visibility_role() in roles
 
 
 def _user_employee(user: str | None = None) -> str | None:
@@ -71,7 +86,7 @@ def _user_employee(user: str | None = None) -> str | None:
 
 
 def _petty_user_restricted(user: str | None = None) -> bool:
-	"""True when row filters apply (not Administrator / System Manager / Accountant)."""
+	"""True when row filters apply (not Administrator / System Manager / operational role)."""
 	return not _is_pm_visibility_unrestricted(user)
 
 

@@ -25,6 +25,7 @@
   "column_break_approval",
   "finance_supervisor",
   "require_named_manager_approver",
+  "operational_pm_visibility_role",
   "section_auto",
   "block_new_request_if_pending_clearance",
   "require_workflow_approval",
@@ -123,6 +124,14 @@
    "fieldtype": "Check",
    "label": "Require Named Manager Approver",
    "description": "Block submit when Employee Expense Approver (and Department fallback) is missing."
+  },
+  {
+   "default": "Petty Management Accountant",
+   "description": "Role that bypasses PM Request / PM Clearance list and form row filters (Administrator-equivalent PM visibility). Does not grant Workflow transition rights or DocPerm beyond the role itself. Empty falls back to Petty Management Accountant.",
+   "fieldname": "operational_pm_visibility_role",
+   "fieldtype": "Link",
+   "label": "Operational PM Visibility Role",
+   "options": "Role"
   },
   {
    "fieldname": "section_auto",

@@ -9,10 +9,11 @@ import frappe
 from frappe.utils.password import update_password
 
 from erpnext_extensions.petty_management.permissions import (
-	OPERATIONAL_UNRESTRICTED_PM_ROLE,
+	DEFAULT_OPERATIONAL_PM_VISIBILITY_ROLE,
 	_is_pm_visibility_unrestricted,
 	_petty_user_restricted,
 	_user_employee,
+	get_operational_pm_visibility_role,
 	pm_clearance_permission_query_conditions,
 	pm_request_permission_query_conditions,
 )
@@ -62,7 +63,7 @@ class TestPMVisibilityRoles(unittest.TestCase):
 		)
 		cls.accountant = _make_user(
 			"pm_vis_accountant_v413@example.com",
-			[OPERATIONAL_UNRESTRICTED_PM_ROLE, "Accounts User"],
+			[DEFAULT_OPERATIONAL_PM_VISIBILITY_ROLE, "Accounts User"],
 		)
 		cls.manager_only = _make_user(
 			"pm_vis_manager_only_v413@example.com",
@@ -175,8 +176,9 @@ class TestPMVisibilityRoles(unittest.TestCase):
 	def _names(self, doctype: str) -> set[str]:
 		return {r["name"] for r in frappe.get_list(doctype, fields=["name"], limit_page_length=200)}
 
-	def test_operational_role_constant(self):
-		self.assertEqual(OPERATIONAL_UNRESTRICTED_PM_ROLE, "Petty Management Accountant")
+	def test_operational_role_default(self):
+		self.assertEqual(DEFAULT_OPERATIONAL_PM_VISIBILITY_ROLE, "Petty Management Accountant")
+		self.assertEqual(get_operational_pm_visibility_role(), "Petty Management Accountant")
 
 	def test_administrator_unrestricted(self):
 		self.assertTrue(_is_pm_visibility_unrestricted("Administrator"))
