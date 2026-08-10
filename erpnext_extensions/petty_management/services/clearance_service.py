@@ -372,7 +372,19 @@ def workflow_state_link_for_title(document_type: str, state_title: str) -> str |
 
 
 def approve_pm_clearance_for_reservation(cl_name: str) -> None:
-	"""Mark submitted clearance Approved for funding reservation SQL (tests, E2E, ops)."""
+	"""Mark submitted clearance Approved for funding reservation SQL (tests, E2E, ops).
+
+	v4.1.5: must pass the same Finance Approval PI readiness gate as
+	``validate_apply_workflow_action`` — never set Approved / activate reservation
+	while Draft (or otherwise unready) Purchase Invoices remain.
+	"""
+	doc = frappe.get_doc("PM Clearance", cl_name)
+	from erpnext_extensions.petty_management.services.purchase_invoice_readiness import (
+		validate_purchase_invoices_for_finance_approval,
+	)
+
+	validate_purchase_invoices_for_finance_approval(doc)
+
 	st = workflow_state_link_for_title("PM Clearance", "Approved")
 	if st:
 		frappe.db.set_value("PM Clearance", cl_name, "workflow_state", st, update_modified=False)

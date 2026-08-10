@@ -26,6 +26,13 @@ Cancelled PIs (`docstatus=2`) are never allowed.
 - Submitted PI with zero outstanding excluded from lookup.
 - Purchase Order / Supplier Advance remains submitted-only (out of scope).
 
+## Approval bypass (hardening)
+
+`approve_pm_clearance_for_reservation` / whitelisted `approve_pm_clearance_for_settlement`
+must call `validate_purchase_invoices_for_finance_approval` before writing
+`workflow_state` / `status = Approved` (same gate as Desk Finance Approve).
+Draft PI cannot activate funding reservation via this helper.
+
 ## Domain service
 
 `petty_management/services/purchase_invoice_readiness.py` — single source of truth for:

@@ -451,3 +451,55 @@ class TestPMClearanceDraftPI(FrappeTestCase):
 		self._track("Journal Entry", out["journal_entry"])
 		cl.reload()
 		self.assertIn(cl.status, ("Pending Journal Entry Submission", "Settled"))
+
+	def test_approve_for_reservation_blocked_with_draft_pi(self):
+		"""Bypass helper must use the same Finance PI readiness gate."""
+		from erpnext_extensions.petty_management.services.allocation_service import (
+			sum_prior_pm_request_allocations,
+		)
+		from erpnext_extensions.petty_management.services.clearance_service import (
+			approve_pm_clearance_for_reservation,
+		)
+		from erpnext_extensions.petty_management.doctype.pm_clearance.pm_clearance import (
+			approve_pm_clearance_for_settlement,
+		)
+
+		emp, req = self._funded_holder()
+		pi = self._insert_draft_pi(6_000)
+		cl_name = self._new_clearance_with_pi(emp, req, pi)
+		self._to_pending_finance(cl_name)
+		todos_before = _open_finance_todos(cl_name)
+		self.assertTrue(any(t.allocated_to == self.finance for t in todos_before))
+		reserved_before = flt(sum_prior_pm_request_allocations(req, exclude_clearance_name=None))
+
+		with self.assertRaises(frappe.ValidationError) as ctx1:
+			approve_pm_clearance_for_reservation(cl_name)
+		self.assertIn(pi, str(ctx1.exception))
+		self.assertIn("Cannot complete Finance Approval", str(ctx1.exception))
+
+		with self.assertRaises(frappe.ValidationError) as ctx2:
+			approve_pm_clearance_for_settlement(cl_name)
+		self.assertIn(pi, str(ctx2.exception))
+
+		cl = frappe.get_doc("PM Clearance", cl_name)
+		self.assertEqual(_wf_title(cl.workflow_state), "Pending Finance Review")
+		self.assertEqual((cl.status or "").strip(), "Pending Approval")
+		self.assertTrue(any(t.allocated_to == self.finance for t in _open_finance_todos(cl_name)))
+		reserved_after = flt(sum_prior_pm_request_allocations(req, exclude_clearance_name=None))
+		self.assertEqual(reserved_after, reserved_before)
+
+		# After PI submit, the same helper may approve (still uses finance readiness).
+		frappe.get_doc("Purchase Invoice", pi).submit()
+		pi_doc = frappe.get_doc("Purchase Invoice", pi)
+		cl = frappe.get_doc("PM Clearance", cl_name)
+		for row in cl.details:
+			row.outstanding_amount = flt(pi_doc.outstanding_amount)
+		cl.save(ignore_permissions=True)
+		approve_pm_clearance_for_reservation(cl_name)
+		cl = frappe.get_doc("PM Clearance", cl_name)
+		self.assertEqual(_wf_title(cl.workflow_state), "Approved")
+		self.assertEqual((cl.status or "").strip(), "Approved")
+		self.assertGreater(
+			flt(sum_prior_pm_request_allocations(req, exclude_clearance_name=None)),
+			reserved_before,
+		)
