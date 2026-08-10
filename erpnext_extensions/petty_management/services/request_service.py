@@ -272,7 +272,9 @@ def request_ready_for_payment_entry(doc: Document) -> tuple[bool, str]:
 		requested = flt(doc.total_requested_amount)
 		remaining = max(0.0, requested - submitted)
 		if remaining <= _EPS:
-			return False, _("This request is fully funded.")
+			return False, _(
+				"This request has been fully funded. No additional Payment Entry is required."
+			)
 		return True, ""
 
 	if doc.payment_status == "Paid":

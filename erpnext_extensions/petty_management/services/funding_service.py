@@ -136,15 +136,23 @@ def close_pm_request(
 	if reason == "Other" and not detail:
 		frappe.throw(_("Close Reason Detail is required when Close Reason is Other."))
 
+	# Operational close only — never touch payment totals, payment_status, or workflow_state.
+	doc.is_closed = 1
+	doc.closed_on = now_datetime()
+	doc.closed_by = frappe.session.user
+	doc.close_reason = reason or None
+	doc.close_reason_detail = detail or None
+	status = sync_pm_request_business_status(doc)
 	frappe.db.set_value(
 		"PM Request",
 		doc.name,
 		{
 			"is_closed": 1,
-			"closed_on": now_datetime(),
-			"closed_by": frappe.session.user,
-			"close_reason": reason or None,
-			"close_reason_detail": detail or None,
+			"closed_on": doc.closed_on,
+			"closed_by": doc.closed_by,
+			"close_reason": doc.close_reason,
+			"close_reason_detail": doc.close_reason_detail,
+			"status": status,
 		},
 		update_modified=True,
 	)

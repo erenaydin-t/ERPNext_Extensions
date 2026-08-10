@@ -439,18 +439,45 @@ function unique_pm_ui_messages(messages) {
 function apply_pm_request_intro(frm, f) {
 	if (frm.dashboard && typeof frm.dashboard.clear_headline === "function") {
 		frm.dashboard.clear_headline();
-	} else {
-		frm.set_intro("");
 	}
+	frm.set_intro("");
+	frm._pm_intro_applied_text = "";
+
+	const headline = (f.business_status_headline || "").toString().trim();
 	const messages = unique_pm_ui_messages(f.ui_messages);
-	if (!messages.length) {
-		frm._pm_intro_applied_text = "";
+	const color = (f.business_status_indicator || (cint(f.is_closed) ? "blue" : "orange")).toString();
+
+	// Prominent funding/business lifecycle via native dashboard headline (does not touch workflow badge).
+	if (headline && frm.dashboard) {
+		const headlineHtml = `<div class="pm-request-business-status"><strong>${frappe.utils.escape_html(
+			headline
+		)}</strong></div>`;
+		if (typeof frm.dashboard.set_headline_alert === "function") {
+			frm.dashboard.set_headline_alert(headlineHtml, color);
+		} else if (typeof frm.dashboard.set_headline === "function") {
+			frm.dashboard.set_headline(headlineHtml);
+		}
+	}
+
+	const detailParts = messages.filter((m) => {
+		const t = (m || "").toString().trim();
+		if (!t) {
+			return false;
+		}
+		// Avoid repeating the same headline text in the intro strip.
+		if (headline && t === headline) {
+			return false;
+		}
+		return true;
+	});
+	if (!detailParts.length && !headline) {
 		return;
 	}
-	const text = messages.join(" ");
+	const text = detailParts.length ? detailParts.join(" ") : headline;
 	frm._pm_intro_applied_text = text;
-	const color = cint(f.is_closed) ? "blue" : "orange";
-	frm.set_intro(text, color);
+	if (detailParts.length) {
+		frm.set_intro(text, color);
+	}
 }
 
 function route_pm_request_payment_entries(frm, flags) {

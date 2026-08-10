@@ -212,6 +212,7 @@
   },
   {
    "default": "Not Paid",
+   "description": "Funding state from submitted Payment Entries (Not Paid / Partially Paid / Paid). Independent of Workflow State.",
    "fieldname": "payment_status",
    "fieldtype": "Select",
    "in_list_view": 1,
@@ -225,6 +226,7 @@
   },
   {
    "default": "Draft",
+   "description": "Business lifecycle (Paid / Closed / Waiting for Payment). Updated from funding and Close; not the Frappe Workflow badge.",
    "fieldname": "status",
    "fieldtype": "Select",
    "in_list_view": 1,
@@ -266,6 +268,7 @@
   {
    "allow_on_submit": 1,
    "default": "Draft",
+   "description": "Approval workflow only. After finance approval this stays Waiting for Payment; funding is shown by Payment Status / Status.",
    "fieldname": "workflow_state",
    "fieldtype": "Link",
    "in_list_view": 1,

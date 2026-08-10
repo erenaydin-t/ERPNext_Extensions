@@ -16,6 +16,7 @@ SCRIPTS=(
   "playwright_pm_request_form_smoke.mjs"
   "playwright_pm_request_pe_list_e2e.mjs"
   "playwright_pm_request_actions_visibility.mjs"
+  "playwright_pm_request_funding_status_ux.mjs"
   "playwright_pm_request_list_permission.mjs"
   "playwright_pm_clearance_list_permission.mjs"
   "playwright_pm_visibility_role_setting.mjs"

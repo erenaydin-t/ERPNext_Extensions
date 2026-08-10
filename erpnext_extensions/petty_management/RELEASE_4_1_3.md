@@ -6,6 +6,13 @@
 2. Named approvers can open stamped docs without elevated roles.
 3. **Configurable operational unrestricted visibility role** via PM Settings
    (`Operational PM Visibility Role`), default **Petty Management Accountant**.
+4. **PM Request funding UX:** after finance approval, Desk shows a clear business/funding
+   status (Waiting for Payment / Partially Paid / Paid — Fully Funded / Closed) via the form
+   dashboard headline + intro. The Frappe workflow remains approval-only and intentionally
+   stays at **Waiting for Payment** after finance approval; payment lifecycle is represented
+   by PM business/payment status — not a workflow change.
+5. **Close PM Request** now synchronizes `status=Closed` immediately when `is_closed=1`
+   (no extra funding sync required).
 
 ## Visibility model
 
@@ -31,4 +38,6 @@ Empty PM Settings value falls back to `Petty Management Accountant`.
 ## Tests / E2E
 
 - `test_pm_visibility_roles`, `test_pm_visibility_role_setting`, list permission modules
-- Playwright: request + clearance list; `playwright_pm_visibility_role_setting.mjs`
+- `test_pm_request_funding_status_ux` (full / multi-PE / cancel / close sync)
+- Playwright: request + clearance list; `playwright_pm_visibility_role_setting.mjs`;
+  `playwright_pm_request_funding_status_ux.mjs`
