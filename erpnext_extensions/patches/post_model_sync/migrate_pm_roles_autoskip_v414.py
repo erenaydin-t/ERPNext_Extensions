@@ -21,8 +21,11 @@ DEPRECATED_PM_ROLES = (
 	"Petty Management Auditor",
 )
 
+LEGACY_MANAGER_ROLE = "Petty Management Manager"
+PM_USER_ROLE = "Petty Management User"
+
 # DocPerm targets after role collapse (JSON + Custom DocPerm sync).
-# Migration notes are also in RELEASE_4_1_4.md.
+# Accountant MUST NOT have delete on transactional/financial PM doctypes.
 DOCTYPE_PERMS = {
 	"PM Request": [
 		{
@@ -110,8 +113,8 @@ DOCTYPE_PERMS = {
 			"submit": 1,
 			"cancel": 1,
 			"amend": 1,
-			"delete": 1,
 			"report": 1,
+			# delete intentionally omitted — break-glass via System Manager only
 		},
 	],
 	"PM Settings": [
@@ -136,8 +139,8 @@ DOCTYPE_PERMS = {
 			"read": 1,
 			"write": 1,
 			"create": 1,
-			"delete": 1,
 			"report": 1,
+			# delete omitted — master-data delete is System Manager only
 		},
 		{"role": "Petty Management User", "read": 1, "report": 1},
 	],
@@ -158,23 +161,48 @@ def _mark_roles_deprecated() -> None:
 	for role in DEPRECATED_PM_ROLES:
 		if not frappe.db.exists("Role", role):
 			continue
-		# Keep role for one release (users may still hold Has Role). Do not disable —
-		# disabling breaks sites mid-migration. Annotate via desk_access preserved.
-		# Soft deprecation: store flag in Role description when field exists.
+		# Keep role enabled for one release (Has Role / visibility-role picker).
 		try:
-			meta = frappe.get_meta("Role")
-			if meta.has_field("desk_access"):
-				# leave desk_access as-is so legacy assignments still work during deprecation window
-				pass
-			frappe.db.set_value(
-				"Role",
-				role,
-				"disabled",
-				0,
-				update_modified=False,
-			)
+			frappe.db.set_value("Role", role, "disabled", 0, update_modified=False)
 		except Exception:
 			pass
+
+
+def grant_pm_user_to_legacy_managers() -> dict:
+	"""Ensure every enabled user with Petty Management Manager also has Petty Management User.
+
+	Idempotent. Does not remove Manager. Skips disabled users. Does not touch Admin/Auditor
+	(those roles had no Manager/CEO workflow Allowed Role; Admin cancel/delete moved to
+	System Manager / Accountant cancel without auto-granting Accountant).
+	"""
+	stats = {"scanned": 0, "granted": 0, "already_had_user": 0, "disabled_skipped": 0}
+	if not frappe.db.exists("Role", LEGACY_MANAGER_ROLE):
+		return stats
+	if not frappe.db.exists("Role", PM_USER_ROLE):
+		frappe.get_doc({"doctype": "Role", "role_name": PM_USER_ROLE}).insert(ignore_permissions=True)
+
+	manager_users = frappe.get_all(
+		"Has Role",
+		filters={"role": LEGACY_MANAGER_ROLE, "parenttype": "User"},
+		pluck="parent",
+	)
+	for user in manager_users:
+		stats["scanned"] += 1
+		if not frappe.db.exists("User", user):
+			continue
+		enabled = frappe.db.get_value("User", user, "enabled")
+		if not enabled:
+			stats["disabled_skipped"] += 1
+			continue
+		has_user = frappe.db.exists("Has Role", {"parent": user, "role": PM_USER_ROLE, "parenttype": "User"})
+		if has_user:
+			stats["already_had_user"] += 1
+			continue
+		doc = frappe.get_doc("User", user)
+		doc.append("roles", {"role": PM_USER_ROLE})
+		doc.save(ignore_permissions=True)
+		stats["granted"] += 1
+	return stats
 
 
 def _sync_doctype_perms(doctype: str, rows: list[dict]) -> None:
@@ -210,11 +238,21 @@ def _sync_doctype_perms(doctype: str, rows: list[dict]) -> None:
 		}
 		frappe.get_doc({"doctype": "DocPerm", **perm}).db_insert()
 
+	# Strip Custom DocPerm for deprecated roles and any Accountant delete overrides.
 	if frappe.db.exists("DocType", "Custom DocPerm"):
 		frappe.db.delete(
 			"Custom DocPerm",
 			{"parent": doctype, "role": ("in", list(DEPRECATED_PM_ROLES))},
 		)
+		if doctype in ("PM Request", "PM Clearance", "PM Opening Advance", "PM Holder"):
+			frappe.db.sql(
+				"""
+				UPDATE `tabCustom DocPerm`
+				SET `delete` = 0
+				WHERE parent = %s AND role = %s AND `delete` = 1
+				""",
+				(doctype, "Petty Management Accountant"),
+			)
 
 	frappe.clear_cache(doctype=doctype)
 	try:
@@ -246,6 +284,7 @@ def _sync_report_roles() -> None:
 
 def execute():
 	_mark_roles_deprecated()
+	grant_stats = grant_pm_user_to_legacy_managers()
 	_rebuild_pm_request_workflow()
 	_rebuild_pm_clearance_workflow()
 	_seed_assignment_rules()
@@ -257,5 +296,6 @@ def execute():
 	frappe.clear_cache()
 	frappe.db.commit()
 	frappe.logger("erpnext_extensions").info(
-		"migrate_pm_roles_autoskip_v414: workflows rebuilt; DocPerm collapsed to User/Accountant/System Manager"
+		f"migrate_pm_roles_autoskip_v414: workflows rebuilt; DocPerm synced; "
+		f"legacy Manager→User grants={grant_stats}"
 	)

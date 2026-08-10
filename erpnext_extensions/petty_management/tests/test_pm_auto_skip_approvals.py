@@ -70,6 +70,21 @@ def _workflow_action_count(doctype: str, name: str) -> int:
 	)
 
 
+def _workflow_comment_states(doctype: str, name: str) -> list[str]:
+	"""Timeline Workflow comments (state titles entered), oldest → newest."""
+	rows = frappe.get_all(
+		"Comment",
+		filters={
+			"reference_doctype": doctype,
+			"reference_name": name,
+			"comment_type": "Workflow",
+		},
+		fields=["content", "creation"],
+		order_by="creation asc",
+	)
+	return [r.content for r in rows]
+
+
 class TestPMAutoSkipApprovals(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
@@ -158,14 +173,16 @@ class TestPMAutoSkipApprovals(FrappeTestCase):
 	def test_manager_equals_ceo_auto_skips_ceo(self):
 		name = self._new_pending_manager(self.mgr_ceo, self.mgr_ceo, self.fin)
 		frappe.set_user(self.mgr_ceo)
-		before_actions = _workflow_action_count("PM Request", name)
 		apply_pm_workflow(frappe.get_doc("PM Request", name), "PM Manager Approve")
 		req = frappe.get_doc("PM Request", name)
 		self.assertEqual(_wf_title(req.workflow_state), "Pending Finance Approval")
-		# Manager + auto CEO = at least 2 completed workflow actions beyond submit.
-		self.assertGreaterEqual(_workflow_action_count("PM Request", name), before_actions + 1)
+		# Audit: timeline includes CEO stage even though auto-skipped operationally.
+		comments = _workflow_comment_states("PM Request", name)
+		self.assertIn("Pending CEO Approval", comments)
+		self.assertIn("Pending Finance Approval", comments)
 		todos = _open_todos("PM Request", name)
-		self.assertTrue(any(t.allocated_to == self.fin for t in todos), msg=str(todos))
+		self.assertEqual(len(todos), 1, msg=str(todos))
+		self.assertEqual(todos[0].allocated_to, self.fin)
 		self.assertFalse(any(t.allocated_to == self.mgr_ceo for t in todos))
 
 	def test_manager_ceo_finance_same_user_with_accountant(self):
@@ -175,9 +192,28 @@ class TestPMAutoSkipApprovals(FrappeTestCase):
 		req = frappe.get_doc("PM Request", name)
 		self.assertEqual(_wf_title(req.workflow_state), "Finance Approved")
 		self.assertEqual(req.status, "Waiting for Payment")
+		comments = _workflow_comment_states("PM Request", name)
+		for state in (
+			"Pending Manager Approval",
+			"Pending CEO Approval",
+			"Pending Finance Approval",
+			"Finance Approved",
+		):
+			self.assertIn(state, comments, msg=str(comments))
 		todos = _open_todos("PM Request", name)
 		self.assertEqual(todos, [])
-
+		# Same user must not retain an actionable assignment after skip-through.
+		self.assertFalse(
+			frappe.db.exists(
+				"ToDo",
+				{
+					"reference_type": "PM Request",
+					"reference_name": name,
+					"allocated_to": self.mgr_ceo_fin,
+					"status": "Open",
+				},
+			)
+		)
 	def test_distinct_approvers_no_duplicate_auto_skip(self):
 		name = self._new_pending_manager(self.mgr, self.ceo, self.fin)
 		frappe.set_user(self.mgr)
@@ -267,8 +303,8 @@ class TestPMAutoSkipApprovals(FrappeTestCase):
 		cl = frappe.get_doc("PM Clearance", cl.name)
 		self.assertEqual(_wf_title(cl.workflow_state), "Approved")
 
-	def test_opening_advance_accountant_has_cancel_delete(self):
-		"""Admin/Manager DocPerm moved: Accountant retains cancel/delete on Opening Advance."""
+	def test_opening_advance_accountant_has_cancel_not_delete(self):
+		"""Accountant may cancel/amend Opening Advance; delete is System Manager only."""
 		from frappe import get_meta
 
 		frappe.clear_cache(doctype="PM Opening Advance")
@@ -280,7 +316,19 @@ class TestPMAutoSkipApprovals(FrappeTestCase):
 		acct = roles.get("Petty Management Accountant")
 		self.assertTrue(acct)
 		self.assertTrue(acct.cancel)
-		self.assertTrue(acct.delete)
 		self.assertTrue(acct.submit)
+		self.assertFalse(int(acct.delete or 0))
 		sm = roles.get("System Manager")
 		self.assertTrue(sm and sm.cancel and sm.delete)
+
+	def test_accountant_has_no_delete_on_transactional_doctypes(self):
+		from frappe import get_meta
+
+		for doctype in ("PM Request", "PM Clearance", "PM Opening Advance"):
+			frappe.clear_cache(doctype=doctype)
+			roles = {p.role: p for p in get_meta(doctype).permissions}
+			acct = roles.get("Petty Management Accountant")
+			self.assertTrue(acct, msg=doctype)
+			self.assertFalse(int(acct.delete or 0), msg=f"{doctype} Accountant.delete")
+			sm = roles.get("System Manager")
+			self.assertTrue(sm and int(sm.delete or 0), msg=f"{doctype} System Manager.delete")

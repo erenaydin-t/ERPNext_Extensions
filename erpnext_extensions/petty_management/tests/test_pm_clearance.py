@@ -194,7 +194,11 @@ def _finance_clear_pm_request(req_name: str, *, status: str = "Waiting for Payme
 
 
 def _stamp_and_apply_request_approvals(req_name: str, user: str | None = None) -> None:
-	"""Apply Manager→CEO→Finance as a single user (tests / smoke)."""
+	"""Apply Manager→CEO→Finance as a single user (tests / smoke).
+
+	When Manager=CEO=Finance, v4.1.4 auto-skip may advance through all Approves after the
+	first click — only apply remaining actions while still pending.
+	"""
 	from erpnext_extensions.petty_management.services.workflow_utils import apply_pm_workflow
 
 	user = user or frappe.session.user
@@ -208,16 +212,44 @@ def _stamp_and_apply_request_approvals(req_name: str, user: str | None = None) -
 		},
 		update_modified=False,
 	)
-	doc = frappe.get_doc("PM Request", req_name)
-	apply_pm_workflow(doc, "PM Manager Approve")
-	doc.reload()
-	apply_pm_workflow(doc, "PM CEO Approve")
-	doc.reload()
-	apply_pm_workflow(doc, "PM Finance Approve")
+	# Administrator is not stamped; apply as the stamped user so transitions + auto-skip work.
+	prev = frappe.session.user
+	try:
+		if user != "Administrator":
+			frappe.set_user(user)
+		doc = frappe.get_doc("PM Request", req_name)
+		title = (
+			frappe.db.get_value("Workflow State", doc.workflow_state, "workflow_state_name")
+			or doc.workflow_state
+			or ""
+		)
+		if title == "Pending Manager Approval":
+			apply_pm_workflow(doc, "PM Manager Approve")
+			doc.reload()
+			title = (
+				frappe.db.get_value("Workflow State", doc.workflow_state, "workflow_state_name")
+				or doc.workflow_state
+				or ""
+			)
+		if title == "Pending CEO Approval":
+			apply_pm_workflow(doc, "PM CEO Approve")
+			doc.reload()
+			title = (
+				frappe.db.get_value("Workflow State", doc.workflow_state, "workflow_state_name")
+				or doc.workflow_state
+				or ""
+			)
+		if title == "Pending Finance Approval":
+			apply_pm_workflow(doc, "PM Finance Approve")
+	finally:
+		frappe.set_user(prev)
 
 
 def _stamp_and_apply_clearance_approvals(cl_name: str, user: str | None = None) -> None:
-	"""Apply Manager→Finance as a single user (tests / smoke)."""
+	"""Apply Manager→Finance as a single user (tests / smoke).
+
+	Auto-skip may finish the chain after Manager Approve when stamps match.
+	"""
 	from erpnext_extensions.petty_management.services.workflow_utils import apply_pm_workflow
 
 	user = user or frappe.session.user
@@ -227,15 +259,32 @@ def _stamp_and_apply_clearance_approvals(cl_name: str, user: str | None = None) 
 		{"manager_approver": user, "finance_approver": user},
 		update_modified=False,
 	)
-	doc = frappe.get_doc("PM Clearance", cl_name)
-	apply_pm_workflow(doc, "PM Manager Approve")
-	doc.reload()
-	# Prefer new action; keep legacy alias if present
+	prev = frappe.session.user
 	try:
-		apply_pm_workflow(doc, "PM Finance Approve")
-	except Exception:
-		doc.reload()
-		apply_pm_workflow(doc, "PM Approve")
+		if user != "Administrator":
+			frappe.set_user(user)
+		doc = frappe.get_doc("PM Clearance", cl_name)
+		title = (
+			frappe.db.get_value("Workflow State", doc.workflow_state, "workflow_state_name")
+			or doc.workflow_state
+			or ""
+		)
+		if title == "Pending Manager Approval":
+			apply_pm_workflow(doc, "PM Manager Approve")
+			doc.reload()
+			title = (
+				frappe.db.get_value("Workflow State", doc.workflow_state, "workflow_state_name")
+				or doc.workflow_state
+				or ""
+			)
+		if title == "Pending Finance Review":
+			try:
+				apply_pm_workflow(doc, "PM Finance Approve")
+			except Exception:
+				doc.reload()
+				apply_pm_workflow(doc, "PM Approve")
+	finally:
+		frappe.set_user(prev)
 
 
 def _approve_pm_clearance_for_reservation(cl_name: str) -> None:
