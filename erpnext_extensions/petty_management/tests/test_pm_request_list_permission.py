@@ -34,7 +34,7 @@ def _ensure_role(role: str) -> None:
 
 def _make_user(email: str, roles: list[str], password: str = "pm_sec_test_1") -> str:
 	_ensure_role("Petty Management User")
-	_ensure_role("Petty Management Manager")
+	_ensure_role("Petty Management Accountant")
 	if not frappe.db.exists("User", email):
 		u = frappe.get_doc(
 			{
@@ -85,7 +85,7 @@ class TestPMRequestListPermissionQuery(unittest.TestCase):
 		)
 		cls.user_b = _make_user(
 			"pm_list_mgr_b_v413@example.com",
-			["Petty Management Manager", "Petty Management User", "Accounts User"],
+			["Petty Management User", "Accounts User"],
 		)
 		cls.own_name, cls.own_emp = _make_owned_request(cls.user_a)
 		cls.other_name, cls.other_emp = _make_owned_request(

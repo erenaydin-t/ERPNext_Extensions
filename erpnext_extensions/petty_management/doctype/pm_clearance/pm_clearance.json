@@ -1,17 +1,10 @@
 {
  "actions": [],
- "allow_copy": 0,
- "allow_import": 0,
- "allow_rename": 0,
- "beta": 0,
- "creation": "2026-05-09 00:00:00.000000",
- "custom": 0,
- "docstatus": 0,
+ "creation": "2026-05-09 00:00:00",
  "doctype": "DocType",
  "document_type": "Document",
  "editable_grid": 1,
  "engine": "InnoDB",
- "is_submittable": 1,
  "field_order": [
   "section_main",
   "transaction_date",
@@ -54,7 +47,8 @@
   "section_request_alloc",
   "request_allocations",
   "section_remark",
-  "remark"
+  "remark",
+  "amended_from"
  ],
  "fields": [
   {
@@ -161,17 +155,17 @@
   },
   {
    "default": "Today",
+   "fetch_from": "transaction_date",
    "fieldname": "je_clearance_date",
    "fieldtype": "Date",
-   "fetch_from": "transaction_date",
    "label": "JE Clearance Date",
    "read_only": 1
   },
   {
+   "collapsible": 1,
    "fieldname": "section_trace",
    "fieldtype": "Section Break",
-   "label": "Funding / Traceability",
-   "collapsible": 1
+   "label": "Funding / Traceability"
   },
   {
    "fieldname": "current_petty_balance",
@@ -282,16 +276,15 @@
    "default": "Draft",
    "fieldname": "workflow_state",
    "fieldtype": "Link",
-   "in_standard_filter": 0,
    "label": "Workflow State",
    "options": "Workflow State",
    "read_only": 1
   },
   {
+   "collapsible": 1,
    "fieldname": "section_accounting",
    "fieldtype": "Section Break",
-   "label": "Accounting",
-   "collapsible": 1
+   "label": "Accounting"
   },
   {
    "allow_on_submit": 1,
@@ -339,20 +332,31 @@
    "reqd": 1
   },
   {
+   "collapsible": 1,
    "fieldname": "section_remark",
    "fieldtype": "Section Break",
-   "label": "Remark",
-   "collapsible": 1
+   "label": "Remark"
   },
   {
    "fieldname": "remark",
    "fieldtype": "Small Text",
    "label": "Remark"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "PM Clearance",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
   }
  ],
  "index_web_pages_for_search": 1,
+ "is_submittable": 1,
  "links": [],
- "modified": "2026-05-09 00:00:00.000000",
+ "modified": "2026-08-10 16:32:17.904128",
  "modified_by": "Administrator",
  "module": "Petty Management",
  "name": "PM Clearance",
@@ -363,42 +367,46 @@
    "cancel": 1,
    "create": 1,
    "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Petty Management Admin",
+   "role": "System Manager",
+   "share": 1,
    "submit": 1,
    "write": 1
   },
   {
    "create": 1,
-   "read": 1,
-   "report": 1,
-   "role": "Petty Management Manager",
-   "submit": 1,
-   "write": 1
-  },
-  {
-   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
    "read": 1,
    "report": 1,
    "role": "Petty Management User",
+   "share": 1,
    "submit": 1,
    "write": 1
   },
   {
+   "amend": 1,
+   "cancel": 1,
    "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
    "read": 1,
    "report": 1,
    "role": "Petty Management Accountant",
+   "share": 1,
    "submit": 1,
    "write": 1
-  },
-  {
-   "read": 1,
-   "report": 1,
-   "role": "Petty Management Auditor"
   }
  ],
+ "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],

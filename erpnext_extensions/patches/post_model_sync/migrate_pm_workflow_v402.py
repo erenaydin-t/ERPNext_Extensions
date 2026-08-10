@@ -97,11 +97,14 @@ def _rebuild_pm_request_workflow() -> None:
 			},
 		)
 
+	# v4.1.4: Manager/CEO capability = Petty Management User + stamped approver.
+	# Finance capability = Petty Management Accountant + stamped finance_approver.
+	# Never use Allowed Role = All. allow_self_approval=1 so stamped owners can approve.
 	_add(
 		"Pending Manager Approval",
 		"PM Manager Approve",
 		"Pending CEO Approval",
-		"Petty Management Manager",
+		"Petty Management User",
 		"doc.manager_approver == frappe.session.user",
 		True,
 	)
@@ -109,7 +112,7 @@ def _rebuild_pm_request_workflow() -> None:
 		"Pending Manager Approval",
 		"PM Reject",
 		"Rejected",
-		"Petty Management Manager",
+		"Petty Management User",
 		"doc.manager_approver == frappe.session.user",
 		True,
 	)
@@ -117,17 +120,17 @@ def _rebuild_pm_request_workflow() -> None:
 		"Pending CEO Approval",
 		"PM CEO Approve",
 		"Pending Finance Approval",
-		"Petty Management Manager",
+		"Petty Management User",
 		"doc.ceo_approver == frappe.session.user",
-		False,
+		True,
 	)
 	_add(
 		"Pending CEO Approval",
 		"PM Reject",
 		"Rejected",
-		"Petty Management Manager",
+		"Petty Management User",
 		"doc.ceo_approver == frappe.session.user",
-		False,
+		True,
 	)
 	_add(
 		"Pending Finance Approval",
@@ -135,7 +138,7 @@ def _rebuild_pm_request_workflow() -> None:
 		"Finance Approved",
 		"Petty Management Accountant",
 		"doc.finance_approver == frappe.session.user",
-		False,
+		True,
 	)
 	_add(
 		"Pending Finance Approval",
@@ -143,16 +146,16 @@ def _rebuild_pm_request_workflow() -> None:
 		"Rejected",
 		"Petty Management Accountant",
 		"doc.finance_approver == frappe.session.user",
-		False,
+		True,
 	)
 	# Reject from finance-approved terminal (still blocked by PE guards when funded)
 	_add(
 		"Finance Approved",
 		"PM Reject",
 		"Rejected",
-		"Petty Management Manager",
+		"Petty Management User",
 		"doc.finance_approver == frappe.session.user or doc.manager_approver == frappe.session.user",
-		False,
+		True,
 	)
 
 	normalize_workflow_definition(w)
@@ -214,13 +217,14 @@ def _rebuild_pm_clearance_workflow() -> None:
 			"allow_self_approval": 1,
 		},
 	)
+	# v4.1.4: Clearance manager stage uses Petty Management User + stamp (same role model).
 	w.append(
 		"transitions",
 		{
 			"state": _wf("Pending Manager Approval"),
 			"action": "PM Manager Approve",
 			"next_state": _wf("Pending Finance Review"),
-			"allowed": "Petty Management Manager",
+			"allowed": "Petty Management User",
 			"allow_self_approval": 1,
 			"condition": "doc.manager_approver == frappe.session.user",
 		},
@@ -231,7 +235,7 @@ def _rebuild_pm_clearance_workflow() -> None:
 			"state": _wf("Pending Manager Approval"),
 			"action": "PM Reject",
 			"next_state": _wf("Rejected"),
-			"allowed": "Petty Management Manager",
+			"allowed": "Petty Management User",
 			"allow_self_approval": 1,
 			"condition": "doc.manager_approver == frappe.session.user",
 		},
@@ -243,7 +247,7 @@ def _rebuild_pm_clearance_workflow() -> None:
 			"action": "PM Finance Approve",
 			"next_state": _wf("Approved"),
 			"allowed": "Petty Management Accountant",
-			"allow_self_approval": 0,
+			"allow_self_approval": 1,
 			"condition": "doc.finance_approver == frappe.session.user",
 		},
 	)
@@ -255,7 +259,7 @@ def _rebuild_pm_clearance_workflow() -> None:
 			"action": "PM Approve",
 			"next_state": _wf("Approved"),
 			"allowed": "Petty Management Accountant",
-			"allow_self_approval": 0,
+			"allow_self_approval": 1,
 			"condition": "doc.finance_approver == frappe.session.user",
 		},
 	)
@@ -266,7 +270,7 @@ def _rebuild_pm_clearance_workflow() -> None:
 			"action": "PM Reject",
 			"next_state": _wf("Rejected"),
 			"allowed": "Petty Management Accountant",
-			"allow_self_approval": 0,
+			"allow_self_approval": 1,
 			"condition": "doc.finance_approver == frappe.session.user",
 		},
 	)

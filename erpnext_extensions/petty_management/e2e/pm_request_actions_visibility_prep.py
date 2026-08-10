@@ -41,10 +41,7 @@ def _ensure_e2e_manager_user() -> dict:
 	for role in (
 		"Accounts User",
 		"Petty Management User",
-		"Petty Management Manager",
 		"Petty Management Accountant",
-		"Petty Management Admin",
-		"Petty Management Auditor",
 	):
 		doc.append("roles", {"role": role})
 	doc.save(ignore_permissions=True)

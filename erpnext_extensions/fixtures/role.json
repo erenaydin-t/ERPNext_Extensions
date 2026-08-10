@@ -10,15 +10,15 @@
   "desk_access": 1,
   "docstatus": 0,
   "doctype": "Role",
-  "name": "Petty Management Manager",
-  "role_name": "Petty Management Manager"
+  "name": "Petty Management Accountant",
+  "role_name": "Petty Management Accountant"
  },
  {
   "desk_access": 1,
   "docstatus": 0,
   "doctype": "Role",
-  "name": "Petty Management Accountant",
-  "role_name": "Petty Management Accountant"
+  "name": "Petty Management Manager",
+  "role_name": "Petty Management Manager"
  },
  {
   "desk_access": 1,

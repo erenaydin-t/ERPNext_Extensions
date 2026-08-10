@@ -63,7 +63,7 @@ def prepare_pm_request_list_restricted() -> dict:
 	)
 	manager = _ensure_user(
 		MANAGER_EMAIL,
-		["Petty Management Manager", "Petty Management User", "Accounts User"],
+		["Petty Management User", "Accounts User"],
 	)
 
 	emp = tpm._make_employee()

@@ -119,10 +119,7 @@ class TestPMRequestActionVisibility(unittest.TestCase):
 		for role in (
 			"Accounts User",
 			"Petty Management User",
-			"Petty Management Manager",
 			"Petty Management Accountant",
-			"Petty Management Admin",
-			"Petty Management Auditor",
 		):
 			_append_user_role(email, role)
 		update_password(email, "pm_sec_test_1")

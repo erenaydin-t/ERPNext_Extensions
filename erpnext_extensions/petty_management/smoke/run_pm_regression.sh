@@ -28,6 +28,7 @@ MODULES=(
   erpnext_extensions.petty_management.tests.test_pm_funding_history_report
   erpnext_extensions.petty_management.tests.test_pm_holder_ux
   erpnext_extensions.petty_management.tests.test_pm_multi_approval_integration
+  erpnext_extensions.petty_management.tests.test_pm_auto_skip_approvals
   erpnext_extensions.petty_management.tests.test_pm_narration
   erpnext_extensions.petty_management.tests.test_pm_opening_advance
   erpnext_extensions.petty_management.tests.test_pm_opening_advance_over_allocation

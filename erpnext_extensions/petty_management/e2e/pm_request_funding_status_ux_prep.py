@@ -42,7 +42,6 @@ def _ensure_user() -> dict:
 	for role in (
 		"Accounts User",
 		"Petty Management User",
-		"Petty Management Manager",
 		"Petty Management Accountant",
 	):
 		if not frappe.db.exists("Role", role):

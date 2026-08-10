@@ -83,7 +83,7 @@ class TestPMVisibilityRoles(unittest.TestCase):
 		)
 		cls.ceo_approver = _make_user(
 			"pm_vis_ceo_appr_v413@example.com",
-			["Petty Management User", "Petty Management Manager", "Accounts User"],
+			["Petty Management User", "Accounts User"],
 		)
 		cls.fin_approver = _make_user(
 			"pm_vis_fin_appr_v413@example.com",

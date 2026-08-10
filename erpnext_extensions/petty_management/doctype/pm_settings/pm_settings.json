@@ -197,20 +197,14 @@
  "owner": "Administrator",
  "permissions": [
   {
-   "create": 1,
-   "read": 1,
    "role": "System Manager",
-   "write": 1
-  },
-  {
    "create": 1,
    "read": 1,
-   "role": "Petty Management Admin",
    "write": 1
   },
   {
-   "read": 1,
    "role": "Petty Management Accountant",
+   "read": 1,
    "write": 1
   }
  ],

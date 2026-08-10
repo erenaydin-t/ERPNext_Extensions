@@ -41,9 +41,9 @@ def _ensure_pm_request_workflow():
 		)
 	transitions = (
 		("Draft", "PM Submit for Approval", "Pending Approval", "Petty Management User"),
-		("Pending Approval", "PM Approve", "Approved", "Petty Management Manager"),
-		("Pending Approval", "PM Reject", "Rejected", "Petty Management Manager"),
-		("Approved", "PM Reject", "Rejected", "Petty Management Manager"),
+		("Pending Approval", "PM Approve", "Approved", "Petty Management User"),
+		("Pending Approval", "PM Reject", "Rejected", "Petty Management User"),
+		("Approved", "PM Reject", "Rejected", "Petty Management User"),
 	)
 	for state, action, next_state, role in transitions:
 		w.append(
@@ -107,8 +107,8 @@ def _ensure_pm_clearance_workflow():
 		)
 	transitions = (
 		("Draft", "PM Submit Finance Review", "Pending Finance Review", "Petty Management User"),
-		("Pending Finance Review", "PM Approve", "Approved", "Petty Management Manager"),
-		("Pending Finance Review", "PM Reject", "Rejected", "Petty Management Manager"),
+		("Pending Finance Review", "PM Approve", "Approved", "Petty Management Accountant"),
+		("Pending Finance Review", "PM Reject", "Rejected", "Petty Management Accountant"),
 	)
 	for state, action, next_state, role in transitions:
 		w.append(

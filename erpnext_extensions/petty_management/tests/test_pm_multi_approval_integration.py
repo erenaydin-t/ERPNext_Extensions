@@ -58,11 +58,11 @@ class TestPMMultiApprovalIntegration(FrappeTestCase):
 		tpm._ensure_company_context()
 		cls.manager = _ensure_user(
 			"pm_mgr_v402@example.com",
-			["Petty Management Manager", "Petty Management User", "Expense Approver", "System Manager"],
+			["Petty Management User", "Expense Approver", "System Manager"],
 		)
 		cls.ceo = _ensure_user(
 			"pm_ceo_v402@example.com",
-			["Petty Management Manager", "System Manager"],
+			["Petty Management User", "System Manager"],
 		)
 		cls.finance = _ensure_user(
 			"pm_fin_v402@example.com",

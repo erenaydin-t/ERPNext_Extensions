@@ -68,11 +68,11 @@ def prepare_pm_request_multi_approval() -> dict:
 	)
 	manager = _ensure_user(
 		"pm_mgr_v402_e2e@example.com",
-		["Petty Management Manager", "Petty Management User", "Expense Approver", *desk_roles],
+		["Petty Management User", "Expense Approver", *desk_roles],
 	)
 	ceo = _ensure_user(
 		"pm_ceo_v402_e2e@example.com",
-		["Petty Management Manager", *desk_roles],
+		["Petty Management User", *desk_roles],
 	)
 	finance = _ensure_user(
 		"pm_fin_v402_e2e@example.com",
