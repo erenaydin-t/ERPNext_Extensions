@@ -309,3 +309,16 @@ def get_pm_clearance_action_flags(pm_clearance: str) -> dict:
 	)
 
 	return _flags(pm_clearance)
+
+
+@frappe.whitelist()
+def get_pm_clearance_pi_readiness(pm_clearance: str) -> dict:
+	"""Desk banner / Finance UX: Draft vs submitted PI readiness (v4.1.5)."""
+	from erpnext_extensions.petty_management.services.purchase_invoice_readiness import (
+		get_purchase_invoice_readiness,
+	)
+
+	doc = frappe.get_doc("PM Clearance", pm_clearance)
+	if not frappe.has_permission("PM Clearance", "read", doc=doc):
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
+	return get_purchase_invoice_readiness(doc)

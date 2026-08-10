@@ -104,6 +104,12 @@ def apply_pm_workflow(doc: Document | str, action: str) -> Document:
 		)
 
 		validate_pm_request_workflow_action(doc, action)
+	elif doc.doctype == "PM Clearance":
+		from erpnext_extensions.petty_management.services.clearance_action_policy import (
+			validate_apply_workflow_action,
+		)
+
+		validate_apply_workflow_action(doc, action)
 	result = frappe_apply_workflow(doc, action)
 
 	# After an Approve, loop consecutive same-user Approve hops (never Reject / PE / Close).

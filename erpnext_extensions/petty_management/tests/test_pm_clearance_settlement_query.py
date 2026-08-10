@@ -102,12 +102,16 @@ class TestPMClearanceSettlementQueries(unittest.TestCase):
 		self.assertIn(supplier, desc)
 		self.assertIn("Outstanding:", desc)
 
-	def test_pi_query_excludes_draft(self):
+	def test_pi_query_includes_draft(self):
+		"""v4.1.5: Draft PI appears in lookup with Draft status / Grand Total."""
 		pi = tpm._make_pi_outstanding(1_000)
 		pi.insert(ignore_permissions=True)
 		self._track("Purchase Invoice", pi.name)
 		rows = self._query_pi(pi.name)
-		self.assertNotIn(pi.name, {r[0] for r in rows})
+		self.assertIn(pi.name, {r[0] for r in rows})
+		desc = next(r[1] for r in rows if r[0] == pi.name)
+		self.assertIn("Draft", desc)
+		self.assertIn("Grand Total", desc)
 
 	def test_pi_query_excludes_cancelled(self):
 		pi = self._submitted_pi(2_000)

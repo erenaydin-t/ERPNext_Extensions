@@ -63,6 +63,11 @@ def build_supplier_advance_debit_line(row: Document, amount: float) -> dict:
 
 
 def build_purchase_invoice_debit_line(row: Document, amount: float) -> dict:
+	from erpnext_extensions.petty_management.services.purchase_invoice_readiness import (
+		assert_purchase_invoice_submitted_for_je,
+	)
+
+	assert_purchase_invoice_submitted_for_je(row.purchase_invoice)
 	pi = frappe.get_doc("Purchase Invoice", row.purchase_invoice)
 	line = {
 		"account": pi.credit_to,
@@ -98,6 +103,11 @@ def build_petty_cash_credit_line(doc: Document, amount: float) -> dict:
 
 
 def create_clearance_journal_entry(doc: Document) -> Document:
+	from erpnext_extensions.petty_management.services.purchase_invoice_readiness import (
+		validate_purchase_invoices_for_settlement,
+	)
+
+	validate_purchase_invoices_for_settlement(doc)
 	settings = get_pm_settings()
 	je = frappe.new_doc("Journal Entry")
 	je.company = doc.company
@@ -150,6 +160,11 @@ def settle_petty_cash(pm_clearance: str) -> dict[str, str]:
 
 	if not clearance_is_approved(doc):
 		frappe.throw(_("Settle is only allowed when PM Clearance is Approved."), title=_("Approval required"))
+	from erpnext_extensions.petty_management.services.purchase_invoice_readiness import (
+		validate_purchase_invoices_for_settlement,
+	)
+
+	validate_purchase_invoices_for_settlement(doc)
 
 	doc.reload()
 	if not clearance_is_approved(doc):

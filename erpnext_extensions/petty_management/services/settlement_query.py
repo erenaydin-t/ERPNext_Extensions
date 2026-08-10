@@ -40,14 +40,19 @@ def _pi_search_description(
 	*,
 	supplier_name: str,
 	supplier: str,
+	docstatus: int,
 	outstanding: float,
+	grand_total: float,
 	posting_date,
 	company: str,
 ) -> str:
-	parts = [
-		f"{supplier_name} | {supplier}",
-		_("Outstanding: {0}").format(_format_currency(outstanding, company)),
-	]
+	parts = [f"{supplier_name} | {supplier}"]
+	if cint(docstatus) == 0:
+		parts.append(_("Status: Draft"))
+		parts.append(_("Grand Total: {0}").format(_format_currency(grand_total, company)))
+	else:
+		parts.append(_("Status: Submitted"))
+		parts.append(_("Outstanding: {0}").format(_format_currency(outstanding, company)))
 	if posting_date:
 		parts.append(_("Posting Date: {0}").format(formatdate(posting_date)))
 	return " · ".join(parts)
@@ -114,9 +119,10 @@ def purchase_invoice_query_for_pm_clearance(doctype, txt, searchfield, start, pa
 		"min_outstanding": flt(filters.get("min_outstanding", 0)) or 0.0001,
 	}
 	conditions = [
-		"pi.docstatus = 1",
+		"pi.docstatus IN (0, 1)",
 		"pi.company = %(company)s",
-		"IFNULL(pi.outstanding_amount, 0) > %(min_outstanding)s",
+		# Draft: no outstanding filter. Submitted: require allocatable outstanding.
+		"(pi.docstatus = 0 OR IFNULL(pi.outstanding_amount, 0) > %(min_outstanding)s)",
 	]
 	if filters.get("supplier"):
 		conditions.append("pi.supplier = %(supplier)s")
@@ -139,7 +145,9 @@ def purchase_invoice_query_for_pm_clearance(doctype, txt, searchfield, start, pa
 			pi.name,
 			pi.supplier,
 			{sname_sql} AS supplier_name,
+			pi.docstatus,
 			pi.outstanding_amount,
+			pi.grand_total,
 			pi.posting_date
 		FROM `tabPurchase Invoice` pi
 		LEFT JOIN `tabSupplier` s ON s.name = pi.supplier
@@ -156,7 +164,9 @@ def purchase_invoice_query_for_pm_clearance(doctype, txt, searchfield, start, pa
 		desc = _pi_search_description(
 			supplier_name=sname,
 			supplier=row.supplier,
+			docstatus=cint(row.docstatus),
 			outstanding=flt(row.outstanding_amount),
+			grand_total=flt(row.grand_total),
 			posting_date=row.posting_date,
 			company=company,
 		)

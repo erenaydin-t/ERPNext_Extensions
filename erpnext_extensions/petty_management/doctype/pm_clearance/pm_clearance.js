@@ -313,6 +313,7 @@ frappe.ui.form.on("PM Clearance", {
 	refresh(frm) {
 		frappe.workflow.setup(frm.doctype);
 		setup_settlement_buttons(frm);
+		frm.trigger("pm_refresh_pi_readiness_banner");
 		if (frm.doc.employee && frm.doc.company && can_mutate_derived_fields(frm)) {
 			frm.trigger("refresh_holder_pending");
 		} else if ((!frm.doc.employee || !frm.doc.company) && can_mutate_derived_fields(frm)) {
@@ -330,6 +331,46 @@ frappe.ui.form.on("PM Clearance", {
 			);
 			setup_settlement_buttons(frm);
 		}
+	},
+	pm_refresh_pi_readiness_banner(frm) {
+		if (!frm.doc || !frm.doc.name || frm.is_new()) {
+			frm.dashboard.clear_headline();
+			return;
+		}
+		const flags = frm._pm_action_flags || frm._pm_clearance_apply_flags || {};
+		const title = (flags.workflow_state_title || "").trim();
+		if (title !== "Pending Finance Review") {
+			if (frm._pm_pi_readiness_banner) {
+				frm.dashboard.clear_headline();
+				frm._pm_pi_readiness_banner = false;
+			}
+			return;
+		}
+		if (flags.pi_ready === false && flags.pi_readiness_message) {
+			frm.dashboard.set_headline_alert(
+				frappe.utils.escape_html(flags.pi_readiness_message).replace(/\n/g, "<br>"),
+				"orange"
+			);
+			frm._pm_pi_readiness_banner = true;
+			return;
+		}
+		frappe.call({
+			method: "erpnext_extensions.petty_management.doctype.pm_clearance.pm_clearance.get_pm_clearance_pi_readiness",
+			args: { pm_clearance: frm.doc.name },
+			callback(r) {
+				const data = r.message || {};
+				if (!data.ready && data.message) {
+					frm.dashboard.set_headline_alert(
+						frappe.utils.escape_html(data.message).replace(/\n/g, "<br>"),
+						"orange"
+					);
+					frm._pm_pi_readiness_banner = true;
+				} else if (frm._pm_pi_readiness_banner) {
+					frm.dashboard.clear_headline();
+					frm._pm_pi_readiness_banner = false;
+				}
+			},
+		});
 	},
 	recalc_totals(frm) {
 		let settled = 0;
@@ -864,22 +905,31 @@ frappe.ui.form.on("PM Clearance Detail", {
 			return;
 		}
 		frappe.db.get_doc("Purchase Invoice", row.purchase_invoice).then((pi) => {
-			if (pi.docstatus != 1) {
+			if (cint(pi.docstatus) === 2) {
 				frappe.msgprint({
 					title: __("Purchase Invoice"),
-					message: __("Only submitted Purchase Invoices can be used for settlement."),
+					message: __("Cancelled Purchase Invoices cannot be used on PM Clearance."),
 					indicator: "red",
 				});
 				frappe.model.set_value(cdt, cdn, "purchase_invoice", "");
 				return;
 			}
+			if (![0, 1].includes(cint(pi.docstatus))) {
+				frappe.model.set_value(cdt, cdn, "purchase_invoice", "");
+				return;
+			}
 			frappe.model.set_value(cdt, cdn, "supplier", pi.supplier);
-			frappe.model.set_value(cdt, cdn, "outstanding_amount", pi.outstanding_amount || 0);
+			const ceiling =
+				cint(pi.docstatus) === 0
+					? flt(pi.grand_total || pi.rounded_total || 0)
+					: flt(pi.outstanding_amount || 0);
+			frappe.model.set_value(cdt, cdn, "outstanding_amount", ceiling);
 			const cur = flt(row.allocated_amount);
 			if (!cur) {
-				frappe.model.set_value(cdt, cdn, "allocated_amount", pi.outstanding_amount || 0);
+				frappe.model.set_value(cdt, cdn, "allocated_amount", ceiling);
 			}
 			frm.trigger("recalc_totals");
+			frm.trigger("pm_refresh_pi_readiness_banner");
 		});
 	},
 	purchase_order(frm, cdt, cdn) {

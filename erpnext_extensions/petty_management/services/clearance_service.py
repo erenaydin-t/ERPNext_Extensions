@@ -259,49 +259,15 @@ def validate_duplicate_settlement_targets(doc: Document) -> None:
 
 
 def validate_and_stamp_pi_rows(doc: Document) -> None:
-	for row in doc.details:
-		if (row.settlement_type or SETTLEMENT_PI).strip() != SETTLEMENT_PI:
-			continue
-		if not row.purchase_invoice:
-			frappe.throw(
-				_("Row {0}: Purchase Invoice is required for Purchase Invoice settlement.").format(row.idx)
-			)
-		if row.reference_doctype and row.reference_doctype != "Purchase Invoice":
-			frappe.throw(
-				_("Line {0}: only Purchase Invoice is supported for this settlement type.").format(row.idx)
-			)
-		row.reference_doctype = "Purchase Invoice"
-		pi = frappe.get_doc("Purchase Invoice", row.purchase_invoice)
-		if cint(pi.docstatus) == 2:
-			frappe.throw(
-				_("Row {0}: Purchase Invoice {1} is cancelled and cannot be settled.").format(
-					row.idx, row.purchase_invoice
-				),
-				title=_("Invalid Purchase Invoice"),
-			)
-		if cint(pi.docstatus) != 1:
-			frappe.throw(
-				_("Row {0}: Purchase Invoice {1} must be submitted (only docstatus = 1 is allowed).").format(
-					row.idx, row.purchase_invoice
-				),
-				title=_("Invalid Purchase Invoice"),
-			)
-		if pi.company != doc.company:
-			frappe.throw(_("Row {0}: Purchase Invoice belongs to another company.").format(row.idx))
-		if flt(pi.outstanding_amount) <= 0:
-			frappe.throw(_("Row {0}: Purchase Invoice has no outstanding amount to settle.").format(row.idx))
-		row.supplier = pi.supplier
-		row.outstanding_amount = flt(pi.outstanding_amount)
-		if flt(row.allocated_amount) <= 0:
-			row.allocated_amount = flt(pi.outstanding_amount)
-		if flt(row.allocated_amount) <= 0:
-			frappe.throw(_("Row {0}: Allocated Amount must be greater than zero.").format(row.idx))
-		if flt(row.allocated_amount) > flt(pi.outstanding_amount) + EPSILON:
-			frappe.throw(
-				_("Row {0}: allocated amount cannot exceed Purchase Invoice outstanding ({1}).").format(
-					row.idx, pi.outstanding_amount
-				)
-			)
+	"""Prepare-mode PI validation (v4.1.5): Draft + Submitted allowed; Cancelled blocked.
+
+	Finance / Settle / Preview use ``purchase_invoice_readiness`` independently.
+	"""
+	from erpnext_extensions.petty_management.services.purchase_invoice_readiness import (
+		validate_purchase_invoices_for_prepare,
+	)
+
+	validate_purchase_invoices_for_prepare(doc)
 
 
 def validate_and_stamp_supplier_advance_rows(doc: Document) -> None:
@@ -418,7 +384,12 @@ def prepare_doc_for_je_preview(doc: Document) -> None:
 	ensure_petty_cash_account_filled(doc)
 	normalize_settlement_types(doc)
 	validate_duplicate_settlement_targets(doc)
-	validate_and_stamp_pi_rows(doc)
+	from erpnext_extensions.petty_management.services.purchase_invoice_readiness import (
+		validate_purchase_invoices_for_settlement,
+	)
+
+	# Settlement readiness (blocks Draft PI) — independent of prepare-mode stamp.
+	validate_purchase_invoices_for_settlement(doc)
 	validate_and_stamp_supplier_advance_rows(doc)
 	calc_line_totals(doc)
 	calc_parent_totals(doc)
