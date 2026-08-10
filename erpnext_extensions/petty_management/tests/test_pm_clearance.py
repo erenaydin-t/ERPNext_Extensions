@@ -172,14 +172,19 @@ def _workflow_state_for(document_type: str, state_title: str) -> str | None:
 
 
 def _finance_clear_pm_request(req_name: str, *, status: str = "Waiting for Payment") -> None:
-	"""Mark PM Request as finance-cleared (v4.0.2 Waiting for Payment)."""
+	"""Mark PM Request as finance-cleared (workflow Finance Approved; business status as given)."""
 	from erpnext_extensions.petty_management.services.workflow_utils import resolve_workflow_state_link
 
-	ws = _workflow_state_for("PM Request", "Waiting for Payment") or resolve_workflow_state_link(
-		"Waiting for Payment"
+	ws = _workflow_state_for("PM Request", "Finance Approved") or resolve_workflow_state_link(
+		"Finance Approved"
 	)
 	if not ws:
-		raise RuntimeError("PM Request Waiting for Payment workflow state missing")
+		# Legacy sites mid-migration
+		ws = _workflow_state_for("PM Request", "Waiting for Payment") or resolve_workflow_state_link(
+			"Waiting for Payment"
+		)
+	if not ws:
+		raise RuntimeError("PM Request Finance Approved workflow state missing")
 	frappe.db.set_value(
 		"PM Request",
 		req_name,

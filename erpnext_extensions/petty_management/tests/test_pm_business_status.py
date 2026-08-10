@@ -29,15 +29,15 @@ class TestPMBusinessStatus(FrappeTestCase):
 			is_closed=0,
 			status="",
 		)
-		self.assertEqual(sync_pm_request_business_status(doc), REQ_PENDING_APPROVAL)
+		self.assertEqual(sync_pm_request_business_status(doc), "Pending Manager Approval")
 
-		doc.workflow_state = resolve_workflow_state_link("Waiting for Payment")
+		doc.workflow_state = resolve_workflow_state_link("Finance Approved")
 		self.assertEqual(sync_pm_request_business_status(doc), REQ_WAITING_FOR_PAYMENT)
 
 	def test_request_paid_and_closed_priority(self):
 		doc = frappe._dict(
 			docstatus=1,
-			workflow_state=resolve_workflow_state_link("Waiting for Payment"),
+			workflow_state=resolve_workflow_state_link("Finance Approved"),
 			payment_status="Paid",
 			is_closed=0,
 			status="",

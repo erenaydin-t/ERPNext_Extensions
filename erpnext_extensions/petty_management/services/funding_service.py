@@ -115,7 +115,7 @@ def close_pm_request(
 	if ws == "Rejected" or (doc.status or "").strip() == "Rejected":
 		frappe.throw(_("Rejected requests cannot be closed."))
 	if not request_is_finance_cleared(doc):
-		frappe.throw(_("Close is only available after finance approval (Waiting for Payment)."))
+		frappe.throw(_("Close is only available after finance approval."))
 	if cint(getattr(doc, "is_closed", 0)):
 		frappe.throw(_("This PM Request is already closed."))
 	if has_draft_payment_entry(doc.name):
@@ -136,15 +136,23 @@ def close_pm_request(
 	if reason == "Other" and not detail:
 		frappe.throw(_("Close Reason Detail is required when Close Reason is Other."))
 
+	# Operational close only — never touch payment totals, payment_status, or workflow_state.
+	doc.is_closed = 1
+	doc.closed_on = now_datetime()
+	doc.closed_by = frappe.session.user
+	doc.close_reason = reason or None
+	doc.close_reason_detail = detail or None
+	status = sync_pm_request_business_status(doc)
 	frappe.db.set_value(
 		"PM Request",
 		doc.name,
 		{
 			"is_closed": 1,
-			"closed_on": now_datetime(),
-			"closed_by": frappe.session.user,
-			"close_reason": reason or None,
-			"close_reason_detail": detail or None,
+			"closed_on": doc.closed_on,
+			"closed_by": doc.closed_by,
+			"close_reason": doc.close_reason,
+			"close_reason_detail": doc.close_reason_detail,
+			"status": status,
 		},
 		update_modified=True,
 	)

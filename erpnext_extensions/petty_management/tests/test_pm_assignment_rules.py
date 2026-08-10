@@ -40,7 +40,7 @@ class TestPMAssignmentRules(FrappeTestCase):
 				"Pending Manager Approval",
 				"Pending CEO Approval",
 				"Pending Finance Approval",
-				"Waiting for Payment",
+				"Finance Approved",
 				"Rejected",
 			)
 		}

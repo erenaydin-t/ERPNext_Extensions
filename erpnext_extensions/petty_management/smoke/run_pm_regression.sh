@@ -39,6 +39,11 @@ MODULES=(
   erpnext_extensions.petty_management.tests.test_pm_request_action_visibility
   erpnext_extensions.petty_management.tests.test_pm_request_allocation_security
   erpnext_extensions.petty_management.tests.test_pm_request_api_static_scan
+  erpnext_extensions.petty_management.tests.test_pm_request_list_permission
+  erpnext_extensions.petty_management.tests.test_pm_clearance_list_permission
+  erpnext_extensions.petty_management.tests.test_pm_visibility_roles
+  erpnext_extensions.petty_management.tests.test_pm_visibility_role_setting
+  erpnext_extensions.petty_management.tests.test_pm_request_funding_status_ux
   erpnext_extensions.petty_management.tests.test_pm_request_multi_pe
   erpnext_extensions.petty_management.tests.test_pm_request_multi_pe_integration
   erpnext_extensions.petty_management.tests.test_pm_request_payment_entries_security

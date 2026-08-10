@@ -72,7 +72,7 @@ def run_pm_verification_smoke() -> dict[str, Any]:
 			step("FAIL_expected_create_pe_blocked_before_approved")
 			return out
 
-		appr = tpm._workflow_state_for("PM Request", "Waiting for Payment")
+		appr = tpm._workflow_state_for("PM Request", "Finance Approved")
 		if not appr:
 			out["pass"] = False
 			step("FAIL_no_pm_request_waiting_for_payment_workflow_state")

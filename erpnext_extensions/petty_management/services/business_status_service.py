@@ -7,10 +7,14 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import cint
 
-# PM Request business status (Select options)
+# PM Request business status (Select options) — user-facing lifecycle
 REQ_DRAFT = "Draft"
-REQ_PENDING_APPROVAL = "Pending Approval"
+REQ_PENDING_APPROVAL = "Pending Approval"  # legacy aggregate
+REQ_PENDING_MANAGER = "Pending Manager Approval"
+REQ_PENDING_CEO = "Pending CEO Approval"
+REQ_PENDING_FINANCE = "Pending Finance Approval"
 REQ_WAITING_FOR_PAYMENT = "Waiting for Payment"
+REQ_PARTIALLY_PAID = "Partially Paid"
 REQ_PAID = "Paid"
 REQ_CLOSED = "Closed"
 REQ_REJECTED = "Rejected"
@@ -19,6 +23,12 @@ REQ_CANCELLED = "Cancelled"
 REQ_LEGACY_PAYABLE = "Payable"
 REQ_LEGACY_PENDING = "Pending"
 REQ_LEGACY_APPROVED = "Approved"
+
+# Canonical approval-terminal workflow title (v4.1.3 Option A)
+REQ_WORKFLOW_FINANCE_APPROVED = "Finance Approved"
+# Legacy terminal titles still accepted by helpers during/after migration
+REQ_WORKFLOW_WAITING_LEGACY = "Waiting for Payment"
+REQ_WORKFLOW_APPROVED_LEGACY = "Approved"
 
 # PM Clearance business status
 CLR_DRAFT = "Draft"
@@ -37,12 +47,19 @@ REQUEST_PENDING_WORKFLOW_TITLES = frozenset(
 		"Pending Finance Approval",
 	}
 )
-REQUEST_WAITING_WORKFLOW_TITLES = frozenset(
+
+# Workflow titles that mean "approval complete — funding may proceed"
+REQUEST_FINANCE_CLEARED_WORKFLOW_TITLES = frozenset(
 	{
-		"Waiting for Payment",
-		"Approved",  # legacy finance-cleared workflow title
+		REQ_WORKFLOW_FINANCE_APPROVED,
+		REQ_WORKFLOW_WAITING_LEGACY,  # pre-4.1.3 terminal
+		REQ_WORKFLOW_APPROVED_LEGACY,  # older remaps
 	}
 )
+
+# Backward-compatible alias
+REQUEST_WAITING_WORKFLOW_TITLES = REQUEST_FINANCE_CLEARED_WORKFLOW_TITLES
+
 CLEARANCE_PENDING_WORKFLOW_TITLES = frozenset(
 	{
 		"Pending Approval",
@@ -50,6 +67,13 @@ CLEARANCE_PENDING_WORKFLOW_TITLES = frozenset(
 		"Pending Finance Review",
 	}
 )
+
+_PENDING_WORKFLOW_TO_STATUS = {
+	"Pending Manager Approval": REQ_PENDING_MANAGER,
+	"Pending CEO Approval": REQ_PENDING_CEO,
+	"Pending Finance Approval": REQ_PENDING_FINANCE,
+	"Pending Approval": REQ_PENDING_APPROVAL,
+}
 
 
 def _workflow_title(doc: Document) -> str:
@@ -59,6 +83,30 @@ def _workflow_title(doc: Document) -> str:
 	return (
 		frappe.db.get_value("Workflow State", ws, "workflow_state_name") or ws or ""
 	).strip()
+
+
+def workflow_title_is_finance_cleared(ws_title: str | None) -> bool:
+	"""True when workflow title means finance approval is complete (incl. legacy names)."""
+	return (ws_title or "").strip() in REQUEST_FINANCE_CLEARED_WORKFLOW_TITLES
+
+
+def request_is_finance_cleared(doc: Document) -> bool:
+	"""ONLY gate for funding/close eligibility after approval.
+
+	Accepts canonical ``Finance Approved`` and legacy ``Waiting for Payment`` /
+	``Approved`` workflow titles, plus business statuses that imply finance cleared.
+	"""
+	st = (getattr(doc, "status", None) or "").strip()
+	if st in (
+		REQ_WAITING_FOR_PAYMENT,
+		REQ_PARTIALLY_PAID,
+		REQ_PAID,
+		REQ_CLOSED,
+		REQ_LEGACY_PAYABLE,
+		REQ_LEGACY_APPROVED,
+	):
+		return True
+	return workflow_title_is_finance_cleared(_workflow_title(doc))
 
 
 def _journal_entry_docstatus(journal_entry: str | None) -> int | None:
@@ -89,11 +137,20 @@ def sync_pm_request_business_status(doc: Document) -> str:
 		doc.status = REQ_PAID
 		return doc.status
 
+	if payment_status == "Partially Paid" and workflow_title_is_finance_cleared(ws_title):
+		doc.status = REQ_PARTIALLY_PAID
+		return doc.status
+
+	if ws_title in _PENDING_WORKFLOW_TO_STATUS:
+		doc.status = _PENDING_WORKFLOW_TO_STATUS[ws_title]
+		return doc.status
+
 	if ws_title in REQUEST_PENDING_WORKFLOW_TITLES:
 		doc.status = REQ_PENDING_APPROVAL
 		return doc.status
 
-	if ws_title in REQUEST_WAITING_WORKFLOW_TITLES:
+	if workflow_title_is_finance_cleared(ws_title):
+		# Finance approved, not (fully) paid → waiting for payment (business)
 		doc.status = REQ_WAITING_FOR_PAYMENT
 		return doc.status
 
@@ -101,7 +158,6 @@ def sync_pm_request_business_status(doc: Document) -> str:
 		doc.status = REQ_DRAFT
 		return doc.status
 
-	# Fallback: keep existing non-empty status if unknown workflow title
 	if not (doc.status or "").strip():
 		doc.status = REQ_DRAFT
 	return doc.status
@@ -127,8 +183,6 @@ def sync_pm_clearance_business_status(doc: Document, *, persist: bool = False) -
 		elif ws_title in CLEARANCE_PENDING_WORKFLOW_TITLES:
 			lifecycle = CLR_PENDING_APPROVAL
 		elif ws_title in ("Pending Journal Entry Submission", "Settled"):
-			# Stale accounting titles still on workflow_state before migration rewind:
-			# treat as Approved approval-wise for status derivation without JE.
 			lifecycle = CLR_APPROVED if je_ds is None else (
 				CLR_SETTLED if je_ds == 1 else CLR_PENDING_JE
 			)
@@ -150,15 +204,6 @@ def sync_pm_clearance_business_status(doc: Document, *, persist: bool = False) -
 	return lifecycle
 
 
-def request_is_finance_cleared(doc: Document) -> bool:
-	"""Business-ready for funding actions (Create PE / Close eligibility base)."""
-	st = (getattr(doc, "status", None) or "").strip()
-	if st in (REQ_WAITING_FOR_PAYMENT, REQ_LEGACY_PAYABLE, REQ_LEGACY_APPROVED, REQ_PAID, REQ_CLOSED):
-		return True
-	ws = _workflow_title(doc)
-	return ws in REQUEST_WAITING_WORKFLOW_TITLES
-
-
 def clearance_is_finance_approved(doc: Document) -> bool:
 	"""Settle allowed when business status is Approved (not Settled/Pending JE)."""
 	st = (getattr(doc, "status", None) or "").strip()
@@ -166,5 +211,4 @@ def clearance_is_finance_approved(doc: Document) -> bool:
 		return False
 	if st == CLR_APPROVED:
 		return True
-	# After migration, Approved workflow + Settled status means already settled
 	return False

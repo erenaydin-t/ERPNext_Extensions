@@ -1,3 +1,4 @@
+# Copyright (c) 2026, ERPNext Extensions contributors
 """PM Request Desk/workflow action rules (single source of truth for UI flags)."""
 
 from __future__ import annotations
@@ -26,8 +27,14 @@ _EPS = 1e-6
 
 MSG_CLOSE_DRAFT_PE = _("Cannot close while draft Payment Entries exist.")
 
-MSG_CLOSED_FROZEN = _("This PM Request is closed. Funding is frozen; clearance uses available balance only.")
+MSG_CLOSED_FROZEN = _(
+	"This PM Request is closed. Funding is frozen; clearance uses available balance only."
+)
 MSG_SUBMIT_FIRST = _("Submit the PM Request first.")
+
+MSG_FULLY_FUNDED_CREATE_BLOCK = _(
+	"This request has been fully funded. No additional Payment Entry is required."
+)
 
 
 def _unique_ui_messages(*parts: str) -> list[str]:
@@ -42,6 +49,71 @@ def _unique_ui_messages(*parts: str) -> list[str]:
 	return out
 
 
+def build_pm_request_business_status_presentation(doc: Document) -> dict:
+	"""Desk copy for funding details. Lifecycle is Status / Payment Status (not workflow)."""
+	from erpnext_extensions.petty_management.services.business_status_service import (
+		request_is_finance_cleared,
+	)
+
+	submitted = flt(getattr(doc, "total_paid_amount", None))
+	if submitted <= _EPS and getattr(doc, "name", None):
+		submitted = flt(sum_submitted_pe_amount(doc.name))
+	remaining = flt(getattr(doc, "remaining_to_pay", None))
+	if getattr(doc, "name", None):
+		remaining = max(0.0, flt(doc.total_requested_amount) - submitted)
+
+	payment_status = (getattr(doc, "payment_status", None) or "").strip()
+	status = (getattr(doc, "status", None) or "").strip()
+	is_closed = cint(getattr(doc, "is_closed", 0))
+
+	# No competing "second badge" — workflow shows Finance Approved; Status shows lifecycle.
+	if is_closed or status == "Closed":
+		return {
+			"business_status_headline": "",
+			"business_status_indicator": "blue",
+			"ui_messages": [str(MSG_CLOSED_FROZEN)],
+		}
+
+	if cint(getattr(doc, "docstatus", 0)) != 1:
+		return {
+			"business_status_headline": "",
+			"business_status_indicator": "orange",
+			"ui_messages": [str(MSG_SUBMIT_FIRST)],
+		}
+
+	if not request_is_finance_cleared(doc):
+		return {
+			"business_status_headline": "",
+			"business_status_indicator": "orange",
+			"ui_messages": [],
+		}
+
+	if payment_status == "Paid" or (submitted > _EPS and remaining <= _EPS):
+		return {
+			"business_status_headline": "",
+			"business_status_indicator": "green",
+			"ui_messages": [str(MSG_FULLY_FUNDED_CREATE_BLOCK)],
+		}
+
+	if payment_status == "Partially Paid" or (submitted > _EPS and remaining > _EPS):
+		return {
+			"business_status_headline": "",
+			"business_status_indicator": "orange",
+			"ui_messages": [
+				_("Paid {0}. Remaining to pay {1}.").format(
+					frappe.format_value(submitted, {"fieldtype": "Currency"}),
+					frappe.format_value(remaining, {"fieldtype": "Currency"}),
+				),
+			],
+		}
+
+	return {
+		"business_status_headline": "",
+		"business_status_indicator": "orange",
+		"ui_messages": [],
+	}
+
+
 def build_pm_request_ui_messages(
 	doc: Document,
 	*,
@@ -53,20 +125,28 @@ def build_pm_request_ui_messages(
 	reject_block_reason: str,
 ) -> list[str]:
 	"""Single source for Desk intro banners (deduplicated, priority-ordered)."""
-	if cint(getattr(doc, "is_closed", 0)):
-		return [str(MSG_CLOSED_FROZEN)]
+	presentation = build_pm_request_business_status_presentation(doc)
+	parts: list[str] = list(presentation.get("ui_messages") or [])
 
-	if doc.docstatus != 1:
-		return [str(MSG_SUBMIT_FIRST)]
-
-	parts: list[str] = []
 	from erpnext_extensions.petty_management.services.business_status_service import (
 		request_is_finance_cleared,
 	)
 
-	if not can_close and close_block_reason:
+	skip_create_reason = False
+	cbr = (create_block_reason or "").strip().lower()
+	if "fully funded" in cbr or "no additional payment entry" in cbr or "already funded" in cbr:
+		skip_create_reason = True
+	if cint(getattr(doc, "is_closed", 0)):
+		skip_create_reason = True
+
+	if not can_close and close_block_reason and not cint(getattr(doc, "is_closed", 0)):
 		parts.append(str(close_block_reason))
-	if not can_create and create_block_reason and request_is_finance_cleared(doc):
+	if (
+		not can_create
+		and create_block_reason
+		and request_is_finance_cleared(doc)
+		and not skip_create_reason
+	):
 		parts.append(str(create_block_reason))
 	if not can_reject_wf and reject_block_reason and request_is_finance_cleared(doc):
 		parts.append(str(reject_block_reason))
@@ -154,6 +234,7 @@ def compute_pm_request_action_flags(doc: Document) -> dict:
 		can_reject_wf=can_reject_wf,
 		reject_block_reason=reject_block_reason or "",
 	)
+	presentation = build_pm_request_business_status_presentation(doc)
 
 	return {
 		"can_create_payment_entry": bool(can_create),
@@ -169,6 +250,9 @@ def compute_pm_request_action_flags(doc: Document) -> dict:
 		"payment_entry_count": payment_entry_count,
 		"payment_entry_list_filters": payment_entry_list_filters_for_pm_request(doc.name),
 		"ui_messages": ui_messages,
+		"business_status_headline": presentation.get("business_status_headline") or "",
+		"business_status_indicator": presentation.get("business_status_indicator") or "orange",
+		"status": (getattr(doc, "status", None) or ""),
 		"workflow_state_title": workflow_state_title(doc),
 		"workflow_state": doc.workflow_state,
 		"payment_status": doc.payment_status or "",

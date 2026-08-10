@@ -116,9 +116,9 @@ def prepare_pm_clearance_multi_approval() -> dict:
 	finance = prep["finance"]["email"]
 	emp = prep["employee"]
 
-	# Fast-path request to Waiting for Payment + fund
+	# Fast-path request to Finance Approved + fund
 	pm_request, pe = tpm._fund_pm_request(emp, 100_000.0)
-	waiting = resolve_workflow_state_link("Waiting for Payment")
+	waiting = resolve_workflow_state_link("Finance Approved")
 	frappe.db.set_value(
 		"PM Request",
 		pm_request,

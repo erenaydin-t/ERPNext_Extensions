@@ -403,7 +403,7 @@ function apply_pm_request_toolbar(frm, f) {
 
 	// Use add_custom_button (not page.add_action_item): Frappe workflow show_actions()
 	// calls clear_actions_menu() and would wipe custom funding actions.
-	// v4.0.2: gate on server business flags (Waiting for Payment), not workflow_state title.
+	// Gate funding actions on server business flags (finance-cleared), not workflow title literals.
 	if (!cint(f.is_closed)) {
 		if (f.can_create_payment_entry) {
 			add_pm_request_toolbar_button(frm, __("Create Payment Entry"), promptCreatePe);
@@ -437,19 +437,20 @@ function unique_pm_ui_messages(messages) {
 }
 
 function apply_pm_request_intro(frm, f) {
+	// Clear any prior dashboard headline workaround (Option A: Status field is lifecycle SoT).
 	if (frm.dashboard && typeof frm.dashboard.clear_headline === "function") {
 		frm.dashboard.clear_headline();
-	} else {
-		frm.set_intro("");
 	}
+	frm.set_intro("");
+	frm._pm_intro_applied_text = "";
+
 	const messages = unique_pm_ui_messages(f.ui_messages);
 	if (!messages.length) {
-		frm._pm_intro_applied_text = "";
 		return;
 	}
 	const text = messages.join(" ");
 	frm._pm_intro_applied_text = text;
-	const color = cint(f.is_closed) ? "blue" : "orange";
+	const color = (f.business_status_indicator || (cint(f.is_closed) ? "blue" : "orange")).toString();
 	frm.set_intro(text, color);
 }
 

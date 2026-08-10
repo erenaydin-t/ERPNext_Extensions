@@ -254,7 +254,7 @@ def request_ready_for_payment_entry(doc: Document) -> tuple[bool, str]:
 	if ws_title == "Rejected" or (doc.status or "").strip() == "Rejected":
 		return False, _("This request was rejected.")
 	if not request_is_finance_cleared(doc):
-		return False, _("Payment Entry is only available after finance approval (Waiting for Payment).")
+		return False, _("Payment Entry is only available after finance approval.")
 
 	if cint(getattr(doc, "is_closed", 0)):
 		return False, _("This PM Request is closed.")
@@ -272,7 +272,9 @@ def request_ready_for_payment_entry(doc: Document) -> tuple[bool, str]:
 		requested = flt(doc.total_requested_amount)
 		remaining = max(0.0, requested - submitted)
 		if remaining <= _EPS:
-			return False, _("This request is fully funded.")
+			return False, _(
+				"This request has been fully funded. No additional Payment Entry is required."
+			)
 		return True, ""
 
 	if doc.payment_status == "Paid":

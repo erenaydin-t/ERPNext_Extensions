@@ -87,7 +87,7 @@ class TestPMRequestWorkflow(unittest.TestCase):
 			update_modified=False,
 		)
 		req.reload()
-		req.workflow_state = resolve_workflow_state_link("Waiting for Payment")
+		req.workflow_state = resolve_workflow_state_link("Finance Approved")
 		with self.assertRaises(WorkflowPermissionError):
 			req.save()
 
@@ -98,7 +98,7 @@ class TestPMRequestWorkflow(unittest.TestCase):
 		action_names = {a["action"] for a in draft["actions"]}
 		self.assertIn("PM Submit for Approval", action_names)
 		states = {r["state"] for r in rows}
-		self.assertIn(resolve_workflow_state_link("Waiting for Payment"), states)
+		self.assertIn(resolve_workflow_state_link("Finance Approved"), states)
 		self.assertNotIn(resolve_workflow_state_link("Approved"), states)
 
 	def test_pm_clearance_draft_allows_finance_review_action(self):
