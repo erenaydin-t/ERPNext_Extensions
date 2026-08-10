@@ -8,7 +8,7 @@
 ``has_permission`` on the document controller can **deny** access (return False); it never grants
 extra rights beyond Role Permissions / Workflow.
 
-Visibility model (v4.1.3):
+Visibility model (v4.1.4):
 
 - **Administrator** / **System Manager**: unrestricted PM visibility (break-glass).
 - **Operational PM Visibility Role** (PM Settings, default Petty Management Accountant): same
@@ -16,11 +16,12 @@ Visibility model (v4.1.3):
   system privileges. Does **not** bypass Workflow transition rules or DocPerm submit/cancel.
 - Everyone else: row filter = own Employee **or** stamped named approver fields.
 
-Workflow transition roles (independent of visibility settings):
+Functional workflow roles (v4.1.4 — only two):
 
-- Petty Management User — submit
-- Petty Management Manager — manager / CEO approve transitions
-- Petty Management Accountant — finance approve transitions
+- Petty Management User — submit + manager/CEO approve (plus stamped-user condition)
+- Petty Management Accountant — finance approve (plus stamped finance_approver)
+
+Legacy Manager / Admin / Auditor remain installed but deprecated (no unique DocPerm).
 """
 
 from __future__ import annotations

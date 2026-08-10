@@ -28,6 +28,8 @@ MODULES=(
   erpnext_extensions.petty_management.tests.test_pm_funding_history_report
   erpnext_extensions.petty_management.tests.test_pm_holder_ux
   erpnext_extensions.petty_management.tests.test_pm_multi_approval_integration
+  erpnext_extensions.petty_management.tests.test_pm_auto_skip_approvals
+  erpnext_extensions.petty_management.tests.test_pm_roles_autoskip_migration_v414
   erpnext_extensions.petty_management.tests.test_pm_narration
   erpnext_extensions.petty_management.tests.test_pm_opening_advance
   erpnext_extensions.petty_management.tests.test_pm_opening_advance_over_allocation
@@ -56,7 +58,7 @@ MODULES=(
   FAIL=0
   for m in "${MODULES[@]}"; do
     echo "--- MODULE $m ---"
-    if bench --site "$SITE" run-tests --module "$m" --skip-before-tests 2>&1; then
+    if bench --site "$SITE" run-tests --module "$m" --lightmode --skip-before-tests 2>&1; then
       echo "RESULT $m OK"
     else
       echo "RESULT $m FAIL"
@@ -75,11 +77,19 @@ MODULES=(
   )
   for s in "${SMOKE[@]}"; do
     echo "--- SMOKE $s ---"
-    if bench --site "$SITE" execute "$s" 2>&1; then
-      echo "RESULT $s OK"
-    else
+    out="$(bench --site "$SITE" execute "$s" 2>&1)" || true
+    echo "$out"
+    # Prefer structured status when present (bench execute may exit 0 on logical failure).
+    if echo "$out" | grep -Eq '"status"[[:space:]]*:[[:space:]]*"(FAILED|failed)"' \
+      || echo "$out" | grep -Eq '"pass"[[:space:]]*:[[:space:]]*false' \
+      || echo "$out" | grep -Eq '"ok"[[:space:]]*:[[:space:]]*false'; then
       echo "RESULT $s FAIL"
       FAIL=1
+    elif echo "$out" | grep -Eq 'Traceback \(most recent call last\)'; then
+      echo "RESULT $s FAIL"
+      FAIL=1
+    else
+      echo "RESULT $s OK"
     fi
   done
 

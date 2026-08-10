@@ -157,6 +157,7 @@
  "title_field": "employee_name",
  "permissions": [
   {
+   "role": "System Manager",
    "create": 1,
    "delete": 1,
    "email": 1,
@@ -164,40 +165,20 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "System Manager",
    "share": 1,
    "write": 1
   },
   {
-   "create": 1,
-   "delete": 1,
-   "read": 1,
-   "report": 1,
-   "role": "Petty Management Admin",
-   "write": 1
-  },
-  {
-   "create": 1,
-   "read": 1,
-   "report": 1,
-   "role": "Petty Management Manager",
-   "write": 1
-  },
-  {
-   "read": 1,
-   "report": 1,
    "role": "Petty Management Accountant",
+   "create": 1,
+   "read": 1,
+   "report": 1,
    "write": 1
   },
   {
+   "role": "Petty Management User",
    "read": 1,
-   "report": 1,
-   "role": "Petty Management User"
-  },
-  {
-   "read": 1,
-   "report": 1,
-   "role": "Petty Management Auditor"
+   "report": 1
   }
  ],
  "sort_field": "modified",

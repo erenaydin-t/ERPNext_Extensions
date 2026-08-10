@@ -105,8 +105,20 @@ def apply_pm_workflow(doc: Document | str, action: str) -> Document:
 
 		validate_pm_request_workflow_action(doc, action)
 	result = frappe_apply_workflow(doc, action)
+
+	# After an Approve, loop consecutive same-user Approve hops (never Reject / PE / Close).
+	from erpnext_extensions.petty_management.services.auto_skip_approvals import (
+		PM_AUTO_SKIP_APPROVE_ACTIONS,
+		apply_consecutive_auto_approvals,
+		refresh_pm_assignment_rules,
+	)
+
+	if action in PM_AUTO_SKIP_APPROVE_ACTIONS and result.doctype in ("PM Request", "PM Clearance"):
+		refresh_pm_assignment_rules(result)
+		result = apply_consecutive_auto_approvals(result)
+
 	# Keep business status aligned (submitted saves may skip full validate).
-	if doc.doctype == "PM Request":
+	if result.doctype == "PM Request":
 		from erpnext_extensions.petty_management.services.business_status_service import (
 			sync_pm_request_business_status,
 		)
@@ -115,7 +127,7 @@ def apply_pm_workflow(doc: Document | str, action: str) -> Document:
 		status = sync_pm_request_business_status(result)
 		frappe.db.set_value(result.doctype, result.name, "status", status, update_modified=False)
 		result.status = status
-	elif doc.doctype == "PM Clearance":
+	elif result.doctype == "PM Clearance":
 		from erpnext_extensions.petty_management.services.business_status_service import (
 			sync_pm_clearance_business_status,
 		)
