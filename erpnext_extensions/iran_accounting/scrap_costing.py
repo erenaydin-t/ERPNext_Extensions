@@ -100,29 +100,46 @@ def permit_scrap_zero_valuation(doc, method=None) -> None:
 		row.allow_zero_valuation_rate = 1
 
 
-def _integer_rate_pair(pool: float, good_qty: float, scrap_qty: float) -> tuple[float, float] | None:
-	"""Nearest pair of whole-unit rates whose product consumes ``pool`` exactly.
+def _integer_rate_pair(pool: float, good_qty: float, scrap_qty: float) -> tuple[float, float, float] | None:
+	"""Whole-unit rates for both output rows, nearest to parity.
 
-	The IRR ledger contract requires rate x qty to reconcile with no residual,
-	so a plain parity rate is unusable. Searching outward from parity finds the
-	closest exact split; ``None`` means no such split exists.
+	The IRR ledger contract compares each row's ``rate x qty`` against its
+	amount, so BOTH rates must be whole units — a remainder may never be dumped
+	into one row's amount. That makes an exact split of the pool impossible in
+	general: with 92 good and 2 scrap, ``92 x rate`` is always even, so an odd
+	pool can never be consumed exactly.
+
+	The search therefore minimises the leftover instead of demanding zero. The
+	leftover is bounded by ``gcd(good_qty, scrap_qty) / 2`` — a few rial against
+	hundreds of millions — and surfaces as the document's ordinary rounding
+	residual rather than as a distortion of either rate.
+
+	Returns ``(good_rate, scrap_rate, leftover)``.
 	"""
 	units = good_qty + scrap_qty
 	if units <= 0:
 		return None
 	parity = pool / units
 	target = round(parity)
-	# A solution, if one exists, repeats with the period of scrap_qty.
+	best = None
+	# One full period of scrap_qty covers every reachable residue.
 	span = int(scrap_qty) + 2
 	for offset in range(span + 1):
 		for candidate in (target,) if offset == 0 else (target - offset, target + offset):
+			if candidate <= 0:
+				continue
 			rest = pool - good_qty * candidate
 			if rest <= 0:
 				continue
-			scrap_rate = rest / scrap_qty
-			if abs(scrap_rate - round(scrap_rate)) < 1e-9:
-				return float(candidate), float(round(scrap_rate))
-	return None
+			scrap_rate = round(rest / scrap_qty)
+			if scrap_rate <= 0:
+				continue
+			leftover = pool - good_qty * candidate - scrap_qty * scrap_rate
+			if best is None or abs(leftover) < abs(best[2]):
+				best = (float(candidate), float(scrap_rate), float(leftover))
+			if leftover == 0:
+				return best
+	return best
 
 
 def _capitalized(row) -> float:
@@ -215,31 +232,14 @@ def allocate_scrap_absorbed_cost(doc, method=None) -> bool:
 		return True
 
 	pair = _integer_rate_pair(pool, good_qty, scrap_qty)
-	if pair is not None:
-		good_rate, scrap_rate = pair
-		_apply(good_rows[0], good_rate, currency)
-		for row in scrap_rows:
-			_apply(row, scrap_rate, currency)
-		return True
+	if pair is None:
+		return False
 
-	# No exact whole-unit pair exists — e.g. 90 good and 3 scrap over a pool that
-	# is not divisible by 3. Rather than block a legitimate document, price the
-	# scrap at parity and let the finished good absorb the remainder in its
-	# amount, which is the house rule elsewhere in this module: amount is
-	# authoritative, valuation_rate is derived, and a sub-unit residual lives in
-	# the rate rather than in the pool.
-	scrap_rate = float(round(pool / (good_qty + scrap_qty)))
-	scrap_total = 0.0
+	good_rate, scrap_rate, _leftover = pair
+	# Both rows keep rate x qty == amount exactly, which is what the ledger
+	# contract checks. Any leftover stays in the document's rounding residual
+	# and is absorbed by align_manufacture_finished_good_residual.
+	_apply(good_rows[0], good_rate, currency)
 	for row in scrap_rows:
 		_apply(row, scrap_rate, currency)
-		scrap_total += flt(row.basic_amount)
-
-	good = good_rows[0]
-	good_material = round_currency(pool - scrap_total, currency)
-	good.basic_amount = good_material
-	good.basic_rate = round_monetary_rate(good_material / good_qty, currency)
-	good.valuation_rate = integer_valuation_rate_from_amount(good_material, good_qty, currency)
-	# capitalised operating cost survives the split
-	good.amount = round_currency(good_material + _capitalized(good), currency)
-	good.allow_zero_valuation_rate = 0
 	return True
