@@ -105,8 +105,8 @@ class TestScrapAbsorbedCosting(unittest.TestCase):
 				_consumed("13100023", 200, 346357),  # batch 1248
 				_consumed("13100001", 250, 337526),  # alternative material
 				_output("30100291", 600, is_fg=1),
-				_output("Z13100023", 25, row_type="Scrap"),
-				_output("Z13100024", 10, row_type="Scrap"),
+				_output("30100291", 25, row_type="Scrap"),
+				_output("30100291", 10, row_type="Scrap"),
 				_consumed("13100023", 200, 346357),  # batch 1250
 			]
 		)
@@ -166,7 +166,7 @@ class TestScrapAbsorbedCosting(unittest.TestCase):
 			items=[
 				_consumed("13100023", 100, 346357),
 				_output("30100033", 95, is_fg=1),
-				_output("Z13100023", 3, row_type="Scrap", rate=999999),
+				_output("30100033", 3, row_type="Scrap", rate=999999),
 			]
 		)
 		with _irr():
@@ -217,7 +217,7 @@ class TestScrapAbsorbedCosting(unittest.TestCase):
 				_consumed("13100023", 100, 346357),
 				_output("30100033", 90, is_fg=1),
 				_output("BY-1", 5, row_type="By-Product", rate=100000),
-				_output("Z13100023", 3, row_type="Scrap"),
+				_output("30100033", 3, row_type="Scrap"),
 			]
 		)
 		with _irr():
@@ -241,7 +241,7 @@ class TestScrapAbsorbedCosting(unittest.TestCase):
 			items=[
 				_consumed("30100033", 95, 1986819),  # odd pool
 				_output("30100036", 92, is_fg=1),
-				_output("Z30100033", 2, row_type="Scrap"),
+				_output("30100036", 2, row_type="Scrap"),
 			]
 		)
 		pool = 95 * 1986819
@@ -272,7 +272,11 @@ class TestScrapAbsorbedCosting(unittest.TestCase):
 
 	# ---------------------------------------------------------------- multi-stage
 	def test_multi_stage_semi_finished_chain_each_stage_reconciles(self):
-		"""Stage N consumes stage N-1's semi-FG; every stage must balance."""
+		"""Stage N consumes stage N-1's semi-FG; every stage must balance.
+
+		The reject at each stage is a unit of that stage's OWN output, so it
+		carries the same item code as the good units.
+		"""
 		stages = [
 			("30100033", 95, [("13100023", 100, 346357), ("13100024", 100, 79422)], 3),
 			("30100036", 92, [("30100033", 95, 447000)], 2),
@@ -283,7 +287,7 @@ class TestScrapAbsorbedCosting(unittest.TestCase):
 				items=[_consumed(code, qty, rate) for code, qty, rate in consumed]
 				+ [
 					_output(fg_item, fg_qty, is_fg=1),
-					_output("Z" + fg_item, scrap_qty, row_type="Scrap"),
+					_output(fg_item, scrap_qty, row_type="Scrap"),
 				]
 			)
 			with _irr():
@@ -300,7 +304,7 @@ class TestScrapAbsorbedCosting(unittest.TestCase):
 			items=[
 				_consumed("13100023", 1000, 100000),
 				_output("30100291", 600, is_fg=1),
-				_output("Z13100023", 35, row_type="Scrap"),
+				_output("30100291", 35, row_type="Scrap"),
 			]
 		)
 		with _irr():
@@ -327,7 +331,7 @@ class TestScrapAbsorbedCosting(unittest.TestCase):
 				_consumed("13100024", 100, 79422),
 				_consumed("18000007", 2.8, 13800000),
 				fg,
-				_output("Z13100023", 3, row_type="Scrap"),
+				_output("30100033", 3, row_type="Scrap"),
 			]
 		)
 		with _irr():
@@ -350,7 +354,7 @@ class TestScrapAbsorbedCosting(unittest.TestCase):
 			items=[
 				_consumed("13100023", 100, 346357),
 				fg,
-				_output("Z13100023", 3, row_type="Scrap"),
+				_output("30100033", 3, row_type="Scrap"),
 			]
 		)
 		with _irr():
@@ -391,6 +395,46 @@ class TestScrapAbsorbedCosting(unittest.TestCase):
 		# and the unconsumed remainder stays negligible
 		leftover = 1466815501 - flt(fg.basic_amount) - flt(scrap.basic_amount)
 		self.assertLessEqual(abs(leftover), 3)
+
+	def test_rejected_component_keeps_its_issued_rate(self):
+		"""A rejected component is not a rejected product.
+
+		Reproduces MAT-STE-2026-04023: 650 good syringes of 30100023, 100 rejected
+		syringes, and 5 rejected stoppers (13100057) that were issued to WIP at
+		67,589. Pricing the stoppers at the product's absorbed rate booked them at
+		1,782,775 instead of 337,945 and took that difference out of the finished
+		good.
+		"""
+		fg = _output("30100023", 650, is_fg=1)
+		prod_reject = _output("30100023", 100, row_type="Scrap")
+		comp_reject = _output("13100057", 5, row_type="Scrap")
+		doc = _Doc(
+			items=[
+				_consumed("13100057", 750, 67589),
+				_consumed("13100058", 750, 290007),
+				fg,
+				prod_reject,
+				comp_reject,
+			]
+		)
+
+		with _irr():
+			self.assertTrue(allocate_scrap_absorbed_cost(doc))
+
+		# the component carries what it was issued at, not the product's cost
+		self.assertEqual(flt(comp_reject.basic_rate), 67589)
+		self.assertEqual(flt(comp_reject.basic_amount), 5 * 67589)
+		# the product's reject still absorbs the product's cost
+		self.assertAlmostEqual(
+			flt(prod_reject.basic_rate) / flt(fg.basic_rate), 1.0, places=3
+		)
+		self.assertNotEqual(flt(comp_reject.basic_rate), flt(prod_reject.basic_rate))
+		# and the component's value is NOT taken out of the finished good
+		pool = 750 * 67589 + 750 * 290007
+		consumed = flt(fg.basic_amount) + flt(prod_reject.basic_amount) + flt(
+			comp_reject.basic_amount
+		)
+		self.assertLessEqual(abs(pool - consumed), 100)
 
 	def test_quantities_and_identity_are_never_modified(self):
 		doc = self._staging_doc()
