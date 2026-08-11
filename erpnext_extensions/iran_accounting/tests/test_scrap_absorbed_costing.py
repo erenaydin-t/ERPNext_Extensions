@@ -358,6 +358,40 @@ class TestScrapAbsorbedCosting(unittest.TestCase):
 		scrap = doc.items[2]
 		self.assertEqual(flt(scrap.amount), flt(scrap.basic_amount))
 
+	def test_scrap_sharing_the_finished_good_item_code(self):
+		"""Rejected units now keep the product's own item code and GMP batch.
+
+		Reproduces MAT-STE-2026-03989 exactly: 690 good and 3 rejected units of
+		30200023 against a 1,466,815,501 pool. 693 does not divide it — the pool
+		is 1 mod 3 while 690a + 3b is always 0 mod 3 — so no integer pair
+		consumes it exactly and the leftover must land in the residual rather
+		than in either row's amount.
+		"""
+		fg = _output("30200023", 690, is_fg=1)
+		fg.additional_cost = 91370722
+		scrap = _output("30200023", 3, row_type="Scrap")
+		doc = _Doc(items=[_consumed("17000005", 1, 1466815501), fg, scrap])
+
+		with _irr():
+			self.assertTrue(allocate_scrap_absorbed_cost(doc))
+
+		# A reject cost the same as a good unit. The two rates are not bit
+		# identical because both must stay whole-rial and exact: the scrap rate
+		# absorbs the sub-unit remainder, here 27 rial on 2.1m, or 0.0013%.
+		self.assertLess(
+			abs(flt(fg.basic_rate) - flt(scrap.basic_rate)) / flt(fg.basic_rate),
+			1e-4,
+		)
+		# the identity the ledger contract checks, on BOTH rows
+		self.assertEqual(flt(fg.basic_rate) * 690, flt(fg.basic_amount))
+		self.assertEqual(flt(scrap.basic_rate) * 3, flt(scrap.basic_amount))
+		# capitalised operating cost is preserved, not redistributed
+		self.assertEqual(flt(fg.amount), flt(fg.basic_amount) + 91370722)
+		self.assertEqual(flt(scrap.amount), flt(scrap.basic_amount))
+		# and the unconsumed remainder stays negligible
+		leftover = 1466815501 - flt(fg.basic_amount) - flt(scrap.basic_amount)
+		self.assertLessEqual(abs(leftover), 3)
+
 	def test_quantities_and_identity_are_never_modified(self):
 		doc = self._staging_doc()
 		before = [(r.item_code, flt(r.qty), flt(r.transfer_qty)) for r in doc.items]
