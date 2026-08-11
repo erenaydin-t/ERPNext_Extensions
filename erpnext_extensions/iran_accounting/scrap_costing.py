@@ -34,6 +34,16 @@ Two application hooks close that gap:
     the consumed rows carry real amounts. It splits the pool and clears the
     permission flag again, so nothing zero-valued ever reaches the ledger.
 
+What absorbs the product's cost
+-------------------------------
+Only a reject that is a unit of the operation's OWN output — same item code as
+the finished good, or a legacy ``Z`` form of it. A Job Card's scrap table also
+carries rejected COMPONENTS (5 broken stoppers beside 100 rejected syringes),
+and those are material coming back out of WIP: they keep the rate they were
+issued at on the same document. Pricing a stopper at the product's absorbed
+rate overstated it roughly fivefold and took the difference out of the
+finished good.
+
 Scope
 -----
 Only rate/amount fields on the *output* rows are written. Quantities, batch
@@ -170,6 +180,45 @@ def _apply(row, rate: float, currency: str) -> None:
 	row.allow_zero_valuation_rate = 0
 
 
+def is_product_reject(row, finished_item: str | None) -> bool:
+	"""A reject that is a unit of THIS operation's own output.
+
+	Only these absorb the product's cost. A Job Card's scrap table also carries
+	rejected components — 5 stoppers alongside 100 rejected syringes — and a
+	stopper priced at the product's absorbed rate is overstated several fold
+	while the finished good is understated by the same amount.
+	"""
+	if not finished_item:
+		return False
+	item_code = row.get("item_code")
+	if item_code == finished_item:
+		return True
+	# a legacy Z form of the same product (Z30100023 -> 30100023)
+	return frappe.db.get_value("Item", item_code, "custom_main_item_code") == finished_item
+
+
+def _issued_rate(doc, item_code: str) -> float:
+	"""The rate this material left WIP at on this very document.
+
+	A rejected component is the same material coming back out, so it carries
+	the value it was issued at. Nothing is invented: if the document does not
+	consume that item, no rate is returned and ERPNext's own figure stands.
+	"""
+	qty = 0.0
+	amount = 0.0
+	for row in doc.get("items") or []:
+		if not row.get("s_warehouse") or row.get("t_warehouse"):
+			continue
+		if row.get("item_code") != item_code:
+			continue
+		value = row.get("transfer_qty")
+		if value in (None, ""):
+			value = row.get("qty")
+		qty += flt(value)
+		amount += flt(row.get("basic_amount"))
+	return (amount / qty) if qty > 0 else 0.0
+
+
 def allocate_scrap_absorbed_cost(doc, method=None) -> bool:
 	"""Split the manufacturing cost pool between finished good and scrap.
 
@@ -186,8 +235,8 @@ def allocate_scrap_absorbed_cost(doc, method=None) -> bool:
 		return False
 
 	rows = doc.get("items") or []
-	scrap_rows = [row for row in rows if is_scrap_row(row)]
-	if not scrap_rows:
+	rejects = [row for row in rows if is_scrap_row(row)]
+	if not rejects:
 		return False
 
 	good_rows = [row for row in rows if row.get("is_finished_item") and row.get("t_warehouse")]
@@ -195,6 +244,24 @@ def allocate_scrap_absorbed_cost(doc, method=None) -> bool:
 		# Multi-FG output is a different allocation question (co-products carry
 		# their own basis); leave ERPNext's own numbers alone.
 		return False
+
+	finished_item = good_rows[0].get("item_code")
+	scrap_rows = [row for row in rejects if is_product_reject(row, finished_item)]
+	component_rows = [row for row in rejects if row not in scrap_rows]
+
+	# A rejected component is material coming back out of WIP, so it keeps the
+	# value it was issued at rather than a share of the product's cost. Priced
+	# here so it is removed from the pool below like any other incoming row.
+	currency_code = get_company_currency(doc.company)
+	for row in component_rows:
+		rate = _issued_rate(doc, row.get("item_code"))
+		if rate > 0:
+			_apply(row, round_monetary_rate(rate, currency_code), currency_code)
+
+	if not scrap_rows:
+		# Component rejects only: nothing absorbs the product's cost, and the
+		# finished good keeps every rial ERPNext gave it.
+		return bool(component_rows)
 
 	def _qty(row) -> float:
 		value = row.get("transfer_qty")
@@ -210,8 +277,8 @@ def allocate_scrap_absorbed_cost(doc, method=None) -> bool:
 	# The pool is material only. Capitalised operating cost stays on the row
 	# ERPNext put it on and is never redistributed here.
 	outgoing = sum(flt(row.get("basic_amount")) for row in rows if row.get("s_warehouse"))
-	# Co-Product / By-Product / Additional Finished Good keep the allocation
-	# ERPNext gave them and are removed from the pool before it is split.
+	# Co-Product / By-Product / Additional Finished Good and rejected components
+	# keep their own allocation and are removed from the pool before it is split.
 	other_incoming = sum(
 		flt(row.get("basic_amount"))
 		for row in rows
