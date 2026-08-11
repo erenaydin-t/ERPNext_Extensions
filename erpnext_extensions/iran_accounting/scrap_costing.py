@@ -226,7 +226,7 @@ def _issued_rate(doc, item_code: str) -> float:
 	return (amount / qty) if qty > 0 else 0.0
 
 
-def _spread_operating_cost(product_rows, currency) -> None:
+def _spread_operating_cost(product_rows, currency, leftover: float = 0.0) -> None:
 	"""Share capitalised operating cost over every unit that was processed.
 
 	ERPNext's ``distribute_additional_costs`` puts operating cost only on rows
@@ -242,17 +242,35 @@ def _spread_operating_cost(product_rows, currency) -> None:
 	"""
 	total = sum(flt(row.get("additional_cost")) for row in product_rows)
 	units = sum(_row_qty(row) for row in product_rows)
-	if total <= 0 or units <= 0:
+	if units <= 0:
 		return
 
-	# The finished good takes the rounding remainder, so the total is preserved
-	# to the rial rather than drifting by the number of scrap rows.
-	assigned = 0.0
-	for row in product_rows[1:]:
-		share = round_currency(total * _row_qty(row) / units, currency)
-		row.additional_cost = share
-		assigned += share
-	product_rows[0].additional_cost = round_currency(total - assigned, currency)
+	if total > 0:
+		# The finished good takes the rounding remainder, so the total is
+		# preserved to the rial rather than drifting by the number of scrap rows.
+		assigned = 0.0
+		for row in product_rows[1:]:
+			share = round_currency(total * _row_qty(row) / units, currency)
+			row.additional_cost = share
+			assigned += share
+		product_rows[0].additional_cost = round_currency(total - assigned, currency)
+
+	# Absorb the integer-rate leftover here rather than letting it reach the
+	# ledger. Whole-rial rates cannot consume the pool exactly — with 650 good
+	# and 100 rejected units every reachable total is a multiple of gcd = 50
+	# while the pool is 31 mod 50, so 19 rial is the closest any rate pair can
+	# come. Moving a rate to close that gap would misstate a unit cost.
+	#
+	# `additional_cost` is the one field the ledger contract leaves free
+	# (`amount = basic_amount + additional_cost + LCV`, and `basic_amount`
+	# stays exactly `qty x integer rate`). Nudging it by the leftover makes
+	# incoming equal outgoing + capitalised to the rial, so nothing lands in
+	# Stock Adjustment; the effect is simply that those few rial of operating
+	# cost stay expensed instead of being capitalised into inventory.
+	if leftover:
+		absorbed = flt(product_rows[0].get("additional_cost")) + leftover
+		if absorbed >= 0:
+			product_rows[0].additional_cost = round_currency(absorbed, currency)
 
 	for row in product_rows:
 		row.amount = round_currency(
@@ -345,12 +363,12 @@ def allocate_scrap_absorbed_cost(doc, method=None) -> bool:
 	if pair is None:
 		return False
 
-	good_rate, scrap_rate, _leftover = pair
+	good_rate, scrap_rate, leftover = pair
 	# Both rows keep rate x qty == amount exactly, which is what the ledger
 	# contract checks. Any leftover stays in the document's rounding residual
 	# and is absorbed by align_manufacture_finished_good_residual.
 	_apply(good_rows[0], good_rate, currency)
 	for row in scrap_rows:
 		_apply(row, scrap_rate, currency)
-	_spread_operating_cost([good_rows[0]] + scrap_rows, currency)
+	_spread_operating_cost([good_rows[0]] + scrap_rows, currency, leftover)
 	return True
