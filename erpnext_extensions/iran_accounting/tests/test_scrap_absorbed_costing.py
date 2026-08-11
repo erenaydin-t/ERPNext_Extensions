@@ -280,6 +280,53 @@ class TestScrapAbsorbedCosting(unittest.TestCase):
 		# units contributed cost but no output
 		self.assertGreater(flt(fg.basic_rate), 100000)
 
+	# ------------------------------------------------------- capitalised cost
+	def test_capitalised_operating_cost_is_never_wiped(self):
+		"""Real products capitalise Work Order operating cost onto the FG row.
+
+		Reproduces the five-stage staging failure: materials 90,573,834 with
+		91,370,722 of operating cost. Overwriting ``amount`` with rate x qty
+		discarded the operating cost and tripped the ledger contract.
+		"""
+		fg = _output("30100033", 95, is_fg=1)
+		fg.additional_cost = 91370722
+		doc = _Doc(
+			items=[
+				_consumed("13100023", 100, 346357),
+				_consumed("13100024", 100, 79422),
+				_consumed("18000007", 2.8, 13800000),
+				fg,
+				_output("Z13100023", 3, row_type="Scrap"),
+			]
+		)
+		with _irr():
+			self.assertTrue(allocate_scrap_absorbed_cost(doc))
+
+		materials = sum(flt(r.basic_amount) for r in doc.items if r.get("s_warehouse"))
+		scrap = doc.items[4]
+		# material pool is split between the two output rows
+		self.assertEqual(flt(fg.basic_amount) + flt(scrap.basic_amount), materials)
+		# capitalisation survives and rides on amount, not basic_amount
+		self.assertEqual(flt(fg.amount), flt(fg.basic_amount) + 91370722)
+		# the identity the ledger contract enforces
+		incoming = sum(flt(r.amount) for r in doc.items if r.get("t_warehouse"))
+		self.assertEqual(incoming, materials + 91370722)
+
+	def test_scrap_carries_no_capitalised_cost(self):
+		fg = _output("30100033", 95, is_fg=1)
+		fg.additional_cost = 1000000
+		doc = _Doc(
+			items=[
+				_consumed("13100023", 100, 346357),
+				fg,
+				_output("Z13100023", 3, row_type="Scrap"),
+			]
+		)
+		with _irr():
+			allocate_scrap_absorbed_cost(doc)
+		scrap = doc.items[2]
+		self.assertEqual(flt(scrap.amount), flt(scrap.basic_amount))
+
 	def test_quantities_and_identity_are_never_modified(self):
 		doc = self._staging_doc()
 		before = [(r.item_code, flt(r.qty), flt(r.transfer_qty)) for r in doc.items]
