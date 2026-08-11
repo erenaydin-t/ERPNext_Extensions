@@ -125,13 +125,29 @@ def _integer_rate_pair(pool: float, good_qty: float, scrap_qty: float) -> tuple[
 	return None
 
 
+def _capitalized(row) -> float:
+	"""Operating cost and landed cost ERPNext capitalises onto an output row."""
+	return flt(row.get("additional_cost")) + flt(row.get("landed_cost_voucher_amount"))
+
+
 def _apply(row, rate: float, currency: str) -> None:
+	"""Set the material valuation, preserving anything capitalised onto the row.
+
+	``basic_amount`` is the material share; ``amount`` additionally carries the
+	capitalised operating cost, which keeps the document's economic identity
+
+	    incoming = outgoing + capitalised
+
+	intact. Overwriting ``amount`` with rate x qty would silently discard the
+	Work Order's operating cost — on a real product that is tens of millions of
+	rial and trips the ledger contract.
+	"""
 	qty = flt(row.get("transfer_qty") if row.get("transfer_qty") not in (None, "") else row.get("qty"))
-	amount = round_currency(rate * qty, currency)
+	material = round_currency(rate * qty, currency)
 	row.basic_rate = rate
 	row.valuation_rate = rate
-	row.basic_amount = amount
-	row.amount = amount
+	row.basic_amount = material
+	row.amount = round_currency(material + _capitalized(row), currency)
 	# A real rate exists now, so the permission granted in before_validate is
 	# withdrawn rather than left to mask genuine valuation errors later.
 	row.allow_zero_valuation_rate = 0
@@ -174,11 +190,13 @@ def allocate_scrap_absorbed_cost(doc, method=None) -> bool:
 	if good_qty <= 0 or scrap_qty <= 0:
 		return False
 
-	outgoing = sum(flt(row.get("amount")) for row in rows if row.get("s_warehouse"))
+	# The pool is material only. Capitalised operating cost stays on the row
+	# ERPNext put it on and is never redistributed here.
+	outgoing = sum(flt(row.get("basic_amount")) for row in rows if row.get("s_warehouse"))
 	# Co-Product / By-Product / Additional Finished Good keep the allocation
 	# ERPNext gave them and are removed from the pool before it is split.
 	other_incoming = sum(
-		flt(row.get("amount"))
+		flt(row.get("basic_amount"))
 		for row in rows
 		if _is_incoming(row) and row not in scrap_rows and row is not good_rows[0]
 	)
@@ -214,13 +232,14 @@ def allocate_scrap_absorbed_cost(doc, method=None) -> bool:
 	scrap_total = 0.0
 	for row in scrap_rows:
 		_apply(row, scrap_rate, currency)
-		scrap_total += flt(row.amount)
+		scrap_total += flt(row.basic_amount)
 
 	good = good_rows[0]
-	good_amount = round_currency(pool - scrap_total, currency)
-	good.basic_amount = good_amount
-	good.amount = good_amount
-	good.basic_rate = round_monetary_rate(good_amount / good_qty, currency)
-	good.valuation_rate = integer_valuation_rate_from_amount(good_amount, good_qty, currency)
+	good_material = round_currency(pool - scrap_total, currency)
+	good.basic_amount = good_material
+	good.basic_rate = round_monetary_rate(good_material / good_qty, currency)
+	good.valuation_rate = integer_valuation_rate_from_amount(good_material, good_qty, currency)
+	# capitalised operating cost survives the split
+	good.amount = round_currency(good_material + _capitalized(good), currency)
 	good.allow_zero_valuation_rate = 0
 	return True
