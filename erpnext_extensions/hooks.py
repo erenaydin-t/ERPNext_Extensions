@@ -94,6 +94,11 @@ doctype_js = {
 		"consignment_stock/public/js/stock_entry_consignment.js",
 		"consignment_stock/public/js/stock_entry_material_loan.js",
 	],
+	# v16 hides the stock Corrective Job Card button whenever the card declares
+	# a finished_good, which is every card under semi-finished goods tracking.
+	"Job Card": [
+		"stock_extensions/public/js/job_card_corrective_operation.js",
+	],
 	"Stock Entry Type": [
 		"consignment_stock/public/js/stock_entry_type_consignment.js",
 		"consignment_stock/public/js/stock_entry_type_material_loan.js",
