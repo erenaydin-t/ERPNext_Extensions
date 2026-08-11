@@ -152,6 +152,13 @@ def _integer_rate_pair(pool: float, good_qty: float, scrap_qty: float) -> tuple[
 	return best
 
 
+def _row_qty(row) -> float:
+	value = row.get("transfer_qty")
+	if value in (None, ""):
+		value = row.get("qty")
+	return flt(value)
+
+
 def _capitalized(row) -> float:
 	"""Operating cost and landed cost ERPNext capitalises onto an output row."""
 	return flt(row.get("additional_cost")) + flt(row.get("landed_cost_voucher_amount"))
@@ -219,6 +226,39 @@ def _issued_rate(doc, item_code: str) -> float:
 	return (amount / qty) if qty > 0 else 0.0
 
 
+def _spread_operating_cost(product_rows, currency) -> None:
+	"""Share capitalised operating cost over every unit that was processed.
+
+	ERPNext's ``distribute_additional_costs`` puts operating cost only on rows
+	flagged ``is_finished_item`` and explicitly zeroes it everywhere else, so a
+	rejected unit absorbs none of it. But a reject ran through the same
+	operation for the same time as a good one — that is the whole basis of
+	absorbed costing — so it carries the same operating cost per unit.
+
+	The total is unchanged, only its distribution, which keeps the document's
+	identity ``incoming = outgoing + capitalised`` intact. Only rejects OF THE
+	PRODUCT share it; a rejected component never entered the operation as a
+	unit of output and keeps whatever it already had.
+	"""
+	total = sum(flt(row.get("additional_cost")) for row in product_rows)
+	units = sum(_row_qty(row) for row in product_rows)
+	if total <= 0 or units <= 0:
+		return
+
+	# The finished good takes the rounding remainder, so the total is preserved
+	# to the rial rather than drifting by the number of scrap rows.
+	assigned = 0.0
+	for row in product_rows[1:]:
+		share = round_currency(total * _row_qty(row) / units, currency)
+		row.additional_cost = share
+		assigned += share
+	product_rows[0].additional_cost = round_currency(total - assigned, currency)
+
+	for row in product_rows:
+		row.amount = round_currency(
+			flt(row.get("basic_amount")) + _capitalized(row), currency
+		)
+
 def allocate_scrap_absorbed_cost(doc, method=None) -> bool:
 	"""Split the manufacturing cost pool between finished good and scrap.
 
@@ -274,8 +314,10 @@ def allocate_scrap_absorbed_cost(doc, method=None) -> bool:
 	if good_qty <= 0 or scrap_qty <= 0:
 		return False
 
-	# The pool is material only. Capitalised operating cost stays on the row
-	# ERPNext put it on and is never redistributed here.
+	# The material pool. Capitalised operating cost is not mixed in here — it
+	# keeps ERPNext's own semantics of riding on `amount` rather than
+	# `basic_amount` — but it IS shared across the processed units afterwards
+	# by _spread_operating_cost.
 	outgoing = sum(flt(row.get("basic_amount")) for row in rows if row.get("s_warehouse"))
 	# Co-Product / By-Product / Additional Finished Good and rejected components
 	# keep their own allocation and are removed from the pool before it is split.
@@ -296,6 +338,7 @@ def allocate_scrap_absorbed_cost(doc, method=None) -> bool:
 		_apply(good_rows[0], rate, currency)
 		for row in scrap_rows:
 			_apply(row, rate, currency)
+		_spread_operating_cost([good_rows[0]] + scrap_rows, currency)
 		return True
 
 	pair = _integer_rate_pair(pool, good_qty, scrap_qty)
@@ -309,4 +352,5 @@ def allocate_scrap_absorbed_cost(doc, method=None) -> bool:
 	_apply(good_rows[0], good_rate, currency)
 	for row in scrap_rows:
 		_apply(row, scrap_rate, currency)
+	_spread_operating_cost([good_rows[0]] + scrap_rows, currency)
 	return True
