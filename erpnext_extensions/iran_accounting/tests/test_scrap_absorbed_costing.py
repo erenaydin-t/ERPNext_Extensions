@@ -226,7 +226,38 @@ class TestScrapAbsorbedCosting(unittest.TestCase):
 		self.assertEqual(by_product.amount, 500000, "by-product allocation must be preserved")
 		pool = 34635700 - 500000
 		fg, scrap = doc.items[1], doc.items[3]
-		self.assertEqual(flt(fg.amount) + flt(scrap.amount), pool)
+		# 90 good and 3 scrap cannot consume this pool exactly; the leftover is
+		# bounded by gcd(90, 3) / 2 and shows up as an ordinary rounding residual
+		self.assertLessEqual(abs(flt(fg.amount) + flt(scrap.amount) - pool), 2)
+
+	def test_both_rows_stay_exact_when_no_exact_split_exists(self):
+		"""Stage 2 of the five-stage product: 92 good, 2 scrap, odd pool.
+
+		92 x rate is always even, so an odd pool can never be consumed exactly.
+		The ledger contract checks rate x qty against each row's amount, so a
+		remainder may never be parked in one row — both must stay exact.
+		"""
+		doc = _Doc(
+			items=[
+				_consumed("30100033", 95, 1986819),  # odd pool
+				_output("30100036", 92, is_fg=1),
+				_output("Z30100033", 2, row_type="Scrap"),
+			]
+		)
+		pool = 95 * 1986819
+		self.assertEqual(pool % 2, 1, "fixture must produce an odd pool")
+		with _irr():
+			self.assertTrue(allocate_scrap_absorbed_cost(doc))
+
+		fg, scrap = doc.items[1], doc.items[2]
+		for row, qty in ((fg, 92), (scrap, 2)):
+			self.assertEqual(
+				flt(row.basic_amount),
+				flt(row.basic_rate) * qty,
+				"rate x qty must reconcile exactly on every row",
+			)
+			self.assertEqual(flt(row.basic_rate), int(flt(row.basic_rate)))
+		self.assertLessEqual(abs(flt(fg.basic_amount) + flt(scrap.basic_amount) - pool), 1)
 
 	def test_non_manufacture_purpose_is_ignored(self):
 		doc = self._staging_doc()
