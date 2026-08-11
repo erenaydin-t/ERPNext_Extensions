@@ -341,13 +341,26 @@ class TestScrapAbsorbedCosting(unittest.TestCase):
 		scrap = doc.items[4]
 		# material pool is split between the two output rows
 		self.assertEqual(flt(fg.basic_amount) + flt(scrap.basic_amount), materials)
-		# capitalisation survives and rides on amount, not basic_amount
-		self.assertEqual(flt(fg.amount), flt(fg.basic_amount) + 91370722)
+		# capitalisation survives in total and rides on amount, not basic_amount
+		capitalised = flt(fg.additional_cost) + flt(scrap.additional_cost)
+		self.assertEqual(capitalised, 91370722)
+		# it is shared per unit, because the reject ran through the operation too
+		self.assertAlmostEqual(
+			flt(scrap.additional_cost), 91370722 * 3 / 98, delta=1
+		)
 		# the identity the ledger contract enforces
 		incoming = sum(flt(r.amount) for r in doc.items if r.get("t_warehouse"))
 		self.assertEqual(incoming, materials + 91370722)
 
-	def test_scrap_carries_no_capitalised_cost(self):
+	def test_product_reject_carries_its_share_of_operating_cost(self):
+		"""A reject occupied the operation exactly as a good unit did.
+
+		ERPNext puts operating cost only on ``is_finished_item`` rows and zeroes
+		it elsewhere, which loaded 100% of it onto the good units. On
+		MFG-WO-2026-00374 that operation is planned at 730,965,776 — pricing it
+		across 650 good units instead of the 750 actually processed overstates
+		the finished good by about 15%.
+		"""
 		fg = _output("30100033", 95, is_fg=1)
 		fg.additional_cost = 1000000
 		doc = _Doc(
@@ -360,7 +373,12 @@ class TestScrapAbsorbedCosting(unittest.TestCase):
 		with _irr():
 			allocate_scrap_absorbed_cost(doc)
 		scrap = doc.items[2]
-		self.assertEqual(flt(scrap.amount), flt(scrap.basic_amount))
+		# shared by unit, and the total is unchanged
+		self.assertEqual(flt(fg.additional_cost) + flt(scrap.additional_cost), 1000000)
+		self.assertAlmostEqual(flt(scrap.additional_cost), 1000000 * 3 / 98, delta=1)
+		self.assertEqual(
+			flt(scrap.amount), flt(scrap.basic_amount) + flt(scrap.additional_cost)
+		)
 
 	def test_scrap_sharing_the_finished_good_item_code(self):
 		"""Rejected units now keep the product's own item code and GMP batch.
@@ -389,9 +407,16 @@ class TestScrapAbsorbedCosting(unittest.TestCase):
 		# the identity the ledger contract checks, on BOTH rows
 		self.assertEqual(flt(fg.basic_rate) * 690, flt(fg.basic_amount))
 		self.assertEqual(flt(scrap.basic_rate) * 3, flt(scrap.basic_amount))
-		# capitalised operating cost is preserved, not redistributed
-		self.assertEqual(flt(fg.amount), flt(fg.basic_amount) + 91370722)
-		self.assertEqual(flt(scrap.amount), flt(scrap.basic_amount))
+		# capitalised operating cost is preserved in total and shared per unit
+		self.assertEqual(
+			flt(fg.additional_cost) + flt(scrap.additional_cost), 91370722
+		)
+		self.assertEqual(
+			flt(fg.amount), flt(fg.basic_amount) + flt(fg.additional_cost)
+		)
+		self.assertEqual(
+			flt(scrap.amount), flt(scrap.basic_amount) + flt(scrap.additional_cost)
+		)
 		# and the unconsumed remainder stays negligible
 		leftover = 1466815501 - flt(fg.basic_amount) - flt(scrap.basic_amount)
 		self.assertLessEqual(abs(leftover), 3)
