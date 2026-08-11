@@ -17,6 +17,10 @@ from erpnext_extensions.iran_accounting.rounding import (
 	round_currency,
 	round_stock_entry_totals,
 )
+from erpnext_extensions.iran_accounting.scrap_costing import (
+	allocate_scrap_absorbed_cost,
+	permit_scrap_zero_valuation,
+)
 from erpnext_extensions.iran_accounting.zero_value_transfer import ZERO_VALUE_TRANSFER_STOCK_ENTRY_PURPOSES
 
 
@@ -48,6 +52,9 @@ def before_validate_stock_entry(doc, method=None):
 	from erpnext_extensions.iran_accounting.e2e_bootstrap import apply_stock_entry_site_defaults
 
 	apply_stock_entry_site_defaults(doc)
+	# Unpriced scrap is otherwise rejected inside ERPNext's own validate(),
+	# before the absorbed cost can be computed at all. See scrap_costing.
+	permit_scrap_zero_valuation(doc)
 
 
 def validate_stock_entry(doc, method=None):
@@ -58,6 +65,10 @@ def validate_stock_entry(doc, method=None):
 		return
 	align_stock_entry_item_amounts(doc)
 	round_stock_entry_totals(doc)
+	# Runs after the controller's validate(), so the consumed rows are priced and
+	# the cost pool is real. Must precede the residual alignment, which reads the
+	# scrap amounts produced here.
+	allocate_scrap_absorbed_cost(doc)
 	align_manufacture_finished_good_residual(doc)
 	from erpnext_extensions.iran_accounting.domain.irr_rounding_residual import (
 		assert_round_off_ready_if_needed,
