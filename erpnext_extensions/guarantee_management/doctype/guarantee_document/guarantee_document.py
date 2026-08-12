@@ -23,6 +23,7 @@ class GuaranteeDocument(Document):
 		self._validate_required_core()
 		self._normalize_party_fields()
 		self._validate_party()
+		self._validate_issuing_bank()
 		self._validate_amount()
 		self._validate_document_no()
 		self._validate_status_dates()
@@ -60,6 +61,19 @@ class GuaranteeDocument(Document):
 				frappe.throw(
 					_("Party is required when Party Type is not Other."), title=_("Guarantee Document")
 				)
+
+	def _validate_issuing_bank(self) -> None:
+		"""Issuing Bank is required for Bank Guarantee only (server-enforced).
+
+		Does not depend on party_type. Never auto-copied from Party.
+		"""
+		if (self.guarantee_type or "").strip() != "Bank Guarantee":
+			return
+		if not (self.issuing_bank or "").strip():
+			frappe.throw(
+				_("Issuing Bank is required when Guarantee Type is Bank Guarantee."),
+				title=_("Guarantee Document"),
+			)
 
 	def _validate_amount(self) -> None:
 		if self.amount is None or self.amount == "":
