@@ -15,20 +15,9 @@
   "section_overview",
   "naming_series",
   "company",
-  "guarantee_direction",
-  "column_break_ov1",
   "status",
-  "guarantee_type",
-  "amount",
-  "currency",
-  "section_document",
-  "document_no",
-  "document_date",
-  "column_break_doc1",
-  "expiry_date",
-  "physical_status",
-  "section_attachment",
-  "attachment",
+  "column_break_ov1",
+  "guarantee_direction",
   "section_party",
   "party_type",
   "party",
@@ -36,6 +25,18 @@
   "column_break_party1",
   "received_from",
   "returned_to",
+  "section_instrument",
+  "guarantee_type",
+  "issuing_bank",
+  "amount",
+  "currency",
+  "column_break_inst1",
+  "document_no",
+  "document_date",
+  "expiry_date",
+  "physical_status",
+  "section_attachment",
+  "attachment",
   "section_custody",
   "custody_location",
   "column_break_cust1",
@@ -74,15 +75,10 @@
   {
    "fieldname": "company",
    "fieldtype": "Link",
-   "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Company",
    "options": "Company",
    "reqd": 1
-  },
-  {
-   "fieldname": "column_break_ov1",
-   "fieldtype": "Column Break"
   },
   {
    "default": "Draft",
@@ -95,6 +91,10 @@
    "reqd": 1
   },
   {
+   "fieldname": "column_break_ov1",
+   "fieldtype": "Column Break"
+  },
+  {
    "fieldname": "guarantee_direction",
    "fieldtype": "Select",
    "in_list_view": 1,
@@ -104,75 +104,9 @@
    "reqd": 1
   },
   {
-   "fieldname": "guarantee_type",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "in_standard_filter": 1,
-   "label": "Guarantee Type",
-   "options": "Cheque\nPromissory Note\nBank Guarantee\nContract Guarantee\nOther",
-   "reqd": 1
-  },
-  {
-   "fieldname": "amount",
-   "fieldtype": "Currency",
-   "in_list_view": 1,
-   "label": "Amount",
-   "options": "currency"
-  },
-  {
-   "fieldname": "currency",
-   "fieldtype": "Link",
-   "label": "Currency",
-   "options": "Currency"
-  },
-  {
-   "fieldname": "section_document",
-   "fieldtype": "Section Break",
-   "label": "Document Information"
-  },
-  {
-   "fieldname": "document_no",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Document No."
-  },
-  {
-   "fieldname": "document_date",
-   "fieldtype": "Date",
-   "label": "Document Date"
-  },
-  {
-   "fieldname": "column_break_doc1",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "expiry_date",
-   "fieldtype": "Date",
-   "in_list_view": 1,
-   "in_standard_filter": 1,
-   "label": "Expiry Date"
-  },
-  {
-   "default": "Original",
-   "fieldname": "physical_status",
-   "fieldtype": "Select",
-   "label": "Document Condition",
-   "options": "Original\nCopy\nDigital Only\nMissing"
-  },
-  {
-   "fieldname": "section_attachment",
-   "fieldtype": "Section Break",
-   "label": " "
-  },
-  {
-   "fieldname": "attachment",
-   "fieldtype": "Attach",
-   "label": "Scan / Attachment"
-  },
-  {
    "fieldname": "section_party",
    "fieldtype": "Section Break",
-   "label": "Counterparty"
+   "label": "Guarantee Party"
   },
   {
    "fieldname": "party_type",
@@ -180,7 +114,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Party Type",
-   "options": "Customer\nSupplier\nEmployee\nShareholder\nOther",
+   "options": "Customer\nSupplier\nEmployee\nShareholder\nBank\nOther",
    "reqd": 1
   },
   {
@@ -215,6 +149,80 @@
    "label": "Returned To"
   },
   {
+   "fieldname": "section_instrument",
+   "fieldtype": "Section Break",
+   "label": "Instrument Information"
+  },
+  {
+   "fieldname": "guarantee_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Guarantee Type",
+   "options": "Cheque\nPromissory Note\nBank Guarantee\nContract Guarantee\nOther",
+   "reqd": 1
+  },
+  {
+   "fieldname": "issuing_bank",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Issuing Bank",
+   "mandatory_depends_on": "eval:doc.guarantee_type=='Bank Guarantee'",
+   "options": "Bank"
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount",
+   "options": "currency"
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency"
+  },
+  {
+   "fieldname": "column_break_inst1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "document_no",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Document No."
+  },
+  {
+   "fieldname": "document_date",
+   "fieldtype": "Date",
+   "label": "Document Date"
+  },
+  {
+   "fieldname": "expiry_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Expiry Date"
+  },
+  {
+   "default": "Original",
+   "fieldname": "physical_status",
+   "fieldtype": "Select",
+   "label": "Document Condition",
+   "options": "Original\nCopy\nDigital Only\nMissing"
+  },
+  {
+   "fieldname": "section_attachment",
+   "fieldtype": "Section Break",
+   "label": " "
+  },
+  {
+   "fieldname": "attachment",
+   "fieldtype": "Attach",
+   "label": "Scan / Attachment"
+  },
+  {
    "fieldname": "section_custody",
    "fieldtype": "Section Break",
    "label": "Custody & Responsibility"
@@ -222,7 +230,6 @@
   {
    "fieldname": "custody_location",
    "fieldtype": "Data",
-   "in_list_view": 1,
    "label": "Custody Location"
   },
   {
@@ -329,7 +336,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 0,
  "links": [],
- "modified": "2026-05-17 00:00:00.000000",
+ "modified": "2026-08-12 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Guarantee Management",
  "name": "Guarantee Document",
@@ -375,8 +382,8 @@
  ],
  "row_format": "Dynamic",
  "search_fields": "document_no,party,other_party_name,custody_location,purpose",
- "sort_field": "modified",
- "sort_order": "DESC",
+ "sort_field": "expiry_date",
+ "sort_order": "ASC",
  "states": [],
  "title_field": "document_no",
  "track_changes": 1

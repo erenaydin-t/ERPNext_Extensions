@@ -21,11 +21,14 @@ frappe.ui.form.on("Guarantee Document", {
 		frm.$wrapper.addClass("guarantee-document-form");
 		gd_collapse_optional_sections(frm);
 		gd_apply_layout_classes(frm);
+		gd_setup_party_query(frm);
 	},
 
 	refresh(frm) {
 		gd_set_form_intro(frm);
 		gd_apply_layout_classes(frm);
+		gd_setup_party_query(frm);
+		gd_set_party_description(frm);
 	},
 
 	company(frm) {
@@ -44,14 +47,82 @@ frappe.ui.form.on("Guarantee Document", {
 	},
 
 	party_type(frm) {
-		if (frm.doc.party_type === "Other" && frm.doc.party) {
+		// Always clear incompatible party values on type change.
+		if (frm.doc.party) {
 			frm.set_value("party", "");
 		}
-		if (frm.doc.party_type !== "Other" && frm.doc.other_party_name) {
+		if (frm.doc.other_party_name) {
 			frm.set_value("other_party_name", "");
 		}
+		gd_setup_party_query(frm);
+		gd_set_party_description(frm);
+	},
+
+	party(frm) {
+		gd_set_party_description(frm);
+	},
+
+	other_party_name(frm) {
+		gd_set_party_description(frm);
+	},
+
+	guarantee_type(frm) {
+		frm.toggle_reqd("issuing_bank", frm.doc.guarantee_type === "Bank Guarantee");
 	},
 });
+
+function gd_setup_party_query(frm) {
+	frm.set_query("party", function () {
+		const pt = (frm.doc.party_type || "").trim();
+		if (!pt || pt === "Other") {
+			return {};
+		}
+		return {
+			query:
+				"erpnext_extensions.guarantee_management.services.party_display.party_search",
+			filters: {
+				party_type: pt,
+			},
+		};
+	});
+}
+
+function gd_set_party_description(frm) {
+	const pt = (frm.doc.party_type || "").trim();
+	if (pt === "Other") {
+		frm.set_df_property("party", "description", "");
+		return;
+	}
+	if (!pt || !frm.doc.party) {
+		frm.set_df_property("party", "description", "");
+		return;
+	}
+	frappe.call({
+		method:
+			"erpnext_extensions.guarantee_management.services.party_display.batch_resolve_party_displays_for_list",
+		args: {
+			refs: [
+				{
+					party_type: pt,
+					party: frm.doc.party,
+					other_party_name: frm.doc.other_party_name || "",
+				},
+			],
+		},
+		callback(r) {
+			if (!r || !r.message) {
+				return;
+			}
+			const key = pt + "::" + frm.doc.party;
+			const display = r.message[key] || "";
+			frm.set_df_property(
+				"party",
+				"description",
+				display && display !== frm.doc.party ? display : ""
+			);
+		},
+	});
+}
 
 function gd_collapse_optional_sections(frm) {
 	if (frm._gd_collapsed_once) {
