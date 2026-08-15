@@ -49,6 +49,9 @@ class TestGuaranteeDocumentListViewV432(unittest.TestCase):
 		self.assertNotIn('filters: [["Status"', source)
 		self.assertIn("gd_sanitize_filter_tuples", source)
 		self.assertIn("gd_bind_invalid_empty_filter_cleanup", source)
+		# List formatters must return escaped HTML — plain text with "(" breaks Frappe $(column_html).
+		self.assertIn("frappe.utils.escape_html", source)
+		self.assertIn("party(value, df, doc)", source)
 
 	def test_g02_no_default_status_active_filter(self):
 		"""G02: no Status = Active default filter in list settings."""

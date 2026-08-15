@@ -14,6 +14,8 @@
   when ``export_background_threshold`` was stored as ``0``.
 - Sync export actions pass ``force_sync`` so users are not navigated to raw
   queued API JSON responses.
+- Guarantee List party/title formatters return escaped HTML so party titles
+  containing parentheses do not break Frappe ``$(column_html)`` width measurement.
 
 ## Unchanged
 

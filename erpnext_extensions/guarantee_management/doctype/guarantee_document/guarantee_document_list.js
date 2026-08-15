@@ -111,26 +111,26 @@ frappe.listview_settings[GD_DOCTYPE] = {
 
 	formatters: {
 		guarantee_direction(value, df, doc) {
-			return gd_held_by_label(doc);
+			// Must return HTML: Frappe ListView measures width via $(column_html).
+			return `<span>${frappe.utils.escape_html(gd_held_by_label(doc))}</span>`;
 		},
 		party(value, df, doc) {
+			let text = "";
 			if (doc.party_type === "Other") {
-				return doc.other_party_name || value || "";
+				text = doc.other_party_name || value || "";
+			} else {
+				const list = typeof cur_list !== "undefined" ? cur_list : null;
+				const cache = (list && list._gd_party_display_cache) || {};
+				const key = (doc.party_type || "") + "::" + (doc.party || "");
+				text = cache[key] || value || "";
 			}
-			const list = typeof cur_list !== "undefined" ? cur_list : null;
-			const cache = (list && list._gd_party_display_cache) || {};
-			const key = (doc.party_type || "") + "::" + (doc.party || "");
-			if (cache[key]) {
-				return cache[key];
-			}
-			return value || "";
+			// Escape + wrap: party titles often contain parentheses which break $(plainText).
+			return `<span>${frappe.utils.escape_html(text)}</span>`;
 		},
 		title(value, df, doc) {
 			const no = (doc.document_no || "").trim();
-			if (no) {
-				return no;
-			}
-			return doc.name;
+			const text = no || doc.name || "";
+			return `<span>${frappe.utils.escape_html(text)}</span>`;
 		},
 	},
 };
