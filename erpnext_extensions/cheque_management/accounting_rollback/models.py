@@ -34,6 +34,7 @@ class RollbackPlan:
 	blockers: list[str] = field(default_factory=list)
 	opening_import_baseline: str | None = None
 	opening_import_notice: str | None = None
+	ignored_historical_journal_entries: list[dict[str, Any]] = field(default_factory=list)
 
 	def to_api_dict(self) -> dict[str, Any]:
 		"""API payload for preview + execute response (backward compatible keys included)."""
@@ -81,4 +82,5 @@ class RollbackPlan:
 			"blockers": self.blockers,
 			"opening_import_baseline": self.opening_import_baseline,
 			"opening_import_notice": self.opening_import_notice,
+			"ignored_historical_journal_entries": self.ignored_historical_journal_entries,
 		}

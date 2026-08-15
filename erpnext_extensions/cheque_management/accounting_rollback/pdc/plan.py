@@ -178,8 +178,20 @@ def workflow_and_leaf_preview(pdc, target_state: str) -> tuple[dict[str, Any], d
 
 
 def validate_rollback_blockers(pdc, plan: RollbackPlan) -> None:
+	"""Hard blockers + classified unlinked JE candidates (opening-import aware).
+
+	Discovery of related Journal Entries does **not** itself imply BLOCK. Candidates are
+	classified in :mod:`accounting_rollback.pdc.blockers` (fail closed when uncertain).
+	"""
+	from erpnext_extensions.cheque_management.accounting_rollback.pdc.blockers import (
+		validate_unlinked_journal_entry_candidates,
+	)
+
 	je_names = [s.journal_entry for s in plan.steps if s.journal_entry]
-	if not je_names:
+	# Still run linked-document checks and candidate classification when the plan undoes
+	# accounting, or when the PDC is an opening import (historical JEs may exist).
+	is_opening = frappe.utils.cint(getattr(pdc, "is_opening_import", 0))
+	if not je_names and not is_opening:
 		return
 
 	if frappe.db.count(
@@ -212,31 +224,10 @@ def validate_rollback_blockers(pdc, plan: RollbackPlan) -> None:
 		)
 		if (r.get("journal_entry") or "").strip()
 	}
-	allow = linked_refs or set(je_names)
-	extra = frappe.db.sql(
-		"""
-		SELECT name FROM `tabJournal Entry`
-		WHERE docstatus = 1
-		  AND name NOT IN %(known)s
-		  AND (user_remark LIKE %(pat)s OR cheque_no = %(cheque_no)s)
-		  AND company = %(company)s
-		LIMIT 1
-		""",
-		{
-			"known": tuple(allow) if allow else ("",),
-			"pat": f"%{pdc.name}%",
-			"cheque_no": (pdc.cheque_no or "")[:140],
-			"company": pdc.company,
-		},
-		as_list=True,
-	)
-	if extra:
-		raise ValidationError(
-			_(
-				"Rollback is blocked: manual or unlinked Journal Entries were found for this cheque "
-				"(for example {0}). Cancel or relink them before rollback."
-			).format(extra[0][0])
-		)
+	known = set(je_names) | linked_refs
+	ignored = validate_unlinked_journal_entry_candidates(pdc, plan, known)
+	if ignored:
+		plan.ignored_historical_journal_entries = list(ignored)
 
 
 def build_pdc_rollback_plan(pdc, target_state: str, *, reason: str = "") -> RollbackPlan:
