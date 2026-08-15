@@ -20,13 +20,31 @@ from erpnext_extensions.iran_accounting.account_explorer.schemas import AccountE
 EXPORT_FORMATS = frozenset({"csv", "xlsx"})
 EXPORT_AXES = frozenset({"account_level", "party", "unified_party", "dimension", "currency", "voucher"})
 
+# DocType default for Iran Accounting Settings.export_background_threshold.
+# Values < 1 (including 0 from cleared Int fields) are treated as unset.
+DEFAULT_EXPORT_BACKGROUND_THRESHOLD = 5000
+
+
+def normalize_export_background_threshold(raw: Any) -> int:
+	"""Return a sane positive threshold; never allow 0 to mean 'queue everything'."""
+	if raw is None or raw == "":
+		return DEFAULT_EXPORT_BACKGROUND_THRESHOLD
+	try:
+		value = cint(raw)
+	except Exception:
+		return DEFAULT_EXPORT_BACKGROUND_THRESHOLD
+	if value < 1:
+		return DEFAULT_EXPORT_BACKGROUND_THRESHOLD
+	return value
+
 
 def _export_settings() -> dict[str, int]:
 	settings = frappe.get_single("Iran Accounting Settings")
-	threshold = settings.export_background_threshold
 	return {
 		"export_enabled": cint(settings.export_enabled),
-		"export_background_threshold": cint(threshold if threshold is not None else 5000),
+		"export_background_threshold": normalize_export_background_threshold(
+			settings.export_background_threshold
+		),
 		"server_page_size": cint(settings.server_page_size or 200),
 	}
 

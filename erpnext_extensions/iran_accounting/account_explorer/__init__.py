@@ -142,10 +142,12 @@ def delete_account_explorer_saved_view(name=None):
 
 
 @frappe.whitelist()
-def export_account_explorer(payload=None, file_format="csv"):
+def export_account_explorer(payload=None, file_format="csv", force_sync=0):
+	from frappe.utils import cint
+
 	from erpnext_extensions.iran_accounting.account_explorer.export import export_account_explorer as _export
 
-	return _export(payload, file_format)
+	return _export(payload, file_format, force_sync=bool(cint(force_sync)))
 
 
 @frappe.whitelist()
