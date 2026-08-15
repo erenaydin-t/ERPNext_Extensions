@@ -1,7 +1,7 @@
 # Copyright (c) 2026, ERPNext Extensions contributors
 # License: MIT
 
-"""Additive Asset dashboard extension for Asset Usage Period Connections."""
+"""Additive Asset dashboard extension for Usage Period and Asset Request."""
 
 from __future__ import annotations
 
@@ -10,29 +10,30 @@ from frappe import _
 
 
 def get_data(data=None):
-	"""Extend the ERPNext Asset dashboard with Asset Usage Period.
-
-	Called via ``override_doctype_dashboards`` with the existing dashboard
-	``data`` from ``asset_dashboard.py`` plus DocType Link rows. Mutates
-	additively — does not replace core groups.
-	"""
+	"""Extend the ERPNext Asset dashboard additively — does not replace core groups."""
 	data = frappe._dict(data or {})
 
 	if not data.get("non_standard_fieldnames"):
 		data.non_standard_fieldnames = {}
-	# Asset Usage Period links via ``asset`` (core default fieldname is asset_name)
 	data.non_standard_fieldnames["Asset Usage Period"] = "asset"
+
+	if not data.get("internal_links"):
+		data.internal_links = {}
+	data.internal_links["Asset Request"] = ["allocations", "allocated_asset"]
 
 	if not data.get("transactions"):
 		data.transactions = []
 
-	usage_label = _("Usage")
-	for group in data.transactions:
-		if _(group.get("label") or "") == usage_label:
-			items = group.setdefault("items", [])
-			if "Asset Usage Period" not in items:
-				items.append("Asset Usage Period")
-			return data
-
-	data.transactions.append({"label": usage_label, "items": ["Asset Usage Period"]})
+	_append_group(data, _("Usage"), "Asset Usage Period")
+	_append_group(data, _("Request"), "Asset Request")
 	return data
+
+
+def _append_group(data, label: str, item: str) -> None:
+	for group in data.transactions:
+		if _(group.get("label") or "") == label:
+			items = group.setdefault("items", [])
+			if item not in items:
+				items.append(item)
+			return
+	data.transactions.append({"label": label, "items": [item]})

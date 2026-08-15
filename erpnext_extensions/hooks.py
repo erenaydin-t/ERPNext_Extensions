@@ -204,11 +204,13 @@ accounting_dimension_doctypes = [
 permission_query_conditions = {
 	"PM Request": "erpnext_extensions.petty_management.permissions.pm_request_permission_query_conditions",
 	"PM Clearance": "erpnext_extensions.petty_management.permissions.pm_clearance_permission_query_conditions",
+	"Asset Request": "erpnext_extensions.asset_usage_depreciation.permissions.asset_request_permission_query_conditions",
 }
 
 has_permission = {
 	"PM Request": "erpnext_extensions.petty_management.permissions.has_pm_request_permission",
 	"PM Clearance": "erpnext_extensions.petty_management.permissions.has_pm_clearance_permission",
+	"Asset Request": "erpnext_extensions.asset_usage_depreciation.permissions.has_asset_request_permission",
 }
 
 # DocType Class
@@ -250,6 +252,15 @@ doc_events = {
 	"Asset Repair": {
 		"on_submit": "erpnext_extensions.asset_usage_depreciation.integration_hooks.on_asset_repair_submit",
 		"on_cancel": "erpnext_extensions.asset_usage_depreciation.integration_hooks.on_asset_repair_cancel",
+	},
+	"Asset": {
+		"on_submit": "erpnext_extensions.asset_usage_depreciation.integration_hooks.on_asset_submit",
+	},
+	"Asset Movement": {
+		"on_cancel": "erpnext_extensions.asset_usage_depreciation.integration_hooks.on_asset_movement_cancel",
+	},
+	"Material Request": {
+		"on_cancel": "erpnext_extensions.asset_usage_depreciation.integration_hooks.on_material_request_cancel",
 	},
 	"PM Clearance": {
 		"onload": "erpnext_extensions.petty_management.clearance_onload.sync_pm_clearance_on_load",
@@ -405,6 +416,7 @@ doc_events = {
 	},
 	"Purchase Receipt": {
 		"validate": "erpnext_extensions.iran_accounting.buying_selling.validate_purchase_receipt",
+		"on_submit": "erpnext_extensions.asset_usage_depreciation.integration_hooks.on_purchase_receipt_submit",
 	},
 	"Delivery Note": {
 		"validate": "erpnext_extensions.iran_accounting.buying_selling.validate_delivery_note",
@@ -463,6 +475,7 @@ override_whitelisted_methods = {
 # along with any modifications made in other Frappe apps
 override_doctype_dashboards = {
 	"Asset": "erpnext_extensions.asset_usage_depreciation.asset_dashboard.get_data",
+	"Material Request": "erpnext_extensions.asset_usage_depreciation.material_request_dashboard.get_data",
 }
 
 # exempt linked doctypes from being automatically cancelled
