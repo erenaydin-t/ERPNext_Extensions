@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
+from frappe.utils import cint
 
 from erpnext_extensions.iran_accounting.account_explorer import api, export
 from erpnext_extensions.iran_accounting.tests.test_account_explorer_fixtures import (
@@ -213,13 +214,150 @@ class TestAccountExplorerExport(unittest.TestCase):
 			self.to_date,
 			document={"hide_zero_rows": 0},
 		)
-		enable_export(threshold=0)
+		# Explicit positive threshold; values < 1 fall back to DEFAULT and must not queue.
+		enable_export(threshold=1)
 		with patch("frappe.enqueue") as enqueue_mock:
-			with patch.object(export, "_probe_export_size", return_value=1):
+			with patch.object(export, "_probe_export_size", return_value=2):
 				result = export.export_account_explorer(payload, "csv", force_sync=False)
 		self.assertEqual(result.get("queued"), 1)
 		enqueue_mock.assert_called_once()
 		self.assertIn("background", (result.get("message") or "").lower())
+
+	def test_e01_threshold_zero_does_not_queue_small_export(self):
+		"""E01 / E09: stored threshold 0 must normalize to 5000 — small sets stay sync."""
+		payload = build_payload(
+			self.company,
+			self.fiscal_year,
+			self.from_date,
+			self.to_date,
+			document={"hide_zero_rows": 0},
+		)
+		enable_export(threshold=0)
+		self.assertEqual(export.normalize_export_background_threshold(0), 5000)
+		self.assertEqual(export.normalize_export_background_threshold(None), 5000)
+		self.assertEqual(export._export_settings()["export_background_threshold"], 5000)
+		self._reset_response()
+		with patch("frappe.enqueue") as enqueue_mock:
+			with patch.object(export, "_probe_export_size", return_value=10):
+				with patch.object(export, "collect_export_rows", return_value=([], {}, 10)):
+					result = export.export_account_explorer(payload, "xlsx", force_sync=False)
+		self.assertNotEqual(result.get("queued"), 1)
+		enqueue_mock.assert_not_called()
+		self.assertEqual(frappe.local.response.type, "download")
+		self.assertTrue(frappe.local.response.filecontent.startswith(b"PK"))
+
+	def test_e09_metadata_threshold_never_zero(self):
+		enable_export(threshold=0)
+		meta = api.get_metadata()
+		self.assertGreaterEqual(cint(meta.get("export_background_threshold")), 1)
+		self.assertEqual(cint(meta.get("export_background_threshold")), 5000)
+
+	def test_e10_explicit_configured_threshold_respected(self):
+		enable_export(threshold=7)
+		self.assertEqual(export.normalize_export_background_threshold(7), 7)
+		meta = api.get_metadata()
+		self.assertEqual(cint(meta.get("export_background_threshold")), 7)
+
+	def test_e11_e12_threshold_boundary(self):
+		payload = build_payload(
+			self.company,
+			self.fiscal_year,
+			self.from_date,
+			self.to_date,
+			document={"hide_zero_rows": 0},
+		)
+		enable_export(threshold=10)
+		self._reset_response()
+		with patch("frappe.enqueue") as enqueue_mock:
+			with patch.object(export, "_probe_export_size", return_value=10):
+				with patch.object(export, "collect_export_rows", return_value=([], {}, 10)):
+					below_or_equal = export.export_account_explorer(payload, "csv", force_sync=False)
+			with patch.object(export, "_probe_export_size", return_value=11):
+				above = export.export_account_explorer(payload, "csv", force_sync=False)
+		self.assertNotEqual(below_or_equal.get("queued"), 1)
+		self.assertEqual(above.get("queued"), 1)
+		self.assertEqual(enqueue_mock.call_count, 1)
+
+	def test_e13_queued_response_is_structured(self):
+		payload = build_payload(
+			self.company,
+			self.fiscal_year,
+			self.from_date,
+			self.to_date,
+			document={"hide_zero_rows": 0},
+		)
+		enable_export(threshold=1)
+		self._reset_response()
+		with patch("frappe.enqueue"):
+			with patch.object(export, "_probe_export_size", return_value=5):
+				result = export.export_account_explorer(payload, "xlsx", force_sync=False)
+		self.assertEqual(result.get("queued"), 1)
+		self.assertIn("total_rows", result)
+		self.assertIn("message", result)
+		self.assertNotEqual(frappe.local.response.get("type"), "download")
+
+	def test_e02_e05_e06_xlsx_unicode_and_numeric(self):
+		"""E02–E06: XLSX is valid, Unicode survives, numerics stay numeric."""
+		spec = _fake_spec("account_level")
+		columns = export.get_export_columns(spec)
+		rows = [
+			{
+				"display_code": "1101",
+				"display_title": "حساب نقد و بانک",
+				"opening_debit": 10.5,
+				"opening_credit": 0,
+				"period_debit": 100,
+				"period_credit": 50,
+				"debit_balance": 60.5,
+				"credit_balance": 0,
+			}
+		]
+		content = export.build_xlsx_content(rows, columns)
+		self.assertTrue(content.startswith(b"PK"))
+
+		from openpyxl import load_workbook
+
+		wb = load_workbook(io.BytesIO(content))
+		ws = wb.active
+		matrix = [[cell.value for cell in row] for row in ws.iter_rows()]
+		self.assertGreaterEqual(len(matrix), 2)
+		self.assertIn("Account Code", matrix[0])
+		self.assertEqual(matrix[1][0], "1101")
+		self.assertEqual(matrix[1][1], "حساب نقد و بانک")
+		debit_idx = matrix[0].index("Period Debit")
+		self.assertEqual(matrix[1][debit_idx], 100)
+		self.assertIsInstance(matrix[1][debit_idx], (int, float))
+
+	def test_e07_csv_still_works(self):
+		payload = build_payload(
+			self.company,
+			self.fiscal_year,
+			self.from_date,
+			self.to_date,
+			document={"hide_zero_rows": 0},
+		)
+		self._export_sync(payload, "csv")
+		self.assertEqual(frappe.local.response.type, "download")
+		self.assertTrue(frappe.local.response.filename.endswith(".csv"))
+		text = frappe.local.response.filecontent
+		if isinstance(text, bytes):
+			text = text.decode("utf-8")
+		self.assertIn(",", text.splitlines()[0])
+
+	def test_e08_empty_result_set_safe(self):
+		payload = build_payload(
+			self.company,
+			self.fiscal_year,
+			self.from_date,
+			self.to_date,
+			document={"hide_zero_rows": 0},
+		)
+		with patch.object(export, "collect_export_rows", return_value=([], {}, 0)):
+			with patch.object(export, "_probe_export_size", return_value=0):
+				self._reset_response()
+				export.export_account_explorer(payload, "xlsx", force_sync=True)
+		self.assertEqual(frappe.local.response.type, "download")
+		self.assertTrue(frappe.local.response.filecontent.startswith(b"PK"))
 
 	def test_unified_party_axis_export(self):
 		payload = build_payload(

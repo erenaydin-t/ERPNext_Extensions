@@ -204,8 +204,12 @@ def get_metadata() -> dict:
 	currency_enabled = int(settings.currency_analysis_enabled or 0)
 	saved_views_enabled = int(settings.saved_views_enabled or 0)
 	export_enabled = int(settings.export_enabled or 0)
-	export_background_threshold = int(
-		settings.export_background_threshold if settings.export_background_threshold is not None else 5000
+	from erpnext_extensions.iran_accounting.account_explorer.export import (
+		normalize_export_background_threshold,
+	)
+
+	export_background_threshold = normalize_export_background_threshold(
+		settings.export_background_threshold
 	)
 	diagnostics_enabled = int(settings.diagnostics_enabled or 0)
 	datatable_enabled = int(settings.account_explorer_datatable_enabled or 0)

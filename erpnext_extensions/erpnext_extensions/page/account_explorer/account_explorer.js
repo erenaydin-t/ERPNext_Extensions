@@ -131,6 +131,12 @@ function ae_normalize_multi_value(value) {
 	return value;
 }
 
+/** Match backend normalize_export_background_threshold — never treat 0 as a real threshold. */
+function ae_normalize_export_threshold(raw) {
+	const n = cint(raw);
+	return n < 1 ? 5000 : n;
+}
+
 function ae_trim_compact_decimals(value) {
 	const str = String(value);
 	if (!str.includes(".")) {
@@ -1663,7 +1669,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			payload,
 			file_format,
 		};
-		const threshold = cint(this.metadata.export_background_threshold || 5000);
+		const threshold = ae_normalize_export_threshold(this.metadata.export_background_threshold);
 		const total_rows = cint(this.pagination?.total_rows || 0);
 
 		if (total_rows > threshold) {
@@ -1680,6 +1686,10 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			return;
 		}
 
+		// Keep the user on Account Explorer: sync path must download a file, not JSON.
+		// force_sync prevents backend threshold-0 misconfig from returning a queued JSON body
+		// via open_url_post (which would navigate the browser to the raw API response).
+		args.force_sync = 1;
 		open_url_post(`/api/method/${this.api_base}.export_account_explorer`, args);
 	}
 
