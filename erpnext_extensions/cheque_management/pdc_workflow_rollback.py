@@ -367,6 +367,9 @@ def opening_import_rollback_diagnostics(pdc_name: str) -> dict[str, Any]:
 			]
 			out["undo_edges"] = [(s.from_state, s.to_state) for s in plan.steps]
 			out["preview"] = plan.to_api_dict()
+			out["ignored_historical_journal_entries"] = list(
+				getattr(plan, "ignored_historical_journal_entries", None) or []
+			)
 		except Exception as e:
 			out["plan_error"] = str(e)
 	else:
