@@ -1,0 +1,157 @@
+{
+ "actions": [],
+ "creation": "2026-08-15 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Setup",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_approval",
+  "ceo_approver",
+  "planning_approver",
+  "column_break_appr",
+  "require_named_manager_approver",
+  "prevent_duplicate_active_requests",
+  "section_fulfillment",
+  "allow_category_substitution",
+  "reserve_available_assets",
+  "default_movement_purpose",
+  "column_break_ful",
+  "auto_create_asset_movement",
+  "auto_submit_asset_movement",
+  "auto_create_material_request",
+  "auto_submit_material_request",
+  "section_notify",
+  "notify_on_approval"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_approval",
+   "fieldtype": "Section Break",
+   "label": "Approval Routing"
+  },
+  {
+   "description": "Named CEO user stamped on Asset Requests that require CEO approval.",
+   "fieldname": "ceo_approver",
+   "fieldtype": "Link",
+   "label": "CEO Approver",
+   "options": "User"
+  },
+  {
+   "description": "Named Planning user stamped when Planning approval is required.",
+   "fieldname": "planning_approver",
+   "fieldtype": "Link",
+   "label": "Planning Approver",
+   "options": "User"
+  },
+  {
+   "fieldname": "column_break_appr",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "description": "Block Submit for Approval when the employee has no Reports To user.",
+   "fieldname": "require_named_manager_approver",
+   "fieldtype": "Check",
+   "label": "Require Named Manager Approver"
+  },
+  {
+   "default": "1",
+   "fieldname": "prevent_duplicate_active_requests",
+   "fieldtype": "Check",
+   "label": "Prevent Duplicate Active Requests"
+  },
+  {
+   "fieldname": "section_fulfillment",
+   "fieldtype": "Section Break",
+   "label": "Fulfillment"
+  },
+  {
+   "default": "1",
+   "description": "Allow issuing or purchasing a different Item in the same Asset Category as the request.",
+   "fieldname": "allow_category_substitution",
+   "fieldtype": "Check",
+   "label": "Allow Category Substitution"
+  },
+  {
+   "default": "1",
+   "fieldname": "reserve_available_assets",
+   "fieldtype": "Check",
+   "label": "Reserve Available Assets"
+  },
+  {
+   "default": "Issue",
+   "description": "Transfer and Issue is used only when a target location differs from the pool location. This is not a Transfer Request.",
+   "fieldname": "default_movement_purpose",
+   "fieldtype": "Select",
+   "label": "Default Movement Purpose",
+   "options": "Issue\nTransfer and Issue"
+  },
+  {
+   "fieldname": "column_break_ful",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "auto_create_asset_movement",
+   "fieldtype": "Check",
+   "label": "Auto Create Asset Movement"
+  },
+  {
+   "default": "0",
+   "fieldname": "auto_submit_asset_movement",
+   "fieldtype": "Check",
+   "label": "Auto Submit Asset Movement"
+  },
+  {
+   "default": "1",
+   "fieldname": "auto_create_material_request",
+   "fieldtype": "Check",
+   "label": "Auto Create Material Request"
+  },
+  {
+   "default": "0",
+   "fieldname": "auto_submit_material_request",
+   "fieldtype": "Check",
+   "label": "Auto Submit Material Request"
+  },
+  {
+   "fieldname": "section_notify",
+   "fieldtype": "Section Break",
+   "label": "Notifications"
+  },
+  {
+   "default": "1",
+   "fieldname": "notify_on_approval",
+   "fieldtype": "Check",
+   "label": "Notify on Approval"
+  }
+ ],
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-08-15 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Asset Usage Depreciation",
+ "name": "Asset Request Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "read": 1,
+   "role": "System Manager",
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Asset Manager",
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Accounts Manager"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

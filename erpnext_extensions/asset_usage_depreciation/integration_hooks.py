@@ -100,3 +100,36 @@ def restore_asset(*args, **kwargs):
 	asset_name = kwargs.get("asset_name") or (args[0] if args else None)
 	_reapply_for_asset(asset_name)
 	return result
+
+
+def on_asset_submit(doc, method=None):
+	"""Link a newly capitalized asset to an open purchase allocation and issue it."""
+	from erpnext_extensions.asset_usage_depreciation.services.fulfillment_service import (
+		link_purchased_asset,
+	)
+
+	link_purchased_asset(doc)
+
+
+def on_asset_movement_cancel(doc, method=None):
+	from erpnext_extensions.asset_usage_depreciation.services.fulfillment_service import (
+		on_asset_movement_cancel as _on_cancel,
+	)
+
+	_on_cancel(doc)
+
+
+def on_material_request_cancel(doc, method=None):
+	from erpnext_extensions.asset_usage_depreciation.services.fulfillment_service import (
+		on_material_request_cancel as _on_cancel,
+	)
+
+	_on_cancel(doc)
+
+
+def on_purchase_receipt_submit(doc, method=None):
+	from erpnext_extensions.asset_usage_depreciation.services.fulfillment_service import (
+		on_purchase_receipt_submit as _on_submit,
+	)
+
+	_on_submit(doc)

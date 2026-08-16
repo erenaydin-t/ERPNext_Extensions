@@ -5,13 +5,13 @@ from __future__ import annotations
 
 import frappe
 
-from erpnext_extensions.asset_usage_depreciation.custom_fields import ensure_custom_fields
 from erpnext_extensions.asset_usage_depreciation.constants import (
 	COMPANY_FIELD_REDUCED_HANDLING,
 	HANDLING_ADJUST_FINAL,
 	HANDLING_REDISTRIBUTE_LEGACY,
 	MODULE,
 )
+from erpnext_extensions.asset_usage_depreciation.custom_fields import ensure_custom_fields
 
 
 def _ensure_module_def():
@@ -45,3 +45,6 @@ def after_migrate():
 	_ensure_module_def()
 	ensure_custom_fields()
 	_migrate_legacy_reduced_handling_option()
+	from erpnext_extensions.asset_usage_depreciation.workflow import ensure_asset_request_workflow
+
+	ensure_asset_request_workflow()

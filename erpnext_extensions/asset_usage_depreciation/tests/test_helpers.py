@@ -1,0 +1,303 @@
+# Copyright (c) 2026, ERPNext Extensions contributors
+# License: MIT
+
+"""Shared fixtures for Asset Request QA tests (acquisition only)."""
+
+from __future__ import annotations
+
+import frappe
+from frappe.utils import nowdate, random_string
+
+from erpnext_extensions.asset_usage_depreciation.constants import (
+	ACTION_APPROVE,
+	ACTION_SUBMIT,
+	ASSET_REQUEST_SETTINGS_DOCTYPE,
+	COMPANY_FIELD_AR_POOL_LOCATION,
+	COMPANY_FIELD_AR_REQUIRE_CEO,
+	COMPANY_FIELD_AR_REQUIRE_PLANNING,
+	ROLE_AR_EXECUTIVE,
+	ROLE_AR_MANAGER,
+	ROLE_AR_PLANNER,
+	ROLE_ASSET_MANAGER,
+)
+
+
+def company() -> str | None:
+	if frappe.db.exists("Company", "_Test Company"):
+		return "_Test Company"
+	row = frappe.get_all("Company", pluck="name", limit=1)
+	return row[0] if row else None
+
+
+def ensure_location(name: str = "Test Location") -> str:
+	if not frappe.db.exists("Location", name):
+		frappe.get_doc({"doctype": "Location", "location_name": name}).insert(
+			ignore_permissions=True, ignore_if_duplicate=True
+		)
+	return name
+
+
+def ensure_asset_category(name: str = "Computers") -> str | None:
+	if frappe.db.exists("Asset Category", name):
+		return name
+	return None
+
+
+def make_isolated_category(tag: str) -> str:
+	"""Clone Computers accounts into a unique category so pool matching stays isolated."""
+	name = f"AUD-AR-Cat-{tag}"
+	if frappe.db.exists("Asset Category", name):
+		return name
+	src_name = ensure_asset_category()
+	if not src_name:
+		frappe.throw("Asset Category Computers missing")
+	src = frappe.get_doc("Asset Category", src_name)
+	doc = frappe.new_doc("Asset Category")
+	doc.asset_category_name = name
+	doc.enable_cwip_accounting = src.enable_cwip_accounting
+	doc.non_depreciable_category = src.non_depreciable_category
+	for acc in src.get("accounts") or []:
+		doc.append(
+			"accounts",
+			{
+				"company_name": acc.company_name,
+				"fixed_asset_account": acc.fixed_asset_account,
+				"accumulated_depreciation_account": acc.accumulated_depreciation_account,
+				"depreciation_expense_account": acc.depreciation_expense_account,
+				"capital_work_in_progress_account": acc.capital_work_in_progress_account,
+			},
+		)
+	for fb in src.get("finance_books") or []:
+		row = {
+			"finance_book": fb.finance_book,
+			"depreciation_method": fb.depreciation_method,
+			"total_number_of_depreciations": fb.total_number_of_depreciations,
+			"frequency_of_depreciation": fb.frequency_of_depreciation,
+			"depreciation_start_date": fb.depreciation_start_date,
+			"rate_of_depreciation": fb.rate_of_depreciation,
+			"expected_value_after_useful_life": fb.expected_value_after_useful_life,
+		}
+		doc.append("finance_books", {k: v for k, v in row.items() if v or v == 0})
+	doc.insert(ignore_permissions=True)
+	return name
+
+
+def clear_optional_approvals(company_name: str) -> None:
+	if not company_name:
+		return
+	frappe.db.set_value("Company", company_name, COMPANY_FIELD_AR_REQUIRE_PLANNING, 0)
+	frappe.db.set_value("Company", company_name, COMPANY_FIELD_AR_REQUIRE_CEO, 0)
+
+
+def submit_and_approve(doc):
+	"""Drive Draft → Pending Manager → Approved using System Manager transitions."""
+	from frappe.model.workflow import apply_workflow
+
+	current = frappe.session.user
+	frappe.set_user("Administrator")
+	try:
+		doc.reload()
+		if (doc.workflow_state or "Draft") in ("Draft", "", None):
+			apply_workflow(doc, ACTION_SUBMIT)
+			doc.reload()
+		safety = 0
+		while int(doc.docstatus or 0) == 0 and safety < 4:
+			apply_workflow(doc, ACTION_APPROVE)
+			doc.reload()
+			safety += 1
+		return doc
+	finally:
+		frappe.set_user(current)
+
+
+def ensure_settings(**values) -> None:
+	if not frappe.db.exists("DocType", ASSET_REQUEST_SETTINGS_DOCTYPE):
+		return
+	doc = frappe.get_single(ASSET_REQUEST_SETTINGS_DOCTYPE)
+	changed = False
+	defaults = {
+		"require_named_manager_approver": 0,
+		"prevent_duplicate_active_requests": 1,
+		"allow_category_substitution": 1,
+		"reserve_available_assets": 1,
+		"auto_create_asset_movement": 1,
+		"auto_submit_asset_movement": 0,
+		"auto_create_material_request": 1,
+		"auto_submit_material_request": 0,
+		"default_movement_purpose": "Issue",
+	}
+	defaults.update(values)
+	for field, val in defaults.items():
+		if doc.meta.has_field(field) and doc.get(field) != val:
+			doc.set(field, val)
+			changed = True
+	if changed or doc.is_new():
+		doc.save(ignore_permissions=True)
+	company_name = company()
+	if company_name:
+		clear_optional_approvals(company_name)
+
+
+def make_fixed_asset_item(*, code: str | None = None, category: str = "Computers", title: str | None = None) -> str:
+	code = code or f"AUD-AR-{random_string(8)}"
+	if frappe.db.exists("Item", code):
+		return code
+	item = frappe.get_doc(
+		{
+			"doctype": "Item",
+			"item_code": code,
+			"item_name": title or code,
+			"item_group": "All Item Groups",
+			"stock_uom": "Nos",
+			"is_stock_item": 0,
+			"is_fixed_asset": 1,
+			"is_grouped_asset": 0,
+			"auto_create_assets": 0,
+			"asset_category": category,
+		}
+	)
+	item.insert(ignore_permissions=True)
+	return item.name
+
+
+def make_pool_asset(*, item_code: str, company_name: str, asset_name: str | None = None) -> str:
+	pool_location = frappe.db.get_value("Company", company_name, COMPANY_FIELD_AR_POOL_LOCATION)
+	location = pool_location or ensure_location()
+	if location:
+		ensure_location(location)
+	asset = frappe.get_doc(
+		{
+			"doctype": "Asset",
+			"asset_name": asset_name or f"Pool {item_code} {random_string(4)}",
+			"asset_category": frappe.db.get_value("Item", item_code, "asset_category") or "Computers",
+			"item_code": item_code,
+			"company": company_name,
+			"purchase_date": "2026-01-01",
+			"available_for_use_date": "2026-01-01",
+			"calculate_depreciation": 0,
+			"net_purchase_amount": 1000,
+			"purchase_amount": 1000,
+			"location": location,
+			"asset_owner": "Company",
+			"asset_type": "Existing Asset",
+			"asset_quantity": 1,
+		}
+	)
+	asset.insert(ignore_permissions=True)
+	asset.submit()
+	frappe.db.set_value("Asset", asset.name, "custodian", "")
+	return asset.name
+
+
+def make_employee(*, company_name: str, user_id: str | None = None, reports_to: str | None = None) -> str:
+	filters = {"company": company_name}
+	if user_id:
+		filters["user_id"] = user_id
+	existing = frappe.db.get_value("Employee", filters, "name")
+	if existing and not user_id:
+		return existing
+	if existing:
+		if reports_to:
+			frappe.db.set_value("Employee", existing, "reports_to", reports_to)
+		return existing
+	doc = frappe.get_doc(
+		{
+			"doctype": "Employee",
+			"first_name": "AR",
+			"last_name": random_string(5),
+			"company": company_name,
+			"status": "Active",
+			"gender": "Male",
+			"date_of_birth": "1990-01-01",
+			"date_of_joining": nowdate(),
+			"user_id": user_id,
+			"reports_to": reports_to,
+		}
+	)
+	doc.insert(ignore_permissions=True)
+	return doc.name
+
+
+def make_user(*, email: str, roles: list[str], password: str = "arqa12345") -> str:
+	from frappe.utils.password import update_password
+	from frappe.utils import today
+
+	if frappe.db.exists("User", email):
+		user = frappe.get_doc("User", email)
+		for role in roles:
+			if role not in frappe.get_roles(email):
+				user.add_roles(role)
+		user.flags.ignore_password_policy = True
+		user.enabled = 1
+		user.last_password_reset_date = today()
+		user.save(ignore_permissions=True)
+		update_password(email, password)
+		frappe.cache.hdel("login_failed_count", email)
+		frappe.cache.hdel("login_failed_time", email)
+		return email
+	user = frappe.get_doc(
+		{
+			"doctype": "User",
+			"email": email,
+			"first_name": email.split("@")[0][:20],
+			"send_welcome_email": 0,
+			"new_password": password,
+			"last_password_reset_date": today(),
+		}
+	)
+	user.flags.ignore_password_policy = True
+	frappe.flags.in_import = True
+	try:
+		user.insert(ignore_permissions=True)
+	finally:
+		frappe.flags.in_import = False
+	user.add_roles(*roles)
+	update_password(email, password)
+	frappe.cache.hdel("login_failed_count", email)
+	frappe.cache.hdel("login_failed_time", email)
+	return email
+
+
+def make_request(
+	*,
+	company_name: str,
+	employee: str,
+	item_code: str,
+	qty: int = 1,
+	fulfilled_item_code: str | None = None,
+	substitution_reason: str | None = None,
+	purpose: str = "QA Asset Request",
+):
+	row = {"requested_item_code": item_code, "qty": qty}
+	if fulfilled_item_code:
+		row["fulfilled_item_code"] = fulfilled_item_code
+		row["fulfilled_purchase_item"] = fulfilled_item_code
+	if substitution_reason:
+		row["substitution_reason"] = substitution_reason
+	doc = frappe.get_doc(
+		{
+			"doctype": "Asset Request",
+			"company": company_name,
+			"employee": employee,
+			"transaction_date": nowdate(),
+			"required_date": nowdate(),
+			"purpose": purpose,
+			"items": [row],
+		}
+	)
+	doc.insert(ignore_permissions=True)
+	return doc
+
+
+def skip_if_unready():
+	if not frappe.db.exists("DocType", "Asset Request"):
+		return "Asset Request DocType not migrated"
+	if not company():
+		return "No Company"
+	if not ensure_asset_category():
+		return "Asset Category Computers missing"
+	return None
+
+
+# Role constants re-exported for tests
+ROLES = (ROLE_AR_MANAGER, ROLE_AR_PLANNER, ROLE_AR_EXECUTIVE, ROLE_ASSET_MANAGER)

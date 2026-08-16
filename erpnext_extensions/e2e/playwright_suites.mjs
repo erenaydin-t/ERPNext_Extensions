@@ -84,6 +84,10 @@ export const SUITE_REGISTRY = [
     script: "petty_management/e2e/playwright_pm_request_pe_list_e2e.mjs",
     tags: ["ISOLATED", "SERIAL", "ACCOUNTING"],
   },
+  {
+    script: "asset_usage_depreciation/e2e/playwright_asset_request.mjs",
+    tags: ["ISOLATED", "SERIAL", "UI_ONLY"],
+  },
 ];
 
 export function registryByScript() {
