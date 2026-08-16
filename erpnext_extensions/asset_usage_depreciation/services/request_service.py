@@ -13,6 +13,7 @@ from erpnext_extensions.asset_usage_depreciation.constants import (
 	ACTIVE_REQUEST_STATUSES,
 	ALLOC_CANCELLED,
 	ALLOC_ISSUED,
+	ALLOC_RECEIVED,
 	ASSET_REQUEST_DOCTYPE,
 	ASSET_REQUEST_ITEM_DOCTYPE,
 	COMPANY_FIELD_AR_CEO_MIN_QTY,
@@ -149,15 +150,14 @@ def _validate_items(doc) -> None:
 			row.fulfilled_purchase_item = row.fulfilled_item_code
 
 		if row.fulfilled_item_code != row.requested_item_code and not (row.substitution_reason or "").strip():
-			# Auto-evaluate may fill this later; employee draft with a pre-set substitute needs a reason.
-			if doc.docstatus == 1 or _is_leaving_draft(doc):
-				if row.fulfillment_method != METHOD_PENDING or doc.docstatus == 1:
-					frappe.throw(
-						_(
-							"Row {0}: Substitution Reason is required when Fulfilled Item "
-							"differs from Requested Item."
-						).format(row.idx)
-					)
+			submitting = getattr(doc, "_action", None) == "submit" or cint(doc.docstatus) == 1
+			if submitting or _is_leaving_draft(doc):
+				frappe.throw(
+					_(
+						"Row {0}: Substitution Reason is required when Fulfilled Item "
+						"differs from Requested Item."
+					).format(row.idx)
+				)
 
 		row.available_qty = get_available_asset_count(
 			doc.company,

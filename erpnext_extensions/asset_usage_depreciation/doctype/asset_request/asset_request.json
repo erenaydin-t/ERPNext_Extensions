@@ -398,6 +398,7 @@
    "read": 1,
    "report": 1,
    "role": "Asset Request Manager",
+   "submit": 1,
    "write": 1
   },
   {
@@ -406,6 +407,7 @@
    "read": 1,
    "report": 1,
    "role": "Asset Request Planner",
+   "submit": 1,
    "write": 1
   },
   {
@@ -414,6 +416,7 @@
    "read": 1,
    "report": 1,
    "role": "Asset Request Executive",
+   "submit": 1,
    "write": 1
   },
   {
