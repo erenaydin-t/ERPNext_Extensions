@@ -227,6 +227,76 @@ def purchase_receipt_valuation_stock_qty(row) -> float:
 	return qty_in_stock_uom
 
 
+def get_purchase_receipt_stock_valuation_eligible_item_codes(doc) -> frozenset[str]:
+	"""Item codes ERPNext UVR stock-values on a Purchase Receipt.
+
+	Mirrors ``BuyingController.update_valuation_rate``::
+
+	    stock_and_asset_items = self.get_stock_items() + self.get_asset_items()
+
+	Prefer ERPNext document methods when present (AccountsController.get_stock_items
+	+ BuyingController.get_asset_items). Fallback mirrors the same Item / row flags
+	when the caller is a lightweight stub without those methods.
+
+	Non-stock, non-asset service rows (e.g. subcontracting auto-PR service lines)
+	are intentionally excluded — ERPNext forces ``valuation_rate = 0`` for them.
+	"""
+	has_stock_api = hasattr(doc, "get_stock_items") and callable(doc.get_stock_items)
+	has_asset_api = hasattr(doc, "get_asset_items") and callable(doc.get_asset_items)
+	if has_stock_api and has_asset_api:
+		try:
+			stock = list(doc.get_stock_items() or [])
+			assets = list(doc.get_asset_items() or [])
+			return frozenset(code for code in (stock + assets) if code)
+		except Exception:
+			pass
+
+	# Fallback mirror: Item.is_stock_item / Item.is_fixed_asset / row.is_fixed_asset
+	codes = {
+		row.get("item_code")
+		for row in (doc.get("items") or [])
+		if row.get("item_code")
+	}
+	if not codes:
+		return frozenset()
+
+	eligible: set[str] = set()
+	try:
+		eligible.update(
+			frappe.db.get_values(
+				"Item",
+				{"name": ["in", list(codes)], "is_stock_item": 1},
+				pluck="name",
+				cache=True,
+			)
+			or []
+		)
+		eligible.update(
+			frappe.db.get_values(
+				"Item",
+				{"name": ["in", list(codes)], "is_fixed_asset": 1},
+				pluck="name",
+				cache=True,
+			)
+			or []
+		)
+	except Exception:
+		pass
+
+	for row in doc.get("items") or []:
+		code = row.get("item_code")
+		if code and cint(row.get("is_fixed_asset")):
+			eligible.add(code)
+
+	return frozenset(eligible)
+
+
+def is_purchase_receipt_row_stock_valuation_eligible(row, eligible_item_codes: frozenset[str]) -> bool:
+	"""True when the PR row is in ERPNext's UVR stock/asset eligibility set."""
+	code = row.get("item_code") if hasattr(row, "get") else getattr(row, "item_code", None)
+	return bool(code) and code in eligible_item_codes
+
+
 def purchase_receipt_stock_valuation_amount(row, doc=None) -> float:
 	"""Authoritative PR stock valuation amount (numerator of valuation_rate).
 
@@ -290,7 +360,10 @@ def classify_document_residuals(doc) -> tuple[list[dict], list[dict]]:
 	class_b: list[dict] = []
 
 	if doc.doctype == "Purchase Receipt":
+		eligible = get_purchase_receipt_stock_valuation_eligible_item_codes(doc)
 		for row in doc.get("items") or []:
+			if not is_purchase_receipt_row_stock_valuation_eligible(row, eligible):
+				continue
 			qty = purchase_receipt_valuation_stock_qty(row)
 			auth = purchase_receipt_stock_valuation_amount(row, doc)
 			rate = row.get("valuation_rate")

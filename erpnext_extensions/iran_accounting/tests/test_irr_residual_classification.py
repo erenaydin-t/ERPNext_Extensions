@@ -112,6 +112,8 @@ class TestEvaluateNetGate(unittest.TestCase):
 			is_old_subcontracting_flow=0,
 		)
 		doc.get = lambda k, d=None: getattr(doc, k, d)
+		doc.get_stock_items = lambda: [row.item_code]
+		doc.get_asset_items = lambda: []
 
 		resolve_calls = []
 
@@ -169,6 +171,8 @@ class TestEvaluateNetGate(unittest.TestCase):
 			is_old_subcontracting_flow=0,
 		)
 		doc.get = lambda k, d=None: getattr(doc, k, d)
+		doc.get_stock_items = lambda: [row.item_code]
+		doc.get_asset_items = lambda: []
 		resolve_calls = []
 
 		with (
@@ -322,11 +326,16 @@ class TestPurchaseReceiptStockValuationAuth(unittest.TestCase):
 
 	@staticmethod
 	def _doc(row, **kw):
+		items = kw.pop("items", None)
+		stock_item_codes = kw.pop("stock_item_codes", None)
+		asset_item_codes = kw.pop("asset_item_codes", None)
+		if items is None:
+			items = [row] if row is not None else []
 		data = {
 			"company": "C",
 			"doctype": "Purchase Receipt",
 			"name": "PR-1",
-			"items": [row],
+			"items": items,
 			"is_old_subcontracting_flow": 0,
 		}
 		data.update(kw)
@@ -334,9 +343,24 @@ class TestPurchaseReceiptStockValuationAuth(unittest.TestCase):
 		class _D:
 			def __init__(self, d):
 				self.__dict__.update(d)
+				# Default: all item codes are stock-eligible (mirrors prior test contract).
+				# Override via stock_item_codes / asset_item_codes for eligibility tests.
+				if stock_item_codes is not None:
+					self._stock_codes = list(stock_item_codes)
+				else:
+					self._stock_codes = [
+						r.get("item_code") for r in self.items if r.get("item_code")
+					]
+				self._asset_codes = list(asset_item_codes or [])
 
 			def get(self, k, default=None):
 				return self.__dict__.get(k, default)
+
+			def get_stock_items(self):
+				return list(self._stock_codes)
+
+			def get_asset_items(self):
+				return list(self._asset_codes)
 
 		return _D(data)
 
@@ -493,6 +517,219 @@ class TestPurchaseReceiptStockValuationAuth(unittest.TestCase):
 		self.assertEqual(a, [])
 		self.assertEqual(len(b), 1)
 		self.assertEqual(b[0]["reason"], "amount_rate_mismatch_not_reproducible_by_approved_pipeline")
+
+	def test_non_stock_service_row_skipped(self):
+		row = self._row(
+			item_code="SVC-ETO",
+			qty=1922,
+			base_net_amount=235996614,
+			amount=235996614,
+			base_amount=235996614,
+			valuation_rate=0,
+			base_rate=122787,
+			rate=122787,
+		)
+		doc = self._doc(row, stock_item_codes=[], asset_item_codes=[])
+		with (
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.irr_residual_classification.is_irr_company",
+				return_value=True,
+			),
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.irr_residual_classification.get_company_currency",
+				return_value="IRR",
+			),
+		):
+			a, b = classify_document_residuals(doc)
+		self.assertEqual(a, [])
+		self.assertEqual(b, [])
+
+	def test_subcontracting_auto_pr_service_shape_not_class_b(self):
+		"""Production MAT-PRE-2026-01123 shape must not raise valuation_rate_le_zero."""
+		from erpnext_extensions.iran_accounting.domain.irr_residual_classification import (
+			evaluate_irr_rate_rounding_residual,
+		)
+
+		row = self._row(
+			item_code="23000001",
+			qty=1922,
+			base_net_amount=235996614,
+			amount=235996614,
+			base_amount=235996614,
+			valuation_rate=0,
+			base_rate=122787,
+			rate=122787,
+		)
+		doc = self._doc(
+			row,
+			name="MAT-PRE-2026-01123",
+			is_subcontracted=1,
+			is_old_subcontracting_flow=0,
+			stock_item_codes=[],
+			asset_item_codes=[],
+		)
+		with (
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.irr_residual_classification.is_irr_company",
+				return_value=True,
+			),
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.irr_residual_classification.get_company_currency",
+				return_value="IRR",
+			),
+		):
+			a, b = classify_document_residuals(doc)
+			decision = evaluate_irr_rate_rounding_residual(doc)
+		self.assertEqual(b, [])
+		self.assertEqual(a, [])
+		self.assertFalse(decision.class_b_rows)
+		self.assertNotEqual(decision.status, "class_b_error")
+
+	def test_mixed_pr_service_skipped_stock_classified(self):
+		svc = self._row(
+			item_code="SVC",
+			idx=1,
+			name="r-svc",
+			qty=1922,
+			base_net_amount=235996614,
+			amount=235996614,
+			valuation_rate=0,
+		)
+		# Stock Class A: auth 10_000_001, qty 10 → integer VR 1_000_000 → residual 1
+		stock = self._row(
+			item_code="STOCK",
+			idx=2,
+			name="r-stock",
+			qty=10,
+			base_net_amount=10000001,
+			amount=10000001,
+			base_amount=10000001,
+			valuation_rate=1000000,
+			base_rate=1000000,
+		)
+		doc = self._doc(
+			None,
+			items=[svc, stock],
+			stock_item_codes=["STOCK"],
+			asset_item_codes=[],
+		)
+		with (
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.irr_residual_classification.is_irr_company",
+				return_value=True,
+			),
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.irr_residual_classification.get_company_currency",
+				return_value="IRR",
+			),
+		):
+			a, b = classify_document_residuals(doc)
+		self.assertEqual(b, [])
+		self.assertEqual(len(a), 1)
+		self.assertEqual(a[0]["item_code"], "STOCK")
+		self.assertEqual(a[0]["reason"], "amount_authoritative_integer_valuation_rate")
+
+	def test_stock_pr_class_a_unchanged(self):
+		row = self._row(
+			qty=10,
+			base_net_amount=10000001,
+			amount=10000001,
+			base_amount=10000001,
+			valuation_rate=1000000,
+		)
+		doc = self._doc(row)
+		with (
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.irr_residual_classification.is_irr_company",
+				return_value=True,
+			),
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.irr_residual_classification.get_company_currency",
+				return_value="IRR",
+			),
+		):
+			a, b = classify_document_residuals(doc)
+		self.assertEqual(b, [])
+		self.assertEqual(len(a), 1)
+		self.assertEqual(a[0]["class"], "A")
+
+	def test_stock_row_vr_zero_still_class_b(self):
+		"""Genuinely stock-valued row with VR=0 must remain fail-closed Class B."""
+		row = self._row(
+			item_code="STOCK",
+			qty=10,
+			base_net_amount=10000000,
+			amount=10000000,
+			valuation_rate=0,
+		)
+		doc = self._doc(row, stock_item_codes=["STOCK"])
+		with (
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.irr_residual_classification.is_irr_company",
+				return_value=True,
+			),
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.irr_residual_classification.get_company_currency",
+				return_value="IRR",
+			),
+		):
+			a, b = classify_document_residuals(doc)
+		self.assertEqual(a, [])
+		self.assertEqual(len(b), 1)
+		self.assertEqual(b[0]["reason"], "valuation_rate_le_zero_with_nonzero_amount")
+
+	def test_asset_row_remains_eligible(self):
+		# Class A shape: auth 5_000_001 / qty 1 → integer VR 5_000_001 exact → skip;
+		# use residual Class A: auth 10_000_001, VR 10_000_000.
+		row = self._row(
+			item_code="ASSET-1",
+			is_fixed_asset=1,
+			qty=10,
+			base_net_amount=10000001,
+			amount=10000001,
+			base_amount=10000001,
+			valuation_rate=1000000,
+			base_rate=1000000,
+		)
+		doc = self._doc(row, stock_item_codes=[], asset_item_codes=["ASSET-1"])
+		with (
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.irr_residual_classification.is_irr_company",
+				return_value=True,
+			),
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.irr_residual_classification.get_company_currency",
+				return_value="IRR",
+			),
+		):
+			a, b = classify_document_residuals(doc)
+		self.assertEqual(b, [])
+		self.assertEqual(len(a), 1)
+		self.assertEqual(a[0]["item_code"], "ASSET-1")
+
+	def test_old_subcontracting_stock_fg_still_classified(self):
+		# Stock FG on old subcontract PR must not be blanket-skipped.
+		row = self._row(
+			item_code="FG-OLD",
+			qty=10,
+			base_net_amount=10000000,
+			rm_supp_cost=500000,
+			valuation_rate=1050000,
+		)
+		doc = self._doc(row, is_old_subcontracting_flow=1, is_subcontracted=1, stock_item_codes=["FG-OLD"])
+		with (
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.irr_residual_classification.is_irr_company",
+				return_value=True,
+			),
+			mock.patch(
+				"erpnext_extensions.iran_accounting.domain.irr_residual_classification.get_company_currency",
+				return_value="IRR",
+			),
+		):
+			a, b = classify_document_residuals(doc)
+		self.assertEqual(b, [])
+		self.assertEqual(a, [])  # exact match auth/qty → skip residual
 
 
 class TestRegionalValuationRateHook(unittest.TestCase):
