@@ -252,9 +252,17 @@ def collect_stock_entry_residuals(doc) -> list[dict[str, Any]]:
 
 def collect_purchase_receipt_residuals(doc) -> list[dict[str, Any]]:
 	"""Legacy collector (raw residual math). Prefer classify_document_residuals for 3.8.6+."""
+	from erpnext_extensions.iran_accounting.domain.irr_residual_classification import (
+		get_purchase_receipt_stock_valuation_eligible_item_codes,
+		is_purchase_receipt_row_stock_valuation_eligible,
+	)
+
 	ccy = get_company_currency(doc.company)
 	out: list[dict[str, Any]] = []
+	eligible = get_purchase_receipt_stock_valuation_eligible_item_codes(doc)
 	for row in doc.get("items") or []:
+		if not is_purchase_receipt_row_stock_valuation_eligible(row, eligible):
+			continue
 		qty = flt(row.get("qty"))
 		auth = flt(row.get("base_amount") if row.get("base_amount") not in (None, "") else row.get("amount"))
 		rate = row.get("valuation_rate")
