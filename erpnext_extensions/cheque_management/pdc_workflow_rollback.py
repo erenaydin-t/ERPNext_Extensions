@@ -72,7 +72,22 @@ def get_rollback_target_states(pdc_name: str) -> list[str]:
 		return []
 
 	if cint(doc.is_opening_import):
+		from erpnext_extensions.cheque_management.accounting_rollback.pdc.plan import (
+			event_history_rollback_targets,
+		)
+
+		event_targets = event_history_rollback_targets(doc)
+		if event_targets is not None:
+			return event_targets
 		return _opening_import_rollback_targets(doc)
+
+	from erpnext_extensions.cheque_management.accounting_rollback.pdc.plan import (
+		event_history_rollback_targets,
+	)
+
+	event_targets = event_history_rollback_targets(doc)
+	if event_targets is not None:
+		return event_targets
 
 	targets: list[str] = []
 	for state in ALL_WORKFLOW_STATES:

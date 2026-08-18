@@ -27,6 +27,7 @@ def _row(**kwargs):
 		"status": "Available",
 		"reserved_by_pdc": "",
 		"linked_post_dated_cheque": "",
+		"linked_guarantee_document": "",
 		"company": "C1",
 		"bank_account": "BA1",
 		"cheque_number": "1001",
@@ -58,6 +59,18 @@ class TestPDCAssertChequeLeafUsableByPDC(FrappeTestCase):
 	def test_void_blocked(self):
 		with self.assertRaises(ValidationError):
 			_pdc_assert_cheque_leaf_usable_by_pdc(_row(status="Void", name="LEAF-1"), "PDC-A")
+
+	def test_used_for_guarantee_blocked(self):
+		with self.assertRaises(ValidationError):
+			_pdc_assert_cheque_leaf_usable_by_pdc(
+				_row(status="Used for Guarantee", linked_guarantee_document="GD-1"), "PDC-A"
+			)
+
+	def test_available_with_guarantee_link_blocked(self):
+		with self.assertRaises(ValidationError):
+			_pdc_assert_cheque_leaf_usable_by_pdc(
+				_row(status="Available", linked_guarantee_document="GD-1"), "PDC-A"
+			)
 
 
 class TestPDCValidateChequeLeafIntegrationUsedSamePDC(FrappeTestCase):

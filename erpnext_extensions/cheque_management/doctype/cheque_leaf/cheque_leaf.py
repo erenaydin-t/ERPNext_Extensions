@@ -47,6 +47,12 @@ def void_cheque_leaf(leaf_name: str, reason: str, void_attachment: str | None = 
 			title=_("Cheque Leaf"),
 		)
 
+	if (getattr(doc, "linked_guarantee_document", None) or "").strip() or (doc.status or "").strip() == "Used for Guarantee":
+		frappe.throw(
+			_("This cheque leaf is allocated to a Guarantee Document and cannot be voided."),
+			title=_("Cheque Leaf"),
+		)
+
 	status = (doc.status or "").strip()
 	if status == "Void":
 		frappe.throw(_("Cheque Leaf is already void."), title=_("Cheque Leaf"))
@@ -159,7 +165,17 @@ class ChequeLeaf(Document):
 				title=_("Cheque Leaf"),
 			)
 		# Hard blocks required by spec:
-		if prev == "Void" and cur in ("Available", "Reserved", "Used"):
+		if prev == "Void" and cur in ("Available", "Reserved", "Used", "Used for Guarantee"):
+			frappe.throw(
+				frappe._("Cannot change status from {0} to {1}.").format(prev, cur),
+				title=_("Cheque Leaf"),
+			)
+		if frappe.flags.get("guarantee_cheque_leaf_custody"):
+			if prev == "Available" and cur == "Used for Guarantee":
+				return
+			if prev == "Used for Guarantee" and cur == "Available":
+				return
+		if prev == "Used for Guarantee" and cur != "Used for Guarantee":
 			frappe.throw(
 				frappe._("Cannot change status from {0} to {1}.").format(prev, cur),
 				title=_("Cheque Leaf"),
@@ -198,7 +214,7 @@ class ChequeLeaf(Document):
 
 	def on_trash(self):
 		# Used/Void leaves should not be deleted.
-		if (self.status or "").strip() in ("Used", "Void"):
+		if (self.status or "").strip() in ("Used", "Void", "Used for Guarantee"):
 			frappe.throw(
 				frappe._("Cannot delete a Cheque Leaf with status {0}.").format(self.status),
 				title=frappe._("Cheque Leaf"),

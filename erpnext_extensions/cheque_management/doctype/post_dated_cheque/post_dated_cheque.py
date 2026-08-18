@@ -1967,6 +1967,9 @@ def pdc_cheque_leaf_link_query(
 			cl.company = %(company)s
 			AND cl.bank_account = %(bank_account)s
 			AND cl.status = 'Available'
+			AND IFNULL(cl.linked_guarantee_document, '') = ''
+			AND IFNULL(cl.linked_post_dated_cheque, '') = ''
+			AND IFNULL(cl.reserved_by_pdc, '') = ''
 			{where_extra}
 		ORDER BY cl.cheque_number ASC
 		LIMIT %(start)s, %(page_len)s
@@ -2067,11 +2070,15 @@ class PostDatedCheque(Document):
 	def validate(self):
 		"""Validate PDC data and enforce immutability after submit."""
 		validate_post_dated_cheque_allocation_mode_immutability(self)
+		from erpnext_extensions.cheque_management.pdc_lifecycle_events import (
+			validate_lifecycle_events_immutable,
+		)
 		from erpnext_extensions.cheque_management.pdc_workflow_rollback import (
 			validate_workflow_rollback_logs_immutable,
 		)
 
 		validate_workflow_rollback_logs_immutable(self)
+		validate_lifecycle_events_immutable(self)
 		self._normalize_cheque_purpose()
 		self._validate_cheque_direction_mutability()
 		self._validate_payable_bank_account_mutability()
@@ -2746,7 +2753,13 @@ class PostDatedCheque(Document):
 
 	def _capture_previous_workflow_for_accounting(self):
 		"""Step 1 (pre-save): store snapshot from :meth:`_get_previous_workflow_state_for_accounting` for logs/cache."""
+		from erpnext_extensions.cheque_management.pdc_lifecycle_events import (
+			snapshot_pdc_operational_fields,
+		)
+
 		self._pdc_previous_workflow_for_accounting = self._get_previous_workflow_state_for_accounting()
+		before = self.get_doc_before_save()
+		self._pdc_lifecycle_pre_event_snapshot = snapshot_pdc_operational_fields(before or self)
 		_pdc_accounting_logger.debug(
 			"Captured previous_workflow_state for accounting: %r (doc %s)",
 			self._pdc_previous_workflow_for_accounting,
@@ -2809,7 +2822,11 @@ class PostDatedCheque(Document):
 			"Accounting action: %s",
 			"none" if action == PDC_ACCOUNTING_NO_DOCUMENT else action,
 		)
+		pre_event_snapshot = getattr(self, "_pdc_lifecycle_pre_event_snapshot", None)
 		if action == PDC_ACCOUNTING_NO_DOCUMENT:
+			self._capture_lifecycle_event_after_transition(
+				prev_raw, prev_norm, curr_norm, action, pre_event_snapshot
+			)
 			return
 
 		# Posting dates must follow business event dates (not today/workflow timestamp).
@@ -2978,6 +2995,36 @@ class PostDatedCheque(Document):
 
 		if created:
 			self.reload()
+
+		self._capture_lifecycle_event_after_transition(
+			prev_raw, prev_norm, curr_norm, action, pre_event_snapshot
+		)
+
+	def _capture_lifecycle_event_after_transition(
+		self,
+		prev_raw,
+		prev_norm: str,
+		curr_norm: str,
+		action: str | None,
+		pre_event_snapshot: str | None,
+	) -> None:
+		from erpnext_extensions.cheque_management.pdc_lifecycle_events import (
+			capture_pdc_lifecycle_event,
+		)
+
+		workflow_action = (
+			getattr(self, "workflow_action_name", None)
+			or getattr(self, "_action", None)
+			or ""
+		)
+		capture_pdc_lifecycle_event(
+			self,
+			prev_norm,
+			curr_norm,
+			action,
+			snapshot_json=pre_event_snapshot,
+			action=str(workflow_action or ""),
+		)
 
 	def _validate_sayad_registration_per_settings(self) -> None:
 		"""Enforce Sayad policy per-company (PDC Settings).
@@ -4186,6 +4233,11 @@ def _pdc_assert_cheque_leaf_usable_by_pdc(row, pdc_name: str) -> None:
 			),
 			title=frappe._("Cheque Leaf"),
 		)
+	if status == "Used for Guarantee" or (getattr(row, "linked_guarantee_document", None) or "").strip():
+		frappe.throw(
+			frappe._("This Cheque Leaf is allocated to a Guarantee Document and cannot be used for a Post Dated Cheque."),
+			title=frappe._("Cheque Leaf"),
+		)
 	if status == "Available":
 		return
 	if status == "Reserved":
@@ -4212,19 +4264,38 @@ def _pdc_get_cheque_leaf_row_for_update(leaf_name: str):
 	"""Fetch Cheque Leaf row and lock it for the current transaction."""
 	if not leaf_name:
 		return None
-	rows = frappe.db.sql(
-		"""
+	sql = """
 		select
 			name, company, bank_account, cheque_number, status,
 			reserved_by_pdc, reserved_on,
-			linked_post_dated_cheque, used_on, voided_on
+			linked_post_dated_cheque, used_on, voided_on,
+			linked_guarantee_document, guarantee_allocated_on,
+			guarantee_allocated_by, guarantee_released_on
 		from `tabCheque Leaf`
 		where name = %s
 		for update
-		""",
-		(leaf_name,),
-		as_dict=True,
-	)
+		"""
+	try:
+		rows = frappe.db.sql(sql, (leaf_name,), as_dict=True)
+	except Exception:
+		rows = frappe.db.sql(
+			"""
+			select
+				name, company, bank_account, cheque_number, status,
+				reserved_by_pdc, reserved_on,
+				linked_post_dated_cheque, used_on, voided_on
+			from `tabCheque Leaf`
+			where name = %s
+			for update
+			""",
+			(leaf_name,),
+			as_dict=True,
+		)
+		for row in rows or []:
+			row["linked_guarantee_document"] = None
+			row["guarantee_allocated_on"] = None
+			row["guarantee_allocated_by"] = None
+			row["guarantee_released_on"] = None
 	return rows[0] if rows else None
 
 
@@ -4247,7 +4318,9 @@ def _pdc_reserve_leaf_for_pdc(leaf_name: str, pdc: "PostDatedCheque") -> None:
 			frappe._("This Cheque Leaf is already reserved by another Post Dated Cheque."),
 			title=frappe._("Cheque Leaf"),
 		)
-	if row.status in ("Used", "Void"):
+	if row.status in ("Used", "Void", "Used for Guarantee") or (
+		getattr(row, "linked_guarantee_document", None) or ""
+	).strip():
 		frappe.throw(
 			frappe._("Cannot reserve a {0} cheque leaf.").format(row.status), title=frappe._("Cheque Leaf")
 		)
@@ -4304,6 +4377,11 @@ def _pdc_mark_leaf_used_for_pdc(leaf_name: str, pdc: "PostDatedCheque") -> None:
 	if row.status not in ("Available", "Reserved"):
 		frappe.throw(
 			frappe._("Cheque Leaf must be Available or Reserved to be used."), title=frappe._("Cheque Leaf")
+		)
+	if (getattr(row, "linked_guarantee_document", None) or "").strip():
+		frappe.throw(
+			frappe._("This Cheque Leaf is allocated to a Guarantee Document and cannot be used for a Post Dated Cheque."),
+			title=frappe._("Cheque Leaf"),
 		)
 
 	from frappe.utils import now_datetime

@@ -29,6 +29,35 @@ class GuaranteeDocument(Document):
 		self._validate_status_dates()
 		self._validate_date_order()
 		self._validate_no_duplicate_active()
+		from erpnext_extensions.guarantee_management.services.cheque_leaf_custody import (
+			validate_issued_cheque_leaf,
+		)
+
+		validate_issued_cheque_leaf(self)
+
+	def on_update(self) -> None:
+		from erpnext_extensions.guarantee_management.services.cheque_leaf_custody import (
+			sync_guarantee_cheque_leaf,
+		)
+
+		sync_guarantee_cheque_leaf(self, self.get_doc_before_save())
+
+	def after_insert(self) -> None:
+		from erpnext_extensions.guarantee_management.services.cheque_leaf_custody import (
+			sync_guarantee_cheque_leaf,
+		)
+
+		sync_guarantee_cheque_leaf(self, None)
+
+	def on_trash(self) -> None:
+		leaf = (getattr(self, "cheque_leaf", None) or "").strip()
+		if not leaf:
+			return
+		from erpnext_extensions.guarantee_management.services.cheque_leaf_custody import (
+			release_leaf_from_guarantee,
+		)
+
+		release_leaf_from_guarantee(leaf, self.name)
 
 	def _validate_required_core(self) -> None:
 		if not self.company:

@@ -74,6 +74,10 @@ _DEFAULT_OP = OperationalTransitionHandler()
 
 
 def get_handler(step: "RollbackTransitionStep") -> TransitionRollbackHandler:
-	if step.journal_entry or step.journal_reference_row:
+	from erpnext_extensions.cheque_management.pdc_lifecycle_events import EVENT_TYPE_WORKFLOW_ONLY
+
+	if (step.event_type or "").strip() == EVENT_TYPE_WORKFLOW_ONLY:
+		return _DEFAULT_OP
+	if step.journal_entry or step.journal_reference_row or step.has_accounting:
 		return _DEFAULT_JE
 	return _DEFAULT_OP

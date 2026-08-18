@@ -6,7 +6,7 @@ from typing import Any
 
 @dataclass
 class RollbackTransitionStep:
-	"""One workflow edge to undo, anchored on PDC Journal Reference when present."""
+	"""One workflow occurrence to undo, anchored on a lifecycle event or journal reference."""
 
 	from_state: str
 	to_state: str
@@ -15,6 +15,10 @@ class RollbackTransitionStep:
 	journal_reference_row: str | None = None
 	purpose: str | None = None
 	has_accounting: bool = False
+	event_type: str | None = None
+	lifecycle_event_name: str | None = None
+	event_sequence: int | None = None
+	snapshot_json: str | None = None
 	# Enriched at plan time (dry-run and execute share this)
 	impact: dict[str, Any] = field(default_factory=dict)
 
@@ -35,6 +39,7 @@ class RollbackPlan:
 	opening_import_baseline: str | None = None
 	opening_import_notice: str | None = None
 	ignored_historical_journal_entries: list[dict[str, Any]] = field(default_factory=list)
+	history_source: str = "legacy_graph"
 
 	def to_api_dict(self) -> dict[str, Any]:
 		"""API payload for preview + execute response (backward compatible keys included)."""
@@ -54,6 +59,7 @@ class RollbackPlan:
 		return {
 			"current_state": self.current_workflow_state,
 			"target_state": self.target_workflow_state,
+			"history_source": self.history_source,
 			"business_impact": {
 				"workflow": self.workflow_changes,
 				"cheque_leaf": self.leaf_changes,
@@ -71,6 +77,9 @@ class RollbackPlan:
 					"journal_reference_row": s.journal_reference_row,
 					"purpose": s.purpose,
 					"has_accounting": s.has_accounting,
+					"event_type": s.event_type,
+					"lifecycle_event_name": s.lifecycle_event_name,
+					"event_sequence": s.event_sequence,
 					"impact": s.impact,
 				}
 				for s in self.steps

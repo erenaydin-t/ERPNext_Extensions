@@ -90,6 +90,8 @@
   "debt_purchase_repayment",
   "section_break_journal",
   "journal_references",
+  "section_break_lifecycle_events",
+  "lifecycle_events",
   "section_break_workflow_rollback",
   "workflow_rollback_logs",
   "section_break_holder_history",
@@ -344,6 +346,8 @@
    "label": "Party Type",
    "options": "Customer\nSupplier\nEmployee\nShareholder",
    "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
    "description": "Received From (Receivable) / Paid To (Payable) - immutable after submit"
   },
   {
@@ -652,6 +656,20 @@
    "label": "Journal References",
    "options": "PDC Journal Reference",
    "allow_on_submit": 1
+  },
+  {
+   "fieldname": "section_break_lifecycle_events",
+   "fieldtype": "Section Break",
+   "label": "Lifecycle Events",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "lifecycle_events",
+   "fieldtype": "Table",
+   "label": "Lifecycle Events",
+   "options": "PDC Lifecycle Event",
+   "allow_on_submit": 1,
+   "read_only": 1
   },
   {
    "fieldname": "section_break_workflow_rollback",

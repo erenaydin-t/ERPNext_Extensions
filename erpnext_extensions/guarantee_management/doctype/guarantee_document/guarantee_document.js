@@ -29,6 +29,21 @@ frappe.ui.form.on("Guarantee Document", {
 		gd_apply_layout_classes(frm);
 		gd_setup_party_query(frm);
 		gd_set_party_description(frm);
+		gd_setup_cheque_leaf(frm);
+	},
+
+	guarantee_type(frm) {
+		frm.toggle_reqd("issuing_bank", frm.doc.guarantee_type === "Bank Guarantee");
+		gd_setup_cheque_leaf(frm);
+	},
+
+	guarantee_direction(frm) {
+		gd_setup_cheque_leaf(frm);
+	},
+
+	status(frm) {
+		gd_set_form_intro(frm);
+		gd_setup_cheque_leaf(frm);
 	},
 
 	company(frm) {
@@ -40,10 +55,7 @@ frappe.ui.form.on("Guarantee Document", {
 				frm.set_value("currency", r.default_currency);
 			}
 		});
-	},
-
-	status(frm) {
-		gd_set_form_intro(frm);
+		gd_setup_cheque_leaf(frm);
 	},
 
 	party_type(frm) {
@@ -65,11 +77,26 @@ frappe.ui.form.on("Guarantee Document", {
 	other_party_name(frm) {
 		gd_set_party_description(frm);
 	},
-
-	guarantee_type(frm) {
-		frm.toggle_reqd("issuing_bank", frm.doc.guarantee_type === "Bank Guarantee");
-	},
 });
+
+function gd_setup_cheque_leaf(frm) {
+	const issuedCheque =
+		(frm.doc.guarantee_direction || "") === "Issued" && (frm.doc.guarantee_type || "") === "Cheque";
+	frm.toggle_display("cheque_leaf", issuedCheque);
+	frm.toggle_reqd("cheque_leaf", issuedCheque && (frm.doc.status || "") === "Active");
+	if (!issuedCheque) {
+		return;
+	}
+	frm.set_query("cheque_leaf", function () {
+		return {
+			query:
+				"erpnext_extensions.guarantee_management.services.cheque_leaf_custody.guarantee_cheque_leaf_link_query",
+			filters: {
+				company: frm.doc.company,
+			},
+		};
+	});
+}
 
 function gd_setup_party_query(frm) {
 	frm.set_query("party", function () {
