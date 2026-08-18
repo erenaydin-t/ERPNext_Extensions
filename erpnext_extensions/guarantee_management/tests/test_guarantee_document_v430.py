@@ -63,7 +63,7 @@ class TestGuaranteeDocumentV430(FrappeTestCase):
 			status="Active",
 			party_type="Bank",
 			party=self.bank_a,
-			guarantee_type="Cheque",
+			guarantee_type="Promissory Note",
 			issued_date=today(),
 		)
 		doc.insert(ignore_permissions=True)
@@ -413,7 +413,7 @@ class TestGuaranteeDocumentV430(FrappeTestCase):
 		party_type = kwargs.pop("party_type")
 		party = kwargs.pop("party", None)
 		other_party_name = kwargs.pop("other_party_name", None)
-		guarantee_type = kwargs.pop("guarantee_type", "Cheque")
+		guarantee_type = kwargs.pop("guarantee_type", "Promissory Note")
 		doc = frappe.get_doc(
 			{
 				"doctype": "Guarantee Document",

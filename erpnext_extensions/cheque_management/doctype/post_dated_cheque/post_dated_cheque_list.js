@@ -698,6 +698,18 @@ erpnext_extensions.cheque_management.pdc_list_view.run_filter_e2e = async functi
 };
 
 frappe.listview_settings[PDC_DOCTYPE] = {
+	formatters: {
+		party(value, df, doc) {
+			const code = (value || "").toString().trim();
+			if (!code) {
+				return "";
+			}
+			const partyType = (doc.party_type || "").toString().trim();
+			const label = partyType ? `${partyType} - ${code}` : code;
+			return frappe.utils.escape_html(label);
+		},
+	},
+
 	get_indicator(doc) {
 		const ws = (doc.workflow_state || "").trim();
 		const cs = (doc.cheque_status || "").trim();

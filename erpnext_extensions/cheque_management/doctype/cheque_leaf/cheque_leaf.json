@@ -31,7 +31,11 @@
   "linked_post_dated_cheque",
   "reserved_by_pdc",
   "reserved_on",
-  "used_on"
+  "used_on",
+  "linked_guarantee_document",
+  "guarantee_allocated_on",
+  "guarantee_allocated_by",
+  "guarantee_released_on"
  ],
  "fields": [
   {
@@ -93,7 +97,7 @@
    "fieldname": "status",
    "fieldtype": "Select",
    "label": "Status",
-   "options": "Available\nReserved\nUsed\nVoid",
+   "options": "Available\nReserved\nUsed\nUsed for Guarantee\nVoid",
    "default": "Available",
    "reqd": 1,
    "in_list_view": 1,
@@ -162,6 +166,33 @@
    "fieldname": "used_on",
    "fieldtype": "Datetime",
    "label": "Used On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "linked_guarantee_document",
+   "fieldtype": "Link",
+   "label": "Linked Guarantee Document",
+   "options": "Guarantee Document",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "guarantee_allocated_on",
+   "fieldtype": "Datetime",
+   "label": "Guarantee Allocated On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "guarantee_allocated_by",
+   "fieldtype": "Link",
+   "label": "Guarantee Allocated By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "guarantee_released_on",
+   "fieldtype": "Datetime",
+   "label": "Guarantee Released On",
    "read_only": 1
   }
  ],

@@ -14,6 +14,11 @@ from erpnext_extensions.cheque_management.doctype.post_dated_cheque.post_dated_c
 	_pdc_get_cheque_leaf_row_for_update,
 	_pdc_reserve_leaf_for_pdc,
 )
+from erpnext_extensions.cheque_management.pdc_lifecycle_events import (
+	SNAPSHOT_FIELDS,
+	mark_lifecycle_events_rolled_back,
+	parse_snapshot_json,
+)
 from erpnext_extensions.cheque_management.pdc_workflow_state_machine import (
 	WORKFLOW_CLEARED,
 	WORKFLOW_DRAFT,
@@ -43,7 +48,35 @@ def clear_outcome_fields_for_target(pdc, target_state: str) -> dict[str, Any]:
 	return updates
 
 
-def _append_rollback_audit_row(pdc_name: str, row: dict[str, Any]) -> None:
+def operational_updates_from_steps(pdc, plan: RollbackPlan) -> dict[str, Any]:
+	"""Restore operational fields from the oldest undone event snapshot when present.
+
+	Falls back to target-state clearing only when no snapshot exists (legacy documents).
+	"""
+	target = plan.target_workflow_state
+	snapshot: dict[str, Any] = {}
+	for step in reversed(plan.steps):
+		parsed = parse_snapshot_json(step.snapshot_json)
+		if parsed:
+			snapshot = parsed
+			break
+	if not snapshot:
+		return clear_outcome_fields_for_target(pdc, target)
+
+	updates: dict[str, Any] = {}
+	for field in SNAPSHOT_FIELDS:
+		if field in ("workflow_state", "cheque_status", "docstatus"):
+			continue
+		if field in snapshot:
+			updates[field] = snapshot[field]
+	if "docstatus" in snapshot and target == WORKFLOW_DRAFT:
+		updates["docstatus"] = 0
+	elif "docstatus" in snapshot:
+		updates["docstatus"] = snapshot["docstatus"]
+	return updates
+
+
+def _append_rollback_audit_row(pdc_name: str, row: dict[str, Any]) -> str:
 	"""Insert-only audit — never reload/rewrite existing rollback log rows."""
 	idx = frappe.db.count("PDC Workflow Rollback Log", {"parent": pdc_name}) + 1
 	doc = frappe.get_doc(
@@ -58,6 +91,7 @@ def _append_rollback_audit_row(pdc_name: str, row: dict[str, Any]) -> None:
 	)
 	doc.flags.ignore_permissions = True
 	doc.insert(ignore_permissions=True)
+	return doc.name
 
 
 def apply_pdc_instrument_after_rollback(
@@ -78,7 +112,7 @@ def apply_pdc_instrument_after_rollback(
 		updates = {
 			"workflow_state": target,
 			"cheque_status": cheque_status,
-			**clear_outcome_fields_for_target(pdc, target),
+			**operational_updates_from_steps(pdc, plan),
 		}
 		if target == WORKFLOW_DRAFT:
 			updates["docstatus"] = 0
@@ -88,13 +122,15 @@ def apply_pdc_instrument_after_rollback(
 
 		_restore_leaf_for_target(pdc, target)
 
+		event_names = [s.lifecycle_event_name for s in plan.steps if s.lifecycle_event_name]
+		log_name = ""
 		for step in plan.steps:
 			step_removed = [
 				r
 				for r in removed
 				if r.get("transition_key") == step.transition_key or r.get("name") == step.journal_entry
 			]
-			_append_rollback_audit_row(
+			log_name = _append_rollback_audit_row(
 				pdc.name,
 				{
 					"rolled_back_on": now_datetime(),
@@ -107,6 +143,8 @@ def apply_pdc_instrument_after_rollback(
 					"deleted_documents": json.dumps(step_removed or removed, default=str),
 				},
 			)
+		if event_names:
+			mark_lifecycle_events_rolled_back(pdc.name, event_names, rollback_log=log_name)
 
 		comment = _("Workflow rolled back: {0} → {1}. Reason: {2}").format(from_state, target, plan.reason)
 		frappe.get_doc("Post Dated Cheque", pdc.name).add_comment("Workflow", comment)

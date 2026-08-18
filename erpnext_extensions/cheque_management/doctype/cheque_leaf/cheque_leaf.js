@@ -100,6 +100,7 @@ frappe.listview_settings["Cheque Leaf"] = {
 			Available: "green",
 			Reserved: "orange",
 			Used: "blue",
+			"Used for Guarantee": "purple",
 			Void: "red",
 		};
 		return [__(status), color_map[status] || "gray", `status,=,${status}`];
