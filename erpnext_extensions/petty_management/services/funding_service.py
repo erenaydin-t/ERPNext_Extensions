@@ -62,9 +62,7 @@ def sync_pm_request_funding_fields(
 	doc.allocated_amount = allocated
 	doc.available_for_clearance = available
 	derive_payment_status_from_totals(doc)
-	latest = resolve_latest_payment_entry(doc.name, exclude_pe=exclude_payment_entry)
-	if latest:
-		doc.payment_entry = latest
+	doc.payment_entry = resolve_latest_payment_entry(doc.name, exclude_pe=exclude_payment_entry)
 	sync_pm_request_business_status(doc)
 	frappe.db.set_value(
 		"PM Request",
