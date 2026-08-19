@@ -309,6 +309,7 @@ frappe.ui.form.on("Post Dated Cheque", {
 		hide_standard_cancel_for_pdc(frm);
 		pdc_add_workflow_rollback_button(frm);
 		pdc_add_delete_imported_pdc_button(frm);
+		pdc_set_party_description(frm);
 	},
 
 	after_workflow_action(frm) {
@@ -336,6 +337,7 @@ frappe.ui.form.on("Post Dated Cheque", {
 
 	party(frm) {
 		set_default_party_accounts(frm);
+		pdc_set_party_description(frm);
 	},
 
 	party_type(frm) {
@@ -347,6 +349,7 @@ frappe.ui.form.on("Post Dated Cheque", {
 		if (!frm._pdc_suppress_party_type_account_reresolve) {
 			pdc_reresolve_accounts_after_party_type_change(frm);
 		}
+		pdc_set_party_description(frm);
 	},
 
 	cheque_direction(frm) {
@@ -1349,6 +1352,38 @@ function set_default_party_accounts(frm) {
 			if (r.message.account_paid_to && !frm.doc.account_paid_to) {
 				frm.set_value("account_paid_to", r.message.account_paid_to);
 			}
+		},
+	});
+}
+
+function pdc_set_party_description(frm) {
+	const pt = (frm.doc.party_type || "").trim();
+	if (!pt || !frm.doc.party) {
+		frm.set_df_property("party", "description", "");
+		return;
+	}
+	frappe.call({
+		method:
+			"erpnext_extensions.guarantee_management.services.party_display.batch_resolve_party_displays_for_list",
+		args: {
+			refs: [
+				{
+					party_type: pt,
+					party: frm.doc.party,
+				},
+			],
+		},
+		callback(r) {
+			if (!r || !r.message) {
+				return;
+			}
+			const key = pt + "::" + frm.doc.party;
+			const display = r.message[key] || "";
+			frm.set_df_property(
+				"party",
+				"description",
+				display && display !== frm.doc.party ? display : ""
+			);
 		},
 	});
 }

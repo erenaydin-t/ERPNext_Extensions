@@ -27,13 +27,35 @@ PARTY_TITLE_FIELDS: dict[str, str] = {
 DOCTYPE_BACKED_PARTY_TYPES = frozenset(PARTY_TITLE_FIELDS.keys())
 
 
+def format_party_title(
+	party_type: str | None,
+	party: str | None,
+	other_party_name: str | None = None,
+	title: str | None = None,
+) -> str:
+	"""Return the party title/name for list and form display (never type/code composite)."""
+	pt = (party_type or "").strip()
+	if pt == "Other":
+		return cstr(other_party_name or "").strip()
+
+	code = cstr(party or "").strip()
+	if not code:
+		return ""
+
+	resolved_title = cstr(title or "").strip()
+	if pt == "Bank":
+		# Bank.name is autonamed from bank_name — title and code are usually identical.
+		return resolved_title or code
+	return resolved_title or code
+
+
 def format_party_display(
 	party_type: str | None,
 	party: str | None,
 	other_party_name: str | None = None,
 	title: str | None = None,
 ) -> str:
-	"""Return a single business-friendly party label."""
+	"""Return a composite party label for link search descriptions (code + title)."""
 	pt = (party_type or "").strip()
 	if pt == "Other":
 		return cstr(other_party_name or "").strip()
@@ -95,14 +117,14 @@ def batch_resolve_party_displays(refs: list[dict[str, Any]] | None) -> dict[str,
 			)
 			found = {cstr(r.name): cstr(r.get(title_field) or "") for r in rows}
 			for name in chunk:
-				result[_cache_key(pt, name)] = format_party_display(pt, name, title=found.get(name))
+				result[_cache_key(pt, name)] = format_party_title(pt, name, title=found.get(name))
 
 	return result
 
 
 @frappe.whitelist()
 def batch_resolve_party_displays_for_list(refs: str | list | None = None) -> dict[str, str]:
-	"""Whitelisted wrapper for Guarantee Document List View batch display."""
+	"""Whitelisted wrapper for list/form batch party title resolution (PDC, Guarantee, etc.)."""
 	if isinstance(refs, str):
 		refs = frappe.parse_json(refs) if refs else []
 	if not isinstance(refs, list):
@@ -118,14 +140,14 @@ def get_party_display_from_doc(doc) -> str:
 		getattr(doc, "other_party_name", None) or (doc.get("other_party_name") if isinstance(doc, dict) else "")
 	).strip()
 	if pt == "Other":
-		return format_party_display(pt, None, other_party_name=other)
+		return format_party_title(pt, None, other_party_name=other)
 	if not pt or not party:
 		return ""
 	title_field = PARTY_TITLE_FIELDS.get(pt)
 	title = None
 	if title_field and frappe.db.exists(pt, party):
 		title = frappe.db.get_value(pt, party, title_field)
-	return format_party_display(pt, party, title=title)
+	return format_party_title(pt, party, title=title)
 
 
 @frappe.whitelist()

@@ -697,16 +697,71 @@ erpnext_extensions.cheque_management.pdc_list_view.run_filter_e2e = async functi
 	return { all_ok, results };
 };
 
+function pdc_strip_company_from_list_columns(listview) {
+	if (Array.isArray(listview.columns)) {
+		listview.columns = listview.columns.filter(
+			(col) => !(col && col.df && col.df.fieldname === "company")
+		);
+	}
+	const lvs = listview.list_view_settings;
+	if (lvs && Array.isArray(lvs.fields)) {
+		lvs.fields = lvs.fields.filter((f) => {
+			const name = typeof f === "string" ? f : f && f.fieldname;
+			return name !== "company";
+		});
+	}
+}
+
+function pdc_batch_resolve_party_displays(listview) {
+	const data = listview.data || [];
+	const refs = [];
+	const seen = {};
+
+	data.forEach((doc) => {
+		const pt = (doc.party_type || "").trim();
+		const party = (doc.party || "").trim();
+		if (!pt || !party) {
+			return;
+		}
+		const key = pt + "::" + party;
+		if (seen[key]) {
+			return;
+		}
+		seen[key] = true;
+		refs.push({
+			party_type: pt,
+			party: party,
+		});
+	});
+
+	if (!refs.length) {
+		return Promise.resolve();
+	}
+
+	return frappe
+		.call({
+			method:
+				"erpnext_extensions.guarantee_management.services.party_display.batch_resolve_party_displays_for_list",
+			args: { refs },
+		})
+		.then((r) => {
+			listview._pdc_party_display_cache = (r && r.message) || {};
+		})
+		.catch(() => {
+			listview._pdc_party_display_cache = listview._pdc_party_display_cache || {};
+		});
+}
+
 frappe.listview_settings[PDC_DOCTYPE] = {
+	add_fields: ["party_type", "party"],
+
 	formatters: {
 		party(value, df, doc) {
-			const code = (value || "").toString().trim();
-			if (!code) {
-				return "";
-			}
-			const partyType = (doc.party_type || "").toString().trim();
-			const label = partyType ? `${partyType} - ${code}` : code;
-			return frappe.utils.escape_html(label);
+			const list = typeof cur_list !== "undefined" ? cur_list : null;
+			const cache = (list && list._pdc_party_display_cache) || {};
+			const key = (doc.party_type || "") + "::" + (doc.party || "");
+			const text = cache[key] || value || "";
+			return `<span>${frappe.utils.escape_html(text)}</span>`;
 		},
 	},
 
@@ -738,6 +793,7 @@ frappe.listview_settings[PDC_DOCTYPE] = {
 	},
 
 	onload(listview) {
+		pdc_strip_company_from_list_columns(listview);
 		pdc_list_clear_stale_route_options();
 		if (Array.isArray(listview.filters)) {
 			listview.filters = pdc_list_sanitize_filter_tuples(listview.filters);
@@ -846,5 +902,29 @@ frappe.listview_settings[PDC_DOCTYPE] = {
 				erpnext_extensions.cheque_management.pdc_list_view.run_filter_e2e(listview);
 			}, 1500);
 		}
+
+		if (listview._pdc_render_patched) {
+			return;
+		}
+		listview._pdc_render_patched = true;
+		listview._pdc_party_display_cache = listview._pdc_party_display_cache || {};
+		listview._pdc_party_token = 0;
+
+		const original_render = listview.render_list.bind(listview);
+		listview.render_list = function () {
+			original_render();
+
+			const token = ++listview._pdc_party_token;
+			pdc_batch_resolve_party_displays(listview)
+				.then(() => {
+					if (token !== listview._pdc_party_token) {
+						return;
+					}
+					original_render();
+				})
+				.catch(() => {
+					/* batch failure must not block list rendering */
+				});
+		};
 	},
 };
