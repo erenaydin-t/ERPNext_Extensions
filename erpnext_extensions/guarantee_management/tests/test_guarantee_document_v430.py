@@ -17,6 +17,7 @@ from erpnext_extensions.guarantee_management.report.guarantee_position_summary.g
 from erpnext_extensions.guarantee_management.services.party_display import (
 	batch_resolve_party_displays,
 	format_party_display,
+	format_party_title,
 )
 from erpnext_extensions.guarantee_management.services.possession import (
 	get_expiry_bucket,
@@ -149,19 +150,18 @@ class TestGuaranteeDocumentV430(FrappeTestCase):
 		cust_title = frappe.db.get_value("Customer", self.customer, "customer_name")
 		self.assertEqual(
 			resolved[f"Customer::{self.customer}"],
-			format_party_display("Customer", self.customer, title=cust_title),
+			format_party_title("Customer", self.customer, title=cust_title),
 		)
 		sup_title = frappe.db.get_value("Supplier", self.supplier, "supplier_name")
 		self.assertEqual(
 			resolved[f"Supplier::{self.supplier}"],
-			format_party_display("Supplier", self.supplier, title=sup_title),
+			format_party_title("Supplier", self.supplier, title=sup_title),
 		)
 		emp_title = frappe.db.get_value("Employee", self.employee, "employee_name")
 		emp_display = resolved[f"Employee::{self.employee}"]
-		self.assertEqual(emp_display, format_party_display("Employee", self.employee, title=emp_title))
-		# Employee IDs typically differ from employee_name → expect composite.
+		self.assertEqual(emp_display, format_party_title("Employee", self.employee, title=emp_title))
 		if emp_title and emp_title != self.employee:
-			self.assertIn(" - ", emp_display)
+			self.assertNotIn(" - ", emp_display)
 
 		self.assertEqual(resolved[f"Bank::{self.bank_a}"], self.bank_a)
 		self.assertEqual(resolved["Other::Ext"], "Ext")
