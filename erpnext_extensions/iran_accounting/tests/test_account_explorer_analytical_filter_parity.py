@@ -369,10 +369,9 @@ class TestAccountExplorerAnalyticalFilterParity(unittest.TestCase):
 		)
 
 	def test_multi_dimension_and_status_flags(self):
+		# Parity JEs tag cost_center only; every document_scope dimension must
+		# match both AE scoped GL and the direct_gl baseline (AND semantics).
 		dims = {"cost_center": self.ctx["cost_center"]}
-		if self.ctx.get("project"):
-			dims["project"] = self.ctx["project"]
-		# Company may have no JE rows with project; combine with voucher for isolation.
 		gl_kwargs = {
 			"voucher_no": self.ctx["je_a"],
 			"cost_center": self.ctx["cost_center"],
