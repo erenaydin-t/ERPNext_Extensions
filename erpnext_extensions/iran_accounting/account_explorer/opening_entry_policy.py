@@ -255,6 +255,13 @@ def apply_policy_turnover_filters(query, gle, spec: AccountExplorerQuerySpec):
 
 
 def last_pcv_before_from_date(spec: AccountExplorerQuerySpec) -> dict | None:
+	cache = _policy_request_cache(spec)
+	if "pcv" not in cache:
+		cache["pcv"] = _fetch_last_pcv_before_from_date(spec)
+	return cache["pcv"]
+
+
+def _fetch_last_pcv_before_from_date(spec: AccountExplorerQuerySpec) -> dict | None:
 	if not spec.from_date:
 		return None
 	rows = frappe.get_all(
@@ -271,27 +278,46 @@ def last_pcv_before_from_date(spec: AccountExplorerQuerySpec) -> dict | None:
 	return rows[0] if rows else None
 
 
+def _policy_request_cache(spec: AccountExplorerQuerySpec) -> dict:
+	key = (spec.company, str(getdate(spec.from_date) if spec.from_date else ""))
+	store = getattr(frappe.local, "_ae_opening_policy_cache", None)
+	if store is None:
+		store = {}
+		frappe.local._ae_opening_policy_cache = store
+	if key not in store:
+		store[key] = {}
+	return store[key]
+
+
 def acb_applicable(spec: AccountExplorerQuerySpec) -> bool:
-	if cint(frappe.get_single_value("Accounts Settings", "ignore_account_closing_balance")):
-		return False
-	return last_pcv_before_from_date(spec) is not None
+	cache = _policy_request_cache(spec)
+	if "acb_applicable" not in cache:
+		if cint(frappe.get_single_value("Accounts Settings", "ignore_account_closing_balance")):
+			cache["acb_applicable"] = False
+		else:
+			cache["acb_applicable"] = last_pcv_before_from_date(spec) is not None
+	return cache["acb_applicable"]
 
 
 def opening_flagged_baked_in_acb(spec: AccountExplorerQuerySpec) -> bool:
-	pcv = last_pcv_before_from_date(spec)
-	if not pcv:
-		return False
-	return bool(
-		frappe.db.exists(
-			"GL Entry",
-			{
-				"company": spec.company,
-				"is_cancelled": 0,
-				"is_opening": OPENING_FLAGGED_VALUE,
-				"posting_date": ("<=", getdate(pcv.period_end_date)),
-			},
-		)
-	)
+	cache = _policy_request_cache(spec)
+	if "opening_flagged_baked" not in cache:
+		pcv = last_pcv_before_from_date(spec)
+		if not pcv:
+			cache["opening_flagged_baked"] = False
+		else:
+			cache["opening_flagged_baked"] = bool(
+				frappe.db.exists(
+					"GL Entry",
+					{
+						"company": spec.company,
+						"is_cancelled": 0,
+						"is_opening": OPENING_FLAGGED_VALUE,
+						"posting_date": ("<=", getdate(pcv.period_end_date)),
+					},
+				)
+			)
+	return cache["opening_flagged_baked"]
 
 
 def select_account_axis_engine(spec: AccountExplorerQuerySpec) -> AccountAxisEngine:
@@ -322,6 +348,70 @@ def gap_window_for_spec(spec: AccountExplorerQuerySpec) -> tuple[Any, Any] | Non
 	if gap_start > gap_end:
 		return None
 	return gap_start, gap_end
+
+
+def aggregate_opening_flagged_by_account(
+	spec: AccountExplorerQuerySpec,
+	*,
+	bucket: str,
+) -> dict[str, tuple[float, float]]:
+	"""TB-compatible auxiliary aggregates for is_opening='Yes' rows (E1/E2 deltas).
+
+	bucket: ``pre`` (before from_date), ``in`` (in period), ``gap`` (PCV gap window).
+	"""
+	from frappe.query_builder.functions import Sum
+
+	from erpnext_extensions.iran_accounting.account_explorer.gle_filters import (
+		apply_document_scope_filters,
+	)
+
+	gle = frappe.qb.DocType("GL Entry")
+	query = frappe.qb.from_(gle).select(
+		gle.account,
+		Sum(gle.debit).as_("debit"),
+		Sum(gle.credit).as_("credit"),
+	)
+	query = apply_document_scope_filters(query, gle, spec)
+	query = query.where(gle.is_opening == OPENING_FLAGGED_VALUE)
+
+	from_date, to_date = getdate(spec.from_date), getdate(spec.to_date)
+	if bucket == "pre":
+		query = query.where(gle.posting_date < from_date)
+	elif bucket == "in":
+		query = query.where(gle.posting_date >= from_date).where(gle.posting_date <= to_date)
+	elif bucket == "gap":
+		gap = gap_window_for_spec(spec)
+		if not gap:
+			return {}
+		gap_start, gap_end = gap
+		query = query.where(gle.posting_date >= gap_start).where(gle.posting_date <= gap_end)
+	else:
+		raise ValueError(f"unsupported opening-flagged bucket: {bucket}")
+
+	query = query.groupby(gle.account)
+	return {
+		row.account: (flt(row.debit), flt(row.credit))
+		for row in query.run(as_dict=True)
+		if row.account
+	}
+
+
+def adjust_tb_opening_for_policy(
+	tb_opening_debit: float,
+	tb_opening_credit: float,
+	aux_pre_debit: float,
+	aux_pre_credit: float,
+	policy: OpeningEntryPolicyMode,
+) -> tuple[float, float]:
+	"""Reconcile TB opening with OpeningEntryPolicy semantics via aux_pre delta."""
+	site_ignore = site_ignore_is_opening()
+	if policy == OpeningEntryPolicyMode.EXCLUDE_OPENING_FLAGGED:
+		if not site_ignore:
+			return flt(tb_opening_debit) - flt(aux_pre_debit), flt(tb_opening_credit) - flt(aux_pre_credit)
+		return flt(tb_opening_debit), flt(tb_opening_credit)
+	if site_ignore:
+		return flt(tb_opening_debit) + flt(aux_pre_debit), flt(tb_opening_credit) + flt(aux_pre_credit)
+	return flt(tb_opening_debit), flt(tb_opening_credit)
 
 
 def cstr(value: Any) -> str:

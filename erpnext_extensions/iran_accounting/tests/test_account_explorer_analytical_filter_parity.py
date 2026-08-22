@@ -141,16 +141,11 @@ class TestAccountExplorerAnalyticalFilterParity(unittest.TestCase):
 	def _assert_full_account_measure_parity(self, payload: str, gl_kwargs: dict, label: str):
 		result = api.get_account_summary(payload)
 		totals = result["totals"]
-		opening_kwargs = {
-			key: value
-			for key, value in gl_kwargs.items()
-			if key != "include_opening_entries"
-		}
 		opening = direct_gl_opening_totals(
 			self.ctx["company"],
 			self.ctx["from_date"],
 			self.ctx["to_date"],
-			**opening_kwargs,
+			**gl_kwargs,
 		)
 		period = direct_gl_period_totals(
 			self.ctx["company"],

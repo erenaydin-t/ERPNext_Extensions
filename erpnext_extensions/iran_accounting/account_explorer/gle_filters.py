@@ -250,29 +250,29 @@ def get_gl_entry_match_conditions() -> str:
 
 
 def apply_opening_period_filters(query, gle, spec: AccountExplorerQuerySpec):
-	query = query.where(
-		(gle.posting_date < spec.from_date)
-		| ((gle.is_opening == "Yes") & (gle.posting_date <= spec.to_date))
+	from erpnext_extensions.iran_accounting.account_explorer.opening_entry_policy import (
+		apply_policy_opening_filters,
 	)
-	return query
+
+	return apply_policy_opening_filters(query, gle, spec)
 
 
 def apply_period_turnover_filters(query, gle, spec: AccountExplorerQuerySpec):
-	query = query.where(gle.posting_date >= spec.from_date).where(gle.posting_date <= spec.to_date)
-	return apply_opening_entry_filters(query, gle, spec)
+	from erpnext_extensions.iran_accounting.account_explorer.opening_entry_policy import (
+		apply_policy_turnover_filters,
+	)
+
+	return apply_policy_turnover_filters(query, gle, spec)
 
 
 def apply_opening_entry_filters(query, gle, spec: AccountExplorerQuerySpec):
-	if spec.include_opening_entries:
-		query = query.where(
-			(gle.is_opening == "No")
-			| (
-				(gle.is_opening == "Yes")
-				& (gle.posting_date >= spec.from_date)
-				& (gle.posting_date <= spec.to_date)
-			)
-		)
-	else:
+	"""Turnover-bucket is_opening gate (date range applied separately by callers)."""
+	from erpnext_extensions.iran_accounting.account_explorer.opening_entry_policy import (
+		OpeningEntryPolicyMode,
+		policy_from_spec,
+	)
+
+	if policy_from_spec(spec) == OpeningEntryPolicyMode.EXCLUDE_OPENING_FLAGGED:
 		query = query.where(gle.is_opening == "No")
 	return query
 
