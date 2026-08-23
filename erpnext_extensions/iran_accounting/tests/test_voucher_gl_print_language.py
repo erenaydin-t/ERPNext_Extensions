@@ -54,6 +54,14 @@ class TestVoucherGLPrintLanguage(unittest.TestCase):
 
 		cls.ctx = ensure_print_dataset(ensure_print_company(_Gate()))
 
+	@classmethod
+	def tearDownClass(cls):
+		from erpnext_extensions.iran_accounting.tests.voucher_gl_print_fixtures import (
+			cancel_print_fixture_jes,
+		)
+
+		cancel_print_fixture_jes(cls.ctx["company"])
+
 	def setUp(self):
 		settings = frappe.get_single("Iran Accounting Settings")
 		self._orig_print_lang = settings.get("voucher_gl_print_language")

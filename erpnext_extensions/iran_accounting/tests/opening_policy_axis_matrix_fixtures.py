@@ -162,7 +162,23 @@ def _submit_je(
 	return je.name
 
 
+def _cancel_cross_fixture_opening_polluters(company: str) -> None:
+	"""Cancel shared-site leftovers that ERPNext TB treats as opening forever.
+
+	ERPNext ``get_opening_balances`` includes ``is_opening='Yes'`` regardless of
+	posting_date (when ignore_is_opening is off). Voucher-GL print fixtures leave
+	``AE-VGL-PRINT-OPENING`` JEs on ``_Test Company`` when tearDown is skipped;
+	those inflate Account Explorer opening by the leftover amount (observed +50).
+	"""
+	from erpnext_extensions.iran_accounting.tests.voucher_gl_print_fixtures import (
+		cancel_print_fixture_jes,
+	)
+
+	cancel_print_fixture_jes(company)
+
+
 def cleanup_axis_matrix(company: str) -> None:
+	_cancel_cross_fixture_opening_polluters(company)
 	for uap in frappe.get_all(
 		"Unified Accounting Party",
 		filters={"unified_name": ("like", f"{MARKER}%")},
@@ -281,15 +297,3 @@ def ensure_axis_matrix_context(company: str) -> dict[str, Any]:
 		"to_date": str(TO_DATE),
 		"fiscal_year": "2026",
 	}
-
-
-def cleanup_axis_matrix(company: str) -> None:
-	for uap in frappe.get_all(
-		"Unified Accounting Party",
-		filters={"unified_name": ("like", f"{MARKER}%")},
-		pluck="name",
-	):
-		frappe.delete_doc("Unified Accounting Party", uap, force=1)
-	_cancel_marker_jes(company)
-	_purge_marker_gl_orphans(company)
-	frappe.db.commit()

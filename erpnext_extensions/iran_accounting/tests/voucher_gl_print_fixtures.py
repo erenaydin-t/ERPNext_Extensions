@@ -83,6 +83,12 @@ def _payable(company: str) -> str | None:
 
 
 def cancel_print_fixture_jes(company: str) -> None:
+	"""Cancel AE-VGL-PRINT JEs and force-cancel any leftover live GL lines.
+
+	Must be idempotent: shared ``_Test Company`` is used by Opening Policy matrix
+	tests; an uncancelled ``*-OPENING`` JE permanently pollutes TB opening because
+	ERPNext includes ``is_opening='Yes'`` irrespective of posting_date.
+	"""
 	for name in frappe.get_all(
 		"Journal Entry",
 		filters={"company": company, "user_remark": ("like", f"{PRINT_MARKER}%"), "docstatus": 1},
@@ -91,6 +97,19 @@ def cancel_print_fixture_jes(company: str) -> None:
 		doc = frappe.get_doc("Journal Entry", name)
 		doc.flags.ignore_permissions = True
 		doc.cancel()
+	# Orphans: cancelled JE / interrupted run still leaving is_cancelled=0 GL.
+	frappe.db.sql(
+		"""
+		update `tabGL Entry` gle
+		inner join `tabJournal Entry` je on je.name = gle.voucher_no
+		set gle.is_cancelled = 1
+		where gle.company = %s
+		  and gle.voucher_type = 'Journal Entry'
+		  and gle.is_cancelled = 0
+		  and je.user_remark like %s
+		""",
+		(company, f"{PRINT_MARKER}%"),
+	)
 	frappe.db.commit()
 
 
