@@ -8,6 +8,9 @@ from frappe.utils import cint, flt, today
 from frappe.utils.password import update_password
 
 from erpnext_extensions.e2e.e2e_fixture import e2e_run_context
+from erpnext_extensions.petty_management.services.clearance_finance_review import (
+	DEFAULT_CLEARANCE_FINANCE_REVIEW_ROLE,
+)
 from erpnext_extensions.petty_management.services.workflow_utils import apply_pm_workflow
 from erpnext_extensions.petty_management.tests import test_pm_clearance as tpm
 
@@ -15,6 +18,7 @@ HOLDER = "pm_draft_pi_holder_e2e@example.com"
 MANAGER = "pm_draft_pi_mgr_e2e@example.com"
 FINANCE = "pm_draft_pi_fin_e2e@example.com"
 PASSWORD = "pm_sec_test_1"
+REVIEWER_ROLE = DEFAULT_CLEARANCE_FINANCE_REVIEW_ROLE
 
 
 def _ensure_user(email: str, roles: list[str]) -> str:
@@ -57,14 +61,21 @@ def prepare() -> dict:
 	if not tpm.COMPANY:
 		frappe.throw("No Company")
 
+	from erpnext_extensions.patches.post_model_sync.migrate_pm_clearance_finance_role_queue_v453 import (
+		execute as migrate_v453,
+	)
+
+	migrate_v453()
+
 	desk = ["Accounts User", "Employee", "System Manager"]
 	_ensure_user(HOLDER, ["Petty Management User", *desk])
 	_ensure_user(MANAGER, ["Petty Management User", "Expense Approver", *desk])
-	_ensure_user(FINANCE, ["Petty Management Accountant", *desk])
+	_ensure_user(FINANCE, ["Petty Management Accountant", REVIEWER_ROLE, *desk])
 
 	settings = frappe.get_single("PM Settings")
 	settings.db_set("finance_manager", FINANCE, update_modified=False)
 	settings.db_set("finance_supervisor", FINANCE, update_modified=False)
+	settings.db_set("clearance_finance_review_role", REVIEWER_ROLE, update_modified=False)
 	settings.db_set("require_named_manager_approver", 1, update_modified=False)
 
 	emp = tpm._make_employee()
@@ -110,7 +121,7 @@ def prepare() -> dict:
 	frappe.db.set_value(
 		"PM Clearance",
 		cl.name,
-		{"manager_approver": MANAGER, "finance_approver": FINANCE},
+		{"manager_approver": MANAGER, "finance_approver": None},
 		update_modified=False,
 	)
 	apply_pm_workflow(frappe.get_doc("PM Clearance", cl.name), "PM Submit Finance Review")
@@ -159,17 +170,34 @@ def submit_prepared_pi(purchase_invoice: str) -> dict:
 
 @frappe.whitelist()
 def count_open_finance_todos(pm_clearance: str) -> dict:
+	"""v4.5.3: finance queue uses Workflow Action; Assignment Rule ToDos must be absent."""
 	frappe.set_user("Administrator")
-	rows = frappe.get_all(
+	todos = frappe.get_all(
 		"ToDo",
 		filters={
 			"reference_type": "PM Clearance",
 			"reference_name": pm_clearance,
 			"status": "Open",
+			"assignment_rule": "PM Clearance Finance Review",
 		},
 		fields=["name", "allocated_to"],
 	)
-	return {"open_count": len(rows), "todos": rows}
+	actions = frappe.get_all(
+		"Workflow Action",
+		filters={
+			"reference_doctype": "PM Clearance",
+			"reference_name": pm_clearance,
+			"status": "Open",
+		},
+		fields=["name", "status"],
+	)
+	return {
+		"open_count": len(actions),
+		"open_workflow_actions": len(actions),
+		"open_finance_assignment_todos": len(todos),
+		"todos": todos,
+		"actions": actions,
+	}
 
 
 @frappe.whitelist()

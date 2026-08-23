@@ -24,6 +24,7 @@
   "finance_manager",
   "column_break_approval",
   "finance_supervisor",
+  "clearance_finance_review_role",
   "require_named_manager_approver",
   "operational_pm_visibility_role",
   "section_auto",
@@ -116,7 +117,15 @@
    "fieldtype": "Link",
    "label": "Finance Supervisor",
    "options": "User",
-   "description": "Named finance approver for PM Clearance."
+   "description": "Legacy named user (v4.5.3+ Clearance finance uses role queue; kept for migration grant only)."
+  },
+  {
+   "default": "Petty Management Clearance Reviewer",
+   "description": "Role queue for PM Clearance Finance Review (native Workflow Action). Any enabled user with this role may Finance Approve/Reject.",
+   "fieldname": "clearance_finance_review_role",
+   "fieldtype": "Link",
+   "label": "Clearance Finance Review Role",
+   "options": "Role"
   },
   {
    "default": "1",

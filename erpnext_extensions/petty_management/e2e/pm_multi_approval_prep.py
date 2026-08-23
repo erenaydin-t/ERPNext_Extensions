@@ -44,10 +44,17 @@ def _ensure_user(email: str, roles: list[str], password: str = "pm_sec_test_1") 
 
 
 def _configure_settings(manager: str, ceo: str, finance: str) -> None:
+	from erpnext_extensions.petty_management.services.clearance_finance_review import (
+		DEFAULT_CLEARANCE_FINANCE_REVIEW_ROLE,
+	)
+
 	settings = frappe.get_single("PM Settings")
 	settings.db_set("ceo_approver", ceo, update_modified=False)
 	settings.db_set("finance_manager", finance, update_modified=False)
 	settings.db_set("finance_supervisor", finance, update_modified=False)
+	settings.db_set(
+		"clearance_finance_review_role", DEFAULT_CLEARANCE_FINANCE_REVIEW_ROLE, update_modified=False
+	)
 	settings.db_set("require_named_manager_approver", 1, update_modified=False)
 	frappe.db.commit()
 
@@ -74,9 +81,17 @@ def prepare_pm_request_multi_approval() -> dict:
 		"pm_ceo_v402_e2e@example.com",
 		["Petty Management User", *desk_roles],
 	)
+	from erpnext_extensions.petty_management.services.clearance_finance_review import (
+		DEFAULT_CLEARANCE_FINANCE_REVIEW_ROLE,
+	)
+
+	if not frappe.db.exists("Role", DEFAULT_CLEARANCE_FINANCE_REVIEW_ROLE):
+		frappe.get_doc(
+			{"doctype": "Role", "role_name": DEFAULT_CLEARANCE_FINANCE_REVIEW_ROLE}
+		).insert(ignore_permissions=True)
 	finance = _ensure_user(
 		"pm_fin_v402_e2e@example.com",
-		["Petty Management Accountant", *desk_roles],
+		["Petty Management Accountant", DEFAULT_CLEARANCE_FINANCE_REVIEW_ROLE, *desk_roles],
 	)
 	_configure_settings(manager, ceo, finance)
 

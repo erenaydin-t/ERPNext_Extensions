@@ -112,6 +112,16 @@ def apply_pm_workflow(doc: Document | str, action: str) -> Document:
 		validate_apply_workflow_action(doc, action)
 	result = frappe_apply_workflow(doc, action)
 
+	if (
+		result.doctype == "PM Clearance"
+		and action in ("PM Finance Approve", "PM Approve", "PM Reject")
+	):
+		from erpnext_extensions.petty_management.services.clearance_finance_review import (
+			stamp_clearance_finance_approver_after_act,
+		)
+
+		stamp_clearance_finance_approver_after_act(result, action)
+
 	# After an Approve, loop consecutive same-user Approve hops (never Reject / PE / Close).
 	from erpnext_extensions.petty_management.services.auto_skip_approvals import (
 		PM_AUTO_SKIP_APPROVE_ACTIONS,

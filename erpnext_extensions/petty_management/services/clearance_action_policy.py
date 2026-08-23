@@ -288,6 +288,13 @@ def validate_apply_workflow_action(doc: Document, action: str) -> None:
 				),
 				title=_("Reject not allowed"),
 			)
+	from erpnext_extensions.petty_management.services.clearance_finance_review import (
+		CLEARANCE_FINANCE_WORKFLOW_ACTIONS,
+		validate_clearance_finance_workflow_action,
+	)
+
+	if action in CLEARANCE_FINANCE_WORKFLOW_ACTIONS:
+		validate_clearance_finance_workflow_action(doc, action)
 	if action in ("PM Finance Approve", "PM Approve"):
 		from erpnext_extensions.petty_management.services.purchase_invoice_readiness import (
 			validate_purchase_invoices_for_finance_approval,

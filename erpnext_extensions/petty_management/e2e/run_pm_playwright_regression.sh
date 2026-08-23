@@ -22,6 +22,14 @@ SCRIPTS=(
   playwright_pm_multi_pe.mjs
   playwright_pm_clearance_search_link_network_debug.mjs
   playwright_pm_clearance_settlement_lines_e2e.mjs
+  playwright_pm_clearance_multi_approval.mjs
+  playwright_pm_clearance_draft_pi_e2e.mjs
+  playwright_pm_clearance_finance_role_queue.mjs
+  playwright_pm_request_multi_approval.mjs
+  playwright_pm_request_list_permission.mjs
+  playwright_pm_clearance_list_permission.mjs
+  playwright_pm_visibility_role_setting.mjs
+  playwright_pm_request_funding_status_ux.mjs
 )
 
 {

@@ -116,6 +116,21 @@ def _restricted_row_conditions(doctype: str, user: str) -> str:
 	return "(" + " OR ".join(parts) + ")"
 
 
+def _clearance_finance_queue_list_condition(user: str) -> str:
+	"""Pending Finance Review clearances visible to users with the review role."""
+	from erpnext_extensions.petty_management.services.clearance_finance_review import (
+		user_has_clearance_finance_review_role,
+	)
+	from erpnext_extensions.petty_management.services.workflow_utils import resolve_workflow_state_link
+
+	if not user_has_clearance_finance_review_role(user):
+		return ""
+	pending = resolve_workflow_state_link("Pending Finance Review")
+	if not pending:
+		return ""
+	return f"`tabPM Clearance`.workflow_state = {frappe.db.escape(pending, percent=False)}"
+
+
 def pm_request_permission_query_conditions(user: str | None = None, doctype: str | None = None) -> str:
 	if _is_pm_visibility_unrestricted(user):
 		return ""
@@ -125,7 +140,12 @@ def pm_request_permission_query_conditions(user: str | None = None, doctype: str
 def pm_clearance_permission_query_conditions(user: str | None = None, doctype: str | None = None) -> str:
 	if _is_pm_visibility_unrestricted(user):
 		return ""
-	return _restricted_row_conditions("PM Clearance", user or frappe.session.user)
+	user = user or frappe.session.user
+	base = _restricted_row_conditions("PM Clearance", user)
+	queue = _clearance_finance_queue_list_condition(user)
+	if queue:
+		return f"({base} OR {queue})"
+	return base
 
 
 def has_pm_request_permission(doc, ptype=None, user=None, debug=False):
@@ -137,6 +157,24 @@ def has_pm_request_permission(doc, ptype=None, user=None, debug=False):
 def has_pm_clearance_permission(doc, ptype=None, user=None, debug=False):
 	if _is_pm_visibility_unrestricted(user):
 		return True
+	user = user or frappe.session.user
+	if getattr(doc, "doctype", None) == "PM Clearance" and ptype in ("write", "submit"):
+		from erpnext_extensions.petty_management.services.clearance_finance_review import (
+			clearance_is_pending_finance_review,
+			user_has_clearance_finance_review_role,
+		)
+
+		if user_has_clearance_finance_review_role(user):
+			if clearance_is_pending_finance_review(doc):
+				return True
+			before = doc.get_doc_before_save() if hasattr(doc, "get_doc_before_save") else None
+			if before and clearance_is_pending_finance_review(before):
+				return True
+			# Workflow apply sets next_state before save(); finance_approver still blank.
+			if (getattr(doc, "status", None) or "").strip() == "Pending Approval" and not (
+				getattr(doc, "finance_approver", None) or ""
+			).strip():
+				return True
 	return _check_restricted_doc_access(doc, user, include_ceo=False)
 
 
@@ -153,4 +191,12 @@ def _check_restricted_doc_access(doc, user, *, include_ceo: bool) -> bool:
 		return True
 	if include_ceo and getattr(doc, "ceo_approver", None) == user:
 		return True
+	if getattr(doc, "doctype", None) == "PM Clearance":
+		from erpnext_extensions.petty_management.services.clearance_finance_review import (
+			clearance_is_pending_finance_review,
+			user_has_clearance_finance_review_role,
+		)
+
+		if clearance_is_pending_finance_review(doc) and user_has_clearance_finance_review_role(user):
+			return True
 	return False

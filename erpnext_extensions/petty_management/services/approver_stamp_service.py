@@ -100,7 +100,14 @@ def stamp_pm_request_approvers(doc: Document) -> None:
 
 
 def stamp_pm_clearance_approvers(doc: Document) -> None:
-	"""Stamp manager/finance User fields on PM Clearance."""
+	"""Stamp manager on PM Clearance; finance uses role queue (v4.5.3).
+
+	``finance_approver`` is stamped only after a successful Finance Approve/Reject act.
+	"""
+	from erpnext_extensions.petty_management.services.clearance_finance_review import (
+		ensure_clearance_finance_review_role_configured,
+	)
+
 	manager = resolve_manager_approver(getattr(doc, "employee", None))
 	if not manager and _require_named_manager():
 		frappe.throw(
@@ -111,13 +118,5 @@ def stamp_pm_clearance_approvers(doc: Document) -> None:
 			title=_("Approver required"),
 		)
 	doc.manager_approver = manager
-	doc.finance_approver = resolve_finance_approver(
-		getattr(doc, "company", None), context="clearance"
-	)
-	if not doc.finance_approver:
-		frappe.throw(
-			_(
-				"Cannot submit: Finance Supervisor is not configured in Petty Management Settings."
-			),
-			title=_("Approver required"),
-		)
+	doc.finance_approver = None
+	ensure_clearance_finance_review_role_configured()

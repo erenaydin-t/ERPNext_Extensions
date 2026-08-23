@@ -3,9 +3,10 @@
 
 from __future__ import annotations
 
+import unittest
+
 import frappe
 from frappe.model.workflow import get_transitions
-from frappe.tests.utils import FrappeTestCase
 from frappe.utils import today
 
 from erpnext_extensions.petty_management.services.workflow_utils import apply_pm_workflow
@@ -85,10 +86,9 @@ def _workflow_comment_states(doctype: str, name: str) -> list[str]:
 	return [r.content for r in rows]
 
 
-class TestPMAutoSkipApprovals(FrappeTestCase):
+class TestPMAutoSkipApprovals(unittest.TestCase):
 	@classmethod
 	def setUpClass(cls):
-		super().setUpClass()
 		tpm._ensure_company_context()
 		# Rebuild workflow to v4.1.4 role model for this site.
 		from erpnext_extensions.patches.post_model_sync.migrate_pm_roles_autoskip_v414 import execute
@@ -252,8 +252,18 @@ class TestPMAutoSkipApprovals(FrappeTestCase):
 		req = frappe.get_doc("PM Request", name)
 		self.assertEqual(_wf_title(req.workflow_state), "Rejected")
 
-	def test_clearance_manager_equals_finance_auto_skip(self):
+	def test_clearance_manager_equals_finance_does_not_auto_skip_finance_queue(self):
+		"""v4.5.3: Clearance finance review uses role queue — no auto-skip to Approved."""
+		from erpnext_extensions.petty_management.services.clearance_finance_review import (
+			DEFAULT_CLEARANCE_FINANCE_REVIEW_ROLE,
+		)
+
 		self._configure(self.mgr_ceo_fin, self.ceo, self.mgr_ceo_fin)
+		settings = frappe.get_single("PM Settings")
+		if frappe.get_meta("PM Settings").has_field("clearance_finance_review_role"):
+			settings.db_set(
+				"clearance_finance_review_role", DEFAULT_CLEARANCE_FINANCE_REVIEW_ROLE, update_modified=False
+			)
 		emp = tpm._make_employee()
 		frappe.db.set_value("Employee", emp, "expense_approver", self.mgr_ceo_fin, update_modified=False)
 		tpm._make_holder(emp)
@@ -290,18 +300,18 @@ class TestPMAutoSkipApprovals(FrappeTestCase):
 			},
 		)
 		cl.insert(ignore_permissions=True)
-		# Stamp both approvers to the same user for auto-skip.
 		frappe.db.set_value(
 			"PM Clearance",
 			cl.name,
-			{"manager_approver": self.mgr_ceo_fin, "finance_approver": self.mgr_ceo_fin},
+			{"manager_approver": self.mgr_ceo_fin},
 			update_modified=False,
 		)
 		apply_pm_workflow(cl, "PM Submit Finance Review")
 		frappe.set_user(self.mgr_ceo_fin)
 		apply_pm_workflow(frappe.get_doc("PM Clearance", cl.name), "PM Manager Approve")
 		cl = frappe.get_doc("PM Clearance", cl.name)
-		self.assertEqual(_wf_title(cl.workflow_state), "Approved")
+		self.assertEqual(_wf_title(cl.workflow_state), "Pending Finance Review")
+		self.assertFalse((cl.finance_approver or "").strip())
 
 	def test_opening_advance_accountant_has_cancel_not_delete(self):
 		"""Accountant may cancel/amend Opening Advance; delete is System Manager only."""

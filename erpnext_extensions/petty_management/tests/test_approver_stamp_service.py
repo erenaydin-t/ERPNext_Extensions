@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import unittest
+
 import frappe
-from frappe.tests.utils import FrappeTestCase
 
 from erpnext_extensions.petty_management.services.approver_stamp_service import (
 	resolve_ceo_approver,
@@ -18,7 +19,7 @@ from erpnext_extensions.petty_management.services.business_status_service import
 )
 
 
-class TestApproverStampService(FrappeTestCase):
+class TestApproverStampService(unittest.TestCase):
 	def test_resolve_manager_from_employee_expense_approver(self):
 		emp = frappe.get_all("Employee", fields=["name", "expense_approver"], limit=20)
 		target = None
@@ -78,7 +79,7 @@ class TestApproverStampService(FrappeTestCase):
 		self.assertEqual(resolve_finance_approver(context="clearance"), "Administrator")
 
 
-class TestPMBusinessStatus(FrappeTestCase):
+class TestPMBusinessStatus(unittest.TestCase):
 	def test_request_waiting_and_paid(self):
 		doc = frappe._dict(
 			docstatus=1,

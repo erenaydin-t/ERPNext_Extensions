@@ -182,6 +182,13 @@ def _rebuild_pm_clearance_workflow() -> None:
 	_ensure_action("PM Approve")
 	_ensure_action("PM Reject")
 
+	from erpnext_extensions.petty_management.services.clearance_finance_review import (
+		DEFAULT_CLEARANCE_FINANCE_REVIEW_ROLE,
+		get_clearance_finance_review_role,
+	)
+
+	review_role = get_clearance_finance_review_role() or DEFAULT_CLEARANCE_FINANCE_REVIEW_ROLE
+
 	if frappe.db.exists("Workflow", name):
 		w = frappe.get_doc("Workflow", name)
 	else:
@@ -195,16 +202,21 @@ def _rebuild_pm_clearance_workflow() -> None:
 	w.states = []
 	w.transitions = []
 
-	for state, doc_status in (
-		("Draft", "0"),
-		("Pending Manager Approval", "1"),
-		("Pending Finance Review", "1"),
-		("Approved", "1"),
-		("Rejected", "1"),
+	for state, doc_status, send_email in (
+		("Draft", "0", 1),
+		("Pending Manager Approval", "1", 1),
+		("Pending Finance Review", "1", 0),
+		("Approved", "1", 1),
+		("Rejected", "1", 1),
 	):
 		w.append(
 			"states",
-			{"state": _wf(state), "doc_status": doc_status, "allow_edit": "All"},
+			{
+				"state": _wf(state),
+				"doc_status": doc_status,
+				"allow_edit": "All",
+				"send_email": send_email,
+			},
 		)
 
 	w.append(
@@ -246,9 +258,8 @@ def _rebuild_pm_clearance_workflow() -> None:
 			"state": _wf("Pending Finance Review"),
 			"action": "PM Finance Approve",
 			"next_state": _wf("Approved"),
-			"allowed": "Petty Management Accountant",
+			"allowed": review_role,
 			"allow_self_approval": 1,
-			"condition": "doc.finance_approver == frappe.session.user",
 		},
 	)
 	# Keep PM Approve as alias for finance for backward Desk habits
@@ -258,9 +269,8 @@ def _rebuild_pm_clearance_workflow() -> None:
 			"state": _wf("Pending Finance Review"),
 			"action": "PM Approve",
 			"next_state": _wf("Approved"),
-			"allowed": "Petty Management Accountant",
+			"allowed": review_role,
 			"allow_self_approval": 1,
-			"condition": "doc.finance_approver == frappe.session.user",
 		},
 	)
 	w.append(
@@ -269,9 +279,8 @@ def _rebuild_pm_clearance_workflow() -> None:
 			"state": _wf("Pending Finance Review"),
 			"action": "PM Reject",
 			"next_state": _wf("Rejected"),
-			"allowed": "Petty Management Accountant",
+			"allowed": review_role,
 			"allow_self_approval": 1,
-			"condition": "doc.finance_approver == frappe.session.user",
 		},
 	)
 
@@ -514,6 +523,8 @@ def _seed_assignment_rules() -> list[str]:
 			close_condition=args[7],
 		)
 		created.append(args[0])
+	if frappe.db.exists("Assignment Rule", "PM Clearance Finance Review"):
+		frappe.db.set_value("Assignment Rule", "PM Clearance Finance Review", "disabled", 1, update_modified=False)
 	return created
 
 
