@@ -89,27 +89,43 @@ def _run_summary_builder(spec: AccountExplorerQuerySpec) -> dict:
 
 
 def collect_export_rows(spec: AccountExplorerQuerySpec) -> tuple[list[dict], dict, int]:
-	settings = _export_settings()
-	page_size = min(settings["server_page_size"], 500)
-	spec.pagination.page_size = page_size
+	"""Collect export rows with a single accounting aggregation pass.
 
-	all_rows: list[dict] = []
-	totals: dict = {}
-	total_rows = 0
-	page = 1
+	Phase 3 re-ran full aggregation per page. Phase 4:
 
-	while True:
-		spec.pagination.page = page
+	- voucher: SQL-paginated ``iter_voucher_summary_pages`` (totals once)
+	- other axes: one builder call (chart/party cardinality, not GL rows)
+	"""
+	if spec.view_axis == "voucher":
+		from erpnext_extensions.iran_accounting.account_explorer.voucher_summary import (
+			iter_voucher_summary_pages,
+		)
+
+		settings = _export_settings()
+		page_size = min(max(cint(settings["server_page_size"]) or 200, 1), 500)
+		all_rows: list[dict] = []
+		totals: dict = {}
+		total_rows = 0
+		for chunk in iter_voucher_summary_pages(spec, page_size=page_size):
+			all_rows.extend(chunk.get("rows") or [])
+			totals = chunk.get("totals") or totals
+			total_rows = cint((chunk.get("pagination") or {}).get("total_rows") or total_rows)
+		return all_rows, totals, total_rows
+
+	original_page = spec.pagination.page
+	original_size = spec.pagination.page_size
+	try:
+		spec.pagination.page = 1
+		spec.pagination.page_size = 1_000_000
 		result = _run_summary_builder(spec)
-		all_rows.extend(result.get("rows") or [])
-		totals = result.get("totals") or totals
-		pagination = result.get("pagination") or {}
-		total_rows = cint(pagination.get("total_rows") or len(all_rows))
-		if not pagination.get("has_next"):
-			break
-		page += 1
+	finally:
+		spec.pagination.page = original_page
+		spec.pagination.page_size = original_size
 
-	return all_rows, totals, total_rows
+	rows = result.get("rows") or []
+	totals = result.get("totals") or {}
+	total_rows = cint((result.get("pagination") or {}).get("total_rows") or len(rows))
+	return rows, totals, total_rows
 
 
 def get_export_columns(spec: AccountExplorerQuerySpec) -> list[dict[str, str]]:
@@ -196,6 +212,80 @@ def build_csv_content(rows: list[dict], columns: list[dict[str, str]]) -> str:
 	return buffer.getvalue()
 
 
+def build_csv_content_from_rows(rows: list[dict], columns: list[dict[str, str]]) -> str:
+	headers, data = rows_to_matrix(rows, columns)
+	buffer = io.StringIO()
+	writer = csv.writer(buffer)
+	writer.writerow(headers)
+	writer.writerows(data)
+	return buffer.getvalue()
+
+
+def _iter_voucher_export_rows(spec: AccountExplorerQuerySpec, *, page_size: int = 500):
+	"""Yield voucher export rows page-by-page (single GROUP BY via temp table)."""
+	from erpnext_extensions.iran_accounting.account_explorer.voucher_summary import (
+		iter_voucher_summary_pages,
+	)
+
+	totals: dict = {}
+	total_rows = 0
+	for chunk in iter_voucher_summary_pages(spec, page_size=page_size):
+		totals = chunk.get("totals") or totals
+		total_rows = cint((chunk.get("pagination") or {}).get("total_rows") or total_rows)
+		for row in chunk.get("rows") or []:
+			yield row, totals, total_rows
+
+
+def build_streaming_voucher_csv(spec: AccountExplorerQuerySpec, columns: list[dict[str, str]]) -> tuple[str, dict, int]:
+	"""Stream voucher CSV without holding the full row list in Python."""
+	settings = _export_settings()
+	page_size = min(max(cint(settings["server_page_size"]) or 200, 1), 500)
+	buffer = io.StringIO()
+	writer = csv.writer(buffer)
+	writer.writerow([column["label"] for column in columns])
+	totals: dict = {}
+	total_rows = 0
+	written = 0
+	for row, totals, total_rows in _iter_voucher_export_rows(spec, page_size=page_size):
+		writer.writerow([row.get(column["fieldname"]) for column in columns])
+		written += 1
+	if written == 0:
+		# still return totals from empty iterator path
+		from erpnext_extensions.iran_accounting.account_explorer.voucher_summary import (
+			_scoped_voucher_totals,
+		)
+
+		totals, total_rows = _scoped_voucher_totals(spec)
+	return buffer.getvalue(), totals, cint(total_rows or written)
+
+
+def build_streaming_voucher_xlsx(spec: AccountExplorerQuerySpec, columns: list[dict[str, str]]) -> tuple[bytes, dict, int]:
+	"""Write-only XLSX for voucher export (bounded row buffering)."""
+	from openpyxl import Workbook
+
+	settings = _export_settings()
+	page_size = min(max(cint(settings["server_page_size"]) or 200, 1), 500)
+	wb = Workbook(write_only=True)
+	ws = wb.create_sheet(title="Account Explorer")
+	ws.append([column["label"] for column in columns])
+	totals: dict = {}
+	total_rows = 0
+	written = 0
+	for row, totals, total_rows in _iter_voucher_export_rows(spec, page_size=page_size):
+		ws.append([row.get(column["fieldname"]) for column in columns])
+		written += 1
+	if written == 0:
+		from erpnext_extensions.iran_accounting.account_explorer.voucher_summary import (
+			_scoped_voucher_totals,
+		)
+
+		totals, total_rows = _scoped_voucher_totals(spec)
+	bio = io.BytesIO()
+	wb.save(bio)
+	return bio.getvalue(), totals, cint(total_rows or written)
+
+
+
 def build_xlsx_content(rows: list[dict], columns: list[dict[str, str]]) -> bytes:
 	headers, data = rows_to_matrix(rows, columns)
 	xlsx_file = make_xlsx([headers, *data], "Account Explorer")
@@ -246,11 +336,26 @@ def _prepare_export_payload(payload: Any) -> AccountExplorerQuerySpec:
 
 
 def _probe_export_size(spec: AccountExplorerQuerySpec) -> int:
+	"""Cheap total_rows probe (voucher uses totals query only)."""
+	if spec.view_axis == "voucher":
+		from erpnext_extensions.iran_accounting.account_explorer.voucher_summary import (
+			_scoped_voucher_totals,
+		)
+
+		_totals, total_rows = _scoped_voucher_totals(spec)
+		return cint(total_rows)
+
 	settings = _export_settings()
 	page_size = min(settings["server_page_size"], 500)
-	spec.pagination.page_size = page_size
-	spec.pagination.page = 1
-	result = _run_summary_builder(spec)
+	original_page = spec.pagination.page
+	original_size = spec.pagination.page_size
+	try:
+		spec.pagination.page_size = page_size
+		spec.pagination.page = 1
+		result = _run_summary_builder(spec)
+	finally:
+		spec.pagination.page = original_page
+		spec.pagination.page_size = original_size
 	return cint((result.get("pagination") or {}).get("total_rows") or 0)
 
 
@@ -285,15 +390,22 @@ def export_account_explorer(payload: Any, file_format: str = "csv", *, force_syn
 			),
 		}
 
-	rows, totals, total_rows = collect_export_rows(spec)
 	columns = get_export_columns(spec)
-	rows = _normalize_export_rows(rows, spec)
 	filename = _export_filename(spec, file_format)
 
-	if file_format == "csv":
-		_trigger_download(build_csv_content(rows, columns), filename)
+	if spec.view_axis == "voucher" and file_format == "csv":
+		content, totals, total_rows = build_streaming_voucher_csv(spec, columns)
+		_trigger_download(content, filename)
+	elif spec.view_axis == "voucher" and file_format == "xlsx":
+		content, totals, total_rows = build_streaming_voucher_xlsx(spec, columns)
+		_trigger_download(content, filename)
 	else:
-		_trigger_download(build_xlsx_content(rows, columns), filename)
+		rows, totals, total_rows = collect_export_rows(spec)
+		rows = _normalize_export_rows(rows, spec)
+		if file_format == "csv":
+			_trigger_download(build_csv_content(rows, columns), filename)
+		else:
+			_trigger_download(build_xlsx_content(rows, columns), filename)
 
 	return {
 		"queued": 0,
@@ -306,15 +418,20 @@ def export_account_explorer(payload: Any, file_format: str = "csv", *, force_syn
 def run_account_explorer_export_job(payload: Any, file_format: str, user: str) -> None:
 	frappe.set_user(user)
 	spec = _prepare_export_payload(payload)
-	rows, _, _total_rows = collect_export_rows(spec)
 	columns = get_export_columns(spec)
-	rows = _normalize_export_rows(rows, spec)
 	filename = _export_filename(spec, file_format)
 
-	if file_format == "csv":
-		content = build_csv_content(rows, columns)
+	if spec.view_axis == "voucher" and file_format == "csv":
+		content, _totals, _total_rows = build_streaming_voucher_csv(spec, columns)
+	elif spec.view_axis == "voucher" and file_format == "xlsx":
+		content, _totals, _total_rows = build_streaming_voucher_xlsx(spec, columns)
 	else:
-		content = build_xlsx_content(rows, columns)
+		rows, _totals, _total_rows = collect_export_rows(spec)
+		rows = _normalize_export_rows(rows, spec)
+		if file_format == "csv":
+			content = build_csv_content(rows, columns)
+		else:
+			content = build_xlsx_content(rows, columns)
 
 	file_url = _save_export_file(content, filename, file_format)
 	_send_export_ready_email(user, file_url, filename)

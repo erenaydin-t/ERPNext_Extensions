@@ -296,11 +296,7 @@ def direct_gl_period_totals(
 		conditions.append("is_cancelled=0")
 	if not cint(include_period_closing_vouchers):
 		conditions.append("voucher_type != 'Period Closing Voucher'")
-	if cint(include_opening_entries):
-		conditions.append(
-			"(is_opening='No' or (is_opening='Yes' and posting_date between %(from_date)s and %(to_date)s))"
-		)
-	else:
+	if not cint(include_opening_entries):
 		conditions.append("is_opening='No'")
 	if account:
 		if isinstance(account, (list, tuple, set)):
@@ -378,13 +374,17 @@ def direct_gl_opening_totals(
 	project: str | None = None,
 	dimension_filters: dict | None = None,
 	currency: str | None = None,
+	include_opening_entries: int = 1,
 	include_cancelled_entries: int = 0,
 	include_period_closing_vouchers: int = 0,
 ) -> dict[str, float]:
 	conditions = [
 		"company=%(company)s",
-		"(posting_date < %(from_date)s or (is_opening='Yes' and posting_date <= %(to_date)s))",
 	]
+	if cint(include_opening_entries):
+		conditions.append("posting_date < %(from_date)s")
+	else:
+		conditions.append("posting_date < %(from_date)s and is_opening='No'")
 	values = {
 		"company": company,
 		"from_date": from_date,
@@ -440,21 +440,43 @@ def direct_gl_opening_totals(
 		conditions.append(f"`{fieldname}`=%({fieldname})s")
 		values[fieldname] = value
 
-	row = frappe.db.sql(
+	where_sql = " and ".join(conditions)
+	if account:
+		row = frappe.db.sql(
+			f"""
+			select coalesce(sum(debit),0) as opening_debit, coalesce(sum(credit),0) as opening_credit
+			from `tabGL Entry`
+			where {where_sql}
+			""",
+			values,
+			as_dict=True,
+		)[0]
+		debit = flt(row.opening_debit)
+		credit = flt(row.opening_credit)
+		if debit > credit:
+			return {"opening_debit": debit - credit, "opening_credit": 0.0}
+		return {"opening_debit": 0.0, "opening_credit": credit - debit}
+
+	rows = frappe.db.sql(
 		f"""
 		select coalesce(sum(debit),0) as opening_debit, coalesce(sum(credit),0) as opening_credit
 		from `tabGL Entry`
-		where {" and ".join(conditions)}
+		where {where_sql}
+		group by account
 		""",
 		values,
 		as_dict=True,
-	)[0]
-	debit = flt(row.opening_debit)
-	credit = flt(row.opening_credit)
-	# Match Explorer / party_opening toggle for opening presentation
-	if debit > credit:
-		return {"opening_debit": debit - credit, "opening_credit": 0.0}
-	return {"opening_debit": 0.0, "opening_credit": credit - debit}
+	)
+	opening_debit = 0.0
+	opening_credit = 0.0
+	for row in rows:
+		debit = flt(row.opening_debit)
+		credit = flt(row.opening_credit)
+		if debit > credit:
+			opening_debit += debit - credit
+		else:
+			opening_credit += credit - debit
+	return {"opening_debit": opening_debit, "opening_credit": opening_credit}
 
 
 def full_measures_from_opening_period(opening: dict, period: dict) -> dict[str, float]:

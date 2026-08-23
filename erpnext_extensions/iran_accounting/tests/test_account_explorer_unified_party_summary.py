@@ -22,6 +22,11 @@ class TestAccountExplorerUnifiedPartySummary(unittest.TestCase):
 		self.company = require_site(self)
 		enable_wave2c_unified_party()
 		frappe.set_user("Administrator")
+		from erpnext_extensions.iran_accounting.tests.opening_policy_axis_matrix_fixtures import (
+			cleanup_axis_matrix,
+		)
+
+		cleanup_axis_matrix(self.company)
 		fy = current_fiscal_year(self.company)
 		if not fy:
 			self.skipTest("No fiscal year")
@@ -64,6 +69,7 @@ class TestAccountExplorerUnifiedPartySummary(unittest.TestCase):
 		uap_name = create_test_unified_accounting_party(
 			[("Customer", customer) for customer in customers[: min(2, len(customers))]],
 			unified_name="Rollup Test UAP",
+			company=self.company,
 		)
 		self.created_uaps.append(uap_name)
 
@@ -100,7 +106,9 @@ class TestAccountExplorerUnifiedPartySummary(unittest.TestCase):
 		if not customers:
 			self.skipTest("No customer GL activity")
 		customer = customers[0]
-		uap_name = create_test_unified_accounting_party([("Customer", customer)], unified_name="Voucher Scope UAP")
+		uap_name = create_test_unified_accounting_party(
+			[("Customer", customer)], unified_name="Voucher Scope UAP", company=self.company
+		)
 		self.created_uaps.append(uap_name)
 
 		payload = build_payload(

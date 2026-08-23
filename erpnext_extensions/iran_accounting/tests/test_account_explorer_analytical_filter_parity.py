@@ -141,16 +141,11 @@ class TestAccountExplorerAnalyticalFilterParity(unittest.TestCase):
 	def _assert_full_account_measure_parity(self, payload: str, gl_kwargs: dict, label: str):
 		result = api.get_account_summary(payload)
 		totals = result["totals"]
-		opening_kwargs = {
-			key: value
-			for key, value in gl_kwargs.items()
-			if key != "include_opening_entries"
-		}
 		opening = direct_gl_opening_totals(
 			self.ctx["company"],
 			self.ctx["from_date"],
 			self.ctx["to_date"],
-			**opening_kwargs,
+			**gl_kwargs,
 		)
 		period = direct_gl_period_totals(
 			self.ctx["company"],
@@ -369,10 +364,9 @@ class TestAccountExplorerAnalyticalFilterParity(unittest.TestCase):
 		)
 
 	def test_multi_dimension_and_status_flags(self):
+		# Parity JEs tag cost_center only; every document_scope dimension must
+		# match both AE scoped GL and the direct_gl baseline (AND semantics).
 		dims = {"cost_center": self.ctx["cost_center"]}
-		if self.ctx.get("project"):
-			dims["project"] = self.ctx["project"]
-		# Company may have no JE rows with project; combine with voucher for isolation.
 		gl_kwargs = {
 			"voucher_no": self.ctx["je_a"],
 			"cost_center": self.ctx["cost_center"],

@@ -6,10 +6,10 @@ import frappe
 from frappe.query_builder.functions import Sum
 from frappe.utils import flt
 
-from erpnext_extensions.iran_accounting.account_explorer.gle_filters import (
-	apply_opening_period_filters,
-	apply_period_turnover_filters,
-	apply_scoped_gle_filters,
+from erpnext_extensions.iran_accounting.account_explorer.gle_filters import apply_scoped_gle_filters
+from erpnext_extensions.iran_accounting.account_explorer.opening_entry_policy import (
+	apply_policy_opening_filters,
+	apply_policy_turnover_filters,
 )
 from erpnext_extensions.iran_accounting.account_explorer.schemas import AccountExplorerQuerySpec
 
@@ -26,7 +26,7 @@ def get_party_opening_balances(spec: AccountExplorerQuerySpec, party_types: list
 		Sum(gle.credit).as_("opening_credit"),
 	)
 	query = apply_scoped_gle_filters(query, gle, spec, party_types=party_types)
-	query = apply_opening_period_filters(query, gle, spec)
+	query = apply_policy_opening_filters(query, gle, spec)
 	query = query.where(gle.party != "").groupby(gle.party_type, gle.party)
 
 	opening: dict[tuple[str, str], tuple[float, float]] = {}
@@ -47,7 +47,7 @@ def get_party_period_balances(spec: AccountExplorerQuerySpec, party_types: list[
 		Sum(gle.credit).as_("period_credit"),
 	)
 	query = apply_scoped_gle_filters(query, gle, spec, party_types=party_types)
-	query = apply_period_turnover_filters(query, gle, spec)
+	query = apply_policy_turnover_filters(query, gle, spec)
 	query = query.where(gle.party != "").groupby(gle.party_type, gle.party)
 
 	return {
@@ -77,20 +77,13 @@ def get_unspecified_party_measures(spec: AccountExplorerQuerySpec, party_types: 
 	opening_row = (
 		base_query()
 		.select(Sum(gle.debit).as_("opening_debit"), Sum(gle.credit).as_("opening_credit"))
-		.where(
-			(gle.posting_date < spec.from_date)
-			| ((gle.is_opening == "Yes") & (gle.posting_date <= spec.to_date))
-		)
-		.run(as_dict=True)
 	)
+	opening_row = apply_policy_opening_filters(opening_row, gle, spec).run(as_dict=True)
 	period_row = (
 		base_query()
 		.select(Sum(gle.debit).as_("period_debit"), Sum(gle.credit).as_("period_credit"))
-		.where(gle.posting_date >= spec.from_date)
-		.where(gle.posting_date <= spec.to_date)
-		.where(gle.is_opening == "No")
-		.run(as_dict=True)
 	)
+	period_row = apply_policy_turnover_filters(period_row, gle, spec).run(as_dict=True)
 
 	opening_debit, opening_credit = _toggle_debit_credit(
 		opening_row[0].opening_debit if opening_row else 0,
