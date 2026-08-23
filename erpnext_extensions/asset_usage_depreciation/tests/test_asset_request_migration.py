@@ -1,7 +1,7 @@
 # Copyright (c) 2026, ERPNext Extensions contributors
 # License: MIT
 
-"""Migration / schema verification for Asset Request v4.4.0 (idempotent)."""
+"""Migration / schema verification for Asset Request (idempotent)."""
 
 from __future__ import annotations
 
@@ -26,6 +26,9 @@ from erpnext_extensions.asset_usage_depreciation.constants import (
 	WF_ASSET_REQUEST,
 )
 from erpnext_extensions.asset_usage_depreciation.custom_fields import ensure_custom_fields
+from erpnext_extensions.asset_usage_depreciation.services.dimension_service import (
+	provision_asset_request_accounting_dimensions,
+)
 from erpnext_extensions.asset_usage_depreciation.workflow import ensure_asset_request_workflow
 
 
@@ -92,6 +95,59 @@ class TestAssetRequestMigration(unittest.TestCase):
 			self.assertEqual(_count("Role", {"role_name": role}), n, role)
 		self.assertEqual(before_wf, 1)
 		self.assertEqual(before_cf, 1)
+
+	def test_m1_migrate_without_custom_dimensions_keeps_ar_usable(self):
+		provision_asset_request_accounting_dimensions()
+		self.assertTrue(frappe.get_meta("Asset Request").has_field("accounting_dimensions_section"))
+		self.assertTrue(frappe.get_meta("Asset Request Item").has_field("cost_center"))
+		self.assertTrue(frappe.get_meta("Asset Request Item").has_field("project"))
+
+	def test_m2_m3_existing_dimensions_get_fields(self):
+		from erpnext_extensions.asset_usage_depreciation.tests import test_helpers as h
+
+		dim = h.ensure_test_dimension("AR QA Region")
+		provision_asset_request_accounting_dimensions()
+		fn = dim["fieldname"]
+		self.assertTrue(frappe.get_meta("Asset Request").has_field(fn), fn)
+		self.assertTrue(frappe.get_meta("Asset Request Item").has_field(fn), fn)
+		dim2 = h.ensure_test_dimension("AR QA Channel")
+		provision_asset_request_accounting_dimensions()
+		fn2 = dim2["fieldname"]
+		self.assertTrue(frappe.get_meta("Asset Request").has_field(fn2), fn2)
+		self.assertTrue(frappe.get_meta("Asset Request Item").has_field(fn2), fn2)
+
+	def test_m4_second_provision_does_not_duplicate_fields(self):
+		from erpnext_extensions.asset_usage_depreciation.tests import test_helpers as h
+
+		dim = h.ensure_test_dimension("AR QA Region")
+		provision_asset_request_accounting_dimensions()
+		provision_asset_request_accounting_dimensions()
+		rows = frappe.get_all(
+			"Custom Field",
+			filters={"dt": "Asset Request", "fieldname": dim["fieldname"]},
+			pluck="name",
+		)
+		self.assertEqual(len(rows), 1, rows)
+		rows_item = frappe.get_all(
+			"Custom Field",
+			filters={"dt": "Asset Request Item", "fieldname": dim["fieldname"]},
+			pluck="name",
+		)
+		self.assertEqual(len(rows_item), 1, rows_item)
+
+	def test_m5_new_dimension_after_deploy_needs_no_ar_patch(self):
+		"""Creating an Accounting Dimension after install must add AR fields via native on_update."""
+		from erpnext.accounts.doctype.accounting_dimension.accounting_dimension import (
+			get_doctypes_with_dimensions,
+		)
+		from erpnext_extensions.asset_usage_depreciation.tests import test_helpers as h
+
+		dim = h.ensure_test_dimension("AR QA After Deploy")
+		fn = dim["fieldname"]
+		self.assertTrue(frappe.get_meta("Asset Request").has_field(fn), fn)
+		self.assertTrue(frappe.get_meta("Asset Request Item").has_field(fn), fn)
+		self.assertIn("Asset Request", get_doctypes_with_dimensions())
+		self.assertIn("Asset Request Item", get_doctypes_with_dimensions())
 
 
 def cint_active(wf) -> int:
