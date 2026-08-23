@@ -31,6 +31,27 @@ from erpnext_extensions.asset_usage_depreciation.services.request_service import
 AUTO_SUBSTITUTION_REASON = "Allocated from available pool (same Asset Category)"
 
 
+def _persist_generated_doc(doc, *, ignore_permissions: bool = True, auto_submit: int = 0) -> None:
+	"""Insert (and optionally submit) a system-generated AM/MR.
+
+	Approvers such as Planner/CEO often lack Item/Asset read permission.
+	``insert(ignore_permissions=True)`` does not skip Item.check_permission()
+	inside ERPNext get_item_details, so run as Administrator when asked to
+	ignore permissions.
+	"""
+	current_user = frappe.session.user
+	switch = bool(ignore_permissions) and current_user not in (None, "Administrator")
+	try:
+		if switch:
+			frappe.set_user("Administrator")
+		doc.insert(ignore_permissions=ignore_permissions)
+		if auto_submit:
+			doc.submit()
+	finally:
+		if switch:
+			frappe.set_user(current_user)
+
+
 def evaluate_and_fulfill(doc, *, create_documents: bool = True) -> None:
 	"""Reserve pool assets and/or stage purchase rows, then optionally create AM/MR."""
 	if frappe.flags.get("asset_request_fulfillment_in_progress"):
@@ -219,9 +240,7 @@ def create_asset_movement(doc, *, auto_submit: int = 0, ignore_permissions: bool
 			"assets": assets_rows,
 		}
 	)
-	am.insert(ignore_permissions=ignore_permissions)
-	if auto_submit:
-		am.submit()
+	_persist_generated_doc(am, ignore_permissions=ignore_permissions, auto_submit=auto_submit)
 
 	status = ALLOC_ISSUED if auto_submit else ALLOC_MOVEMENT_DRAFT
 	for alloc in pending:
@@ -242,11 +261,24 @@ def create_material_request(doc, *, auto_submit: int = 0, ignore_permissions: bo
 	if not pending:
 		return None
 
-	# Group by purchase item so MR has one line per SKU.
-	by_item: dict[str, list] = {}
+	from erpnext_extensions.asset_usage_depreciation.services.dimension_service import (
+		apply_dimensions_to_target,
+		dimension_fingerprint,
+		resolve_item_dimensions,
+	)
+
+	# Group by fulfilled purchase item PLUS resolved dimension fingerprint so the
+	# same SKU with different Branch / Cost Center / etc. stays as separate MR lines.
+	item_by_name = {row.name: row for row in (doc.get("items") or [])}
+	by_key: dict[tuple, list] = {}
+	dims_by_key: dict[tuple, dict] = {}
 	for alloc in pending:
-		item = alloc.fulfilled_purchase_item or alloc.fulfilled_item_code
-		by_item.setdefault(item, []).append(alloc)
+		purchase_item = alloc.fulfilled_purchase_item or alloc.fulfilled_item_code
+		ar_item = item_by_name.get(alloc.asset_request_item)
+		dims = resolve_item_dimensions(doc, ar_item)
+		key = (purchase_item, dimension_fingerprint(dims))
+		by_key.setdefault(key, []).append(alloc)
+		dims_by_key.setdefault(key, dims)
 
 	mr = frappe.new_doc("Material Request")
 	mr.material_request_type = "Purchase"
@@ -258,7 +290,8 @@ def create_material_request(doc, *, auto_submit: int = 0, ignore_permissions: bo
 	if hasattr(mr, "custom_created_from_asset_request"):
 		mr.custom_created_from_asset_request = 1
 
-	for item_code, allocs in by_item.items():
+	for key, allocs in by_key.items():
+		item_code = key[0]
 		item = frappe.db.get_value(
 			"Item", item_code, ["item_name", "description", "stock_uom", "item_group"], as_dict=True
 		) or {}
@@ -274,16 +307,13 @@ def create_material_request(doc, *, auto_submit: int = 0, ignore_permissions: bo
 				"stock_uom": item.get("stock_uom"),
 				"conversion_factor": 1,
 				"item_group": item.get("item_group"),
-				"cost_center": doc.cost_center,
-				"project": doc.project,
 			},
 		)
+		apply_dimensions_to_target(row, dims_by_key[key])
 		if hasattr(row, "custom_asset_request_item"):
 			row.custom_asset_request_item = allocs[0].asset_request_item
 
-	mr.insert(ignore_permissions=ignore_permissions)
-	if auto_submit:
-		mr.submit()
+	_persist_generated_doc(mr, ignore_permissions=ignore_permissions, auto_submit=auto_submit)
 
 	status = ALLOC_MR_SUBMITTED if auto_submit else ALLOC_MR_DRAFT
 	for alloc in pending:
@@ -381,9 +411,7 @@ def _issue_single_allocation(doc, alloc, *, auto_submit: int = 0) -> None:
 			"assets": [row],
 		}
 	)
-	am.insert(ignore_permissions=True)
-	if auto_submit:
-		am.submit()
+	_persist_generated_doc(am, ignore_permissions=True, auto_submit=auto_submit)
 	alloc.asset_movement = am.name
 	alloc.fulfillment_status = ALLOC_ISSUED if auto_submit else ALLOC_MOVEMENT_DRAFT
 
