@@ -116,12 +116,25 @@ def get_available_assets(
 	)
 
 
+def _assert_fulfillment_rpc_allowed(doc) -> None:
+	"""Privileged AM/MR insert runs as Administrator; keep the RPC tightly gated.
+
+	UI already requires a submitted request and Asset Manager. Enforce the same
+	server-side so a user with only Asset Request write cannot mint fulfillment
+	documents via RPC.
+	"""
+	doc.check_permission("write")
+	if int(doc.docstatus or 0) != 1:
+		frappe.throw(_("Fulfillment can only run on a submitted Asset Request."))
+	roles = set(frappe.get_roles())
+	if not roles.intersection({"Asset Manager", "System Manager"}):
+		frappe.throw(_("Not permitted to create fulfillment documents."), frappe.PermissionError)
+
+
 @frappe.whitelist()
 def reevaluate_fulfillment(name: str) -> dict:
 	doc = frappe.get_doc("Asset Request", name)
-	doc.check_permission("write")
-	if doc.docstatus != 1:
-		frappe.throw(_("Fulfillment can only run on a submitted Asset Request."))
+	_assert_fulfillment_rpc_allowed(doc)
 	evaluate_and_fulfill(doc, create_documents=True)
 	doc.flags.ignore_validate_update_after_submit = True
 	doc.save()
@@ -135,7 +148,7 @@ def create_asset_movement(name: str) -> dict:
 	)
 
 	doc = frappe.get_doc("Asset Request", name)
-	doc.check_permission("write")
+	_assert_fulfillment_rpc_allowed(doc)
 	am = _create(doc, auto_submit=0)
 	doc.flags.ignore_validate_update_after_submit = True
 	doc.save()
@@ -149,7 +162,7 @@ def create_material_request(name: str) -> dict:
 	)
 
 	doc = frappe.get_doc("Asset Request", name)
-	doc.check_permission("write")
+	_assert_fulfillment_rpc_allowed(doc)
 	mr = _create(doc, auto_submit=0)
 	doc.flags.ignore_validate_update_after_submit = True
 	doc.save()

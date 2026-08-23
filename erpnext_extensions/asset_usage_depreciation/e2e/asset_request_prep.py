@@ -212,3 +212,43 @@ def migration_snapshot() -> dict:
 		},
 		"asset_request_doctype": ASSET_REQUEST_DOCTYPE,
 	}
+
+
+@frappe.whitelist()
+def prepare_asset_request_dimension_e2e() -> dict:
+	"""Fixtures for Accounting Dimension E2E: header inherit, item override, MR check, reports."""
+	frappe.set_user("Administrator")
+	company = h.company()
+	if not company:
+		frappe.throw("No Company")
+	h.ensure_settings(
+		require_named_manager_approver=0,
+		prevent_duplicate_active_requests=0,
+		allow_category_substitution=0,
+		auto_create_asset_movement=0,
+		auto_create_material_request=1,
+		auto_submit_material_request=0,
+	)
+	employee = h.make_employee(company_name=company)
+	dim = h.ensure_test_dimension("AR QA Region")
+	fn = dim["fieldname"]
+	tehran = h.make_dimension_value(dim["doctype"], "AR-QA-Tehran", company=company)
+	shiraz = h.make_dimension_value(dim["doctype"], "AR-QA-Shiraz", company=company)
+	cost_center = h.company_cost_center(company)
+	tag = random_string(6)
+	samsung = h.make_fixed_asset_item(code=f"AUD-E2E-DIM-S-{tag}", title="Samsung Dim E2E")
+	lg = h.make_fixed_asset_item(code=f"AUD-E2E-DIM-L-{tag}", title="LG Dim E2E")
+	sku = h.make_fixed_asset_item(code=f"AUD-E2E-DIM-SKU-{tag}", title="Shared SKU E2E")
+	frappe.db.commit()
+	return {
+		"company": company,
+		"employee": employee,
+		"dimension_doctype": dim["doctype"],
+		"dimension_fieldname": fn,
+		"tehran": tehran,
+		"shiraz": shiraz,
+		"cost_center": cost_center,
+		"samsung": samsung,
+		"lg": lg,
+		"sku": sku,
+	}

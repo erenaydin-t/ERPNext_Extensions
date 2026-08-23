@@ -100,6 +100,14 @@ def validate_request(doc) -> None:
 	_validate_dates(doc)
 	_validate_employee_company(doc)
 	_validate_items(doc)
+	from erpnext_extensions.asset_usage_depreciation.services.dimension_service import (
+		apply_header_defaults_to_items,
+		validate_dimension_companies,
+	)
+
+	# Empty item dimensions inherit from header so API and Desk behave the same.
+	apply_header_defaults_to_items(doc, only_empty=True)
+	validate_dimension_companies(doc)
 	_sync_status_from_workflow(doc)
 
 	settings = get_settings()

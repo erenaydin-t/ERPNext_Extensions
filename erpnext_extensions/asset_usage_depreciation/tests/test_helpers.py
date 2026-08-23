@@ -267,6 +267,8 @@ def make_request(
 	fulfilled_item_code: str | None = None,
 	substitution_reason: str | None = None,
 	purpose: str = "QA Asset Request",
+	extra_item: dict | None = None,
+	**header,
 ):
 	row = {"requested_item_code": item_code, "qty": qty}
 	if fulfilled_item_code:
@@ -274,19 +276,96 @@ def make_request(
 		row["fulfilled_purchase_item"] = fulfilled_item_code
 	if substitution_reason:
 		row["substitution_reason"] = substitution_reason
-	doc = frappe.get_doc(
-		{
-			"doctype": "Asset Request",
-			"company": company_name,
-			"employee": employee,
-			"transaction_date": nowdate(),
-			"required_date": nowdate(),
-			"purpose": purpose,
-			"items": [row],
-		}
-	)
+	if extra_item:
+		row.update(extra_item)
+	payload = {
+		"doctype": "Asset Request",
+		"company": company_name,
+		"employee": employee,
+		"transaction_date": nowdate(),
+		"required_date": nowdate(),
+		"purpose": purpose,
+		"items": [row],
+	}
+	payload.update(header)
+	doc = frappe.get_doc(payload)
 	doc.insert(ignore_permissions=True)
 	return doc
+
+
+def company_cost_center(company_name: str) -> str | None:
+	return frappe.db.get_value("Cost Center", {"company": company_name, "is_group": 0}, "name")
+
+
+def other_company(exclude: str) -> str | None:
+	rows = frappe.get_all("Company", filters={"name": ["!=", exclude]}, pluck="name", limit=1)
+	return rows[0] if rows else None
+
+
+def ensure_project(company_name: str, name: str | None = None) -> str:
+	name = name or f"AR QA Project {company_name}"[:140]
+	existing = frappe.db.get_value("Project", {"project_name": name}, "name") or (
+		name if frappe.db.exists("Project", name) else None
+	)
+	if existing:
+		frappe.db.set_value("Project", existing, "company", company_name)
+		return existing
+	doc = frappe.get_doc({"doctype": "Project", "project_name": name, "company": company_name})
+	doc.insert(ignore_permissions=True)
+	return doc.name
+
+
+def ensure_test_dimension(label: str = "AR QA Region") -> dict:
+	"""Create a custom DocType + Accounting Dimension. Idempotent. Generic — not Branch."""
+	from frappe.utils import cint
+
+	dt = label
+	if not frappe.db.exists("DocType", dt):
+		doc = frappe.get_doc(
+			{
+				"doctype": "DocType",
+				"name": dt,
+				"module": "Assets",
+				"custom": 1,
+				"autoname": "field:region_name",
+				"fields": [
+					{"fieldname": "region_name", "label": "Name", "fieldtype": "Data", "reqd": 1},
+					{"fieldname": "company", "label": "Company", "fieldtype": "Link", "options": "Company"},
+					{"fieldname": "disabled", "label": "Disabled", "fieldtype": "Check"},
+				],
+				"permissions": [
+					{"role": "System Manager", "read": 1, "write": 1, "create": 1, "delete": 1}
+				],
+			}
+		)
+		doc.insert(ignore_permissions=True)
+
+	if not frappe.db.exists("Accounting Dimension", {"document_type": dt}):
+		dim = frappe.get_doc({"doctype": "Accounting Dimension", "document_type": dt, "label": label})
+		dim.insert(ignore_permissions=True)
+		# Desk on_update enqueues outside tests; force native field creation on AR doctypes.
+		from erpnext.accounts.doctype.accounting_dimension.accounting_dimension import (
+			make_dimension_in_accounting_doctypes,
+		)
+
+		make_dimension_in_accounting_doctypes(dim, doclist=["Asset Request", "Asset Request Item", "Material Request Item", "Purchase Order Item"])
+	fieldname = frappe.db.get_value("Accounting Dimension", {"document_type": dt}, "fieldname")
+	frappe.clear_cache(doctype="Asset Request")
+	frappe.clear_cache(doctype="Asset Request Item")
+	frappe.clear_cache(doctype="Material Request Item")
+	return {"doctype": dt, "fieldname": fieldname, "label": label}
+
+
+def make_dimension_value(doctype: str, name: str, company: str | None = None, disabled: int = 0) -> str:
+	if frappe.db.exists(doctype, name):
+		if company:
+			frappe.db.set_value(doctype, name, "company", company)
+		if disabled:
+			frappe.db.set_value(doctype, name, "disabled", disabled)
+		return name
+	doc = frappe.get_doc({"doctype": doctype, "region_name": name, "company": company, "disabled": disabled})
+	doc.insert(ignore_permissions=True)
+	return doc.name
 
 
 def skip_if_unready():

@@ -255,3 +255,39 @@ class TestAssetRequestPermissions(unittest.TestCase):
 			self.assertTrue(frappe.has_permission("Asset Request", "write", doc=doc, user=self.am_user))
 		finally:
 			frappe.set_user("Administrator")
+
+	def test_employee_cannot_invoke_privileged_fulfillment_rpc(self):
+		"""Administrator elevation for AM/MR insert must not be reachable via Employee RPC."""
+		self._ready()
+		from erpnext_extensions.asset_usage_depreciation.doctype.asset_request.asset_request import (
+			create_asset_movement,
+			create_material_request,
+			reevaluate_fulfillment,
+		)
+
+		draft = h.make_request(company_name=self.company, employee=self.employee, item_code=self.item)
+		frappe.set_user(self.emp_user)
+		try:
+			with self.assertRaises(frappe.ValidationError):
+				create_material_request(draft.name)
+			with self.assertRaises(frappe.ValidationError):
+				create_asset_movement(draft.name)
+			with self.assertRaises(frappe.ValidationError):
+				reevaluate_fulfillment(draft.name)
+		finally:
+			frappe.set_user("Administrator")
+
+		submitted = h.make_request(company_name=self.company, employee=self.employee, item_code=self.item)
+		h.submit_and_approve(submitted)
+		submitted.reload()
+		self.assertEqual(int(submitted.docstatus), 1)
+		frappe.set_user(self.emp_user)
+		try:
+			with self.assertRaises(frappe.PermissionError):
+				create_material_request(submitted.name)
+			with self.assertRaises(frappe.PermissionError):
+				create_asset_movement(submitted.name)
+			with self.assertRaises(frappe.PermissionError):
+				reevaluate_fulfillment(submitted.name)
+		finally:
+			frappe.set_user("Administrator")

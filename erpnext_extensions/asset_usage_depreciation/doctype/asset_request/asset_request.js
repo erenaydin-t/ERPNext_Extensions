@@ -23,7 +23,13 @@ frappe.ui.form.on("Asset Request", {
 			};
 		});
 		frm.set_query("cost_center", () => ({ filters: { company: frm.doc.company, is_group: 0 } }));
+		frm.set_query("cost_center", "items", () => ({ filters: { company: frm.doc.company, is_group: 0 } }));
+		frm.set_query("project", () => ({ filters: { company: frm.doc.company } }));
+		frm.set_query("project", "items", () => ({ filters: { company: frm.doc.company } }));
 		frm.set_query("employee", () => ({ filters: { company: frm.doc.company, status: "Active" } }));
+		if (erpnext.accounts && erpnext.accounts.dimensions) {
+			erpnext.accounts.dimensions.setup_dimension_filters(frm, frm.doctype);
+		}
 	},
 	onload(frm) {
 		if (frm.is_new() && !frm.doc.employee) {
@@ -33,9 +39,27 @@ frappe.ui.form.on("Asset Request", {
 				}
 			});
 		}
+		if (erpnext.accounts && erpnext.accounts.dimensions) {
+			erpnext.accounts.dimensions.setup_dimension_filters(frm, frm.doctype);
+		}
 	},
 	refresh(frm) {
+		bind_header_dimension_propagation(frm);
 		frm.trigger("toggle_fulfillment_buttons");
+	},
+	company(frm) {
+		if (erpnext.accounts && erpnext.accounts.dimensions) {
+			erpnext.accounts.dimensions.update_dimension(frm, frm.doctype);
+		}
+	},
+	cost_center(frm) {
+		fill_empty_item_dimensions(frm, "cost_center");
+	},
+	project(frm) {
+		fill_empty_item_dimensions(frm, "project");
+	},
+	items_add(frm, cdt, cdn) {
+		copy_header_dimensions_to_row(frm, cdt, cdn);
 	},
 	toggle_fulfillment_buttons(frm) {
 		if (frm.doc.docstatus !== 1) {
@@ -88,6 +112,9 @@ frappe.ui.form.on("Asset Request", {
 });
 
 frappe.ui.form.on("Asset Request Item", {
+	items_add(frm, cdt, cdn) {
+		copy_header_dimensions_to_row(frm, cdt, cdn);
+	},
 	requested_item_code(frm, cdt, cdn) {
 		const row = locals[cdt][cdn];
 		if (!row.fulfilled_item_code && row.requested_item_code) {
@@ -105,6 +132,61 @@ frappe.ui.form.on("Asset Request Item", {
 		}
 	},
 });
+
+function get_dimension_fieldnames() {
+	const fields = ["cost_center", "project"];
+	const dims = (erpnext.accounts && erpnext.accounts.dimensions && erpnext.accounts.dimensions.accounting_dimensions) || [];
+	dims.forEach((d) => {
+		const fn = d.fieldname || d;
+		if (fn && !fields.includes(fn)) {
+			fields.push(fn);
+		}
+	});
+	return fields;
+}
+
+function copy_header_dimensions_to_row(frm, cdt, cdn) {
+	const row = locals[cdt][cdn];
+	if (!row) {
+		return;
+	}
+	get_dimension_fieldnames().forEach((fn) => {
+		if (!frappe.meta.has_field(cdt, fn) || !frappe.meta.has_field(frm.doctype, fn)) {
+			return;
+		}
+		if (!row[fn] && frm.doc[fn]) {
+			frappe.model.set_value(cdt, cdn, fn, frm.doc[fn]);
+		}
+	});
+}
+
+function fill_empty_item_dimensions(frm, fieldname) {
+	(frm.doc.items || []).forEach((row) => {
+		if (!row[fieldname] && frm.doc[fieldname]) {
+			frappe.model.set_value(row.doctype, row.name, fieldname, frm.doc[fieldname]);
+		}
+	});
+}
+
+function bind_header_dimension_propagation(frm) {
+	get_dimension_fieldnames().forEach((fn) => {
+		if (fn === "cost_center" || fn === "project") {
+			return;
+		}
+		const field = frm.get_field(fn);
+		if (!field || field.df._ar_dim_bound) {
+			return;
+		}
+		field.df._ar_dim_bound = 1;
+		const original = field.df.onchange;
+		field.df.onchange = function () {
+			if (original) {
+				original.apply(this, arguments);
+			}
+			fill_empty_item_dimensions(frm, fn);
+		};
+	});
+}
 
 function refresh_available_qty(frm, cdt, cdn) {
 	const row = locals[cdt][cdn];

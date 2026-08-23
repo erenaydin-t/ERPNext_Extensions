@@ -48,3 +48,8 @@ def after_migrate():
 	from erpnext_extensions.asset_usage_depreciation.workflow import ensure_asset_request_workflow
 
 	ensure_asset_request_workflow()
+	from erpnext_extensions.asset_usage_depreciation.services.dimension_service import (
+		provision_asset_request_accounting_dimensions,
+	)
+
+	provision_asset_request_accounting_dimensions()

@@ -16,6 +16,11 @@ from erpnext_extensions.asset_usage_depreciation.constants import (
 	STATUS_PENDING_MANAGER,
 	STATUS_PENDING_PLANNING,
 )
+from erpnext_extensions.asset_usage_depreciation.services.dimension_service import (
+	report_dimension_columns,
+	report_dimension_filter_sql,
+	report_dimension_select_sql,
+)
 
 
 def _filters(filters) -> dict:
@@ -37,7 +42,10 @@ def requested_vs_fulfilled(filters=None):
 		{"label": _("Substituted"), "fieldname": "substituted", "fieldtype": "Check", "width": 90},
 		{"label": _("Substitution Reason"), "fieldname": "substitution_reason", "fieldtype": "Small Text", "width": 200},
 	]
-	conds, values = _common_conds(filters)
+	columns.extend(report_dimension_columns())
+	dim_select = report_dimension_select_sql(header_alias="ar", item_alias="ari")
+	dim_sql = (", " + ", ".join(dim_select)) if dim_select else ""
+	conds, values = _common_conds(filters, item_alias="ari")
 	rows = frappe.db.sql(
 		f"""
 		SELECT
@@ -51,6 +59,7 @@ def requested_vs_fulfilled(filters=None):
 			al.fulfillment_status,
 			CASE WHEN al.requested_item_code != al.fulfilled_item_code THEN 1 ELSE 0 END AS substituted,
 			al.substitution_reason
+			{dim_sql}
 		FROM `tabAsset Request Allocation` al
 		INNER JOIN `tabAsset Request` ar ON ar.name = al.parent
 		LEFT JOIN `tabAsset Request Item` ari ON ari.name = al.asset_request_item
@@ -82,6 +91,7 @@ def pending_asset_requests(filters=None):
 		{"label": _("Company"), "fieldname": "company", "fieldtype": "Link", "options": "Company", "width": 140},
 		{"label": _("Manager"), "fieldname": "manager_approver", "fieldtype": "Link", "options": "User", "width": 140},
 	]
+	columns.extend(report_dimension_columns())
 	pending = [
 		STATUS_PENDING_MANAGER,
 		STATUS_PENDING_PLANNING,
@@ -89,12 +99,15 @@ def pending_asset_requests(filters=None):
 		STATUS_APPROVED,
 		STATUS_PARTIALLY_FULFILLED,
 	]
-	conds, values = _common_conds(filters)
+	conds, values = _common_conds(filters, item_alias=None)
 	values["pending"] = pending
+	dim_select = report_dimension_select_sql(header_alias="ar", item_alias=None)
+	dim_sql = (", " + ", ".join(dim_select)) if dim_select else ""
 	rows = frappe.db.sql(
 		f"""
 		SELECT ar.name, ar.status, ar.workflow_state, ar.employee, ar.department,
 			ar.required_date, ar.company, ar.manager_approver
+			{dim_sql}
 		FROM `tabAsset Request` ar
 		WHERE ar.docstatus < 2 AND ar.status IN %(pending)s {conds}
 		ORDER BY ar.required_date, ar.creation
@@ -115,7 +128,7 @@ def fulfillment_accuracy(filters=None):
 		{"label": _("Substituted"), "fieldname": "substituted", "fieldtype": "Int", "width": 110},
 		{"label": _("Exact Match %"), "fieldname": "exact_match_pct", "fieldtype": "Percent", "width": 120},
 	]
-	conds, values = _common_conds(filters)
+	conds, values = _common_conds(filters, item_alias="ari")
 	rows = frappe.db.sql(
 		f"""
 		SELECT
@@ -140,7 +153,7 @@ def fulfillment_accuracy(filters=None):
 	return columns, rows
 
 
-def _common_conds(filters) -> tuple[str, dict]:
+def _common_conds(filters, *, item_alias: str | None = "ari") -> tuple[str, dict]:
 	conds = []
 	values: dict = {}
 	if filters.get("company"):
@@ -155,5 +168,10 @@ def _common_conds(filters) -> tuple[str, dict]:
 	if filters.get("to_date"):
 		conds.append("AND ar.transaction_date <= %(to_date)s")
 		values["to_date"] = filters.to_date
-	# pending report uses tabAsset Request as ar alias except pending uses no alias...
+	dim_sql, dim_values = report_dimension_filter_sql(
+		filters, header_alias="ar", item_alias=item_alias
+	)
+	if dim_sql:
+		conds.append(dim_sql)
+		values.update(dim_values)
 	return " ".join(conds), values

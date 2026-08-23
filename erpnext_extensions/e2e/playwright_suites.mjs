@@ -88,6 +88,10 @@ export const SUITE_REGISTRY = [
     script: "asset_usage_depreciation/e2e/playwright_asset_request.mjs",
     tags: ["ISOLATED", "SERIAL", "UI_ONLY"],
   },
+  {
+    script: "asset_usage_depreciation/e2e/playwright_asset_request_dimensions.mjs",
+    tags: ["ISOLATED", "SERIAL", "ACCOUNTING", "UI_ONLY"],
+  },
 ];
 
 export function registryByScript() {
