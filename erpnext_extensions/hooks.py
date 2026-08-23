@@ -167,6 +167,8 @@ after_migrate = [
 # ERPNext injects Accounting Dimension custom fields onto these DocTypes (see Accounting Dimension on_update).
 accounting_dimension_doctypes = [
 	"Post Dated Cheque",
+	"Asset Request",
+	"Asset Request Item",
 ]
 
 # Uninstallation

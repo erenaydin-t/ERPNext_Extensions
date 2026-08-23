@@ -17,9 +17,11 @@
   "transaction_date",
   "required_date",
   "department",
-  "cost_center",
-  "project",
   "target_location",
+  "accounting_dimensions_section",
+  "cost_center",
+  "dimension_col_break",
+  "project",
   "section_purpose",
   "purpose",
   "remarks",
@@ -137,6 +139,16 @@
    "fieldtype": "Link",
    "label": "Project",
    "options": "Project"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "accounting_dimensions_section",
+   "fieldtype": "Section Break",
+   "label": "Accounting Dimensions"
+  },
+  {
+   "fieldname": "dimension_col_break",
+   "fieldtype": "Column Break"
   },
   {
    "description": "Optional destination after issue. Not a Transfer Request.",
@@ -346,7 +358,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-08-15 00:00:00.000000",
+ "modified": "2026-08-23 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Asset Usage Depreciation",
  "name": "Asset Request",
