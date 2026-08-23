@@ -52,6 +52,13 @@ def stamped_approver_for_action(doc: Document, action: str) -> str | None:
 
 def session_matches_stamped_approver(doc: Document, action: str) -> bool:
 	"""Primary identity gate: current user == stamped approver for this exact stage."""
+	if doc.doctype == "PM Clearance" and action in ("PM Finance Approve", "PM Approve"):
+		from erpnext_extensions.petty_management.services.clearance_finance_review import (
+			clearance_is_pending_finance_review,
+		)
+
+		if clearance_is_pending_finance_review(doc):
+			return False
 	stamped = stamped_approver_for_action(doc, action)
 	if not stamped:
 		return False
@@ -91,6 +98,8 @@ def _expected_open_assignee(doc: Document) -> str | None:
 	if title == "Pending CEO Approval":
 		return (doc.get("ceo_approver") or "").strip() or None
 	if title in ("Pending Finance Approval", "Pending Finance Review"):
+		if doc.doctype == "PM Clearance" and title == "Pending Finance Review":
+			return None
 		return (doc.get("finance_approver") or "").strip() or None
 	return None
 

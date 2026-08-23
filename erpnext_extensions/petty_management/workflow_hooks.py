@@ -33,6 +33,18 @@ def apply_workflow(doc, action):
 
 	result = _apply_workflow(doc, action)
 
+	from erpnext_extensions.petty_management.services.clearance_finance_review import (
+		CLEARANCE_FINANCE_WORKFLOW_ACTIONS,
+		stamp_clearance_finance_approver_after_act,
+	)
+
+	doctype = getattr(result, "doctype", None) or (result.get("doctype") if isinstance(result, dict) else None)
+	name = getattr(result, "name", None) or (result.get("name") if isinstance(result, dict) else None)
+	action_s = (action or "").strip()
+	if doctype == "PM Clearance" and action_s in CLEARANCE_FINANCE_WORKFLOW_ACTIONS:
+		doc_obj = result if hasattr(result, "reload") else frappe.get_doc(doctype, name)
+		stamp_clearance_finance_approver_after_act(doc_obj, action_s)
+
 	from erpnext_extensions.petty_management.services.auto_skip_approvals import (
 		PM_AUTO_SKIP_APPROVE_ACTIONS,
 		apply_consecutive_auto_approvals,

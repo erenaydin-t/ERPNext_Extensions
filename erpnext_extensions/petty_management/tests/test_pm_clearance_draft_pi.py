@@ -6,9 +6,11 @@ from __future__ import annotations
 import unittest
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
 from frappe.utils import cint, flt, today
 
+from erpnext_extensions.petty_management.services.clearance_finance_review import (
+	DEFAULT_CLEARANCE_FINANCE_REVIEW_ROLE,
+)
 from erpnext_extensions.petty_management.services.settlement_query import (
 	purchase_invoice_query_for_pm_clearance,
 )
@@ -48,17 +50,40 @@ def _ensure_user(email: str, roles: list[str]) -> str:
 	return email
 
 
-def _open_finance_todos(cl_name: str) -> list[dict]:
+def _open_workflow_actions(cl_name: str) -> list[dict]:
+	actions = frappe.get_all(
+		"Workflow Action",
+		filters={
+			"reference_doctype": "PM Clearance",
+			"reference_name": cl_name,
+			"status": "Open",
+		},
+		fields=["name", "status", "user", "workflow_state"],
+	)
+	for row in actions:
+		row["permitted_roles"] = frappe.get_all(
+			"Workflow Action Permitted Role",
+			filters={"parent": row["name"]},
+			pluck="role",
+		)
+	return actions
+
+
+def _finance_assignment_todos(cl_name: str) -> list[dict]:
 	return frappe.get_all(
 		"ToDo",
 		filters={
 			"reference_type": "PM Clearance",
 			"reference_name": cl_name,
 			"status": "Open",
+			"assignment_rule": "PM Clearance Finance Review",
 		},
 		fields=["name", "allocated_to", "assignment_rule"],
 	)
 
+
+def _open_finance_todos(cl_name: str) -> list[dict]:
+	return _finance_assignment_todos(cl_name)
 
 def _pi_names_in_lookup(txt: str = "") -> set[str]:
 	rows = purchase_invoice_query_for_pm_clearance(
@@ -72,26 +97,39 @@ def _pi_names_in_lookup(txt: str = "") -> set[str]:
 	return {r[0] for r in rows}
 
 
-class TestPMClearanceDraftPI(FrappeTestCase):
+class TestPMClearanceDraftPI(unittest.TestCase):
 	@classmethod
 	def setUpClass(cls):
-		super().setUpClass()
 		tpm._ensure_company_context()
 		if not tpm.COMPANY:
 			raise unittest.SkipTest("No Company")
 		tpm._ensure_petty_account()
+		from erpnext_extensions.patches.post_model_sync.migrate_pm_clearance_finance_role_queue_v453 import (
+			execute as migrate_clearance_finance_role_queue_v453,
+		)
+
+		migrate_clearance_finance_role_queue_v453()
 		cls.manager = _ensure_user(
 			"pm_draft_pi_mgr@example.com",
 			["Petty Management User", "Expense Approver", "Accounts User", "System Manager"],
 		)
 		cls.finance = _ensure_user(
 			"pm_draft_pi_fin@example.com",
-			["Petty Management Accountant", "Accounts User", "System Manager"],
+			[
+				"Petty Management Accountant",
+				DEFAULT_CLEARANCE_FINANCE_REVIEW_ROLE,
+				"Accounts User",
+				"System Manager",
+			],
 		)
 		settings = frappe.get_single("PM Settings")
 		settings.db_set("finance_manager", cls.finance, update_modified=False)
 		settings.db_set("finance_supervisor", cls.finance, update_modified=False)
+		settings.db_set(
+			"clearance_finance_review_role", DEFAULT_CLEARANCE_FINANCE_REVIEW_ROLE, update_modified=False
+		)
 		settings.db_set("require_named_manager_approver", 1, update_modified=False)
+		frappe.db.commit()
 
 	def setUp(self):
 		frappe.set_user("Administrator")
@@ -181,12 +219,35 @@ class TestPMClearanceDraftPI(FrappeTestCase):
 		self._track("PM Clearance", cl.name)
 		return cl.name
 
+	def _assert_finance_role_queue(self, cl_name: str) -> None:
+		"""v4.5.3: role Workflow Action queue — no finance Assignment Rule ToDos."""
+		actions = _open_workflow_actions(cl_name)
+		self.assertTrue(actions, msg="Expected open Workflow Action for finance review")
+		review_role = (
+			frappe.db.get_value("PM Settings", "PM Settings", "clearance_finance_review_role")
+			or DEFAULT_CLEARANCE_FINANCE_REVIEW_ROLE
+		)
+		self.assertTrue(
+			any(review_role in (a.get("permitted_roles") or []) for a in actions),
+			msg=f"Expected {review_role} on Workflow Action: {actions}",
+		)
+		self.assertFalse(_finance_assignment_todos(cl_name), msg="Finance Assignment Rule ToDos must be absent")
+		from erpnext_extensions.petty_management.services.workflow_utils import get_allowed_workflow_actions
+
+		frappe.set_user(self.finance)
+		try:
+			doc = frappe.get_doc("PM Clearance", cl_name)
+			allowed = {t.get("action") for t in get_allowed_workflow_actions(doc) if t.get("action")}
+			self.assertIn("PM Finance Approve", allowed, msg=f"Finance user actions: {allowed}")
+		finally:
+			frappe.set_user("Administrator")
+
 	def _to_pending_finance(self, cl_name: str) -> None:
 		cl = frappe.get_doc("PM Clearance", cl_name)
 		frappe.db.set_value(
 			"PM Clearance",
 			cl_name,
-			{"manager_approver": self.manager, "finance_approver": self.finance},
+			{"manager_approver": self.manager, "finance_approver": None},
 			update_modified=False,
 		)
 		if _wf_title(cl.workflow_state) in ("", "Draft"):
@@ -199,6 +260,8 @@ class TestPMClearanceDraftPI(FrappeTestCase):
 		cl = frappe.get_doc("PM Clearance", cl_name)
 		self.assertEqual(_wf_title(cl.workflow_state), "Pending Finance Review")
 		self.assertEqual((cl.status or "").strip(), "Pending Approval")
+		self.assertFalse((cl.finance_approver or "").strip())
+		self._assert_finance_role_queue(cl_name)
 
 	# --- Lookup ---
 
@@ -261,13 +324,12 @@ class TestPMClearanceDraftPI(FrappeTestCase):
 		self.assertEqual(_wf_title(cl.workflow_state), "Pending Finance Review")
 		self.assertEqual((cl.status or "").strip(), "Pending Approval")
 
-	def test_finance_block_message_lists_pi_and_keeps_todo(self):
+	def test_finance_block_message_lists_pi_and_keeps_workflow_action(self):
 		emp, req = self._funded_holder()
 		pi = self._insert_draft_pi(8_000)
 		cl_name = self._new_clearance_with_pi(emp, req, pi)
 		self._to_pending_finance(cl_name)
-		todos_before = _open_finance_todos(cl_name)
-		self.assertTrue(any(t.allocated_to == self.finance for t in todos_before), msg=str(todos_before))
+		self._assert_finance_role_queue(cl_name)
 		frappe.set_user(self.finance)
 		with self.assertRaises(frappe.ValidationError) as ctx:
 			apply_pm_workflow(frappe.get_doc("PM Clearance", cl_name), "PM Finance Approve")
@@ -275,8 +337,7 @@ class TestPMClearanceDraftPI(FrappeTestCase):
 		self.assertIn(pi, msg)
 		self.assertIn("Cannot complete Finance Approval", msg)
 		frappe.set_user("Administrator")
-		todos_after = _open_finance_todos(cl_name)
-		self.assertTrue(any(t.allocated_to == self.finance for t in todos_after), msg=str(todos_after))
+		self._assert_finance_role_queue(cl_name)
 		cl = frappe.get_doc("PM Clearance", cl_name)
 		self.assertEqual(_wf_title(cl.workflow_state), "Pending Finance Review")
 
@@ -425,13 +486,12 @@ class TestPMClearanceDraftPI(FrappeTestCase):
 		pi = self._insert_draft_pi(5_000)
 		cl_name = self._new_clearance_with_pi(emp, req, pi)
 		self._to_pending_finance(cl_name)
-		todos = _open_finance_todos(cl_name)
-		self.assertTrue(any(t.allocated_to == self.finance for t in todos))
+		self._assert_finance_role_queue(cl_name)
 		frappe.set_user(self.finance)
 		with self.assertRaises(frappe.ValidationError):
 			apply_pm_workflow(frappe.get_doc("PM Clearance", cl_name), "PM Finance Approve")
 		frappe.set_user("Administrator")
-		self.assertTrue(any(t.allocated_to == self.finance for t in _open_finance_todos(cl_name)))
+		self._assert_finance_role_queue(cl_name)
 		frappe.get_doc("Purchase Invoice", pi).submit()
 		pi_doc = frappe.get_doc("Purchase Invoice", pi)
 		cl = frappe.get_doc("PM Clearance", cl_name)
@@ -468,8 +528,7 @@ class TestPMClearanceDraftPI(FrappeTestCase):
 		pi = self._insert_draft_pi(6_000)
 		cl_name = self._new_clearance_with_pi(emp, req, pi)
 		self._to_pending_finance(cl_name)
-		todos_before = _open_finance_todos(cl_name)
-		self.assertTrue(any(t.allocated_to == self.finance for t in todos_before))
+		self._assert_finance_role_queue(cl_name)
 		reserved_before = flt(sum_prior_pm_request_allocations(req, exclude_clearance_name=None))
 
 		with self.assertRaises(frappe.ValidationError) as ctx1:
@@ -484,7 +543,7 @@ class TestPMClearanceDraftPI(FrappeTestCase):
 		cl = frappe.get_doc("PM Clearance", cl_name)
 		self.assertEqual(_wf_title(cl.workflow_state), "Pending Finance Review")
 		self.assertEqual((cl.status or "").strip(), "Pending Approval")
-		self.assertTrue(any(t.allocated_to == self.finance for t in _open_finance_todos(cl_name)))
+		self._assert_finance_role_queue(cl_name)
 		reserved_after = flt(sum_prior_pm_request_allocations(req, exclude_clearance_name=None))
 		self.assertEqual(reserved_after, reserved_before)
 

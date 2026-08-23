@@ -25,6 +25,8 @@ SCRIPTS=(
   "playwright_pm_clearance_search_link_network_debug.mjs"
   "playwright_pm_clearance_settlement_lines_e2e.mjs"
   "playwright_pm_clearance_multi_approval.mjs"
+  "playwright_pm_clearance_draft_pi_e2e.mjs"
+  "playwright_pm_clearance_finance_role_queue.mjs"
 )
 
 {

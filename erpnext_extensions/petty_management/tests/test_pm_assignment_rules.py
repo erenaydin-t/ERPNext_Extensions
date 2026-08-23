@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import unittest
+
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.utils import cint
 
 from erpnext_extensions.petty_management.services.workflow_utils import resolve_workflow_state_link
 
 
-class TestPMAssignmentRules(FrappeTestCase):
+class TestPMAssignmentRules(unittest.TestCase):
 	def test_assignment_rules_seeded(self):
 		expected = [
 			"PM Request Manager Approval",
@@ -27,7 +29,10 @@ class TestPMAssignmentRules(FrappeTestCase):
 			self.assertTrue(frappe.db.exists("Assignment Rule", name), msg=name)
 			rule = frappe.get_doc("Assignment Rule", name)
 			self.assertEqual(rule.rule, "Based on Field")
-			self.assertFalse(cint(rule.disabled))
+			if name == "PM Clearance Finance Review":
+				self.assertTrue(cint(rule.disabled), msg="v4.5.3 role queue disables finance assignment")
+			else:
+				self.assertFalse(cint(rule.disabled))
 			self.assertTrue(rule.field)
 			self.assertTrue(rule.assign_condition)
 			self.assertTrue(rule.unassign_condition)
@@ -55,9 +60,3 @@ class TestPMAssignmentRules(FrappeTestCase):
 		}
 		self.assertNotIn("Settled", titles)
 		self.assertNotIn("Pending Journal Entry Submission", titles)
-
-
-def cint(v):
-	from frappe.utils import cint as _c
-
-	return _c(v)
