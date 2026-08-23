@@ -7,5 +7,11 @@ frappe.query_reports["Substituted Asset Report"] = {
 		{ fieldname: "employee", label: __("Employee"), fieldtype: "Link", options: "Employee" },
 		{ fieldname: "from_date", label: __("From Date"), fieldtype: "Date" },
 		{ fieldname: "to_date", label: __("To Date"), fieldtype: "Date" },
+		{ fieldname: "cost_center", label: __("Cost Center"), fieldtype: "Link", options: "Cost Center" },
+		{ fieldname: "project", label: __("Project"), fieldtype: "Link", options: "Project" },
 	],
 };
+
+if (erpnext.utils && erpnext.utils.add_dimensions) {
+	erpnext.utils.add_dimensions("Substituted Asset Report", 4);
+}
