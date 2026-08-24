@@ -19,6 +19,10 @@ from erpnext_extensions.asset_usage_depreciation.constants import (
 	COMPANY_FIELD_AR_CEO_MIN_QTY,
 	COMPANY_FIELD_AR_REQUIRE_CEO,
 	COMPANY_FIELD_AR_REQUIRE_PLANNING,
+	FULFILLMENT_FULFILLED,
+	FULFILLMENT_ISSUED_FROM_POOL,
+	FULFILLMENT_PURCHASE_REQUESTED,
+	FULFILLMENT_WAITING,
 	LINE_CANCELLED,
 	LINE_CLOSED,
 	METHOD_ISSUE,
@@ -278,6 +282,7 @@ def mark_approved(doc) -> None:
 	doc.approved_by = frappe.session.user
 	if doc.status not in FULFILLMENT_STATUSES:
 		doc.status = STATUS_APPROVED
+	doc.fulfillment_status = FULFILLMENT_WAITING
 
 
 def validate_cancel(doc) -> None:
@@ -320,16 +325,26 @@ def refresh_header_fulfillment(doc) -> None:
 	doc.issued_qty = issued
 	doc.purchase_qty = purchase
 	done = issued + purchase
-	if done <= 0:
-		doc.fulfillment_status = "Not Started"
-	elif open_units > 0 or done < total:
-		doc.fulfillment_status = "Partially Fulfilled" if done else "In Progress"
-		if doc.status in FULFILLMENT_STATUSES:
-			doc.status = STATUS_PARTIALLY_FULFILLED
+	has_am = any(
+		a.asset_movement
+		for a in (doc.get("allocations") or [])
+		if a.fulfillment_status != ALLOC_CANCELLED
+	)
+	has_mr = any(
+		a.material_request
+		for a in (doc.get("allocations") or [])
+		if a.fulfillment_status != ALLOC_CANCELLED
+	) or bool(doc.material_request)
+
+	# Workflow status stays Approved. Fulfillment is a separate lifecycle.
+	if total > 0 and done >= total and open_units == 0:
+		doc.fulfillment_status = FULFILLMENT_FULFILLED
+	elif has_mr:
+		doc.fulfillment_status = FULFILLMENT_PURCHASE_REQUESTED
+	elif has_am:
+		doc.fulfillment_status = FULFILLMENT_ISSUED_FROM_POOL
 	else:
-		doc.fulfillment_status = "Fulfilled"
-		if doc.status in FULFILLMENT_STATUSES:
-			doc.status = STATUS_FULFILLED
+		doc.fulfillment_status = FULFILLMENT_WAITING
 
 	_sync_item_line_status(doc)
 

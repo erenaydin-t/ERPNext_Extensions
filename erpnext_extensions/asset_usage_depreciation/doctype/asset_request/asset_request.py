@@ -13,7 +13,6 @@ from erpnext_extensions.asset_usage_depreciation.constants import (
 	WF_STATE_DRAFT,
 	WF_STATE_REJECTED,
 )
-from erpnext_extensions.asset_usage_depreciation.services.fulfillment_service import evaluate_and_fulfill
 from erpnext_extensions.asset_usage_depreciation.services.request_service import (
 	mark_approved,
 	stamp_policy_and_approvers,
@@ -41,15 +40,22 @@ class AssetRequest(Document):
 		mark_approved(self)
 
 	def on_submit(self):
-		evaluate_and_fulfill(self, create_documents=True)
+		from erpnext_extensions.asset_usage_depreciation.constants import FULFILLMENT_WAITING
+		from erpnext_extensions.asset_usage_depreciation.services.fulfillment_service import (
+			refresh_available_counts,
+		)
+
+		# Approval is not fulfillment: never create MR/AM and never reserve assets.
+		self.fulfillment_status = FULFILLMENT_WAITING
+		refresh_available_counts(self)
 		self.db_set(
 			{
 				"status": self.status,
 				"fulfillment_status": self.fulfillment_status,
-				"issued_qty": self.issued_qty,
-				"purchase_qty": self.purchase_qty,
-				"available_asset_count": self.available_asset_count,
-				"material_request": self.material_request,
+				"issued_qty": self.issued_qty or 0,
+				"purchase_qty": self.purchase_qty or 0,
+				"available_asset_count": self.available_asset_count or 0,
+				"material_request": None,
 				"approved_on": self.approved_on,
 				"approved_by": self.approved_by,
 			},
@@ -58,14 +64,6 @@ class AssetRequest(Document):
 		for row in self.get("items") or []:
 			if row.name:
 				row.db_update()
-		for row in self.get("allocations") or []:
-			row.parent = self.name
-			row.parenttype = self.doctype
-			row.parentfield = "allocations"
-			if row.name and frappe.db.exists("Asset Request Allocation", row.name):
-				row.db_update()
-			else:
-				row.db_insert()
 
 	def before_cancel(self):
 		validate_cancel(self)
@@ -116,54 +114,104 @@ def get_available_assets(
 	)
 
 
-def _assert_fulfillment_rpc_allowed(doc) -> None:
-	"""Privileged AM/MR insert runs as Administrator; keep the RPC tightly gated.
+def _assert_fulfillment_rpc_allowed(doc, *, allow_fulfilled: bool = False) -> None:
+	"""Privileged AM/MR insert must not be callable by employees or approvers."""
+	from erpnext_extensions.asset_usage_depreciation.constants import (
+		FULFILLMENT_FULFILLED,
+		WF_STATE_APPROVED,
+	)
 
-	UI already requires a submitted request and Asset Manager. Enforce the same
-	server-side so a user with only Asset Request write cannot mint fulfillment
-	documents via RPC.
-	"""
 	doc.check_permission("write")
 	if int(doc.docstatus or 0) != 1:
 		frappe.throw(_("Fulfillment can only run on a submitted Asset Request."))
+	if (doc.workflow_state or "") != WF_STATE_APPROVED:
+		frappe.throw(_("Fulfillment actions are only allowed after the request is Approved."))
 	roles = set(frappe.get_roles())
 	if not roles.intersection({"Asset Manager", "System Manager"}):
 		frappe.throw(_("Not permitted to create fulfillment documents."), frappe.PermissionError)
+	if not allow_fulfilled and (doc.fulfillment_status or "") == FULFILLMENT_FULFILLED:
+		frappe.throw(_("This Asset Request is already fulfilled."))
+
+
+def _save_submitted(doc) -> None:
+	doc.flags.ignore_validate_update_after_submit = True
+	doc.save()
+
+
+@frappe.whitelist()
+def check_availability(name: str) -> dict:
+	from erpnext_extensions.asset_usage_depreciation.services.fulfillment_service import (
+		check_availability as _check,
+	)
+
+	doc = frappe.get_doc("Asset Request", name)
+	_assert_fulfillment_rpc_allowed(doc)
+	result = _check(doc)
+	try:
+		doc.add_comment("Comment", _("Availability checked"))
+	except Exception:
+		pass
+	_save_submitted(doc)
+	return {"name": doc.name, "fulfillment_status": doc.fulfillment_status, **result}
 
 
 @frappe.whitelist()
 def reevaluate_fulfillment(name: str) -> dict:
-	doc = frappe.get_doc("Asset Request", name)
-	_assert_fulfillment_rpc_allowed(doc)
-	evaluate_and_fulfill(doc, create_documents=True)
-	doc.flags.ignore_validate_update_after_submit = True
-	doc.save()
-	return {"name": doc.name, "fulfillment_status": doc.fulfillment_status}
+	"""Compatibility alias for Check Availability. Does not create documents."""
+	return check_availability(name)
 
 
 @frappe.whitelist()
-def create_asset_movement(name: str) -> dict:
+def get_pool_picker(name: str) -> dict:
 	from erpnext_extensions.asset_usage_depreciation.services.fulfillment_service import (
-		create_asset_movement as _create,
+		get_pool_picker_data,
 	)
 
 	doc = frappe.get_doc("Asset Request", name)
 	_assert_fulfillment_rpc_allowed(doc)
-	am = _create(doc, auto_submit=0)
-	doc.flags.ignore_validate_update_after_submit = True
-	doc.save()
+	return get_pool_picker_data(doc)
+
+
+@frappe.whitelist()
+def issue_from_pool(name: str, selections=None, confirm_substitution: int = 0) -> dict:
+	from erpnext_extensions.asset_usage_depreciation.services.fulfillment_service import (
+		issue_from_pool as _issue,
+	)
+
+	doc = frappe.get_doc("Asset Request", name)
+	_assert_fulfillment_rpc_allowed(doc)
+	am = _issue(
+		doc,
+		selections=selections,
+		confirm_substitution=confirm_substitution,
+		auto_submit=0,
+	)
+	_save_submitted(doc)
 	return {"asset_movement": am.name if am else None}
 
 
 @frappe.whitelist()
-def create_material_request(name: str) -> dict:
+def create_asset_movement(name: str, selections=None, confirm_substitution: int = 0) -> dict:
+	"""Compatibility alias for Issue from Pool."""
+	return issue_from_pool(
+		name, selections=selections, confirm_substitution=confirm_substitution
+	)
+
+
+@frappe.whitelist()
+def request_purchase(name: str) -> dict:
 	from erpnext_extensions.asset_usage_depreciation.services.fulfillment_service import (
-		create_material_request as _create,
+		request_purchase as _request,
 	)
 
 	doc = frappe.get_doc("Asset Request", name)
 	_assert_fulfillment_rpc_allowed(doc)
-	mr = _create(doc, auto_submit=0)
-	doc.flags.ignore_validate_update_after_submit = True
-	doc.save()
+	mr = _request(doc, auto_submit=0)
+	_save_submitted(doc)
 	return {"material_request": mr.name if mr else None}
+
+
+@frappe.whitelist()
+def create_material_request(name: str) -> dict:
+	"""Compatibility alias for Request Purchase."""
+	return request_purchase(name)

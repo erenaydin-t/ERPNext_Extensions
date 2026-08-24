@@ -91,10 +91,11 @@
    "fieldtype": "Column Break"
   },
   {
-   "default": "1",
+   "default": "0",
    "fieldname": "auto_create_asset_movement",
    "fieldtype": "Check",
-   "label": "Auto Create Asset Movement"
+   "label": "Auto Create Asset Movement",
+   "description": "Approval never creates fulfillment documents. Asset Manager creates fulfillment manually."
   },
   {
    "default": "0",
@@ -103,10 +104,11 @@
    "label": "Auto Submit Asset Movement"
   },
   {
-   "default": "1",
+   "default": "0",
    "fieldname": "auto_create_material_request",
    "fieldtype": "Check",
-   "label": "Auto Create Material Request"
+   "label": "Auto Create Material Request",
+   "description": "Approval never creates fulfillment documents. Asset Manager creates fulfillment manually."
   },
   {
    "default": "0",
@@ -128,7 +130,7 @@
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-08-15 00:00:00.000000",
+ "modified": "2026-08-24 01:10:00.000000",
  "modified_by": "Administrator",
  "module": "Asset Usage Depreciation",
  "name": "Asset Request Settings",

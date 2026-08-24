@@ -7,6 +7,7 @@
  "document_type": "Document",
  "engine": "InnoDB",
  "field_order": [
+  "tab_details",
   "section_main",
   "naming_series",
   "company",
@@ -39,14 +40,17 @@
   "rejection_reason",
   "approved_on",
   "approved_by",
+  "tab_fulfillment",
+  "fulfillment_html",
   "section_fulfillment",
   "fulfillment_status",
   "available_asset_count",
   "issued_qty",
   "purchase_qty",
   "column_break_ful",
-  "material_request",
   "allocations",
+  "tab_related_documents",
+  "material_request",
   "amended_from"
  ],
  "fields": [
@@ -280,6 +284,23 @@
    "read_only": 1
   },
   {
+   "fieldname": "tab_details",
+   "fieldtype": "Tab Break",
+   "label": "Details"
+  },
+  {
+   "fieldname": "tab_fulfillment",
+   "fieldtype": "Tab Break",
+   "label": "Fulfillment"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "fulfillment_html",
+   "fieldtype": "HTML",
+   "label": "Fulfillment",
+   "read_only": 1
+  },
+  {
    "collapsible": 1,
    "depends_on": "eval:doc.docstatus==1",
    "fieldname": "section_fulfillment",
@@ -288,12 +309,12 @@
   },
   {
    "allow_on_submit": 1,
-   "default": "Not Started",
+   "default": "Waiting for fulfillment",
    "fieldname": "fulfillment_status",
    "fieldtype": "Select",
    "in_standard_filter": 1,
    "label": "Fulfillment Status",
-   "options": "Not Started\nIn Progress\nPartially Fulfilled\nFulfilled\nClosed",
+   "options": "Waiting for fulfillment\nIssued from pool\nPurchase requested\nFulfilled",
    "permlevel": 1,
    "read_only": 1
   },
@@ -353,12 +374,18 @@
    "options": "Asset Request",
    "print_hide": 1,
    "read_only": 1
+  },
+  {
+   "fieldname": "tab_related_documents",
+   "fieldtype": "Tab Break",
+   "label": "Related Documents",
+   "show_dashboard": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-08-23 12:00:00.000000",
+ "modified": "2026-08-24 04:00:00.000000",
  "modified_by": "Administrator",
  "module": "Asset Usage Depreciation",
  "name": "Asset Request",

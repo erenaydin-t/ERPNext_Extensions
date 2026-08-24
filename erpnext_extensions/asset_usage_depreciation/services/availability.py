@@ -129,6 +129,11 @@ def get_available_assets(
 		limit_page_length=0,
 	)
 	available = [a for a in assets if a.name not in reserved and not (a.custodian or "").strip()]
+	for a in available:
+		a.match_type = (
+			"exact" if requested_item_code and a.item_code == requested_item_code else "substitute"
+		)
+	available.sort(key=lambda a: (0 if a.match_type == "exact" else 1, a.creation or a.name))
 	if limit:
 		return available[:limit]
 	return available

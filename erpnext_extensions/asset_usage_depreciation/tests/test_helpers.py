@@ -120,9 +120,9 @@ def ensure_settings(**values) -> None:
 		"prevent_duplicate_active_requests": 1,
 		"allow_category_substitution": 1,
 		"reserve_available_assets": 1,
-		"auto_create_asset_movement": 1,
+		"auto_create_asset_movement": 0,
 		"auto_submit_asset_movement": 0,
-		"auto_create_material_request": 1,
+		"auto_create_material_request": 0,
 		"auto_submit_material_request": 0,
 		"default_movement_purpose": "Issue",
 	}
@@ -380,3 +380,34 @@ def skip_if_unready():
 
 # Role constants re-exported for tests
 ROLES = (ROLE_AR_MANAGER, ROLE_AR_PLANNER, ROLE_AR_EXECUTIVE, ROLE_ASSET_MANAGER)
+
+
+def issue_from_pool(doc, selections=None, confirm_substitution=1):
+	from erpnext_extensions.asset_usage_depreciation.doctype.asset_request.asset_request import (
+		get_pool_picker,
+		issue_from_pool as _issue,
+	)
+
+	if selections is None:
+		picker = get_pool_picker(doc.name)
+		selections = []
+		for line in picker.get("lines") or []:
+			remaining = int(line.get("remaining_qty") or 0)
+			for candidate in line.get("candidates") or []:
+				if remaining <= 0:
+					break
+				selections.append({"item_row": line["item_row"], "asset": candidate["name"]})
+				remaining -= 1
+	_issue(doc.name, selections=selections, confirm_substitution=confirm_substitution)
+	doc.reload()
+	return doc
+
+
+def request_purchase(doc):
+	from erpnext_extensions.asset_usage_depreciation.doctype.asset_request.asset_request import (
+		request_purchase as _request,
+	)
+
+	_request(doc.name)
+	doc.reload()
+	return doc

@@ -73,6 +73,21 @@ function approveUntilSubmitted(name) {
       "material_request",
     ]);
   }
+  if (Number(last.docstatus) === 1 && !last.material_request) {
+    try {
+      benchExecute(
+        "erpnext_extensions.asset_usage_depreciation.doctype.asset_request.asset_request.request_purchase",
+        { name }
+      );
+    } catch (e) {
+      /* shortage-only path; ignore if already issued */
+    }
+    last = getDocumentState("Asset Request", name, [
+      "docstatus",
+      "workflow_state",
+      "material_request",
+    ]);
+  }
   return last;
 }
 

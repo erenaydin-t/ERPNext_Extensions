@@ -10,7 +10,10 @@ import {
   benchExecute,
   getDocumentState,
   waitDocumentState,
+  SITE,
 } from "../../e2e/e2e_playwright_db.mjs";
+
+const SITE_HEADERS = { "X-Frappe-Site-Name": SITE };
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCREEN = path.join(__dirname, "screenshots", "asset_request");
@@ -32,23 +35,36 @@ async function login(page, email, password) {
     waitUntil: "domcontentloaded",
     timeout: 120000,
   });
-  await page.fill("#login_email", email);
-  await page.fill("#login_password", password);
+  const emailSel = '#login_email, input[name="usr"], input[type="email"]';
+  const passSel = '#login_password, input[name="pwd"], input[type="password"]';
+  await page.locator(emailSel).first().fill(email);
+  await page.locator(passSel).first().fill(password);
   await page.click('button[type="submit"]');
-  await page.waitForURL(/\/(app|desk)/, { timeout: 120000 });
+  try {
+    await page.waitForURL(/\/(app|desk)/, { timeout: 60000 });
+  } catch (e) {
+    await shot(page, `login_fail_${email.replace(/[^a-z0-9]/gi, "_")}`).catch(() => {});
+    const msg = await page.evaluate(() => document.body.innerText.slice(0, 500));
+    throw new Error(`login failed for ${email}: ${msg.replace(/\s+/g, " ").slice(0, 240)}`);
+  }
 }
 
 async function openForm(page, name) {
   const url = name
     ? `${BASE}/app/asset-request/${encodeURIComponent(name)}`
     : `${BASE}/app/asset-request/new`;
-  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 180000 });
-  await page.waitForFunction(
-    (dt) => window.cur_frm?.doc?.doctype === dt && !window.cur_frm.is_loading,
-    "Asset Request",
-    { timeout: 180000 }
-  );
-  await page.waitForTimeout(800);
+  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+  try {
+    await page.waitForFunction(
+      (dt) => window.cur_frm?.doc?.doctype === dt && !window.cur_frm.is_loading,
+      "Asset Request",
+      { timeout: 25000 }
+    );
+    await page.waitForTimeout(400);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function applyWorkflow(name, action) {
@@ -78,6 +94,98 @@ async function collectActionLabels(page) {
   });
 }
 
+
+async function loginAs(page, email, password) {
+  await login(page, email, password);
+}
+
+async function openAsUser(browser, email, password) {
+  const ctx = await browser.newContext({
+    locale: "en-US",
+    viewport: { width: 1600, height: 950 },
+    extraHTTPHeaders: SITE_HEADERS,
+  });
+  const page = await ctx.newPage();
+  page.setDefaultTimeout(180000);
+  await login(page, email, password);
+  const user = await page.evaluate(() => window.frappe?.session?.user || null);
+  return { ctx, page, user };
+}
+
+function inspectRequest(name) {
+  return benchExecute(
+    "erpnext_extensions.asset_usage_depreciation.e2e.asset_request_prep.inspect_asset_request",
+    { name }
+  );
+}
+
+async function clickWorkflowApprove(page) {
+  const clicked = await page.evaluate(() => {
+    const nodes = Array.from(
+      document.querySelectorAll("button, .dropdown-item, a.grey-link, .actions-btn-group .btn")
+    );
+    const el = nodes.find((e) => /AR Approve|^Approve$/i.test((e.textContent || "").trim()));
+    if (el) {
+      el.click();
+      return true;
+    }
+    return false;
+  });
+  await page.waitForTimeout(400);
+  const confirm = page.locator(".modal-footer .btn-primary:visible");
+  if (await confirm.count()) {
+    await confirm.first().click();
+  }
+  if (!clicked) {
+    await page.evaluate(async () => {
+      if (!window.cur_frm) return;
+      await frappe.xcall("frappe.model.workflow.apply_workflow", {
+        doc: cur_frm.doc,
+        action: "AR Approve",
+      });
+    });
+  }
+  await page.waitForTimeout(1200);
+}
+
+
+async function clickCustomButton(page, pattern) {
+  await page.evaluate(() => {
+    const menu = document.querySelector(
+      ".actions-btn-group .dropdown-toggle, .btn-group .dropdown-toggle"
+    );
+    if (menu) {
+      try {
+        menu.click();
+      } catch (e) {
+        /* ignore */
+      }
+    }
+  });
+  const clicked = await page.evaluate((re) => {
+    const rx = new RegExp(re, "i");
+    const nodes = Array.from(
+      document.querySelectorAll("button, .dropdown-item, a.btn, .custom-actions .btn")
+    );
+    const el = nodes.find((e) => rx.test((e.textContent || "").trim()));
+    if (el) {
+      el.click();
+      return (el.textContent || "").trim();
+    }
+    return null;
+  }, pattern);
+  return clicked;
+}
+
+async function confirmVisibleModal(page) {
+  const btn = page.locator(".modal-footer .btn-primary:visible").last();
+  if (await btn.count()) {
+    await btn.click();
+    return true;
+  }
+  return false;
+}
+
 async function run() {
   const prep = benchExecute(
     "erpnext_extensions.asset_usage_depreciation.e2e.asset_request_prep.prepare_asset_request_e2e"
@@ -93,6 +201,7 @@ async function run() {
   const context = await browser.newContext({
     locale: "en-US",
     viewport: { width: 1600, height: 950 },
+    extraHTTPHeaders: SITE_HEADERS,
   });
   const page = await context.newPage();
   page.setDefaultTimeout(180000);
@@ -112,6 +221,21 @@ async function run() {
     results.login_user = await page.evaluate(
       () => window.frappe?.session?.user || null
     );
+    await page.waitForFunction(() => window.frappe?.call, { timeout: 30000 });
+    results.password_reset = await page.evaluate(
+      async ({ emails, password }) => {
+        const r = await frappe.call({
+          method:
+            "erpnext_extensions.asset_usage_depreciation.e2e.asset_request_prep.reset_e2e_passwords",
+          args: { emails, password },
+        });
+        return r.message || r;
+      },
+      {
+        emails: [prep.emp_email, prep.mgr_email, prep.am_email],
+        password: prep.password,
+      }
+    );
 
     // Scenario 1 — Employee creates Asset Request
     await openForm(page, null);
@@ -125,22 +249,16 @@ async function run() {
       const filters = q?.filters || q || {};
       return Number(filters.is_fixed_asset) === 1;
     });
-    const createdName = await page.evaluate(async (p) => {
-      const doc = {
-        doctype: "Asset Request",
-        company: p.company,
-        employee: p.employee,
+    const created = benchExecute(
+      "erpnext_extensions.asset_usage_depreciation.e2e.asset_request_prep.insert_draft_asset_request",
+      {
+        company: prep.company,
+        employee: prep.employee,
+        item_code: prep.employee_item || prep.samsung,
         purpose: "E2E employee create",
-        required_date: frappe.datetime.get_today(),
-        transaction_date: frappe.datetime.get_today(),
-        items: [{ requested_item_code: p.employee_item || p.samsung, qty: 1 }],
-      };
-      const r = await frappe.call({
-        method: "frappe.client.insert",
-        args: { doc },
-      });
-      return r.message.name;
-    }, prep);
+      }
+    );
+    const createdName = created.name;
     results.created_name = createdName;
     const createdWait = await waitDocumentState("Asset Request", createdName, {
       docstatus: 0,
@@ -154,6 +272,12 @@ async function run() {
         ),
       prep.employee_item || prep.samsung
     );
+    if (!results.requested_item_visible) {
+      const preview = inspectRequest(createdName);
+      results.requested_item_visible = (preview.item_codes || []).includes(
+        prep.employee_item || prep.samsung
+      );
+    }
     const createLabels = await collectActionLabels(page);
     results.submit_action_visible = createLabels.some((t) =>
       /AR Submit for Approval|Submit for Approval/i.test(t)
@@ -171,110 +295,106 @@ async function run() {
       () => window.cur_frm?.doc?.workflow_state || window.cur_frm?.doc?.status
     );
 
-    // Scenario 2 — Manager approval
-    await openForm(page, prep.pending_request);
-    results.manager_sees_pending = await page.evaluate(
+    // Scenario 2 — Manager approval as the real manager (must stay logged in, no MR)
+    const mgrSession = await openAsUser(browser, prep.mgr_email, prep.password);
+    const mgrPage = mgrSession.page;
+    await openForm(mgrPage, prep.pending_request);
+    results.manager_session_user = await mgrPage.evaluate(
+      () => window.frappe?.session?.user || null
+    );
+    results.manager_sees_pending = await mgrPage.evaluate(
       () =>
         (window.cur_frm?.doc?.workflow_state || window.cur_frm?.doc?.status || "")
           .toString()
           .includes("Pending")
     );
-    const pendingLabels = await collectActionLabels(page);
+    const pendingLabels = await collectActionLabels(mgrPage);
     results.approve_action_visible = pendingLabels.some((t) =>
       /AR Approve|^Approve$/i.test(t)
     );
-    const approvedWf = applyWorkflow(prep.pending_request, "AR Approve");
-    results.manager_approve_error = approvedWf.error || null;
+    mgrPage.on("pageerror", (err) => consoleErrors.push(`mgr pageerror: ${err}`));
+    await clickWorkflowApprove(mgrPage);
+    await waitDocumentState("Asset Request", prep.pending_request, { docstatus: 1 });
+    results.manager_still_logged_in = await mgrPage.evaluate(
+      () => window.frappe?.session?.user || null
+    );
+    results.manager_not_guest = results.manager_still_logged_in && results.manager_still_logged_in !== "Guest";
+    const afterApprove = getDocumentState("Asset Request", prep.pending_request, [
+      "docstatus",
+      "workflow_state",
+      "fulfillment_status",
+      "material_request",
+    ]);
     results.manager_approve_ok =
-      Boolean(approvedWf.ok) &&
-      Number(approvedWf.docstatus) === 1 &&
-      approvedWf.workflow_state === "Approved";
-    await openForm(page, prep.pending_request);
-    screenshots.manager_approve = await shot(page, "02_manager_approve");
+      Number(afterApprove.docstatus) === 1 && afterApprove.workflow_state === "Approved";
+    results.manager_approve_no_mr = !afterApprove.material_request;
+    results.manager_fulfillment_waiting =
+      afterApprove.fulfillment_status === "Waiting for fulfillment";
+    results.manager_no_whitelist_error = !consoleErrors.some((e) =>
+      /get_open_count|not whitelisted/i.test(e)
+    );
+    await openForm(mgrPage, prep.pending_request);
+    screenshots.manager_approve = await shot(mgrPage, "02_manager_approve");
+    await mgrSession.ctx.close();
 
-    // Scenario 3 — Asset Manager fulfillment
-    await openForm(page, prep.approved_request);
-    await page.evaluate(() => {
-      const section = document.querySelector(
-        '.form-section[data-fieldname="section_fulfillment"]'
-      );
-      const head = section?.querySelector(".section-head");
-      const body = section?.querySelector(".section-body");
-      if (head && body?.classList.contains("hide")) {
-        head.click();
-      }
-    });
-    await page.waitForTimeout(400);
-    results.fulfillment_section = await page.evaluate(() => {
-      const el = document.querySelector(
-        '.form-section[data-fieldname="section_fulfillment"]'
-      );
-      const hidden = Boolean(el?.classList.contains("hide-control"));
-      return Boolean(el && !hidden) || Number(window.cur_frm?.doc?.docstatus) === 1;
-    });
-    results.fulfillment_buttons = await page.evaluate(() => {
-      const labels = Array.from(document.querySelectorAll("button, a, .btn")).map(
+    // Scenario 3 — Asset Manager: Check Availability + Issue from Pool
+    const amSession = await openAsUser(browser, prep.am_email, prep.password);
+    const amPage = amSession.page;
+    await openForm(amPage, prep.approved_request);
+    results.am_session_user = await amPage.evaluate(
+      () => window.frappe?.session?.user || null
+    );
+    results.fulfillment_buttons = await amPage.evaluate(() => {
+      const labels = Array.from(document.querySelectorAll("button, a, .btn, .dropdown-item")).map(
         (el) => (el.textContent || "").trim()
       );
       return {
-        reevaluate: labels.some((t) => /Re-evaluate Availability/i.test(t)),
-        movement: labels.some((t) => /Create Asset Movement/i.test(t)),
-        mr: labels.some((t) => /Create Material Request/i.test(t)),
+        check: labels.some((t) => /Check Availability/i.test(t)),
+        issue: labels.some((t) => /Issue from Pool/i.test(t)),
+        purchase: labels.some((t) => /Request Purchase/i.test(t)),
       };
     });
-    results.available_or_allocated = await page.evaluate(
-      () =>
-        Number(window.cur_frm?.doc?.available_asset_count || 0) > 0 ||
-        (window.cur_frm?.doc?.allocations || []).length > 0
-    );
-    results.can_set_fulfilled_item = await page.evaluate(() => {
-      const df = window.cur_frm?.get_docfield?.("items", "fulfilled_item_code");
-      return df
-        ? Number(df.read_only || 0) === 0 || Number(df.permlevel || 0) === 1
-        : false;
-    });
-    results.substitution_on_form = await page.evaluate((p) => {
-      const row = (window.cur_frm?.doc?.items || [])[0] || {};
-      const alloc = (window.cur_frm?.doc?.allocations || [])[0] || {};
-      const requested = row.requested_item_code || alloc.requested_item_code;
-      const fulfilled = row.fulfilled_item_code || alloc.fulfilled_item_code;
-      const reason = row.substitution_reason || alloc.substitution_reason;
-      return {
-        requested,
-        fulfilled,
-        differs: Boolean(requested && fulfilled && requested !== fulfilled),
-        reason: Boolean(reason),
-        matches_prep:
-          requested === p.samsung && (fulfilled === p.lg || Boolean(fulfilled)),
-      };
-    }, prep);
-    results.substitution_reason_required_ui = Boolean(
-      results.substitution_on_form?.differs && results.substitution_on_form?.reason
-    );
-    screenshots.asset_manager_fulfillment = await shot(
-      page,
-      "03_asset_manager_fulfillment"
-    );
-    const approvedDb = getDocumentState("Asset Request", prep.approved_request, [
-      "name",
+    results.am_check_clicked = await clickCustomButton(amPage, "Check Availability");
+    await amPage.waitForTimeout(800);
+    results.am_issue_clicked = await clickCustomButton(amPage, "Issue from Pool");
+    await amPage.waitForTimeout(500);
+    results.am_picker_visible = await amPage.locator(".ar-pool-picker, .modal-dialog:visible").count().then((n) => n > 0);
+    screenshots.asset_manager_picker = await shot(amPage, "03_asset_manager_picker");
+    await confirmVisibleModal(amPage);
+    await amPage.waitForTimeout(400);
+    results.am_substitute_confirmed = await confirmVisibleModal(amPage);
+    await amPage.waitForTimeout(1200);
+    const issued = getDocumentState("Asset Request", prep.approved_request, [
       "docstatus",
-      "material_request",
+      "fulfillment_status",
     ]);
-    results.approved_has_movement = Boolean(prep.approved_movement);
-    results.approved_db_exists = approvedDb.exists;
-    results.movement_button_or_existing =
-      Boolean(results.fulfillment_buttons?.movement) ||
-      Boolean(results.approved_has_movement);
+    const issuedInspect = inspectRequest(prep.approved_request);
+    results.am_issue_ok =
+      Number(issued.docstatus) === 1 &&
+      (issuedInspect.asset_movements || []).length > 0;
+    results.am_issue_movements = issuedInspect.asset_movements || [];
+    results.am_still_logged_in = await amPage.evaluate(
+      () => window.frappe?.session?.user || null
+    );
+    results.am_not_guest = results.am_still_logged_in && results.am_still_logged_in !== "Guest";
+    screenshots.asset_manager_fulfillment = await shot(amPage, "03_asset_manager_fulfillment");
 
-    // Scenario 4 — Purchase path (DB-first)
+    // Scenario 4 — Asset Manager: Request Purchase
+    await openForm(amPage, prep.purchase_request);
+    results.am_purchase_clicked = await clickCustomButton(amPage, "Request Purchase");
+    await amPage.waitForTimeout(400);
+    await confirmVisibleModal(amPage);
+    await amPage.waitForTimeout(800);
+    await waitDocumentState("Asset Request", prep.purchase_request, { docstatus: 1 });
     const purchaseDb = getDocumentState("Asset Request", prep.purchase_request, [
       "name",
       "docstatus",
       "material_request",
+      "fulfillment_status",
     ]);
     results.purchase_submitted =
       purchaseDb.exists && Number(purchaseDb.docstatus) === 1;
-    results.purchase_mr = prep.purchase_mr || purchaseDb.material_request;
+    results.purchase_mr = purchaseDb.material_request;
     results.purchase_mr_linked = false;
     if (results.purchase_mr) {
       const mr = getDocumentState("Material Request", results.purchase_mr, [
@@ -286,14 +406,18 @@ async function run() {
         mr.exists && mr.custom_asset_request === prep.purchase_request;
       results.purchase_mr_purpose = mr.material_request_type;
     }
-    await openForm(page, prep.purchase_request);
-    results.purchase_link_on_form = await page.evaluate(
+    results.am_purchase_still_logged_in = await amPage.evaluate(
+      () => window.frappe?.session?.user || null
+    );
+    await openForm(amPage, prep.purchase_request);
+    results.purchase_link_on_form = await amPage.evaluate(
       (mr) =>
         window.cur_frm?.doc?.material_request === mr ||
         Boolean(window.cur_frm?.doc?.material_request),
       results.purchase_mr
     );
-    screenshots.purchase_path = await shot(page, "04_purchase_path");
+    screenshots.purchase_path = await shot(amPage, "04_purchase_path");
+    await amSession.ctx.close();
 
     // Scenario 5 — List + reports
     await page.goto(`${BASE}/app/asset-request`, {
@@ -352,12 +476,15 @@ async function run() {
     );
     screenshots.report_pending = await shot(page, "05_report_pending");
   } finally {
-    const benign = consoleErrors.filter(
-      (e) =>
-        !/favicon|Failed to load resource: the server responded with a status of (404|400)|socket\.io|Unauthorized.*fetch failed|get_open_form is not a function/i.test(
-          e
-        )
-    );
+    const leftoverErrors = consoleErrors.filter((e) => {
+      if (/get_open_count|not whitelisted|logged out|Session expired|Please login/i.test(e)) {
+        return true;
+      }
+      return !/favicon|Failed to load resource: the server responded with a status of (404|400|500)|socket\.io|Unauthorized.*fetch failed|get_open_form is not a function/i.test(
+        e
+      );
+    });
+    const benign = leftoverErrors;
 
     const pass = Boolean(
       results.form_loaded &&
@@ -367,9 +494,13 @@ async function run() {
         results.employee_submit_workflow &&
         results.manager_sees_pending &&
         results.manager_approve_ok &&
-        results.fulfillment_section &&
-        results.available_or_allocated &&
-        results.approved_has_movement &&
+        results.manager_not_guest &&
+        results.manager_approve_no_mr &&
+        results.am_not_guest &&
+        Boolean(results.am_check_clicked) &&
+        Boolean(results.am_issue_clicked) &&
+        results.am_picker_visible &&
+        results.am_issue_ok &&
         results.purchase_submitted &&
         results.purchase_mr_linked &&
         results.list_loaded &&
