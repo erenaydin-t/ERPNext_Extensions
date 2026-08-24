@@ -255,6 +255,7 @@ class TestExactVsCategoryMatching(unittest.TestCase):
 		self.assertEqual(issued[0].requested_item_code, samsung)
 		self.assertEqual(issued[0].fulfilled_item_code, lg)
 		h.submit_and_approve(doc)
+		h.issue_from_pool(doc)
 		doc.reload()
 		alloc = next(a for a in doc.allocations if a.allocated_asset == lg_asset)
 		self.assertTrue(alloc.asset_movement)

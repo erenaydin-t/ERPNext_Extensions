@@ -99,6 +99,16 @@ ALLOC_ORDERED = "Ordered"
 ALLOC_RECEIVED = "Received"
 ALLOC_CANCELLED = "Cancelled"
 
+# Fulfillment lifecycle (independent of workflow status)
+FULFILLMENT_WAITING = "Waiting for fulfillment"
+FULFILLMENT_ISSUED_FROM_POOL = "Issued from pool"
+FULFILLMENT_PURCHASE_REQUESTED = "Purchase requested"
+FULFILLMENT_FULFILLED = "Fulfilled"
+FULFILLMENT_STATUS_OPTIONS = (
+	f"{FULFILLMENT_WAITING}\n{FULFILLMENT_ISSUED_FROM_POOL}\n"
+	f"{FULFILLMENT_PURCHASE_REQUESTED}\n{FULFILLMENT_FULFILLED}"
+)
+
 UNAVAILABLE_ASSET_STATUSES = (
 	"Draft",
 	"Cancelled",

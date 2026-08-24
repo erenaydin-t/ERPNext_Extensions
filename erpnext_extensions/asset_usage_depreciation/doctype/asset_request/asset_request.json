@@ -45,8 +45,10 @@
   "issued_qty",
   "purchase_qty",
   "column_break_ful",
-  "material_request",
   "allocations",
+  "tab_related_documents",
+  "material_request",
+  "related_documents_html",
   "amended_from"
  ],
  "fields": [
@@ -288,12 +290,12 @@
   },
   {
    "allow_on_submit": 1,
-   "default": "Not Started",
+   "default": "Waiting for fulfillment",
    "fieldname": "fulfillment_status",
    "fieldtype": "Select",
    "in_standard_filter": 1,
    "label": "Fulfillment Status",
-   "options": "Not Started\nIn Progress\nPartially Fulfilled\nFulfilled\nClosed",
+   "options": "Waiting for fulfillment\nIssued from pool\nPurchase requested\nFulfilled",
    "permlevel": 1,
    "read_only": 1
   },
@@ -353,12 +355,24 @@
    "options": "Asset Request",
    "print_hide": 1,
    "read_only": 1
+  },
+  {
+   "fieldname": "tab_related_documents",
+   "fieldtype": "Tab Break",
+   "label": "Related Documents"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "related_documents_html",
+   "fieldtype": "HTML",
+   "label": "Related Documents",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-08-23 12:00:00.000000",
+ "modified": "2026-08-24 01:10:00.000000",
  "modified_by": "Administrator",
  "module": "Asset Usage Depreciation",
  "name": "Asset Request",

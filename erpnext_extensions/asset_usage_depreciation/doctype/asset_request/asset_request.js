@@ -46,6 +46,7 @@ frappe.ui.form.on("Asset Request", {
 	refresh(frm) {
 		bind_header_dimension_propagation(frm);
 		frm.trigger("toggle_fulfillment_buttons");
+		render_related_documents(frm);
 	},
 	company(frm) {
 		if (erpnext.accounts && erpnext.accounts.dimensions) {
@@ -65,26 +66,31 @@ frappe.ui.form.on("Asset Request", {
 		if (frm.doc.docstatus !== 1) {
 			return;
 		}
-		const can_fulfill = frappe.user_roles.includes("Asset Manager") || frappe.user_roles.includes("System Manager");
-		if (!can_fulfill) {
+		const approved = frm.doc.workflow_state === "Approved";
+		const fulfilled = frm.doc.fulfillment_status === "Fulfilled";
+		const can_fulfill =
+			frappe.user_roles.includes("Asset Manager") || frappe.user_roles.includes("System Manager");
+		if (!can_fulfill || !approved || fulfilled) {
 			return;
 		}
-		frm.add_custom_button(__("Re-evaluate Availability"), () => {
+		frm.add_custom_button(__("Check Availability"), () => {
 			frappe.call({
-				method: "erpnext_extensions.asset_usage_depreciation.doctype.asset_request.asset_request.reevaluate_fulfillment",
+				method: "erpnext_extensions.asset_usage_depreciation.doctype.asset_request.asset_request.check_availability",
 				args: { name: frm.doc.name },
 				freeze: true,
 				callback(r) {
 					frm.reload_doc();
-					if (r.message) {
-						frappe.show_alert({ message: __("Fulfillment updated"), indicator: "green" });
-					}
+					const n = (r.message && r.message.available_asset_count) || 0;
+					frappe.show_alert({
+						message: __("Availability checked. {0} pool asset(s) found.", [n]),
+						indicator: "green",
+					});
 				},
 			});
 		});
-		frm.add_custom_button(__("Create Asset Movement"), () => {
+		frm.add_custom_button(__("Issue from Pool"), () => {
 			frappe.call({
-				method: "erpnext_extensions.asset_usage_depreciation.doctype.asset_request.asset_request.create_asset_movement",
+				method: "erpnext_extensions.asset_usage_depreciation.doctype.asset_request.asset_request.issue_from_pool",
 				args: { name: frm.doc.name },
 				freeze: true,
 				callback(r) {
@@ -95,9 +101,9 @@ frappe.ui.form.on("Asset Request", {
 				},
 			});
 		});
-		frm.add_custom_button(__("Create Material Request"), () => {
+		frm.add_custom_button(__("Request Purchase"), () => {
 			frappe.call({
-				method: "erpnext_extensions.asset_usage_depreciation.doctype.asset_request.asset_request.create_material_request",
+				method: "erpnext_extensions.asset_usage_depreciation.doctype.asset_request.asset_request.request_purchase",
 				args: { name: frm.doc.name },
 				freeze: true,
 				callback(r) {
@@ -206,4 +212,39 @@ function refresh_available_qty(frm, cdt, cdn) {
 			frappe.model.set_value(cdt, cdn, "available_qty", r.message || 0);
 		},
 	});
+}
+
+function render_related_documents(frm) {
+	const wrap = frm.get_field("related_documents_html");
+	if (!wrap) {
+		return;
+	}
+	const seen = {};
+	const rows = [];
+	const add = (dt, name) => {
+		if (!name || seen[dt + "::" + name]) {
+			return;
+		}
+		seen[dt + "::" + name] = 1;
+		const route = frappe.utils.get_form_link(dt, name);
+		rows.push(
+			`<tr><td>${frappe.utils.escape_html(dt)}</td><td><a href="${route}">${frappe.utils.escape_html(
+				name
+			)}</a></td></tr>`
+		);
+	};
+	add("Material Request", frm.doc.material_request);
+	(frm.doc.allocations || []).forEach((a) => {
+		add("Material Request", a.material_request);
+		add("Asset Movement", a.asset_movement);
+		add("Asset", a.allocated_asset);
+		add("Purchase Order", a.purchase_order);
+		add("Purchase Receipt", a.purchase_receipt);
+	});
+	const body = rows.length
+		? `<table class="table table-bordered" style="max-width: 640px">
+			<thead><tr><th>${__("Document Type")}</th><th>${__("Name")}</th></tr></thead>
+			<tbody>${rows.join("")}</tbody></table>`
+		: `<p class="text-muted">${__("No related fulfillment documents yet.")}</p>`;
+	wrap.$wrapper.html(body);
 }

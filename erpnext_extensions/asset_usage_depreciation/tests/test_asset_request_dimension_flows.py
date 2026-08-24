@@ -62,6 +62,7 @@ class TestAssetRequestDimensionFlows(unittest.TestCase):
 			**{self.fieldname: self.tehran},
 		)
 		h.submit_and_approve(doc)
+		h.request_purchase(doc)
 		doc.reload()
 		self.assertTrue(doc.material_request)
 		mr = frappe.get_doc("Material Request", doc.material_request)
@@ -81,6 +82,7 @@ class TestAssetRequestDimensionFlows(unittest.TestCase):
 			**{self.fieldname: self.tehran, "cost_center": self.cost_center},
 		)
 		h.submit_and_approve(doc)
+		h.request_purchase(doc)
 		doc.reload()
 		mr = frappe.get_doc("Material Request", doc.material_request)
 		self.assertEqual(mr.items[0].get(self.fieldname), self.shiraz)
@@ -117,6 +119,7 @@ class TestAssetRequestDimensionFlows(unittest.TestCase):
 		)
 		doc.insert(ignore_permissions=True)
 		h.submit_and_approve(doc)
+		h.request_purchase(doc)
 		doc.reload()
 		mr = frappe.get_doc("Material Request", doc.material_request)
 		self.assertEqual(len(mr.items), 2)
@@ -139,6 +142,7 @@ class TestAssetRequestDimensionFlows(unittest.TestCase):
 			**{self.fieldname: self.tehran, "cost_center": self.cost_center},
 		)
 		h.submit_and_approve(doc)
+		h.request_purchase(doc)
 		doc.reload()
 		self.assertEqual(doc.items[0].requested_item_code, samsung)
 		mr = frappe.get_doc("Material Request", doc.material_request)
@@ -160,6 +164,7 @@ class TestAssetRequestDimensionFlows(unittest.TestCase):
 			**{self.fieldname: self.tehran},
 		)
 		h.submit_and_approve(doc)
+		h.request_purchase(doc)
 		doc.reload()
 		mr = frappe.get_doc("Material Request", doc.material_request)
 		if int(mr.docstatus or 0) == 0:
@@ -191,6 +196,7 @@ class TestAssetRequestDimensionFlows(unittest.TestCase):
 			**{self.fieldname: self.tehran},
 		)
 		h.submit_and_approve(doc)
+		h.issue_from_pool(doc)
 		doc.reload()
 		alloc = doc.allocations[0]
 		self.assertEqual(alloc.method, "Issue Existing")

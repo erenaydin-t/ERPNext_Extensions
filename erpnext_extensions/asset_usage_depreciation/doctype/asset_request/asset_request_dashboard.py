@@ -17,7 +17,6 @@ def get_data():
 			"Purchase Order": ["allocations", "purchase_order"],
 		},
 		"transactions": [
-			{"label": _("Fulfillment"), "items": ["Asset Movement", "Material Request", "Asset"]},
-			{"label": _("Purchase"), "items": ["Purchase Order", "Purchase Receipt"]},
+			{"label": _("Related Documents"), "items": ["Asset Movement", "Material Request", "Asset", "Purchase Order", "Purchase Receipt"]},
 		],
 	}

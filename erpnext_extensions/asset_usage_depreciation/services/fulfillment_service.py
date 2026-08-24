@@ -31,36 +31,74 @@ from erpnext_extensions.asset_usage_depreciation.services.request_service import
 AUTO_SUBSTITUTION_REASON = "Allocated from available pool (same Asset Category)"
 
 
+def _snapshot_session() -> dict:
+	session = frappe.session
+	data = session.data
+	if hasattr(data, "copy"):
+		data_copy = data.copy()
+	else:
+		data_copy = frappe._dict(data or {})
+	form_dict = frappe.local.form_dict
+	if hasattr(form_dict, "copy"):
+		form_copy = form_dict.copy()
+	else:
+		form_copy = frappe._dict(form_dict or {})
+	return {
+		"user": session.user,
+		"sid": session.sid,
+		"data": data_copy,
+		"form_dict": form_copy,
+	}
+
+
+def _restore_session(snap: dict) -> None:
+	"""Restore user, sid, session.data, and form_dict. Never leave sid mutated."""
+	session = frappe.session
+	session.user = snap["user"]
+	if session.sid != snap["sid"]:
+		session.sid = snap["sid"]
+	session.data = snap["data"]
+	frappe.local.form_dict = snap["form_dict"]
+	if session.sid != snap["sid"]:
+		session.sid = snap["sid"]
+
+
 def _persist_generated_doc(doc, *, ignore_permissions: bool = True, auto_submit: int = 0) -> None:
 	"""Insert (and optionally submit) a system-generated AM/MR.
 
 	Approvers such as Planner/CEO often lack Item/Asset read permission.
 	``insert(ignore_permissions=True)`` does not skip Item.check_permission()
-	inside ERPNext get_item_details, so run as Administrator when asked to
-	ignore permissions.
+	inside ERPNext get_item_details, so elevate ``session.user`` only.
+
+	Never call ``frappe.set_user()``: it overwrites ``frappe.session.sid``.
+	Never assign ``frappe.session.sid`` during the privileged insert.
+	user, sid, session.data, and form_dict are restored in ``finally``.
 	"""
-	current_user = frappe.session.user
-	switch = bool(ignore_permissions) and current_user not in (None, "Administrator")
+	snap = _snapshot_session()
+	switch = bool(ignore_permissions) and snap["user"] not in (None, "Administrator")
 	try:
 		if switch:
-			frappe.set_user("Administrator")
+			frappe.session.user = "Administrator"
+			frappe.local.role_permissions = {}
+			frappe.local.user_perms = None
 		doc.insert(ignore_permissions=ignore_permissions)
 		if auto_submit:
 			doc.submit()
 	finally:
-		if switch:
-			frappe.set_user(current_user)
+		_restore_session(snap)
 
 
-def evaluate_and_fulfill(doc, *, create_documents: bool = True) -> None:
-	"""Reserve pool assets and/or stage purchase rows, then optionally create AM/MR."""
+def evaluate_and_fulfill(doc, *, create_documents: bool = False) -> None:
+	"""Evaluate allocations only. Never create MR/AM (v4.5.5).
+
+	``create_documents`` is accepted for compatibility and ignored.
+	Approval never creates fulfillment documents.
+	"""
 	if frappe.flags.get("asset_request_fulfillment_in_progress"):
 		return
 	frappe.flags.asset_request_fulfillment_in_progress = True
 	try:
 		_evaluate_allocations(doc)
-		if create_documents:
-			_create_documents(doc)
 		refresh_header_fulfillment(doc)
 	finally:
 		frappe.flags.asset_request_fulfillment_in_progress = False
@@ -74,9 +112,18 @@ def _existing_open_allocs(doc, item_row_name: str) -> list:
 	]
 
 
-def _evaluate_allocations(doc) -> None:
+def _evaluate_allocations(doc, *, reserve: int | None = None, mode: str = "both") -> None:
+	"""Stage issue and/or purchase allocations.
+
+	mode: ``both`` (tests), ``issue`` (Issue from Pool), ``purchase`` (Request Purchase).
+	"""
 	settings = get_settings()
-	reserve = cint(settings.get("reserve_available_assets", 1))
+	if reserve is None:
+		reserve = cint(settings.get("reserve_available_assets", 1))
+	if mode == "purchase":
+		reserve = 0
+	if mode == "issue":
+		reserve = 1
 	used_assets: set[str] = {
 		a.allocated_asset for a in (doc.get("allocations") or []) if a.allocated_asset
 	}
@@ -107,7 +154,7 @@ def _evaluate_allocations(doc) -> None:
 			rest = [c for c in candidates if c.name != row.preferred_asset]
 			candidates = preferred + rest
 
-		issue_take = candidates[:need] if reserve else []
+		issue_take = candidates[:need] if reserve and mode in ("both", "issue") else []
 		for asset in issue_take:
 			lock_asset(asset.name)
 			used_assets.add(asset.name)
@@ -132,7 +179,7 @@ def _evaluate_allocations(doc) -> None:
 				},
 			)
 
-		shortage = need - len(issue_take)
+		shortage = need - len(issue_take) if mode in ("both", "purchase") else 0
 		purchase_item = row.fulfilled_purchase_item or row.fulfilled_item_code or row.requested_item_code
 		for _ in range(shortage):
 			reason = row.substitution_reason
@@ -160,11 +207,64 @@ def _evaluate_allocations(doc) -> None:
 
 
 def _create_documents(doc) -> None:
-	settings = get_settings()
-	if cint(settings.get("auto_create_asset_movement", 1)):
-		create_asset_movement(doc, auto_submit=cint(settings.get("auto_submit_asset_movement")))
-	if cint(settings.get("auto_create_material_request", 1)):
-		create_material_request(doc, auto_submit=cint(settings.get("auto_submit_material_request")))
+	"""Legacy helper. Approval never calls this (v4.5.5)."""
+	return
+
+
+def refresh_available_counts(doc) -> dict:
+	"""Read-only availability. Does not reserve assets or create documents."""
+	lines = []
+	total = 0
+	for row in doc.items:
+		assets = get_available_assets(
+			doc.company,
+			requested_item_code=row.requested_item_code,
+			requested_asset_category=row.requested_asset_category,
+			fulfilled_item_code=row.fulfilled_item_code
+			if row.fulfilled_item_code != row.requested_item_code
+			else None,
+			exclude_request=doc.name,
+		)
+		count = len(assets)
+		row.available_qty = count
+		total += count
+		names = []
+		for a in assets[:20]:
+			names.append(a.name if hasattr(a, "name") else a.get("name"))
+		lines.append(
+			{
+				"item_row": row.name,
+				"requested_item_code": row.requested_item_code,
+				"available_qty": count,
+				"candidates": names,
+			}
+		)
+	doc.available_asset_count = total
+	return {"available_asset_count": total, "lines": lines}
+
+
+def check_availability(doc) -> dict:
+	return refresh_available_counts(doc)
+
+
+def issue_from_pool(doc, *, auto_submit: int = 0, ignore_permissions: bool = True):
+	"""Allocate available pool assets and create Asset Movement. No Material Request."""
+	_evaluate_allocations(doc, reserve=1, mode="issue")
+	am = create_asset_movement(doc, auto_submit=auto_submit, ignore_permissions=ignore_permissions)
+	if not am:
+		frappe.throw(_("No available pool assets to issue."))
+	refresh_header_fulfillment(doc)
+	return am
+
+
+def request_purchase(doc, *, auto_submit: int = 0, ignore_permissions: bool = True):
+	"""Stage purchase allocations and create Material Request. No Asset Movement."""
+	_evaluate_allocations(doc, reserve=0, mode="purchase")
+	mr = create_material_request(doc, auto_submit=auto_submit, ignore_permissions=ignore_permissions)
+	if not mr:
+		frappe.throw(_("No purchase quantity remaining."))
+	refresh_header_fulfillment(doc)
+	return mr
 
 
 def create_asset_movement(doc, *, auto_submit: int = 0, ignore_permissions: bool = True):

@@ -14,33 +14,66 @@ from erpnext_extensions.asset_usage_depreciation.constants import (
 )
 from erpnext_extensions.asset_usage_depreciation.tests import test_helpers as h
 
-PASSWORD = "Arqa-E2E-12345!"
+PASSWORD = frappe.conf.get("e2e_password") or "admin"
+
+
+def _ensure_request() -> None:
+	from werkzeug.test import EnvironBuilder
+	from werkzeug.wrappers import Request
+
+	from frappe.auth import CookieManager
+
+	if getattr(frappe.local, "request", None) is None:
+		env = EnvironBuilder(path="/", method="GET", environ_base={"REMOTE_ADDR": "127.0.0.1"}).get_environ()
+		frappe.local.request = Request(env)
+	frappe.local.request_ip = getattr(frappe.local, "request_ip", None) or "127.0.0.1"
+	if getattr(frappe.local, "cookie_manager", None) is None:
+		frappe.local.cookie_manager = CookieManager()
 
 
 def _session_sid_for(user: str) -> str:
-	"""Issue a desk session cookie without HTTP password login."""
-	from frappe.sessions import get_expiry_period
+	"""Issue a desk session using Frappe Session.start (cache + tabSessions)."""
+	from frappe.sessions import Session
 
-	sid = frappe.generate_hash()
-	now = frappe.utils.now()
-	session_data = {
-		"user": user,
-		"session_ip": "127.0.0.1",
-		"last_updated": now,
-		"creation": now,
-		"session_expiry": get_expiry_period(),
-		"full_name": user.split("@")[0],
-		"user_type": "System User",
-	}
-	frappe.db.sql(
-		"""
-		INSERT INTO `tabSessions` (`sessiondata`, `user`, `lastupdate`, `sid`, `status`)
-		VALUES (%s, %s, %s, %s, 'Active')
-		""",
-		(frappe.as_json(session_data, indent=None, separators=(",", ":")), user, now, sid),
+	_ensure_request()
+	full_name = frappe.db.get_value("User", user, "full_name") or user.split("@")[0]
+	user_type = frappe.db.get_value("User", user, "user_type") or "System User"
+	sess = Session(user=user, resume=False, full_name=full_name, user_type=user_type)
+	frappe.db.commit()
+	return sess.sid
+
+
+@frappe.whitelist()
+def insert_draft_asset_request(company: str, employee: str, item_code: str, purpose: str = "E2E employee create") -> dict:
+	"""DB-first draft insert for Playwright (avoids desk link-permission noise)."""
+	frappe.set_user("Administrator")
+	doc = h.make_request(
+		company_name=company,
+		employee=employee,
+		item_code=item_code,
+		purpose=purpose,
 	)
-	frappe.cache.hset("session", sid, {"data": session_data, "user": user, "sid": sid})
-	return sid
+	frappe.db.commit()
+	return {"name": doc.name, "docstatus": int(doc.docstatus or 0)}
+
+
+@frappe.whitelist()
+def inspect_asset_request(name: str) -> dict:
+	"""DB snapshot including child item codes and linked fulfillment docs."""
+	if not name or not frappe.db.exists("Asset Request", name):
+		return {"exists": False, "name": name}
+	doc = frappe.get_doc("Asset Request", name)
+	return {
+		"exists": True,
+		"name": doc.name,
+		"docstatus": int(doc.docstatus or 0),
+		"workflow_state": doc.workflow_state,
+		"status": doc.status,
+		"fulfillment_status": doc.fulfillment_status,
+		"material_request": doc.material_request,
+		"item_codes": [r.requested_item_code for r in (doc.items or [])],
+		"asset_movements": [a.asset_movement for a in (doc.allocations or []) if a.asset_movement],
+	}
 
 
 @frappe.whitelist()
@@ -75,8 +108,8 @@ def prepare_asset_request_e2e() -> dict:
 		require_named_manager_approver=0,
 		prevent_duplicate_active_requests=0,
 		allow_category_substitution=1,
-		auto_create_asset_movement=1,
-		auto_create_material_request=1,
+		auto_create_asset_movement=0,
+		auto_create_material_request=0,
 		auto_submit_asset_movement=0,
 		auto_submit_material_request=0,
 	)
@@ -96,8 +129,14 @@ def prepare_asset_request_e2e() -> dict:
 				"for_value": company,
 			}
 		).insert(ignore_permissions=True)
-	h.make_user(email=mgr_email, roles=["Employee", ROLE_AR_MANAGER], password=PASSWORD)
-	h.make_user(email=am_email, roles=["Employee", ROLE_ASSET_MANAGER], password=PASSWORD)
+	h.make_user(email=mgr_email, roles=["Employee", "Desk User", ROLE_AR_MANAGER], password=PASSWORD)
+	h.make_user(email=am_email, roles=["Employee", "Desk User", ROLE_ASSET_MANAGER], password=PASSWORD)
+	from frappe.utils.password import update_password, delete_login_failed_cache
+
+	for email in (emp_email, mgr_email, am_email):
+		frappe.db.set_value("User", email, "user_type", "System User")
+		update_password(email, PASSWORD)
+		delete_login_failed_cache(email)
 
 	employee = h.make_employee(company_name=company, user_id=emp_email)
 	category = h.make_isolated_category(tag)
@@ -226,7 +265,7 @@ def prepare_asset_request_dimension_e2e() -> dict:
 		prevent_duplicate_active_requests=0,
 		allow_category_substitution=0,
 		auto_create_asset_movement=0,
-		auto_create_material_request=1,
+		auto_create_material_request=0,
 		auto_submit_material_request=0,
 	)
 	employee = h.make_employee(company_name=company)
@@ -252,3 +291,22 @@ def prepare_asset_request_dimension_e2e() -> dict:
 		"lg": lg,
 		"sku": sku,
 	}
+
+
+@frappe.whitelist()
+def reset_e2e_passwords(emails=None, password=None):
+	"""Set passwords on the web process DB (may differ from bench execute)."""
+	if frappe.session.user != "Administrator":
+		frappe.throw("Only Administrator can reset e2e passwords")
+	from frappe.utils.password import update_password, delete_login_failed_cache
+
+	emails = emails or []
+	password = password or PASSWORD
+	if isinstance(emails, str):
+		emails = frappe.parse_json(emails)
+	for email in emails:
+		if email and frappe.db.exists("User", email):
+			update_password(email, password)
+			delete_login_failed_cache(email)
+	frappe.db.commit()
+	return {"ok": True, "emails": emails, "site": frappe.local.site}

@@ -49,6 +49,7 @@ class TestAssetRequestIntegration(unittest.TestCase):
 		asset = h.make_pool_asset(item_code=lg, company_name=self.company)
 		doc = h.make_request(company_name=self.company, employee=self.employee, item_code=samsung)
 		h.submit_and_approve(doc)
+		h.issue_from_pool(doc)
 		doc.reload()
 		self.assertEqual(doc.docstatus, 1)
 		self.assertTrue(doc.allocations)
@@ -81,6 +82,7 @@ class TestAssetRequestIntegration(unittest.TestCase):
 			substitution_reason="Purchasing selected LG as standard",
 		)
 		h.submit_and_approve(doc)
+		h.request_purchase(doc)
 		doc.reload()
 		self.assertTrue(doc.material_request)
 		mr = frappe.get_doc("Material Request", doc.material_request)
@@ -104,6 +106,7 @@ class TestAssetRequestIntegration(unittest.TestCase):
 		h.make_pool_asset(item_code=lg, company_name=self.company)
 		doc = h.make_request(company_name=self.company, employee=self.employee, item_code=samsung)
 		h.submit_and_approve(doc)
+		h.issue_from_pool(doc)
 		_cols, rows = requested_vs_fulfilled({"company": self.company})
 		hit = next((r for r in rows if r.asset_request == doc.name), None)
 		self.assertIsNotNone(hit)
