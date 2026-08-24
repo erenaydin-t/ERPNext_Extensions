@@ -991,6 +991,50 @@
 	pointer-events: none;
 }
 
+.account-explorer-page .ae-summary-loading {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.5rem 0.75rem;
+	margin: 0.35rem 0 0.5rem;
+	border-radius: var(--ae-radius, var(--border-radius));
+	background: color-mix(in srgb, var(--primary, #2490ef) 8%, var(--ae-surface, var(--card-bg, #fff)));
+	border: 1px solid color-mix(in srgb, var(--primary, #2490ef) 22%, transparent);
+	color: var(--text-color);
+	font-size: var(--text-sm, 0.875rem);
+}
+
+/* display:flex above must not defeat hide — visually-hidden alone is insufficient here */
+.account-explorer-page .ae-summary-loading.is-hidden,
+.account-explorer-page .ae-summary-loading.visually-hidden {
+	display: none !important;
+}
+
+.account-explorer-page .ae-summary-loading__spinner {
+	width: 1rem;
+	height: 1rem;
+	border: 2px solid color-mix(in srgb, var(--primary, #2490ef) 25%, transparent);
+	border-top-color: var(--primary, #2490ef);
+	border-radius: 50%;
+	animation: ae-summary-spin 0.75s linear infinite;
+	flex-shrink: 0;
+}
+
+@keyframes ae-summary-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+.account-explorer-page .ae-toolbar--loading {
+	opacity: 0.82;
+	pointer-events: none;
+}
+
+.account-explorer-page .ae-toolbar--loading .ae-btn-apply[disabled] {
+	opacity: 0.65;
+}
+
 .account-explorer-page .ae-grid-container {
 	border: 1px solid var(--ae-border, var(--border-color));
 	border-radius: var(--ae-radius, var(--border-radius-lg, var(--border-radius)));
@@ -1164,6 +1208,33 @@
 .account-explorer-page .ae-grid-container--datatable .dt-cell.ae-dt-amount-col,
 .account-explorer-page .ae-grid-container--datatable .ae-dt-amount-cell {
 	text-align: end;
+	min-width: 180px !important;
+	width: 180px;
+	white-space: nowrap !important;
+	overflow: visible !important;
+	text-overflow: clip !important;
+}
+
+.account-explorer-page .ae-grid-container--datatable .dt-cell--header.ae-dt-amount-col {
+	min-width: 180px !important;
+	width: 180px !important;
+}
+
+.account-explorer-page .ae-grid-container--datatable .dt-cell.ae-dt-amount-col .ae-dt-cell-text,
+.account-explorer-page .ae-grid-container--datatable .ae-dt-amount-cell {
+	overflow: visible;
+	text-overflow: clip;
+	white-space: nowrap;
+	max-width: none;
+}
+
+.account-explorer-page .ae-grid th.amount,
+.account-explorer-page .ae-grid td.amount {
+	min-width: 180px;
+	white-space: nowrap;
+	text-align: end;
+	overflow: visible;
+	text-overflow: clip;
 }
 
 .account-explorer-page .ae-grid-container--datatable .ae-dt-cell-text {

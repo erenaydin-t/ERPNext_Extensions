@@ -247,6 +247,23 @@ override_doctype_class = {
 # Hook on document methods and events
 
 doc_events = {
+	"GL Entry": {
+		"after_insert": "erpnext_extensions.iran_accounting.account_explorer.cache_revision.bump_accounting_revision",
+		"on_update": "erpnext_extensions.iran_accounting.account_explorer.cache_revision.bump_accounting_revision",
+		"on_trash": "erpnext_extensions.iran_accounting.account_explorer.cache_revision.bump_accounting_revision",
+	},
+	"Period Closing Voucher": {
+		"on_submit": "erpnext_extensions.iran_accounting.account_explorer.cache_revision.bump_accounting_revision",
+		"on_cancel": "erpnext_extensions.iran_accounting.account_explorer.cache_revision.bump_accounting_revision",
+	},
+	"Account Closing Balance": {
+		"on_update": "erpnext_extensions.iran_accounting.account_explorer.cache_revision.bump_accounting_revision",
+		"on_trash": "erpnext_extensions.iran_accounting.account_explorer.cache_revision.bump_accounting_revision",
+	},
+	"Accounting Dimension": {
+		"on_update": "erpnext_extensions.iran_accounting.account_explorer.cache_revision.bump_accounting_revision",
+		"on_trash": "erpnext_extensions.iran_accounting.account_explorer.cache_revision.bump_accounting_revision",
+	},
 	"Asset Value Adjustment": {
 		"on_submit": "erpnext_extensions.asset_usage_depreciation.integration_hooks.on_asset_value_adjustment_submit",
 		"on_cancel": "erpnext_extensions.asset_usage_depreciation.integration_hooks.on_asset_value_adjustment_cancel",

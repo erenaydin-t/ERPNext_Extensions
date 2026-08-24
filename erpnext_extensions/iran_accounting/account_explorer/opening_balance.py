@@ -19,6 +19,7 @@ from erpnext_extensions.iran_accounting.account_explorer.opening_entry_policy im
 	OpeningEntryPolicyMode,
 	adjust_tb_opening_for_policy,
 	aggregate_opening_flagged_by_account,
+	aggregate_opening_flagged_pre_in_by_account,
 	apply_policy_opening_filters,
 	apply_policy_turnover_filters,
 	policy_from_spec,
@@ -56,8 +57,7 @@ def _get_account_wise_measures_e1(
 	policy = policy_from_spec(spec)
 	ignore_is_opening = site_ignore_is_opening()
 	opening_balances = get_opening_balances(filters, ignore_is_opening)
-	aux_pre = aggregate_opening_flagged_by_account(spec, bucket="pre")
-	aux_in = aggregate_opening_flagged_by_account(spec, bucket="in")
+	aux_pre, aux_in = aggregate_opening_flagged_pre_in_by_account(spec)
 
 	gl_entries_by_account: dict[str, list] = {}
 	# Always batch-fetch period GL (group_by_account=True). Policy OFF excludes

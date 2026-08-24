@@ -363,7 +363,9 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		this._grid_lifecycle_counters = { grid_render_count: 0 };
 		this._last_perf_phases = {};
 		this.grid_render_generation = 0;
+		this._summary_loading_generation = null;
 		this._summary_refresh_tail = Promise.resolve();
+		this._last_summary_validation = null;
 		this.filter_panel_open = false;
 		this.filter_controls = {};
 		this.saved_views = [];
@@ -615,6 +617,14 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		this.$actions = $('<div class="ae-context-actions"></div>').appendTo(this.$container).hide();
 		this.$grid = $('<div class="ae-grid-wrap" tabindex="0" role="region" aria-label="' + __("Summary grid") + '"></div>').appendTo(this.$container);
 		this.$grid_status = $('<div class="ae-grid-status visually-hidden" aria-live="polite" aria-atomic="true"></div>').appendTo(this.$container);
+		this.$summary_loading = $(
+			'<div class="ae-summary-loading visually-hidden is-hidden" role="status" aria-live="polite" aria-atomic="true" aria-hidden="true" style="display:none">' +
+				'<span class="ae-summary-loading__spinner" aria-hidden="true"></span>' +
+				'<span class="ae-summary-loading__text"></span>' +
+				"</div>"
+		).appendTo(this.$container);
+		this._summary_loading_timer = null;
+		this._summary_loading_started_at = null;
 		this._bind_datatable_grid_interactions();
 		this._bind_grid_keyboard_shortcuts();
 		this.$member_panel = $('<div class="ae-member-panel"></div>').appendTo(this.$container).hide();
@@ -2833,10 +2843,77 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 	_invalidate_grid_render() {
 		this.grid_render_generation += 1;
 		this.datatable_adapter?.cancel_pending_mount?.();
+		// Page hide / teardown: force-clear loading so a cancelled owner cannot leave spinner stuck.
+		this._force_clear_summary_loading();
 	}
 
 	_is_stale_grid_render(generation) {
 		return generation !== this.grid_render_generation;
+	}
+
+	_trace_summary_loading(state, generation = null, extra = {}) {
+		const payload = {
+			state,
+			generation,
+			loading_owner: this._summary_loading_generation,
+			request_id: this._last_summary_response_meta?.request_id || null,
+			fingerprint: this._last_summary_response_meta?.fingerprint || null,
+			grid_generation: this.grid_render_generation,
+			timestamp: new Date().toISOString(),
+			banner_hidden: !!(
+				this.$summary_loading?.hasClass?.("visually-hidden") ||
+				this.$summary_loading?.hasClass?.("is-hidden")
+			),
+			store_loading: !!this.store?.get?.("loading")?.summary,
+			...extra,
+		};
+		if (frappe.boot?.developer_mode || window.__AE_TRACE_LOADING__) {
+			console.info("[Account Explorer loading]", payload);
+		}
+		this._last_summary_loading_trace = payload;
+		return payload;
+	}
+
+	_claim_summary_loading(generation) {
+		this._summary_loading_generation = generation;
+		// Abort in-flight DataTable mounts so a stale request cannot paint under a newer owner.
+		this.datatable_adapter?.cancel_pending_mount?.();
+		this.$grid?.addClass("ae-grid-wrap--loading");
+		this.store.patch({ loading: { summary: true } });
+		this.events.emit("summary:loading");
+		this._show_summary_loading_indicator();
+		if (this.is_datatable_summary_enabled()) {
+			this.datatable_adapter?.set_loading?.(true);
+		}
+		this._trace_summary_loading("start_loading", generation);
+	}
+
+	_end_summary_loading(generation) {
+		// Only the owner generation may clear loading UI (stale responses must not touch newer UI).
+		if (this._summary_loading_generation != null && this._summary_loading_generation !== generation) {
+			this._trace_summary_loading("stop_loading_skipped_stale_owner", generation);
+			return false;
+		}
+		this._force_clear_summary_loading();
+		this._trace_summary_loading("stop_loading", generation);
+		return true;
+	}
+
+	_force_clear_summary_loading() {
+		this._summary_loading_generation = null;
+		this.$grid?.removeClass("ae-grid-wrap--loading");
+		this.datatable_adapter?.set_loading?.(false);
+		this.store.patch({ loading: { summary: false } });
+		this._hide_summary_loading_indicator();
+	}
+
+	_stop_loading_after_successful_paint(generation, extra = {}) {
+		if (this._is_stale_grid_render(generation)) {
+			this._trace_summary_loading("stop_loading_after_paint_stale", generation, extra);
+			return false;
+		}
+		this._trace_summary_loading("stop_loading_after_paint", generation, extra);
+		return this._end_summary_loading(generation);
 	}
 
 	is_summary_grid_ready() {
@@ -3691,7 +3768,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 
 	async render_datatable_summary_grid(columns, generation) {
 		if (this._is_stale_grid_render(generation)) {
-			return;
+			return { ok: false, reason: "stale" };
 		}
 		const visible = this.get_summary_visible_columns(columns);
 		this.last_summary_columns = columns || [];
@@ -3710,22 +3787,27 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		}
 		this._last_perf_phases.toolbar_ms = Math.round(performance.now() - toolbar_started);
 		if (this._is_stale_grid_render(generation)) {
-			return;
+			return { ok: false, reason: "stale" };
 		}
 		this._suppress_datatable_sort_events = true;
 		const datatable_started = performance.now();
+		let mount_result = null;
 		try {
 			if (incremental) {
-				await this.datatable_adapter.update(visible, this.rows, options);
+				mount_result = await this.datatable_adapter.update(visible, this.rows, options);
 			} else {
-				await this.datatable_adapter.mount($host[0], visible, this.rows, options);
+				mount_result = await this.datatable_adapter.mount($host[0], visible, this.rows, options);
 			}
 		} finally {
 			this._suppress_datatable_sort_events = false;
 		}
 		this._last_perf_phases.datatable_ms = Math.round(performance.now() - datatable_started);
 		if (this._is_stale_grid_render(generation)) {
-			return;
+			return { ok: false, reason: "stale" };
+		}
+		if (!mount_result) {
+			// Mount cancelled while this generation is still current → empty host risk.
+			return { ok: false, reason: "mount_cancelled" };
 		}
 		if (!this.grid_column_order?.length) {
 			this.grid_column_order = visible.map((col) => col.id);
@@ -3738,6 +3820,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			this.store.patch({ presentation }, { silent: true });
 		}
 		this.announce_grid_status(__("Summary grid ready"));
+		return { ok: true };
 	}
 
 	is_voucher_analysis_enabled() {
@@ -3812,6 +3895,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 				dimension_scope: { ...(projected.analysis_context.dimension_scope || {}) },
 				voucher_scope: { ...(projected.analysis_context.voucher_scope || {}) },
 			},
+			...(this.prepared_mode ? { prepared_mode: this.prepared_mode } : {}),
 		};
 	}
 
@@ -3857,17 +3941,146 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 	}
 
 	refresh_summary() {
-		const refresh_task = this._summary_refresh_tail.then(() => this._refresh_summary());
+		const generation = this._begin_grid_render();
+		this._trace_summary_loading("refresh_summary", generation);
+		// Claim loading synchronously so a stale finally cannot clear a newer refresh's UI.
+		this._claim_summary_loading(generation);
+		const refresh_task = this._summary_refresh_tail.then(() => this._refresh_summary(generation));
 		this._summary_refresh_tail = refresh_task.catch(() => {});
 		return refresh_task;
 	}
 
-	async _refresh_summary() {
+	_show_summary_loading_indicator() {
+		if (!this.$summary_loading?.length) {
+			return;
+		}
+		this._summary_loading_started_at = performance.now();
+		this.$summary_loading
+			.removeClass("visually-hidden is-hidden")
+			.attr("aria-hidden", "false")
+			.css("display", "flex");
+		this.$summary_loading.find(".ae-summary-loading__text").text(__("Loading Account Explorer…"));
+		this.$toolbar?.addClass("ae-toolbar--loading");
+		this.$toolbar?.find(".ae-btn-apply").prop("disabled", true);
+		clearInterval(this._summary_loading_timer);
+		this._summary_loading_timer = setInterval(() => {
+			if (!this._summary_loading_started_at) {
+				return;
+			}
+			// Owner cleared while timer was pending — do not resurrect banner text.
+			if (this._summary_loading_generation == null) {
+				this._hide_summary_loading_indicator();
+				return;
+			}
+			const elapsed_s = Math.floor((performance.now() - this._summary_loading_started_at) / 1000);
+			if (elapsed_s >= 2) {
+				const preparing = this._summary_preparing_state;
+				const base = preparing
+					? __("Preparing Account Explorer report…")
+					: __("Loading Account Explorer…");
+				const state_label = preparing?.state ? ` (${preparing.state})` : "";
+				this.$summary_loading
+					.find(".ae-summary-loading__text")
+					.text(`${base}${state_label} (${elapsed_s}s)`);
+			}
+		}, 1000);
+	}
+
+	_set_preparing_loading_state(state) {
+		this._summary_preparing_state = state || null;
+		if (!this.$summary_loading?.length || !state) {
+			return;
+		}
+		this._trace_summary_loading("prepared_polling", this._summary_loading_generation, {
+			prepared_state: state.state || null,
+			job_id: state.job_id || null,
+		});
+		const label =
+			state.state === "Queued"
+				? __("Preparing Account Explorer report… (Queued)")
+				: state.state === "Started" || state.state === "Calculating"
+					? __("Preparing Account Explorer report… (Calculating)")
+					: __("Preparing Account Explorer report…");
+		this.$summary_loading.find(".ae-summary-loading__text").text(label);
+	}
+
+	async _fetch_summary_with_prepared_poll(generation) {
+		const payload = JSON.stringify(this.build_payload());
+		const method = this.get_summary_method();
+		const poll_started = performance.now();
+		const max_wait_ms = 10 * 60 * 1000;
+		let attempt = 0;
+		this._trace_summary_loading("api_fetch_start", generation);
+		while (true) {
+			if (this._is_stale_grid_render(generation)) {
+				this._trace_summary_loading("api_fetch_stale", generation);
+				return null;
+			}
+			const r = await frappe.call({
+				method,
+				args: { payload },
+			});
+			if (this._is_stale_grid_render(generation)) {
+				this._trace_summary_loading("api_fetch_stale", generation);
+				return null;
+			}
+			const data = r.message || {};
+			if (data.status !== "preparing") {
+				this._summary_preparing_state = null;
+				this._trace_summary_loading(
+					data.prepared ? "prepared_hit" : attempt ? "prepared_polling_complete" : "api_success",
+					generation,
+					{
+						prepared: data.prepared || 0,
+						row_count: (data.rows || []).length,
+						total_rows: data.pagination?.total_rows ?? null,
+					}
+				);
+				return data;
+			}
+			if (attempt === 0) {
+				this._trace_summary_loading("prepared_polling_start", generation, {
+					prepared_state: data.state || "Queued",
+					job_id: data.job_id || null,
+				});
+			}
+			this._set_preparing_loading_state({
+				state: data.state || "Queued",
+				job_id: data.job_id,
+				fingerprint: data.fingerprint,
+			});
+			if (performance.now() - poll_started > max_wait_ms) {
+				frappe.throw(__("Account Explorer preparation timed out. Please try again."));
+			}
+			attempt += 1;
+			const delay = Math.min(2000, 500 + attempt * 250);
+			await new Promise((resolve) => setTimeout(resolve, delay));
+		}
+	}
+
+	_hide_summary_loading_indicator() {
+		clearInterval(this._summary_loading_timer);
+		this._summary_loading_timer = null;
+		this._summary_loading_started_at = null;
+		this._summary_preparing_state = null;
+		// Inline display:none — page CSS `display:flex` otherwise defeats visually-hidden.
+		this.$summary_loading
+			?.addClass("visually-hidden is-hidden")
+			.attr("aria-hidden", "true")
+			.css("display", "none");
+		this.$summary_loading?.find(".ae-summary-loading__text").text("");
+		this.$toolbar?.removeClass("ae-toolbar--loading");
+		this.$toolbar?.find(".ae-btn-apply").prop("disabled", false);
+	}
+
+	async _refresh_summary(generation) {
 		if (!this.metadata || !this.metadata.enabled) {
+			this._end_summary_loading(generation);
 			return;
 		}
 		if (!this.document_scope.company || !this.document_scope.from_date || !this.document_scope.to_date) {
 			this.render_prompt(__("Select Company and date range, then click Apply."));
+			this._end_summary_loading(generation);
 			return;
 		}
 
@@ -3880,26 +4093,20 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			page: this.analysis_context.page,
 		});
 
-		const generation = this._begin_grid_render();
 		this.summary_load_error = null;
-		this.$grid?.addClass("ae-grid-wrap--loading");
-		this.store.patch({ loading: { summary: true } });
-		this.events.emit("summary:loading");
-		if (this.is_datatable_summary_enabled()) {
-			this.datatable_adapter?.set_loading?.(true);
+		// Loading already claimed in refresh_summary(); keep UI in sync if claim was skipped.
+		if (this._summary_loading_generation !== generation) {
+			this._claim_summary_loading(generation);
 		}
 
+		let painted = false;
 		try {
 			const api_started_at = performance.now();
-			const r = await frappe.call({
-				method: this.get_summary_method(),
-				args: { payload: JSON.stringify(this.build_payload()) },
-			});
+			const data = await this._fetch_summary_with_prepared_poll(generation);
 			const api_elapsed_ms = Math.round(performance.now() - api_started_at);
-			if (this._is_stale_grid_render(generation)) {
+			if (this._is_stale_grid_render(generation) || !data) {
 				return;
 			}
-			const data = r.message || {};
 			this.rows = data.rows || [];
 			this.totals = data.totals || {};
 			this.currency_code = data.currency?.code || this.currency_code;
@@ -3909,18 +4116,48 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			this.gl_dimensions = data.dimensions || this.gl_dimensions || [];
 			this.sync_gl_dimension_visibility();
 			this.last_gl_columns = data.columns || [];
+			this._last_summary_response_meta = {
+				fingerprint: data.fingerprint || null,
+				prepared_status: data.prepared ?? data.prepared_status ?? null,
+				request_id: data.request_id || data.job_id || null,
+				status: data.status || "ready",
+				source: data.prepared ? "prepared" : data.status === "preparing" ? "preparing" : "live",
+			};
 			const detail_started = performance.now();
 			this.render_detail_header();
 			const detail_header_ms = Math.round(performance.now() - detail_started);
 			const render_started_at = performance.now();
+			this._trace_summary_loading("render_summary", generation, {
+				row_count: this.rows.length,
+			});
 			await this.render_grid(data.columns || [], generation);
 			const render_elapsed_ms = Math.round(performance.now() - render_started_at);
 			if (this._is_stale_grid_render(generation)) {
 				return;
 			}
+			let validation = this._validate_summary_data_correctness(data, generation, { include_dom_totals: false });
+			if (validation?.needs_remount && this.rows.length) {
+				await this._recover_empty_summary_grid(data.columns || [], generation);
+				if (this._is_stale_grid_render(generation)) {
+					return;
+				}
+			}
 			const totals_started = performance.now();
 			this.render_totals();
 			const totals_ms = Math.round(performance.now() - totals_started);
+			if (this._is_stale_grid_render(generation)) {
+				return;
+			}
+
+			// Hard rule: once API data is painted (rows + totals), global loading MUST stop.
+			// Post-paint work (warnings/pagination/perf/emit) must never keep the banner alive.
+			painted = true;
+			this._stop_loading_after_successful_paint(generation, {
+				row_count: this.rows.length,
+				total_rows: this.pagination?.total_rows ?? null,
+			});
+
+			validation = this._validate_summary_data_correctness(data, generation, { include_dom_totals: true });
 			const warnings_started = performance.now();
 			this.render_warnings();
 			const warnings_ms = Math.round(performance.now() - warnings_started);
@@ -3930,7 +4167,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			if (this.analysis_context.view_axis !== "unified_party") {
 				this.hide_member_panel();
 			}
-			this.events.emit("summary:loaded", { data });
+			this.events.emit("summary:loaded", { data, validation });
 			this.end_grid_perf({
 				api_elapsed_ms,
 				render_elapsed_ms,
@@ -3956,12 +4193,160 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			}
 			throw error;
 		} finally {
-			if (!this._is_stale_grid_render(generation)) {
-				this.$grid?.removeClass("ae-grid-wrap--loading");
-				this.datatable_adapter?.set_loading?.(false);
-				this.store.patch({ loading: { summary: false } });
+			// Safety net: always release this generation's loading ownership.
+			// If already cleared after paint, this is a no-op for the same owner.
+			if (!painted || this._summary_loading_generation === generation) {
+				this._end_summary_loading(generation);
 			}
 		}
+	}
+
+	_count_visible_summary_grid_rows() {
+		if (this.analysis_context.detail_mode === "grouped_gl") {
+			return this.$grid.find(".ae-gl-grid tbody tr, .ae-gl-detail tbody tr").length;
+		}
+		if (this.is_datatable_summary_enabled() && this.datatable_adapter?.is_mounted?.()) {
+			return this.$grid.find(".dt-row:not(.dt-row-header):not(.dt-row-filter)").length;
+		}
+		return this.$grid.find("table.ae-grid tbody tr").length;
+	}
+
+	_amounts_close(a, b, epsilon = 0.01) {
+		return Math.abs(flt(a) - flt(b)) <= epsilon;
+	}
+
+	_parse_display_amount_text(text) {
+		if (text == null) {
+			return null;
+		}
+		const raw = String(text).replace(/[^\d.,\-]/g, "").replace(/,/g, "");
+		if (!raw) {
+			return null;
+		}
+		const value = parseFloat(raw);
+		return Number.isFinite(value) ? value : null;
+	}
+
+	_read_totals_bar_amounts() {
+		const amounts = {};
+		this.$totals?.find(".ae-total-item").each((_, el) => {
+			const $el = $(el);
+			const label = ($el.find(".ae-total-item-label").text() || "").trim();
+			const value_text = $el.find(".ae-total-item-value").attr("aria-label") || $el.find(".ae-total-item-value").attr("title") || $el.find(".ae-total-item-value").text();
+			const value = this._parse_display_amount_text(value_text);
+			if (label && value != null) {
+				amounts[label] = value;
+			}
+		});
+		return amounts;
+	}
+
+	_validate_summary_data_correctness(data, generation, opts = {}) {
+		const include_dom_totals = !!opts.include_dom_totals;
+		const rows = data?.rows || [];
+		const returned_rows = rows.length;
+		const total_rows = cint(data?.pagination?.total_rows ?? data?.total_rows ?? 0);
+		const page_size = cint(data?.pagination?.page_size || this.analysis_context.page_size || 0);
+		const page = cint(data?.pagination?.page || this.analysis_context.page || 1);
+		const visible_rows = this._count_visible_summary_grid_rows();
+		const totals = data?.totals || {};
+		const axis = this.analysis_context.view_axis;
+		const payload = {
+			request_id: this._last_summary_response_meta?.request_id || generation,
+			fingerprint: this._last_summary_response_meta?.fingerprint || data?.fingerprint || null,
+			axis,
+			page,
+			total_rows,
+			returned_rows,
+			visible_rows,
+			totals: {
+				debit_turnover: flt(totals.period_debit || totals.debit_turnover || 0),
+				credit_turnover: flt(totals.period_credit || totals.credit_turnover || 0),
+				debit_balance: flt(totals.debit_balance || 0),
+				credit_balance: flt(totals.credit_balance || 0),
+				scoped_debit: flt(totals.scoped_debit || 0),
+				scoped_credit: flt(totals.scoped_credit || 0),
+			},
+			ok: true,
+			failures: [],
+			needs_remount: false,
+		};
+
+		if (page_size > 0 && returned_rows > page_size) {
+			payload.failures.push("returned_rows_exceed_page_size");
+		}
+		if (total_rows > 0 && returned_rows === 0 && page === 1) {
+			payload.failures.push("total_rows_positive_but_empty_page");
+		}
+		if (returned_rows > 0 && visible_rows <= 0) {
+			payload.failures.push("api_rows_but_ui_grid_empty");
+			payload.needs_remount = true;
+		}
+
+		if (include_dom_totals && returned_rows > 0 && this.analysis_context.detail_mode !== "grouped_gl") {
+			const bar = this._read_totals_bar_amounts();
+			const checks =
+				axis === "voucher"
+					? [
+							[__("Scoped Debit"), payload.totals.scoped_debit, "voucher_scoped_debit_mismatch"],
+							[__("Scoped Credit"), payload.totals.scoped_credit, "voucher_scoped_credit_mismatch"],
+						]
+					: [
+							[__("Debit Turnover"), payload.totals.debit_turnover, "debit_turnover_mismatch"],
+							[__("Credit Turnover"), payload.totals.credit_turnover, "credit_turnover_mismatch"],
+							[__("Debit Balance"), payload.totals.debit_balance, "debit_balance_mismatch"],
+							[__("Credit Balance"), payload.totals.credit_balance, "credit_balance_mismatch"],
+						];
+			checks.forEach(([label, expected, failure]) => {
+				if (!(label in bar)) {
+					return;
+				}
+				if (!this._amounts_close(bar[label], expected)) {
+					payload.failures.push(failure);
+				}
+			});
+		}
+
+		payload.ok = payload.failures.length === 0;
+		this._last_summary_validation = payload;
+		if (!payload.ok) {
+			console.error("[Account Explorer] data correctness validation failed", payload);
+			if (payload.failures.includes("api_rows_but_ui_grid_empty")) {
+				frappe.show_alert({
+					message: __("Account Explorer loaded data but the grid is empty. Retrying render…"),
+					indicator: "orange",
+				});
+			}
+		}
+		return payload;
+	}
+
+	async _recover_empty_summary_grid(columns, generation) {
+		if (this._is_stale_grid_render(generation) || !this.rows.length) {
+			return;
+		}
+		console.warn("[Account Explorer] recovering empty summary grid", {
+			generation,
+			row_count: this.rows.length,
+		});
+		this.destroy_summary_datatable();
+		if (this._is_stale_grid_render(generation)) {
+			return;
+		}
+		if (this.is_datatable_summary_enabled()) {
+			const result = await this.render_datatable_summary_grid(columns, generation);
+			if (result?.ok) {
+				return;
+			}
+			if (this._is_stale_grid_render(generation) || result?.reason === "stale") {
+				return;
+			}
+		}
+		this.destroy_summary_datatable();
+		if (this._is_stale_grid_render(generation)) {
+			return;
+		}
+		this.render_legacy_summary_grid(columns);
 	}
 
 	get_gl_dimension_definitions() {
@@ -4325,45 +4710,67 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 	}
 
 	async render_grid(columns, generation = null) {
-		const render_generation = generation ?? this._begin_grid_render();
+		// Paint-only remounts must NOT bump grid_render_generation — that invalidates an
+		// in-flight refresh_summary and can leave loading ownership stranded.
+		const render_generation =
+			generation != null ? generation : this.grid_render_generation || this._begin_grid_render();
 		this._grid_lifecycle_counters.grid_render_count += 1;
+		this._trace_summary_loading("render_datatable", render_generation, {
+			explicit_generation: generation != null,
+			row_count: this.rows?.length || 0,
+		});
 		if (this.analysis_context.detail_mode === "grouped_gl") {
 			this.destroy_summary_datatable();
 			if (this._is_stale_grid_render(render_generation)) {
-				return;
+				return { ok: false, reason: "stale" };
 			}
 			this.render_gl_detail_view(columns);
-			return;
+			return { ok: true };
 		}
 		if (!this.rows.length) {
 			this.destroy_summary_datatable();
 			if (this._is_stale_grid_render(render_generation)) {
-				return;
+				return { ok: false, reason: "stale" };
 			}
 			this.render_grid_empty_state(this.get_grid_empty_reason());
-			return;
+			return { ok: true, empty: true };
 		}
 		if (this.is_datatable_summary_enabled()) {
 			try {
-				await this.render_datatable_summary_grid(columns, render_generation);
+				const result = await this.render_datatable_summary_grid(columns, render_generation);
+				if (this._is_stale_grid_render(render_generation) || result?.reason === "stale") {
+					return { ok: false, reason: "stale" };
+				}
+				if (result?.ok) {
+					return { ok: true };
+				}
+				// Mount cancelled or incomplete while generation is current — recover via legacy.
+				console.warn("[Account Explorer] DataTable mount incomplete; falling back to legacy grid.", result);
+				this.destroy_summary_datatable();
+				if (this._is_stale_grid_render(render_generation)) {
+					return { ok: false, reason: "stale" };
+				}
+				this.render_legacy_summary_grid(columns);
+				return { ok: true, fallback: "legacy" };
 			} catch (error) {
 				if (this._is_stale_grid_render(render_generation)) {
-					return;
+					return { ok: false, reason: "stale" };
 				}
 				console.error("[Account Explorer] DataTable summary render failed; using legacy grid.", error);
 				this.destroy_summary_datatable();
 				if (this._is_stale_grid_render(render_generation)) {
-					return;
+					return { ok: false, reason: "stale" };
 				}
 				this.render_legacy_summary_grid(columns);
+				return { ok: true, fallback: "legacy" };
 			}
-			return;
 		}
 		this.destroy_summary_datatable();
 		if (this._is_stale_grid_render(render_generation)) {
-			return;
+			return { ok: false, reason: "stale" };
 		}
 		this.render_legacy_summary_grid(columns);
+		return { ok: true };
 	}
 
 	render_legacy_summary_grid(columns) {

@@ -396,6 +396,51 @@ def aggregate_opening_flagged_by_account(
 	}
 
 
+def aggregate_opening_flagged_pre_in_by_account(
+	spec: AccountExplorerQuerySpec,
+) -> tuple[dict[str, tuple[float, float]], dict[str, tuple[float, float]]]:
+	"""Single-scan pre-period and in-period opening-flagged aggregates (E1 hot path)."""
+	from frappe.query_builder.functions import Sum
+
+	from erpnext_extensions.iran_accounting.account_explorer.gle_filters import (
+		apply_document_scope_filters,
+	)
+
+	gle = frappe.qb.DocType("GL Entry")
+	from_date, to_date = getdate(spec.from_date), getdate(spec.to_date)
+	pre_cond = gle.posting_date < from_date
+	in_cond = (gle.posting_date >= from_date) & (gle.posting_date <= to_date)
+	case = frappe.qb.terms.Case
+
+	query = (
+		frappe.qb.from_(gle)
+		.select(
+			gle.account,
+			Sum(case().when(pre_cond, gle.debit).else_(0)).as_("pre_debit"),
+			Sum(case().when(pre_cond, gle.credit).else_(0)).as_("pre_credit"),
+			Sum(case().when(in_cond, gle.debit).else_(0)).as_("in_debit"),
+			Sum(case().when(in_cond, gle.credit).else_(0)).as_("in_credit"),
+		)
+		.where(gle.is_opening == OPENING_FLAGGED_VALUE)
+		.where(pre_cond | in_cond)
+		.groupby(gle.account)
+	)
+	query = apply_document_scope_filters(query, gle, spec)
+
+	pre: dict[str, tuple[float, float]] = {}
+	in_period: dict[str, tuple[float, float]] = {}
+	for row in query.run(as_dict=True):
+		if not row.account:
+			continue
+		pre_debit, pre_credit = flt(row.pre_debit), flt(row.pre_credit)
+		in_debit, in_credit = flt(row.in_debit), flt(row.in_credit)
+		if pre_debit or pre_credit:
+			pre[row.account] = (pre_debit, pre_credit)
+		if in_debit or in_credit:
+			in_period[row.account] = (in_debit, in_credit)
+	return pre, in_period
+
+
 def adjust_tb_opening_for_policy(
 	tb_opening_debit: float,
 	tb_opening_credit: float,

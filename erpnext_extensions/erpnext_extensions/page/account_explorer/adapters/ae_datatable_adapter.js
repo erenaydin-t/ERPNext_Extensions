@@ -3,7 +3,7 @@ frappe.provide("erpnext_extensions.account_explorer.adapters");
 const AE_DT_WIDTH_PROFILES = {
 	code: { min: 90, preferred: 120, max: 180 },
 	title: { min: 160, preferred: 220, max: 420 },
-	amount: { min: 130, preferred: 150, max: 220 },
+	amount: { min: 180, preferred: 180, max: 280 },
 	voucher_no: { min: 160, preferred: 220, max: 320 },
 	remarks: { min: 180, preferred: 260, max: 500 },
 	date: { min: 100, preferred: 110, max: 140 },

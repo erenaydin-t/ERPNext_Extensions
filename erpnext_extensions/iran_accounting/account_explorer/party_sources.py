@@ -4,12 +4,19 @@ from __future__ import annotations
 
 import frappe
 from frappe import _
+from frappe.utils.caching import request_cache
 
 from erpnext_extensions.iran_accounting.account_explorer.constants import NATIVE_PARTY_TYPES
+from erpnext_extensions.iran_accounting.account_explorer.request_cache_helpers import (
+	get_buying_supplier_naming_mode,
+	get_iran_accounting_settings,
+	get_selling_customer_naming_mode,
+)
 
 
+@request_cache
 def get_enabled_party_sources() -> list:
-	settings = frappe.get_single("Iran Accounting Settings")
+	settings = get_iran_accounting_settings()
 	rows = [row for row in settings.account_explorer_party_sources or [] if row.enabled]
 	return sorted(rows, key=lambda row: int(row.sequence))
 
@@ -18,11 +25,13 @@ def get_enabled_party_types() -> list[str]:
 	return [row.party_type for row in get_enabled_party_sources()]
 
 
+@request_cache
+def get_party_source_config_map() -> dict[str, object]:
+	return {row.party_type: row for row in get_enabled_party_sources()}
+
+
 def get_party_source_config(party_type: str):
-	for row in get_enabled_party_sources():
-		if row.party_type == party_type:
-			return row
-	return None
+	return get_party_source_config_map().get(party_type)
 
 
 def get_identifier_warnings() -> list[str]:
@@ -64,11 +73,22 @@ _GENERIC_PARTY_DISPLAY_CANDIDATES = (
 )
 
 
+@request_cache
+def _party_type_display_field(party_type: str) -> str | None:
+	if party_type in PARTY_DISPLAY_FIELD_MAP:
+		return PARTY_DISPLAY_FIELD_MAP[party_type]
+	if not frappe.db.exists("DocType", party_type):
+		return None
+	meta = frappe.get_meta(party_type)
+	for candidate in _GENERIC_PARTY_DISPLAY_CANDIDATES:
+		if meta.has_field(candidate):
+			return candidate
+	return None
+
+
 def _safe_party_field_value(party_type: str, party: str, fieldname: str) -> str | None:
 	"""Return field value only when the column exists — never SELECT a missing field."""
 	if not party_type or not party or not fieldname:
-		return None
-	if not frappe.db.exists("DocType", party_type):
 		return None
 	meta = frappe.get_meta(party_type)
 	if not meta.has_field(fieldname):
@@ -89,14 +109,11 @@ def resolve_party_display_name(party_type: str, party: str) -> str:
 		if value:
 			return value
 		return party
-	if not frappe.db.exists("DocType", party_type):
-		return party
-	meta = frappe.get_meta(party_type)
-	for candidate in _GENERIC_PARTY_DISPLAY_CANDIDATES:
-		if meta.has_field(candidate):
-			value = frappe.db.get_value(party_type, party, candidate)
-			if value:
-				return value
+	field = _party_type_display_field(party_type)
+	if field:
+		value = frappe.db.get_value(party_type, party, field)
+		if value:
+			return value
 	return party
 
 
@@ -104,10 +121,10 @@ def get_party_display_title(party_type: str, party: str) -> str:
 	"""Party-axis display title (respects Customer/Supplier naming settings)."""
 	if party_type in ("Customer", "Supplier"):
 		if party_type == "Customer":
-			naming = frappe.get_single_value("Selling Settings", "cust_master_name")
+			naming = get_selling_customer_naming_mode()
 			name_field = "customer_name"
 		else:
-			naming = frappe.db.get_single_value("Buying Settings", "supp_master_name")
+			naming = get_buying_supplier_naming_mode()
 			name_field = "supplier_name"
 		if naming == "Naming Series":
 			return _safe_party_field_value(party_type, party, name_field) or party
@@ -115,6 +132,97 @@ def get_party_display_title(party_type: str, party: str) -> str:
 	if party_type in ("Employee", "Shareholder") or party_type not in NATIVE_PARTY_TYPES:
 		return resolve_party_display_name(party_type, party)
 	return party
+
+
+def batch_party_display_titles(party_type: str, parties: list[str]) -> dict[str, str]:
+	"""Batch-resolve display titles for one party type."""
+	parties = [party for party in parties if party]
+	if not party_type or not parties:
+		return {}
+
+	if party_type == "Customer":
+		naming = get_selling_customer_naming_mode()
+		if naming != "Naming Series":
+			return {party: party for party in parties}
+		field = "customer_name"
+	elif party_type == "Supplier":
+		naming = get_buying_supplier_naming_mode()
+		if naming != "Naming Series":
+			return {party: party for party in parties}
+		field = "supplier_name"
+	else:
+		field = _party_type_display_field(party_type)
+		if not field:
+			return {party: party for party in parties}
+
+	rows = frappe.get_all(
+		party_type,
+		filters={"name": ("in", parties)},
+		fields=["name", field],
+		limit=len(parties),
+	)
+	title_map = {row.name: row.get(field) or row.name for row in rows}
+	return {party: title_map.get(party, party) for party in parties}
+
+
+def batch_party_identifiers(
+	party_type: str, parties: list[str], identifier_field: str | None
+) -> dict[str, str | None]:
+	parties = [party for party in parties if party]
+	if not party_type or not parties or not identifier_field:
+		return {party: None for party in parties}
+
+	meta = frappe.get_meta(party_type)
+	if not meta.has_field(identifier_field):
+		return {party: None for party in parties}
+
+	rows = frappe.get_all(
+		party_type,
+		filters={"name": ("in", parties)},
+		fields=["name", identifier_field],
+		limit=len(parties),
+	)
+	id_map = {row.name: row.get(identifier_field) for row in rows}
+	return {party: id_map.get(party) for party in parties}
+
+
+def enrich_party_rows(
+	rows: list[dict],
+	*,
+	source_by_type: dict | None = None,
+) -> None:
+	"""In-place enrichment for party summary rows (batched per party type)."""
+	if not rows:
+		return
+	source_by_type = source_by_type or get_party_source_config_map()
+	by_type: dict[str, list[str]] = {}
+	for row in rows:
+		if row.get("is_virtual_group"):
+			continue
+		party_type = row.get("party_type")
+		party = row.get("party")
+		if not party_type or not party:
+			continue
+		by_type.setdefault(party_type, []).append(party)
+
+	titles: dict[str, dict[str, str]] = {}
+	identifiers: dict[str, dict[str, str | None]] = {}
+	for party_type, parties in by_type.items():
+		unique_parties = list(dict.fromkeys(parties))
+		titles[party_type] = batch_party_display_titles(party_type, unique_parties)
+		source = source_by_type.get(party_type)
+		id_field = source.identifier_field if source else None
+		identifiers[party_type] = batch_party_identifiers(party_type, unique_parties, id_field)
+
+	for row in rows:
+		if row.get("is_virtual_group"):
+			continue
+		party_type = row.get("party_type")
+		party = row.get("party")
+		if not party_type or not party:
+			continue
+		row["display_title"] = titles.get(party_type, {}).get(party, party)
+		row["party_identifier"] = identifiers.get(party_type, {}).get(party)
 
 
 def validate_party_type(party_type: str) -> None:

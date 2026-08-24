@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import frappe
 from frappe import _
+from frappe.utils.caching import request_cache
 
 from erpnext_extensions.iran_accounting.account_explorer.account_hierarchy import (
 	account_matches_configured_level,
@@ -37,8 +38,13 @@ from erpnext_extensions.iran_accounting.account_explorer.pagination import pagin
 from erpnext_extensions.iran_accounting.account_explorer.schemas import AccountExplorerQuerySpec
 
 
+@request_cache
 def get_enabled_levels() -> list:
-	settings = frappe.get_single("Iran Accounting Settings")
+	from erpnext_extensions.iran_accounting.account_explorer.request_cache_helpers import (
+		get_iran_accounting_settings,
+	)
+
+	settings = get_iran_accounting_settings()
 	levels = [row for row in settings.account_explorer_levels or [] if row.enabled]
 	return sorted(levels, key=lambda row: int(row.sequence))
 
