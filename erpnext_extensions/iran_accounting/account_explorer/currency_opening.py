@@ -65,3 +65,49 @@ def get_currency_period_balances(
 		row.currency or "": (flt(row.period_debit), flt(row.period_credit))
 		for row in query.run(as_dict=True)
 	}
+
+
+def get_currency_company_opening_balances(
+	spec: AccountExplorerQuerySpec, *, currency_type: str = "account_currency"
+) -> dict[str, tuple[float, float]]:
+	"""Opening balances in company currency, grouped by transaction/account currency."""
+	gle = frappe.qb.DocType("GL Entry")
+	group_field = get_currency_group_field(currency_type)
+	group_col = gle[group_field]
+
+	query = frappe.qb.from_(gle).select(
+		group_col.as_("currency"),
+		Sum(gle.debit).as_("opening_debit"),
+		Sum(gle.credit).as_("opening_credit"),
+	)
+	query = apply_scoped_gle_filters(query, gle, spec)
+	query = apply_opening_period_filters(query, gle, spec)
+	query = query.where(group_col != "").groupby(group_col)
+
+	return {
+		row.currency or "": _toggle_debit_credit(row.opening_debit, row.opening_credit)
+		for row in query.run(as_dict=True)
+	}
+
+
+def get_currency_company_period_balances(
+	spec: AccountExplorerQuerySpec, *, currency_type: str = "account_currency"
+) -> dict[str, tuple[float, float]]:
+	"""Period turnover in company currency, grouped by transaction/account currency."""
+	gle = frappe.qb.DocType("GL Entry")
+	group_field = get_currency_group_field(currency_type)
+	group_col = gle[group_field]
+
+	query = frappe.qb.from_(gle).select(
+		group_col.as_("currency"),
+		Sum(gle.debit).as_("period_debit"),
+		Sum(gle.credit).as_("period_credit"),
+	)
+	query = apply_scoped_gle_filters(query, gle, spec)
+	query = apply_period_turnover_filters(query, gle, spec)
+	query = query.where(group_col != "").groupby(group_col)
+
+	return {
+		row.currency or "": (flt(row.period_debit), flt(row.period_credit))
+		for row in query.run(as_dict=True)
+	}

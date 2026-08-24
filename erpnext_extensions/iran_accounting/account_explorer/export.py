@@ -172,11 +172,18 @@ def get_export_columns(spec: AccountExplorerQuerySpec) -> list[dict[str, str]]:
 			{"fieldname": "credit_balance", "label": _("Credit Balance")},
 		]
 	if axis == "currency":
+		company_currency = "Company"
+		company = getattr(spec, "company", None)
+		if company:
+			company_currency = frappe.get_cached_value("Company", company, "default_currency") or "Company"
 		return [
 			{"fieldname": "currency", "label": _("Currency")},
-			{"fieldname": "period_debit", "label": _("Native Debit")},
-			{"fieldname": "period_credit", "label": _("Native Credit")},
-			{"fieldname": "net_balance", "label": _("Native Net")},
+			{"fieldname": "period_debit", "label": _("Debit Amount (Currency)")},
+			{"fieldname": "company_period_debit", "label": _("Debit Amount ({0})").format(company_currency)},
+			{"fieldname": "period_credit", "label": _("Credit Amount (Currency)")},
+			{"fieldname": "company_period_credit", "label": _("Credit Amount ({0})").format(company_currency)},
+			{"fieldname": "net_balance", "label": _("Balance (Currency)")},
+			{"fieldname": "company_net_balance", "label": _("Balance ({0})").format(company_currency)},
 		]
 	if axis == "voucher":
 		return [

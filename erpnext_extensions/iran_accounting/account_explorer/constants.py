@@ -41,7 +41,17 @@ UNIFIED_PARTY_SORTABLE_FIELDS = SORTABLE_FIELDS | frozenset(
 
 DIMENSION_SORTABLE_FIELDS = SORTABLE_FIELDS | frozenset({"dimension_type", "dimension_value"})
 
-CURRENCY_SORTABLE_FIELDS = SORTABLE_FIELDS | frozenset({"currency", "net_balance"})
+CURRENCY_SORTABLE_FIELDS = SORTABLE_FIELDS | frozenset(
+	{
+		"currency",
+		"net_balance",
+		"company_period_debit",
+		"company_period_credit",
+		"company_net_balance",
+		"company_debit_balance",
+		"company_credit_balance",
+	}
+)
 
 VOUCHER_SORTABLE_FIELDS = frozenset(
 	{

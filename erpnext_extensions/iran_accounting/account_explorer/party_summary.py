@@ -16,14 +16,21 @@ from erpnext_extensions.iran_accounting.account_explorer.party_opening import (
 	get_unspecified_party_measures,
 )
 from erpnext_extensions.iran_accounting.account_explorer.party_sources import (
-	get_enabled_party_sources,
-	get_enabled_party_types,
+	enrich_party_rows,
 	get_identifier_warnings,
-	get_party_display_title,
-	get_party_identifier,
-	get_party_source_config,
+	get_party_source_config_map,
+	get_enabled_party_types,
 )
 from erpnext_extensions.iran_accounting.account_explorer.schemas import AccountExplorerQuerySpec
+
+_SORT_FIELDS_REQUIRING_FULL_ENRICHMENT = frozenset({"display_title", "party_identifier"})
+
+
+def _needs_full_party_enrichment(spec: AccountExplorerQuerySpec) -> bool:
+	field = spec.pagination.sort_field
+	if field not in PARTY_SORTABLE_FIELDS:
+		field = "display_code"
+	return field in _SORT_FIELDS_REQUIRING_FULL_ENRICHMENT
 
 
 def build_party_summary(spec: AccountExplorerQuerySpec) -> dict:
@@ -34,21 +41,20 @@ def build_party_summary(spec: AccountExplorerQuerySpec) -> dict:
 	opening = get_party_opening_balances(spec, party_types)
 	period = get_party_period_balances(spec, party_types)
 	keys = set(opening.keys()) | set(period.keys())
+	source_by_type = get_party_source_config_map()
 
 	rows: list[dict] = []
 	for party_type, party in sorted(keys):
 		opening_debit, opening_credit = opening.get((party_type, party), (0.0, 0.0))
 		period_debit, period_credit = period.get((party_type, party), (0.0, 0.0))
-		source = get_party_source_config(party_type)
-		identifier_field = source.identifier_field if source else None
 		rows.append(
 			{
 				"row_key": f"party:{party_type}:{party}",
 				"party_type": party_type,
 				"party": party,
 				"display_code": party,
-				"display_title": get_party_display_title(party_type, party),
-				"party_identifier": get_party_identifier(party_type, party, identifier_field),
+				"display_title": party,
+				"party_identifier": None,
 				"is_virtual_group": 0,
 				"drill_down_enabled": 1,
 				**measures_from_opening_period(
@@ -79,7 +85,14 @@ def build_party_summary(spec: AccountExplorerQuerySpec) -> dict:
 				}
 			)
 
+	if _needs_full_party_enrichment(spec):
+		enrich_party_rows(rows, source_by_type=source_by_type)
+
 	rows = sort_rows(rows, spec, PARTY_SORTABLE_FIELDS)
 	result = paginate_summary_rows(rows, spec)
+
+	if not _needs_full_party_enrichment(spec):
+		enrich_party_rows(result["rows"], source_by_type=source_by_type)
+
 	result["warnings"] = sorted(set(get_identifier_warnings()))
 	return result

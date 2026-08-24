@@ -75,8 +75,20 @@ class TestAccountExplorerExportStructure(unittest.TestCase):
 	def test_currency_export_columns_are_native(self):
 		columns = export.get_export_columns(_fake_spec("currency"))
 		labels = [column["label"] for column in columns]
-		self.assertEqual(labels, ["Currency", "Native Debit", "Native Credit", "Native Net"])
+		self.assertEqual(
+			labels,
+			[
+				"Currency",
+				"Debit Amount (Currency)",
+				"Debit Amount (Company)",
+				"Credit Amount (Currency)",
+				"Credit Amount (Company)",
+				"Balance (Currency)",
+				"Balance (Company)",
+			],
+		)
 		fieldnames = [column["fieldname"] for column in columns]
+		self.assertIn("company_period_debit", fieldnames)
 		self.assertNotIn("presentation_currency", fieldnames)
 
 
@@ -181,7 +193,19 @@ class TestAccountExplorerExport(unittest.TestCase):
 		self._export_sync(payload, "csv")
 		reader = csv.reader(io.StringIO(frappe.local.response.filecontent))
 		headers = next(reader)
-		self.assertEqual(headers, ["Currency", "Native Debit", "Native Credit", "Native Net"])
+		company_currency = frappe.get_cached_value("Company", self.company, "default_currency") or "Company"
+		self.assertEqual(
+			headers,
+			[
+				"Currency",
+				"Debit Amount (Currency)",
+				f"Debit Amount ({company_currency})",
+				"Credit Amount (Currency)",
+				f"Credit Amount ({company_currency})",
+				"Balance (Currency)",
+				f"Balance ({company_currency})",
+			],
+		)
 
 	def test_voucher_axis_export(self):
 		payload = build_payload(

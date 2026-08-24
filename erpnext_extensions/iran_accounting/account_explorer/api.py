@@ -28,12 +28,12 @@ from erpnext_extensions.iran_accounting.account_explorer.schemas import AccountE
 SUMMARY_COLUMNS = [
 	{"id": "display_code", "label": "Code", "fieldtype": "Data", "width": 120},
 	{"id": "display_title", "label": "Title", "fieldtype": "Data", "width": 240},
-	{"id": "period_debit", "label": "Debit Turnover", "fieldtype": "Currency", "width": 140},
-	{"id": "period_credit", "label": "Credit Turnover", "fieldtype": "Currency", "width": 140},
-	{"id": "debit_balance", "label": "Debit Balance", "fieldtype": "Currency", "width": 140},
-	{"id": "credit_balance", "label": "Credit Balance", "fieldtype": "Currency", "width": 140},
-	{"id": "opening_debit", "label": "Opening Debit", "fieldtype": "Currency", "width": 120},
-	{"id": "opening_credit", "label": "Opening Credit", "fieldtype": "Currency", "width": 120},
+	{"id": "period_debit", "label": "Debit Turnover", "fieldtype": "Currency", "width": 180},
+	{"id": "period_credit", "label": "Credit Turnover", "fieldtype": "Currency", "width": 180},
+	{"id": "debit_balance", "label": "Debit Balance", "fieldtype": "Currency", "width": 180},
+	{"id": "credit_balance", "label": "Credit Balance", "fieldtype": "Currency", "width": 180},
+	{"id": "opening_debit", "label": "Opening Debit", "fieldtype": "Currency", "width": 180},
+	{"id": "opening_credit", "label": "Opening Credit", "fieldtype": "Currency", "width": 180},
 ]
 
 PARTY_COLUMNS = [
@@ -41,19 +41,19 @@ PARTY_COLUMNS = [
 	{"id": "display_code", "label": "Party", "fieldtype": "Data", "width": 140},
 	{"id": "display_title", "label": "Party Name", "fieldtype": "Data", "width": 220},
 	{"id": "party_identifier", "label": "Identifier", "fieldtype": "Data", "width": 140},
-	{"id": "period_debit", "label": "Debit Turnover", "fieldtype": "Currency", "width": 140},
-	{"id": "period_credit", "label": "Credit Turnover", "fieldtype": "Currency", "width": 140},
-	{"id": "debit_balance", "label": "Debit Balance", "fieldtype": "Currency", "width": 140},
-	{"id": "credit_balance", "label": "Credit Balance", "fieldtype": "Currency", "width": 140},
+	{"id": "period_debit", "label": "Debit Turnover", "fieldtype": "Currency", "width": 180},
+	{"id": "period_credit", "label": "Credit Turnover", "fieldtype": "Currency", "width": 180},
+	{"id": "debit_balance", "label": "Debit Balance", "fieldtype": "Currency", "width": 180},
+	{"id": "credit_balance", "label": "Credit Balance", "fieldtype": "Currency", "width": 180},
 ]
 
 DIMENSION_COLUMNS = [
 	{"id": "display_code", "label": "Code", "fieldtype": "Data", "width": 140},
 	{"id": "display_title", "label": "Title", "fieldtype": "Data", "width": 240},
-	{"id": "period_debit", "label": "Debit Turnover", "fieldtype": "Currency", "width": 140},
-	{"id": "period_credit", "label": "Credit Turnover", "fieldtype": "Currency", "width": 140},
-	{"id": "debit_balance", "label": "Debit Balance", "fieldtype": "Currency", "width": 140},
-	{"id": "credit_balance", "label": "Credit Balance", "fieldtype": "Currency", "width": 140},
+	{"id": "period_debit", "label": "Debit Turnover", "fieldtype": "Currency", "width": 180},
+	{"id": "period_credit", "label": "Credit Turnover", "fieldtype": "Currency", "width": 180},
+	{"id": "debit_balance", "label": "Debit Balance", "fieldtype": "Currency", "width": 180},
+	{"id": "credit_balance", "label": "Credit Balance", "fieldtype": "Currency", "width": 180},
 ]
 
 UNIFIED_PARTY_COLUMNS = [
@@ -62,10 +62,10 @@ UNIFIED_PARTY_COLUMNS = [
 	{"id": "member_count", "label": "Members", "fieldtype": "Int", "width": 90},
 	{"id": "primary_member_label", "label": "Primary Member", "fieldtype": "Data", "width": 200},
 	{"id": "identifier_summary", "label": "Identifier", "fieldtype": "Data", "width": 140},
-	{"id": "period_debit", "label": "Debit Turnover", "fieldtype": "Currency", "width": 140},
-	{"id": "period_credit", "label": "Credit Turnover", "fieldtype": "Currency", "width": 140},
-	{"id": "debit_balance", "label": "Debit Balance", "fieldtype": "Currency", "width": 140},
-	{"id": "credit_balance", "label": "Credit Balance", "fieldtype": "Currency", "width": 140},
+	{"id": "period_debit", "label": "Debit Turnover", "fieldtype": "Currency", "width": 180},
+	{"id": "period_credit", "label": "Credit Turnover", "fieldtype": "Currency", "width": 180},
+	{"id": "debit_balance", "label": "Debit Balance", "fieldtype": "Currency", "width": 180},
+	{"id": "credit_balance", "label": "Credit Balance", "fieldtype": "Currency", "width": 180},
 ]
 
 VOUCHER_COLUMNS = [
@@ -124,14 +124,17 @@ def build_gl_detail_columns(dimensions: list[dict] | None = None) -> list[dict]:
 	]
 	return [*GL_GROUP_BASE_COLUMNS, GL_GROUP_COMPACT_COLUMN, *dimension_columns, *GL_GROUP_TAIL_COLUMNS]
 
-CURRENCY_COLUMNS = [
-	{"id": "currency", "label": "Currency", "fieldtype": "Data", "width": 100},
-	{"id": "period_debit", "label": "Debit Turnover", "fieldtype": "Currency", "width": 140},
-	{"id": "period_credit", "label": "Credit Turnover", "fieldtype": "Currency", "width": 140},
-	{"id": "debit_balance", "label": "Debit Balance", "fieldtype": "Currency", "width": 140},
-	{"id": "credit_balance", "label": "Credit Balance", "fieldtype": "Currency", "width": 140},
-	{"id": "net_balance", "label": "Net Balance", "fieldtype": "Currency", "width": 140},
-]
+def _currency_columns_for_company(company: str | None = None) -> list[dict]:
+	from erpnext_extensions.iran_accounting.account_explorer.currency_summary import build_currency_columns
+
+	company_currency = None
+	if company:
+		company_currency = frappe.get_cached_value("Company", company, "default_currency")
+	return build_currency_columns(company_currency)
+
+
+# Static fallback for metadata when company is unknown (labels use generic Company code).
+CURRENCY_COLUMNS = _currency_columns_for_company(None)
 
 
 def get_metadata() -> dict:
@@ -335,6 +338,17 @@ def get_account_summary(payload) -> dict:
 	spec = AccountExplorerQuerySpec_from_client(payload, require_dates=True)
 	if spec.view_axis != "account_level":
 		frappe.throw(frappe._("Invalid axis for account summary."))
+	if _should_use_prepared(spec, payload):
+		from erpnext_extensions.iran_accounting.account_explorer.prepared_report import (
+			resolve_prepared_or_enqueue,
+		)
+
+		return resolve_prepared_or_enqueue(
+			spec,
+			payload=payload,
+			columns=SUMMARY_COLUMNS,
+			response_builder=_summary_response,
+		)
 	result = build_account_level_summary(spec)
 	return _summary_response(spec, SUMMARY_COLUMNS, result)
 
@@ -412,13 +426,24 @@ def get_currency_summary(payload) -> dict:
 	from erpnext_extensions.iran_accounting.account_explorer.currency_summary import build_currency_summary
 
 	result = build_currency_summary(spec)
-	return _summary_response(spec, CURRENCY_COLUMNS, result)
+	return _summary_response(spec, _currency_columns_for_company(spec.company), result)
 
 
 def get_voucher_summary(payload) -> dict:
 	spec = AccountExplorerQuerySpec_from_client(payload, require_dates=True)
 	if spec.view_axis != "voucher" or spec.detail_mode != "summary":
 		frappe.throw(frappe._("Invalid axis for voucher summary."))
+	if _should_use_prepared(spec, payload):
+		from erpnext_extensions.iran_accounting.account_explorer.prepared_report import (
+			resolve_prepared_or_enqueue,
+		)
+
+		return resolve_prepared_or_enqueue(
+			spec,
+			payload=payload,
+			columns=VOUCHER_COLUMNS,
+			response_builder=_voucher_response,
+		)
 	from erpnext_extensions.iran_accounting.account_explorer.voucher_summary import build_voucher_summary
 
 	result = build_voucher_summary(spec)
@@ -484,6 +509,23 @@ def _summary_response(spec: AccountExplorerQuerySpec, columns, result: dict) -> 
 		"context": _analysis_context_response(spec),
 		**result,
 	}
+
+
+def _should_use_prepared(spec: AccountExplorerQuerySpec, payload) -> bool:
+	from erpnext_extensions.iran_accounting.account_explorer.prepared_report import (
+		axis_uses_prepared_results,
+	)
+
+	if getattr(frappe.flags, "ae_prepared_skip", False):
+		return False
+	data = payload
+	if isinstance(payload, str):
+		data = frappe.parse_json(payload) if payload else {}
+	data = data or {}
+	mode = (data.get("prepared_mode") or "").lower()
+	if mode in {"live", "skip", "off", "0"}:
+		return False
+	return axis_uses_prepared_results(spec)
 
 
 def _document_scope_response(spec: AccountExplorerQuerySpec) -> dict:
