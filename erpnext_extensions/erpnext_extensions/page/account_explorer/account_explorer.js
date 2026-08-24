@@ -719,6 +719,9 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 	async _initialize_after_metadata() {
 		await this.user_preferences.load();
 		this.user_preferences.apply_axis_to_controller();
+		if (this.analysis_context.view_axis === "unified_party") {
+			this.analysis_context.view_axis = "party";
+		}
 		this.$disabled.hide();
 		this.setup_toolbar();
 		this.render_navigator();
@@ -2694,7 +2697,8 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		};
 
 		(this.metadata.axes || []).forEach((axis) => {
-			if (!axis.enabled) {
+			// v4.6.2: Unified Parties tab removed from UI (backend APIs retained).
+			if (!axis.enabled || axis.id === "unified_party") {
 				return;
 			}
 			const is_active =
@@ -2771,6 +2775,11 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 	}
 
 	switch_axis(view_axis, level_or_dimension = null) {
+		// v4.6.2: Unified Parties tab is UI-hidden; coerce any leftover prefs/URL.
+		if (view_axis === "unified_party") {
+			view_axis = "party";
+			level_or_dimension = null;
+		}
 		this.analysis_context.view_axis = view_axis;
 		this.analysis_context.detail_mode = "summary";
 		this.analysis_context.page = 1;

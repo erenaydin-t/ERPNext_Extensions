@@ -72,9 +72,14 @@ def build_currency_summary(spec: AccountExplorerQuerySpec) -> dict:
 		key=lambda item: (item == "", item),
 	)
 
+	from erpnext_extensions.iran_accounting.account_explorer.pagination import (
+		exclude_empty_classification_rows,
+		is_empty_classification_value,
+	)
+
 	rows: list[dict] = []
 	for currency in keys:
-		if not currency:
+		if is_empty_classification_value(currency):
 			continue
 		opening_debit, opening_credit = opening.get(currency, (0.0, 0.0))
 		period_debit, period_credit = period.get(currency, (0.0, 0.0))
@@ -103,11 +108,12 @@ def build_currency_summary(spec: AccountExplorerQuerySpec) -> dict:
 	result = paginate_summary_rows(rows, spec)
 
 	# Totals must never sum mixed native currencies — only company currency.
+	# Keep the same empty-classification exclusion as paginate_summary_rows.
 	from erpnext_extensions.iran_accounting.account_explorer.measures import row_has_activity
 
-	totals_source = rows
+	totals_source = exclude_empty_classification_rows(rows)
 	if spec.hide_zero_rows:
-		totals_source = [row for row in rows if row_has_activity(row)]
+		totals_source = [row for row in totals_source if row_has_activity(row)]
 	result["totals"] = sum_measure_rows(
 		[
 			{field: row.get(f"{COMPANY_MEASURE_PREFIX}{field}") or 0.0 for field in COMPANY_MEASURE_FIELDS}

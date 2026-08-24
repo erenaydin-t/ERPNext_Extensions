@@ -10,11 +10,18 @@ from erpnext_extensions.iran_accounting.account_explorer.constants import DEFAUL
 
 
 def require_site(test_case) -> str | None:
+	"""Return `_Test Company` or skip.
+
+	Uses ``unittest.SkipTest`` so this works from both instance methods and
+	``setUpClass`` (``TestCase.skipTest`` is instance-only).
+	"""
+	import unittest
+
 	if not frappe.db:
-		test_case.skipTest("Database not available")
+		raise unittest.SkipTest("Database not available")
 	company = "_Test Company"
 	if not frappe.db.exists("Company", company):
-		test_case.skipTest("ERPNext _Test Company not available")
+		raise unittest.SkipTest("ERPNext _Test Company not available")
 	return company
 
 

@@ -227,7 +227,9 @@ def get_metadata() -> dict:
 		{
 			"id": "unified_party",
 			"label": "Unified Parties",
+			# Backend axis remains available; UI nav tab is hidden in Account Explorer (v4.6.2).
 			"enabled": 1 if party_enabled and unified_party_enabled else 0,
+			"ui_nav": 0,
 		},
 		{
 			"id": "dimension",

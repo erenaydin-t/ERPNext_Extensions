@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-from frappe import _
-
-from erpnext_extensions.iran_accounting.account_explorer.constants import (
-	PARTY_SORTABLE_FIELDS,
-	VIRTUAL_PARTY_UNSPECIFIED_KEY,
+from erpnext_extensions.iran_accounting.account_explorer.constants import PARTY_SORTABLE_FIELDS
+from erpnext_extensions.iran_accounting.account_explorer.measures import measures_from_opening_period
+from erpnext_extensions.iran_accounting.account_explorer.pagination import (
+	is_empty_classification_value,
+	paginate_summary_rows,
+	sort_rows,
 )
-from erpnext_extensions.iran_accounting.account_explorer.measures import measures_from_opening_period, zero_measures
-from erpnext_extensions.iran_accounting.account_explorer.pagination import paginate_summary_rows, sort_rows
 from erpnext_extensions.iran_accounting.account_explorer.party_opening import (
 	get_party_opening_balances,
 	get_party_period_balances,
-	get_unspecified_party_measures,
 )
 from erpnext_extensions.iran_accounting.account_explorer.party_sources import (
 	enrich_party_rows,
@@ -45,6 +43,9 @@ def build_party_summary(spec: AccountExplorerQuerySpec) -> dict:
 
 	rows: list[dict] = []
 	for party_type, party in sorted(keys):
+		# v4.6.2: empty party classifications are excluded before aggregation.
+		if is_empty_classification_value(party_type) or is_empty_classification_value(party):
+			continue
 		opening_debit, opening_credit = opening.get((party_type, party), (0.0, 0.0))
 		period_debit, period_credit = period.get((party_type, party), (0.0, 0.0))
 		rows.append(
@@ -62,28 +63,6 @@ def build_party_summary(spec: AccountExplorerQuerySpec) -> dict:
 				),
 			}
 		)
-
-	if not spec.party_scope.selected_party:
-		unspecified = get_unspecified_party_measures(spec, party_types)
-		if any(unspecified.values()):
-			rows.append(
-				{
-					"row_key": VIRTUAL_PARTY_UNSPECIFIED_KEY,
-					"party_type": "",
-					"party": "",
-					"display_code": "__UNSPECIFIED__",
-					"display_title": _("Unspecified Party"),
-					"party_identifier": None,
-					"is_virtual_group": 1,
-					"drill_down_enabled": 0,
-					**measures_from_opening_period(
-						unspecified["opening_debit"],
-						unspecified["opening_credit"],
-						unspecified["period_debit"],
-						unspecified["period_credit"],
-					),
-				}
-			)
 
 	if _needs_full_party_enrichment(spec):
 		enrich_party_rows(rows, source_by_type=source_by_type)
