@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 import frappe
-from erpnext.accounts.report.financial_statements import set_gl_entries_by_account
+from erpnext.accounts.report.financial_statements import apply_additional_conditions, set_gl_entries_by_account
 from erpnext.accounts.report.trial_balance.trial_balance import get_opening_balances
 from frappe.query_builder.functions import Sum
 from frappe.utils import flt
+from pypika import Bracket
+from pypika.terms import LiteralValue
 
+from erpnext_extensions.iran_accounting.account_explorer import e1_gl_scope
 from erpnext_extensions.iran_accounting.account_explorer.filters import spec_to_trial_balance_filters
 from erpnext_extensions.iran_accounting.account_explorer.gle_filters import (
 	apply_period_turnover_filters,
@@ -56,22 +61,20 @@ def _get_account_wise_measures_e1(
 	filters = spec_to_trial_balance_filters(spec)
 	policy = policy_from_spec(spec)
 	ignore_is_opening = site_ignore_is_opening()
-	opening_balances = get_opening_balances(filters, ignore_is_opening)
+	# v4.6.1: drill/filter scope → narrow TB + policy-aux GL SQL; root stays company-wide.
+	restrict_accounts = e1_gl_scope.resolve_narrowed_gl_accounts(spec)
+	opening_balances = _get_opening_balances_for_e1(filters, ignore_is_opening, restrict_accounts)
 	aux_pre, aux_in = aggregate_opening_flagged_pre_in_by_account(spec)
 
 	gl_entries_by_account: dict[str, list] = {}
 	# Always batch-fetch period GL (group_by_account=True). Policy OFF excludes
 	# is_opening='Yes' turnover via aux_in subtraction — not ERPNext
 	# ignore_opening_entries=True, which triggers per-account query explosion.
-	set_gl_entries_by_account(
-		spec.company,
-		spec.from_date,
-		spec.to_date,
+	_set_period_gl_entries_for_e1(
+		spec,
 		filters,
 		gl_entries_by_account,
-		ignore_closing_entries=not spec.include_period_closing_vouchers,
-		ignore_opening_entries=False,
-		group_by_account=True,
+		restrict_accounts=restrict_accounts,
 	)
 
 	target_accounts = account_names
@@ -131,6 +134,113 @@ def _get_account_wise_measures_e2(
 			flt(row["period_credit"]),
 		)
 	return result
+
+
+@contextmanager
+def _force_report_type_account_names(account_names: list[str]):
+	"""Make ERPNext opening Account lookups return exactly ``account_names``."""
+	forced = list(account_names)
+	original = frappe.db.get_all
+
+	def wrapped(doctype, *args, **kwargs):
+		filters = kwargs.get("filters")
+		if filters is None and args and isinstance(args[0], dict):
+			filters = args[0]
+		if (
+			doctype == "Account"
+			and isinstance(filters, dict)
+			and "report_type" in filters
+			and kwargs.get("pluck") == "name"
+		):
+			return list(forced)
+		return original(doctype, *args, **kwargs)
+
+	frappe.db.get_all = wrapped  # type: ignore[method-assign]
+	try:
+		yield
+	finally:
+		frappe.db.get_all = original  # type: ignore[method-assign]
+
+
+def _get_opening_balances_for_e1(filters, ignore_is_opening, restrict_accounts: list[str] | None):
+	"""ERPNext Trial Balance opening, optionally restricted to a drill account tree."""
+	if not restrict_accounts:
+		return get_opening_balances(filters, ignore_is_opening)
+
+	from erpnext.accounts.report.trial_balance import trial_balance as tb_module
+
+	allow = set(restrict_accounts)
+	original = tb_module.get_opening_balance
+
+	def scoped_get_opening_balance(doctype, filters, report_type, accounting_dimensions, *args, **kwargs):
+		type_accounts = frappe.db.get_all("Account", filters={"report_type": report_type}, pluck="name")
+		narrowed = [name for name in type_accounts if name in allow]
+		if not narrowed:
+			return []
+		with _force_report_type_account_names(narrowed):
+			return original(doctype, filters, report_type, accounting_dimensions, *args, **kwargs)
+
+	tb_module.get_opening_balance = scoped_get_opening_balance  # type: ignore[assignment]
+	try:
+		return get_opening_balances(filters, ignore_is_opening)
+	finally:
+		tb_module.get_opening_balance = original  # type: ignore[assignment]
+
+
+def _set_period_gl_entries_for_e1(
+	spec: AccountExplorerQuerySpec,
+	filters,
+	gl_entries_by_account: dict,
+	*,
+	restrict_accounts: list[str] | None,
+) -> None:
+	"""Period GL grouped by account — company-wide or drill-scoped."""
+	ignore_closing = not spec.include_period_closing_vouchers
+	if not restrict_accounts:
+		set_gl_entries_by_account(
+			spec.company,
+			spec.from_date,
+			spec.to_date,
+			filters,
+			gl_entries_by_account,
+			ignore_closing_entries=ignore_closing,
+			ignore_opening_entries=False,
+			group_by_account=True,
+		)
+		return
+
+	gl_entry = frappe.qb.DocType("GL Entry")
+	query = (
+		frappe.qb.from_(gl_entry)
+		.select(
+			gl_entry.account,
+			Sum(gl_entry.debit).as_("debit"),
+			Sum(gl_entry.credit).as_("credit"),
+			Sum(gl_entry.debit_in_account_currency).as_("debit_in_account_currency"),
+			Sum(gl_entry.credit_in_account_currency).as_("credit_in_account_currency"),
+			gl_entry.account_currency,
+			gl_entry.posting_date,
+			gl_entry.is_opening,
+			gl_entry.fiscal_year,
+		)
+		.where(gl_entry.company == filters.company)
+		.where(gl_entry.is_cancelled == 0)
+		.where(gl_entry.posting_date <= spec.to_date)
+		.where(gl_entry.account.isin(restrict_accounts))
+	)
+	query = query.force_index("posting_date_company_index")
+	query = apply_additional_conditions(
+		"GL Entry", query, spec.from_date, ignore_closing, filters
+	)
+	query = query.groupby(gl_entry.account)
+
+	from frappe.desk.reportview import build_match_conditions
+
+	if match_conditions := build_match_conditions("GL Entry"):
+		query = query.where(Bracket(LiteralValue(match_conditions)))
+
+	for entry in query.run(as_dict=True):
+		gl_entries_by_account.setdefault(entry.account, []).append(entry)
 
 
 def get_account_opening_balances(spec: AccountExplorerQuerySpec) -> dict[str, tuple[float, float]]:
