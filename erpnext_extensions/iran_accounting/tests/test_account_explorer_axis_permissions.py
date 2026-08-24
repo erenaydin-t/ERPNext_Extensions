@@ -141,10 +141,14 @@ class TestAccountExplorerAxisPermissions(unittest.TestCase):
 
 		enable_wave2c_unified_party()
 		meta = api.get_metadata()
-		axis_ids = {axis["id"] for axis in meta.get("axes", [])}
+		axes = meta.get("axes", [])
+		axis_ids = {axis["id"] for axis in axes}
 		self.assertIn("unified_party", axis_ids)
 		self.assertTrue(meta.get("unified_party_enabled"))
 		self.assertTrue(meta.get("unified_party_columns"))
+		# v4.6.2: backend axis retained; UI nav tab suppressed.
+		uap = next(axis for axis in axes if axis["id"] == "unified_party")
+		self.assertEqual(int(uap.get("ui_nav") or 0), 0)
 
 	def test_currency_axis_blocked_when_disabled(self):
 		enable_wave2a_analysis()

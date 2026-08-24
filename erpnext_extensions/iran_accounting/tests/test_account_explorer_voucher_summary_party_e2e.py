@@ -329,7 +329,7 @@ class TestAccountExplorerDimensionUnassignedE2E(unittest.TestCase):
 			self.skipTest("No fiscal year")
 		self.fiscal_year, self.from_date, self.to_date = fy
 
-	def test_unassigned_dimension_row_is_informational_only(self):
+	def test_unassigned_dimension_row_is_hidden_from_grid(self):
 		if not frappe.get_meta("GL Entry").has_field("cost_center"):
 			self.skipTest("No cost_center")
 		payload = build_payload(
@@ -350,17 +350,12 @@ class TestAccountExplorerDimensionUnassignedE2E(unittest.TestCase):
 		finally:
 			frappe.local.lang = prev
 
-		unspecified = [
-			row
-			for row in result["rows"]
-			if (row.get("row_key") or "").startswith(VIRTUAL_DIMENSION_UNSPECIFIED_PREFIX)
-		]
-		self.assertTrue(unspecified, "empty-dimension residual row must remain visible")
-		for row in unspecified:
-			self.assertEqual(row["display_code"], NOT_SPECIFIED_DISPLAY_CODE)
-			self.assertEqual(row["display_title"], NOT_SPECIFIED_LABEL)
-			self.assertTrue(row.get("is_virtual_group"))
-			self.assertFalse(row.get("drill_down_enabled"))
-			self.assertNotIn("__NOT_SPECIFIED__", row["display_code"])
-			# Informational: no meaningful dimension value for Analyze / ledger drill.
-			self.assertEqual(row.get("dimension_value"), "")
+		# v4.6.2: empty-dimension residual is excluded from grid rows and totals.
+		self.assertFalse(
+			any(
+				(row.get("row_key") or "").startswith(VIRTUAL_DIMENSION_UNSPECIFIED_PREFIX)
+				for row in result.get("rows") or []
+			),
+			"empty-dimension residual row must be hidden from grid presentation",
+		)
+		self.assertIn("totals", result)

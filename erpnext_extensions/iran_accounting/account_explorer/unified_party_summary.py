@@ -64,10 +64,8 @@ def build_unified_party_summary(spec: AccountExplorerQuerySpec) -> dict:
 			}
 		)
 
-	if spec.unified_party_scope.include_unmapped:
-		unmapped_row = _build_unmapped_row(spec, opening, period, get_mapped_member_keys(spec.company))
-		if unmapped_row:
-			rows.append(unmapped_row)
+	# v4.6.2: unmapped/empty unified-party buckets are excluded from grid + totals.
+	# Backend helper `_build_unmapped_row` remains for diagnostics / direct callers.
 
 	rows = sort_rows(rows, spec, UNIFIED_PARTY_SORTABLE_FIELDS)
 	result = paginate_summary_rows(rows, spec)

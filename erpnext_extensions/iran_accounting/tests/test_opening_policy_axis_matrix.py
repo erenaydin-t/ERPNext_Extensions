@@ -285,11 +285,7 @@ class TestOpeningPolicyAxisMatrix(unittest.TestCase):
 				as_dict=True,
 			)
 			parties = [(row.party_type, row.party) for row in parties]
-			unspecified = self._direct_unspecified_party(include_opening_entries=include_opening_entries)
-			opening["opening_debit"] += flt(unspecified["opening_debit"])
-			opening["opening_credit"] += flt(unspecified["opening_credit"])
-			period["period_debit"] += flt(unspecified["period_debit"])
-			period["period_credit"] += flt(unspecified["period_credit"])
+			# v4.6.2: empty/unspecified party buckets are excluded from party-axis totals.
 		for party_type, party in parties:
 			o = direct_gl_opening_totals(
 				self.ctx["company"],
@@ -314,14 +310,47 @@ class TestOpeningPolicyAxisMatrix(unittest.TestCase):
 		return finalize_measures(full_measures_from_opening_period(opening, period))
 
 	def _direct_dimension_axis(self, *, include_opening_entries: bool, filtered: bool) -> dict:
-		kwargs = {"cost_center": self.ctx["cost_center"]} if filtered else {}
-		return direct_gl_policy_measures(
+		include_flag = 1 if include_opening_entries else 0
+		if filtered:
+			return direct_gl_policy_measures(
+				self.ctx["company"],
+				self.ctx["from_date"],
+				self.ctx["to_date"],
+				include_opening_entries=include_opening_entries,
+				cost_center=self.ctx["cost_center"],
+			)
+		# v4.6.2: empty cost_center buckets are excluded from dimension-axis totals.
+		centers = frappe.db.sql(
+			"""
+			select distinct cost_center
+			from `tabGL Entry`
+			where company=%s and ifnull(cost_center,'')!='' and is_cancelled=0
+			""",
 			self.ctx["company"],
-			self.ctx["from_date"],
-			self.ctx["to_date"],
-			include_opening_entries=include_opening_entries,
-			**kwargs,
+			as_dict=True,
 		)
+		opening = {"opening_debit": 0.0, "opening_credit": 0.0}
+		period = {"period_debit": 0.0, "period_credit": 0.0}
+		for row in centers:
+			o = direct_gl_opening_totals(
+				self.ctx["company"],
+				self.ctx["from_date"],
+				self.ctx["to_date"],
+				include_opening_entries=include_flag,
+				cost_center=row.cost_center,
+			)
+			p = direct_gl_period_totals(
+				self.ctx["company"],
+				self.ctx["from_date"],
+				self.ctx["to_date"],
+				include_opening_entries=include_flag,
+				cost_center=row.cost_center,
+			)
+			opening["opening_debit"] += flt(o["opening_debit"])
+			opening["opening_credit"] += flt(o["opening_credit"])
+			period["period_debit"] += flt(p["period_debit"])
+			period["period_credit"] += flt(p["period_credit"])
+		return finalize_measures(full_measures_from_opening_period(opening, period))
 
 	def _direct_baseline(self, axis: str, *, include_opening_entries: bool, filtered: bool) -> dict:
 		kwargs = self._filter_kwargs(axis, filtered)

@@ -228,7 +228,10 @@ def _set_period_gl_entries_for_e1(
 		.where(gl_entry.posting_date <= spec.to_date)
 		.where(gl_entry.account.isin(restrict_accounts))
 	)
-	query = query.force_index("posting_date_company_index")
+	# v4.6.2: never FORCE INDEX(posting_date_company_index) when account IN (...) is
+	# present — that index defeats account selectivity (~1.5s vs ~1ms on leaf drills).
+	# Root / company-wide path above still uses ERPNext set_gl_entries_by_account
+	# (unchanged date/company force index).
 	query = apply_additional_conditions(
 		"GL Entry", query, spec.from_date, ignore_closing, filters
 	)
