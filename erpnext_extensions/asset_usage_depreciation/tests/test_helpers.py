@@ -382,12 +382,23 @@ def skip_if_unready():
 ROLES = (ROLE_AR_MANAGER, ROLE_AR_PLANNER, ROLE_AR_EXECUTIVE, ROLE_ASSET_MANAGER)
 
 
-def issue_from_pool(doc):
+def issue_from_pool(doc, selections=None, confirm_substitution=1):
 	from erpnext_extensions.asset_usage_depreciation.doctype.asset_request.asset_request import (
+		get_pool_picker,
 		issue_from_pool as _issue,
 	)
 
-	_issue(doc.name)
+	if selections is None:
+		picker = get_pool_picker(doc.name)
+		selections = []
+		for line in picker.get("lines") or []:
+			remaining = int(line.get("remaining_qty") or 0)
+			for candidate in line.get("candidates") or []:
+				if remaining <= 0:
+					break
+				selections.append({"item_row": line["item_row"], "asset": candidate["name"]})
+				remaining -= 1
+	_issue(doc.name, selections=selections, confirm_substitution=confirm_substitution)
 	doc.reload()
 	return doc
 

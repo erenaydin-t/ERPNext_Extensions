@@ -162,22 +162,40 @@ def reevaluate_fulfillment(name: str) -> dict:
 
 
 @frappe.whitelist()
-def issue_from_pool(name: str) -> dict:
+def get_pool_picker(name: str) -> dict:
+	from erpnext_extensions.asset_usage_depreciation.services.fulfillment_service import (
+		get_pool_picker_data,
+	)
+
+	doc = frappe.get_doc("Asset Request", name)
+	_assert_fulfillment_rpc_allowed(doc)
+	return get_pool_picker_data(doc)
+
+
+@frappe.whitelist()
+def issue_from_pool(name: str, selections=None, confirm_substitution: int = 0) -> dict:
 	from erpnext_extensions.asset_usage_depreciation.services.fulfillment_service import (
 		issue_from_pool as _issue,
 	)
 
 	doc = frappe.get_doc("Asset Request", name)
 	_assert_fulfillment_rpc_allowed(doc)
-	am = _issue(doc, auto_submit=0)
+	am = _issue(
+		doc,
+		selections=selections,
+		confirm_substitution=confirm_substitution,
+		auto_submit=0,
+	)
 	_save_submitted(doc)
 	return {"asset_movement": am.name if am else None}
 
 
 @frappe.whitelist()
-def create_asset_movement(name: str) -> dict:
+def create_asset_movement(name: str, selections=None, confirm_substitution: int = 0) -> dict:
 	"""Compatibility alias for Issue from Pool."""
-	return issue_from_pool(name)
+	return issue_from_pool(
+		name, selections=selections, confirm_substitution=confirm_substitution
+	)
 
 
 @frappe.whitelist()

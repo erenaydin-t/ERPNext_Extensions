@@ -244,12 +244,146 @@ def refresh_available_counts(doc) -> dict:
 
 
 def check_availability(doc) -> dict:
-	return refresh_available_counts(doc)
+	return get_pool_picker_data(doc)
 
 
-def issue_from_pool(doc, *, auto_submit: int = 0, ignore_permissions: bool = True):
-	"""Allocate available pool assets and create Asset Movement. No Material Request."""
-	_evaluate_allocations(doc, reserve=1, mode="issue")
+def get_pool_picker_data(doc) -> dict:
+	"""Read-only pool candidates. Exact item first, category substitutes second."""
+	from erpnext_extensions.asset_usage_depreciation.services.availability import (
+		allow_category_substitution,
+	)
+
+	lines = []
+	total = 0
+	for row in doc.items:
+		assets = get_available_assets(
+			doc.company,
+			requested_item_code=row.requested_item_code,
+			requested_asset_category=row.requested_asset_category,
+			fulfilled_item_code=None,
+			exclude_request=doc.name,
+		)
+		already = len(_existing_open_allocs(doc, row.name))
+		remaining = max(cint(row.qty) - already, 0)
+		candidates = []
+		for a in assets:
+			candidates.append(
+				{
+					"name": a.name,
+					"item_code": a.item_code,
+					"asset_name": a.asset_name,
+					"asset_category": a.asset_category,
+					"location": a.location,
+					"custodian": a.custodian or "",
+					"status": a.status,
+					"match_type": getattr(a, "match_type", None)
+					or ("exact" if a.item_code == row.requested_item_code else "substitute"),
+				}
+			)
+		total += len(candidates)
+		row.available_qty = len(candidates)
+		lines.append(
+			{
+				"item_row": row.name,
+				"requested_item_code": row.requested_item_code,
+				"requested_asset_category": row.requested_asset_category,
+				"qty": cint(row.qty),
+				"remaining_qty": remaining,
+				"available_qty": len(candidates),
+				"candidates": candidates,
+			}
+		)
+	doc.available_asset_count = total
+	return {
+		"workflow_state": doc.workflow_state,
+		"fulfillment_status": doc.fulfillment_status,
+		"available_asset_count": total,
+		"allow_category_substitution": allow_category_substitution(),
+		"lines": lines,
+	}
+
+
+def _allocate_selected_assets(doc, selections, *, confirm_substitution: int = 0) -> None:
+	from erpnext_extensions.asset_usage_depreciation.services.availability import (
+		allow_category_substitution,
+	)
+
+	if isinstance(selections, str):
+		selections = frappe.parse_json(selections)
+	if not selections:
+		frappe.throw(_("Select pool assets and confirm before issuing."))
+
+	picker = get_pool_picker_data(doc)
+	meta_by_row = {line["item_row"]: line for line in picker["lines"]}
+	used = {a.allocated_asset for a in (doc.get("allocations") or []) if a.allocated_asset}
+	chosen_by_row: dict[str, list[str]] = {}
+	for sel in selections:
+		row_name = sel.get("item_row")
+		asset_name = sel.get("asset")
+		if not row_name or not asset_name:
+			frappe.throw(_("Each selection must include an item row and an asset."))
+		chosen_by_row.setdefault(row_name, []).append(asset_name)
+
+	has_substitute = False
+	allocated = 0
+	for row in doc.items:
+		chosen = chosen_by_row.get(row.name) or []
+		if not chosen:
+			continue
+		meta = meta_by_row.get(row.name) or {}
+		allowed = {c["name"]: c for c in (meta.get("candidates") or [])}
+		remaining = cint(meta.get("remaining_qty") or row.qty)
+		if len(chosen) > remaining:
+			frappe.throw(_("Too many assets selected for {0}.").format(row.requested_item_code))
+		for asset_name in chosen:
+			if asset_name in used:
+				frappe.throw(_("Asset {0} is already allocated.").format(asset_name))
+			info = allowed.get(asset_name)
+			if not info:
+				frappe.throw(_("Asset {0} is not available in the pool.").format(asset_name))
+			if info["match_type"] == "substitute":
+				has_substitute = True
+				if not allow_category_substitution():
+					frappe.throw(_("Category substitution is not allowed."))
+			lock_asset(asset_name)
+			used.add(asset_name)
+			reason = row.substitution_reason
+			if info["item_code"] != row.requested_item_code:
+				reason = reason or AUTO_SUBSTITUTION_REASON
+				if not row.fulfilled_item_code or row.fulfilled_item_code == row.requested_item_code:
+					row.fulfilled_item_code = info["item_code"]
+					row.fulfilled_item_name = info.get("asset_name")
+					row.substitution_reason = reason
+			doc.append(
+				"allocations",
+				{
+					"asset_request_item": row.name,
+					"requested_item_code": row.requested_item_code,
+					"fulfilled_item_code": info["item_code"],
+					"fulfilled_purchase_item": row.fulfilled_purchase_item or info["item_code"],
+					"method": METHOD_ISSUE,
+					"fulfillment_status": ALLOC_RESERVED,
+					"allocated_asset": asset_name,
+					"substitution_reason": reason,
+				},
+			)
+			allocated += 1
+	if has_substitute and not cint(confirm_substitution):
+		frappe.throw(_("Confirm category substitution before issuing from pool."))
+	if not allocated:
+		frappe.throw(_("No pool assets were selected."))
+
+
+def issue_from_pool(
+	doc,
+	*,
+	selections=None,
+	confirm_substitution: int = 0,
+	auto_submit: int = 0,
+	ignore_permissions: bool = True,
+):
+	"""Allocate confirmed pool assets and create Asset Movement. No Material Request."""
+	_allocate_selected_assets(doc, selections, confirm_substitution=confirm_substitution)
 	am = create_asset_movement(doc, auto_submit=auto_submit, ignore_permissions=ignore_permissions)
 	if not am:
 		frappe.throw(_("No available pool assets to issue."))

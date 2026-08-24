@@ -22,6 +22,7 @@ from erpnext_extensions.asset_usage_depreciation.doctype.asset_request.asset_req
 	check_availability,
 	create_asset_movement,
 	create_material_request,
+	get_pool_picker,
 	issue_from_pool,
 	request_purchase,
 )
@@ -241,3 +242,89 @@ class TestFulfillmentPermissionsV455(unittest.TestCase):
 		finally:
 			frappe.set_user("Administrator")
 		self.assertTrue(result.get("material_request"))
+
+
+
+class TestPoolPickerV455(unittest.TestCase):
+	@classmethod
+	def setUpClass(cls):
+		frappe.set_user("Administrator")
+		cls.skip = h.skip_if_unready()
+		if cls.skip:
+			return
+		h.ensure_settings(
+			allow_category_substitution=1,
+			prevent_duplicate_active_requests=0,
+			require_named_manager_approver=0,
+		)
+		cls.company = h.company()
+		cls.employee = h.make_employee(company_name=cls.company)
+
+	def _ready(self):
+		if getattr(self, "skip", None):
+			self.skipTest(self.skip)
+
+	def test_issue_from_pool_requires_selection(self):
+		self._ready()
+		item = h.make_fixed_asset_item()
+		h.make_pool_asset(item_code=item, company_name=self.company)
+		doc = h.make_request(company_name=self.company, employee=self.employee, item_code=item)
+		h.submit_and_approve(doc)
+		with self.assertRaises(frappe.ValidationError):
+			issue_from_pool(doc.name)
+
+	def test_check_availability_is_read_only(self):
+		self._ready()
+		item = h.make_fixed_asset_item()
+		asset = h.make_pool_asset(item_code=item, company_name=self.company)
+		doc = h.make_request(company_name=self.company, employee=self.employee, item_code=item)
+		h.submit_and_approve(doc)
+		result = check_availability(doc.name)
+		doc.reload()
+		self.assertFalse(doc.allocations)
+		self.assertFalse(doc.material_request)
+		self.assertGreaterEqual(result.get("available_asset_count") or 0, 1)
+		names = []
+		for line in result.get("lines") or []:
+			names.extend(c["name"] for c in (line.get("candidates") or []))
+		self.assertIn(asset, names)
+		self.assertFalse(frappe.db.exists("Asset Movement", {"reference_name": doc.name}))
+
+	def test_substitute_requires_confirmation(self):
+		self._ready()
+		tag = frappe.utils.random_string(6)
+		category = h.make_isolated_category(tag)
+		samsung = h.make_fixed_asset_item(code=f"AUD-AR-V455-SUBS-{tag}", title="Samsung Sub", category=category)
+		lg = h.make_fixed_asset_item(code=f"AUD-AR-V455-SUBL-{tag}", title="LG Sub", category=category)
+		asset = h.make_pool_asset(item_code=lg, company_name=self.company)
+		h.ensure_settings(allow_category_substitution=1)
+		doc = h.make_request(company_name=self.company, employee=self.employee, item_code=samsung)
+		h.submit_and_approve(doc)
+		picker = get_pool_picker(doc.name)
+		selections = []
+		for line in picker.get("lines") or []:
+			for c in line.get("candidates") or []:
+				selections.append({"item_row": line["item_row"], "asset": c["name"]})
+		self.assertTrue(selections)
+		with self.assertRaises(frappe.ValidationError):
+			issue_from_pool(doc.name, selections=selections, confirm_substitution=0)
+		doc.reload()
+		self.assertFalse(doc.allocations)
+		h.issue_from_pool(doc, selections=selections, confirm_substitution=1)
+		doc.reload()
+		self.assertTrue(doc.allocations)
+		self.assertEqual(doc.allocations[0].allocated_asset, asset)
+		self.assertTrue(doc.allocations[0].asset_movement)
+
+	def test_custodian_and_wrong_company_excluded_from_pool(self):
+		self._ready()
+		from erpnext_extensions.asset_usage_depreciation.services.availability import get_available_assets
+
+		item = h.make_fixed_asset_item()
+		held = h.make_pool_asset(item_code=item, company_name=self.company)
+		emp = h.make_employee(company_name=self.company)
+		frappe.db.set_value("Asset", held, "custodian", emp)
+		free = h.make_pool_asset(item_code=item, company_name=self.company)
+		found = [a.name for a in get_available_assets(self.company, requested_item_code=item)]
+		self.assertNotIn(held, found)
+		self.assertIn(free, found)

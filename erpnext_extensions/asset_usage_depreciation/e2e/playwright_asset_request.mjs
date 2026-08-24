@@ -148,6 +148,44 @@ async function clickWorkflowApprove(page) {
   await page.waitForTimeout(1200);
 }
 
+
+async function clickCustomButton(page, pattern) {
+  await page.evaluate(() => {
+    const menu = document.querySelector(
+      ".actions-btn-group .dropdown-toggle, .btn-group .dropdown-toggle"
+    );
+    if (menu) {
+      try {
+        menu.click();
+      } catch (e) {
+        /* ignore */
+      }
+    }
+  });
+  const clicked = await page.evaluate((re) => {
+    const rx = new RegExp(re, "i");
+    const nodes = Array.from(
+      document.querySelectorAll("button, .dropdown-item, a.btn, .custom-actions .btn")
+    );
+    const el = nodes.find((e) => rx.test((e.textContent || "").trim()));
+    if (el) {
+      el.click();
+      return (el.textContent || "").trim();
+    }
+    return null;
+  }, pattern);
+  return clicked;
+}
+
+async function confirmVisibleModal(page) {
+  const btn = page.locator(".modal-footer .btn-primary:visible").last();
+  if (await btn.count()) {
+    await btn.click();
+    return true;
+  }
+  return false;
+}
+
 async function run() {
   const prep = benchExecute(
     "erpnext_extensions.asset_usage_depreciation.e2e.asset_request_prep.prepare_asset_request_e2e"
@@ -316,15 +354,16 @@ async function run() {
         purchase: labels.some((t) => /Request Purchase/i.test(t)),
       };
     });
-    await amPage.evaluate(async (name) => {
-      await frappe.call({
-        method:
-          "erpnext_extensions.asset_usage_depreciation.doctype.asset_request.asset_request.issue_from_pool",
-        args: { name },
-        freeze: true,
-      });
-    }, prep.approved_request);
+    results.am_check_clicked = await clickCustomButton(amPage, "Check Availability");
     await amPage.waitForTimeout(800);
+    results.am_issue_clicked = await clickCustomButton(amPage, "Issue from Pool");
+    await amPage.waitForTimeout(500);
+    results.am_picker_visible = await amPage.locator(".ar-pool-picker, .modal-dialog:visible").count().then((n) => n > 0);
+    screenshots.asset_manager_picker = await shot(amPage, "03_asset_manager_picker");
+    await confirmVisibleModal(amPage);
+    await amPage.waitForTimeout(400);
+    results.am_substitute_confirmed = await confirmVisibleModal(amPage);
+    await amPage.waitForTimeout(1200);
     const issued = getDocumentState("Asset Request", prep.approved_request, [
       "docstatus",
       "fulfillment_status",
@@ -342,14 +381,10 @@ async function run() {
 
     // Scenario 4 — Asset Manager: Request Purchase
     await openForm(amPage, prep.purchase_request);
-    await amPage.evaluate(async (name) => {
-      await frappe.call({
-        method:
-          "erpnext_extensions.asset_usage_depreciation.doctype.asset_request.asset_request.request_purchase",
-        args: { name },
-        freeze: true,
-      });
-    }, prep.purchase_request);
+    results.am_purchase_clicked = await clickCustomButton(amPage, "Request Purchase");
+    await amPage.waitForTimeout(400);
+    await confirmVisibleModal(amPage);
+    await amPage.waitForTimeout(800);
     await waitDocumentState("Asset Request", prep.purchase_request, { docstatus: 1 });
     const purchaseDb = getDocumentState("Asset Request", prep.purchase_request, [
       "name",
@@ -462,8 +497,9 @@ async function run() {
         results.manager_not_guest &&
         results.manager_approve_no_mr &&
         results.am_not_guest &&
-        true &&
-        true &&
+        Boolean(results.am_check_clicked) &&
+        Boolean(results.am_issue_clicked) &&
+        results.am_picker_visible &&
         results.am_issue_ok &&
         results.purchase_submitted &&
         results.purchase_mr_linked &&
