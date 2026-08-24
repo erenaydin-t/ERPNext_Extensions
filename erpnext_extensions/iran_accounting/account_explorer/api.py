@@ -124,14 +124,17 @@ def build_gl_detail_columns(dimensions: list[dict] | None = None) -> list[dict]:
 	]
 	return [*GL_GROUP_BASE_COLUMNS, GL_GROUP_COMPACT_COLUMN, *dimension_columns, *GL_GROUP_TAIL_COLUMNS]
 
-CURRENCY_COLUMNS = [
-	{"id": "currency", "label": "Currency", "fieldtype": "Data", "width": 100},
-	{"id": "period_debit", "label": "Debit Turnover", "fieldtype": "Currency", "width": 140},
-	{"id": "period_credit", "label": "Credit Turnover", "fieldtype": "Currency", "width": 140},
-	{"id": "debit_balance", "label": "Debit Balance", "fieldtype": "Currency", "width": 140},
-	{"id": "credit_balance", "label": "Credit Balance", "fieldtype": "Currency", "width": 140},
-	{"id": "net_balance", "label": "Net Balance", "fieldtype": "Currency", "width": 140},
-]
+def _currency_columns_for_company(company: str | None = None) -> list[dict]:
+	from erpnext_extensions.iran_accounting.account_explorer.currency_summary import build_currency_columns
+
+	company_currency = None
+	if company:
+		company_currency = frappe.get_cached_value("Company", company, "default_currency")
+	return build_currency_columns(company_currency)
+
+
+# Static fallback for metadata when company is unknown (labels use generic Company code).
+CURRENCY_COLUMNS = _currency_columns_for_company(None)
 
 
 def get_metadata() -> dict:
@@ -423,7 +426,7 @@ def get_currency_summary(payload) -> dict:
 	from erpnext_extensions.iran_accounting.account_explorer.currency_summary import build_currency_summary
 
 	result = build_currency_summary(spec)
-	return _summary_response(spec, CURRENCY_COLUMNS, result)
+	return _summary_response(spec, _currency_columns_for_company(spec.company), result)
 
 
 def get_voucher_summary(payload) -> dict:

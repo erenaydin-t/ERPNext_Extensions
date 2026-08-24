@@ -26,7 +26,13 @@ Account Explorer prepared reporting and performance hardening for heavy Account 
 
 - Post-load UI validation compares visible rows / totals against the backend response.
 - Remount / recovery paths when the API returns rows but the grid paint is empty.
-- Playwright A–E correctness gate covers live load, prepared miss/hit, refresh, rapid Apply, voucher, and account axes.
+- Playwright A–F correctness gate covers live load, prepared miss/hit, refresh, rapid Apply, voucher, account, and currency dual-display.
+
+## Currency axis dual display
+
+- Numeric cells on all Account Explorer axes show **numbers only** (no `IRR` / `ریال` suffix). Currency unit is in column headers, the Currency field, and the totals badge.
+- Currency axis rows show **native (transaction/account) amounts** next to **company-currency equivalents**.
+- Currency axis **totals always aggregate in company currency** and never sum mixed native currencies together.
 
 ## Party enrichment and request cache
 

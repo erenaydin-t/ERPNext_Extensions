@@ -170,6 +170,8 @@ function ae_format_amount_with_mode(value, currency_code, mode = "auto", options
 	let normalized_mode = ae_resolve_effective_number_format_mode(mode, settings_default);
 	const show_label = options.show_scale_label !== false;
 	const locale = String(options.locale || frappe.boot?.lang || "en").toLowerCase();
+	// Account Explorer grids: currency unit lives in column headers / totals badge — never cell suffixes.
+	const include_currency_suffix = options.include_currency_suffix === true;
 	const labels =
 		locale === "fa" || locale === "ar"
 			? {
@@ -190,12 +192,13 @@ function ae_format_amount_with_mode(value, currency_code, mode = "auto", options
 		billions: 1e9,
 		trillions: 1e12,
 	};
-	const currency_word =
-		locale === "fa" || locale === "ar"
+	const currency_word = include_currency_suffix
+		? locale === "fa" || locale === "ar"
 			? !currency_code || currency_code === "IRR"
 				? "ریال"
 				: currency_code
-			: currency_code || "";
+			: currency_code || ""
+		: "";
 
 	function format_grouped_raw(n) {
 		// #,### grouping — never Auto scale labels.
@@ -238,7 +241,7 @@ function ae_format_amount_with_mode(value, currency_code, mode = "auto", options
 	const compact = show_label
 		? [scaled, suffix, currency_word].filter(Boolean).join(" ")
 		: `${scaled} ${suffix}`;
-	const full = format_currency(num, currency_code);
+	const full = include_currency_suffix ? format_currency(num, currency_code) : format_grouped_raw(num);
 	return {
 		compact,
 		full,
@@ -1224,6 +1227,9 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 	}
 
 	should_datatable_incremental_update() {
+		if (this._force_datatable_remount) {
+			return false;
+		}
 		const host = this.$grid.find(".ae-datatable-container")[0];
 		return (
 			!!host &&
@@ -2578,6 +2584,8 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		this.analysis_context.detail_mode = "summary";
 		this.analysis_context.voucher_scope = { voucher_type: null, voucher_no: null };
 		this.analysis_context.page = 1;
+		this.grid_column_order = [];
+		this._force_datatable_remount = true;
 		this.voucher_header = null;
 		this.render_navigator();
 		this.render_breadcrumbs();
@@ -2767,6 +2775,9 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 		this.analysis_context.detail_mode = "summary";
 		this.analysis_context.page = 1;
 		this.clear_grid_selection();
+		// Axis-specific defaults (e.g. currency dual columns) must not inherit prior axis order.
+		this.grid_column_order = [];
+		this._force_datatable_remount = true;
 		this._reset_breadcrumbs([]);
 		this.evaluate_analysis_filter_lifetimes({ consume_temporary: true });
 		this._sync_scopes_from_analysis_filters();
@@ -3800,6 +3811,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			}
 		} finally {
 			this._suppress_datatable_sort_events = false;
+			this._force_datatable_remount = false;
 		}
 		this._last_perf_phases.datatable_ms = Math.round(performance.now() - datatable_started);
 		if (this._is_stale_grid_render(generation)) {
@@ -4110,6 +4122,7 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			this.rows = data.rows || [];
 			this.totals = data.totals || {};
 			this.currency_code = data.currency?.code || this.currency_code;
+			this.totals_currency = data.totals_currency || data.currency?.code || this.currency_code;
 			this.pagination = data.pagination || this.pagination;
 			this.warnings = data.warnings || [];
 			this.voucher_header = data.voucher_header || null;
@@ -4450,7 +4463,15 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			return ["display_code", "display_title", "period_debit", "period_credit", "debit_balance", "credit_balance"];
 		}
 		if (axis === "currency") {
-			return ["currency", "period_debit", "period_credit", "debit_balance", "credit_balance", "net_balance"];
+			return [
+				"currency",
+				"period_debit",
+				"company_period_debit",
+				"period_credit",
+				"company_period_credit",
+				"net_balance",
+				"company_net_balance",
+			];
 		}
 		if (axis === "voucher") {
 			const cols = [
@@ -5961,12 +5982,15 @@ erpnext_extensions.account_explorer.Controller = class AccountExplorerController
 			return;
 		}
 		this.$totals.show().addClass("ae-totals-bar ae-totals-bar--sticky");
-		const currency_label = this.currency_code || frappe.defaults.get_default("currency");
+		const currency_label =
+			(this.analysis_context.view_axis === "currency" && this.totals_currency) ||
+			this.currency_code ||
+			frappe.defaults.get_default("currency");
 		const $inner = $('<div class="ae-totals-inner"></div>').appendTo(this.$totals);
 		const $lead = $('<div class="ae-totals-lead"></div>').appendTo($inner);
 		$lead.append($('<div class="ae-totals-title">').text(__("Totals")));
 		$lead.append($('<div class="ae-totals-currency-wrap"></div>').append(
-			$('<span class="ae-totals-currency-label">').text(__("Currency")),
+			$('<span class="ae-totals-currency-label">').text(__("Totals Currency")),
 			$('<span class="ae-totals-currency ae-currency-badge">').text(currency_label)
 		));
 		const $items = $('<div class="ae-totals-items ae-totals-kpi-row"></div>').appendTo($inner);

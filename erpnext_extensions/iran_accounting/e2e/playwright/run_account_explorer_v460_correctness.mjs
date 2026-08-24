@@ -270,6 +270,28 @@ async function amount_cells_ok(page) {
 	});
 }
 
+async function amount_cells_have_no_currency_suffix(page) {
+	return page.evaluate(() => {
+		const cells = [
+			...document.querySelectorAll(
+				".dt-cell.ae-dt-amount-col .ae-dt-amount-cell, .ae-dt-amount-cell, table.ae-grid td.amount"
+			),
+		];
+		const texts = cells
+			.map((el) => (el.innerText || "").trim())
+			.filter(Boolean)
+			.slice(0, 40);
+		const currency_token = /\b(IRR|USD|EUR|AED|TRY|ریال)\b/i;
+		const offenders = texts.filter((t) => currency_token.test(t));
+		return {
+			ok: texts.length > 0 && offenders.length === 0,
+			sample: texts.slice(0, 8),
+			offenders: offenders.slice(0, 8),
+			checked: texts.length,
+		};
+	});
+}
+
 async function switch_axis(page, axis_id) {
 	await page.evaluate(async (axis) => {
 		const ae = window.cur_ae;
@@ -285,7 +307,11 @@ async function switch_axis(page, axis_id) {
 			ae.analysis_context.sort_field = "posting_date";
 		} else if (axis === "account_level") {
 			ae.analysis_context.sort_field = "display_code";
+		} else if (axis === "currency") {
+			ae.analysis_context.sort_field = "currency";
 		}
+		ae.grid_column_order = [];
+		ae._force_datatable_remount = true;
 		try {
 			if (typeof ae.render_navigator === "function") {
 				ae.render_navigator();
@@ -353,6 +379,10 @@ async function main() {
 		evidence.scenarios.A.amounts = amounts_a;
 		if (amounts_a.ok) pass("A debit/credit cells visible & wide");
 		else fail("A debit/credit cells visible & wide", JSON.stringify(amounts_a));
+		const no_suffix_a = await amount_cells_have_no_currency_suffix(page);
+		evidence.scenarios.A.no_currency_suffix = no_suffix_a;
+		if (no_suffix_a.ok) pass("A amount cells have no currency suffix");
+		else fail("A amount cells have no currency suffix", JSON.stringify(no_suffix_a));
 		evidence.scenarios.A.loading = await assert_loading_cleared_after_rows(page, "A");
 		await shot(page, "02-after-a-live-no-banner");
 
@@ -512,6 +542,94 @@ async function main() {
 		evidence.scenarios.E.loading = await assert_loading_cleared_after_rows(page, "E");
 		if (state.validation) evidence.validations.push({ scenario: "E", ...state.validation });
 		await shot(page, "08-after-e-account-no-banner");
+
+		// ---------- Scenario F: Currency axis dual display ----------
+		await switch_axis(page, "currency");
+		state = await wait_summary_idle(page, { timeout: 300000 });
+		const visible_f = await count_visible_rows(page);
+		const currency_api = await call_summary_api(page, { view_axis: "currency" });
+		const header_labels = await page.evaluate(() =>
+			[...document.querySelectorAll(".ae-grid-container--datatable .dt-cell--header")]
+				.map((el) => (el.innerText || "").trim())
+				.filter(Boolean)
+		);
+		const no_suffix_f = await amount_cells_have_no_currency_suffix(page);
+		const foreign_row =
+			(currency_api.rows || []).find((r) => {
+				if (!r.currency || r.currency === (currency_api.totals_currency || currency_api.currency?.code)) {
+					return false;
+				}
+				return [
+					"period_debit",
+					"company_period_debit",
+					"period_credit",
+					"company_period_credit",
+					"net_balance",
+					"company_net_balance",
+				].some((field) => Number(r[field] || 0) !== 0);
+			}) ||
+			(currency_api.rows || []).find(
+				(r) => r.currency && r.currency !== (currency_api.totals_currency || currency_api.currency?.code)
+			);
+		evidence.scenarios.F = {
+			state,
+			visible_f,
+			api_total: currency_api.pagination?.total_rows,
+			api_totals: currency_api.totals,
+			totals_currency: currency_api.totals_currency || currency_api.currency?.code,
+			header_labels,
+			no_currency_suffix: no_suffix_f,
+			foreign_row: foreign_row
+				? {
+						currency: foreign_row.currency,
+						period_debit: foreign_row.period_debit,
+						company_period_debit: foreign_row.company_period_debit,
+						period_credit: foreign_row.period_credit,
+						company_period_credit: foreign_row.company_period_credit,
+						net_balance: foreign_row.net_balance,
+						company_net_balance: foreign_row.company_net_balance,
+					}
+				: null,
+		};
+		if ((currency_api.pagination?.total_rows || 0) > 0 && visible_f > 0) {
+			pass("F currency rows returned and visible");
+		} else {
+			fail("F currency rows returned and visible", JSON.stringify(evidence.scenarios.F));
+		}
+		const has_dual_headers =
+			header_labels.some((h) => /Debit Amount \(Currency\)/i.test(h)) &&
+			header_labels.some((h) => /Debit Amount \(/i.test(h) && !/Debit Amount \(Currency\)/i.test(h));
+		if (has_dual_headers) pass("F dual debit amount headers present");
+		else fail("F dual debit amount headers present", JSON.stringify(header_labels));
+		if (currency_api.totals_currency || currency_api.currency?.code) {
+			pass("F totals currency is company currency", {
+				totals_currency: currency_api.totals_currency || currency_api.currency?.code,
+			});
+		} else {
+			fail("F totals currency is company currency", JSON.stringify(currency_api.currency));
+		}
+		const distinct_native_vs_company =
+			!!foreign_row &&
+			[
+				["period_debit", "company_period_debit"],
+				["period_credit", "company_period_credit"],
+				["net_balance", "company_net_balance"],
+			].some(([native_field, company_field]) => {
+				return Number(foreign_row[company_field] || 0) !== Number(foreign_row[native_field] || 0);
+			});
+		if (distinct_native_vs_company) {
+			pass("F foreign row has distinct native vs company amounts");
+		} else if (foreign_row && foreign_row.company_period_debit != null) {
+			pass("F foreign row exposes company debit field");
+		} else if (foreign_row) {
+			fail("F foreign row exposes company debit field", JSON.stringify(foreign_row));
+		} else {
+			pass("F no foreign currency row in current FY scope (company-only)");
+		}
+		if (no_suffix_f.ok) pass("F amount cells have no currency suffix");
+		else fail("F amount cells have no currency suffix", JSON.stringify(no_suffix_f));
+		evidence.scenarios.F.loading = await assert_loading_cleared_after_rows(page, "F");
+		await shot(page, "09-after-f-currency-dual-no-banner");
 	} catch (e) {
 		const err = e && typeof e === "object" ? e.message || e.stack || JSON.stringify(e, Object.getOwnPropertyNames(e)) : String(e);
 		fail("unexpected", err);
