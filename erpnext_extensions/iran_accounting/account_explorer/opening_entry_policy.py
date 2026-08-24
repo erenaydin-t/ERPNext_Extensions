@@ -361,6 +361,7 @@ def aggregate_opening_flagged_by_account(
 	"""
 	from frappe.query_builder.functions import Sum
 
+	from erpnext_extensions.iran_accounting.account_explorer import e1_gl_scope
 	from erpnext_extensions.iran_accounting.account_explorer.gle_filters import (
 		apply_document_scope_filters,
 	)
@@ -373,6 +374,8 @@ def aggregate_opening_flagged_by_account(
 	)
 	query = apply_document_scope_filters(query, gle, spec)
 	query = query.where(gle.is_opening == OPENING_FLAGGED_VALUE)
+	if narrowed := e1_gl_scope.resolve_narrowed_gl_accounts(spec):
+		query = query.where(gle.account.isin(narrowed))
 
 	from_date, to_date = getdate(spec.from_date), getdate(spec.to_date)
 	if bucket == "pre":
@@ -402,6 +405,7 @@ def aggregate_opening_flagged_pre_in_by_account(
 	"""Single-scan pre-period and in-period opening-flagged aggregates (E1 hot path)."""
 	from frappe.query_builder.functions import Sum
 
+	from erpnext_extensions.iran_accounting.account_explorer import e1_gl_scope
 	from erpnext_extensions.iran_accounting.account_explorer.gle_filters import (
 		apply_document_scope_filters,
 	)
@@ -426,6 +430,8 @@ def aggregate_opening_flagged_pre_in_by_account(
 		.groupby(gle.account)
 	)
 	query = apply_document_scope_filters(query, gle, spec)
+	if narrowed := e1_gl_scope.resolve_narrowed_gl_accounts(spec):
+		query = query.where(gle.account.isin(narrowed))
 
 	pre: dict[str, tuple[float, float]] = {}
 	in_period: dict[str, tuple[float, float]] = {}
