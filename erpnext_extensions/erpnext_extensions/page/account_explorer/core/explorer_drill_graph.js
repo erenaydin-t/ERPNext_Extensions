@@ -180,7 +180,7 @@ erpnext_extensions.account_explorer.core.ExplorerDrillGraph = class ExplorerDril
 		const graph = new erpnext_extensions.account_explorer.core.ExplorerDrillGraph();
 
 		[
-			// Account hierarchy: default = apply session Analysis Filter (+ optional level advance).
+			// Account hierarchy: default = apply session Analysis Filter (presentation level unchanged).
 			{ id: "AccountGroup", default_intent: "filter" },
 			{ id: "GeneralLedger", default_intent: "filter" },
 			{ id: "SubsidiaryLedger", default_intent: "filter" },
@@ -194,7 +194,9 @@ erpnext_extensions.account_explorer.core.ExplorerDrillGraph = class ExplorerDril
 		].forEach((node) => graph.register_node(node));
 
 		[
-			// Account hierarchy — filter intent: durable Analysis Filter + optional deeper level.
+			// v4.6.3: filter intent scopes the account only; keep current Account Levels pill.
+			// advance_level is navigate-only so Analyze on Group 11 stays at Group (one row),
+			// while explicit navigate / second click still reveals children (1110, 1112, …).
 			{
 				from_node: "AccountGroup",
 				intent: "filter",
@@ -203,14 +205,6 @@ erpnext_extensions.account_explorer.core.ExplorerDrillGraph = class ExplorerDril
 				policy: "replace_filter",
 				filter_key: "account",
 				lifetime: "session",
-			},
-			{
-				from_node: "AccountGroup",
-				intent: "filter",
-				edge_type: "advance_level",
-				target: "GeneralLedger",
-				policy: "keep_filters",
-				meta: { optional: 1 },
 			},
 			{
 				from_node: "AccountGroup",
@@ -227,14 +221,6 @@ erpnext_extensions.account_explorer.core.ExplorerDrillGraph = class ExplorerDril
 				policy: "replace_filter",
 				filter_key: "account",
 				lifetime: "session",
-			},
-			{
-				from_node: "GeneralLedger",
-				intent: "filter",
-				edge_type: "advance_level",
-				target: "SubsidiaryLedger",
-				policy: "keep_filters",
-				meta: { optional: 1 },
 			},
 			{
 				from_node: "GeneralLedger",

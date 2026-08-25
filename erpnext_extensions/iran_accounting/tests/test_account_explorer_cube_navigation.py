@@ -172,6 +172,20 @@ class TestAccountExplorerCubeNavigation(unittest.TestCase):
 			snippet = graph[idx : idx + 80]
 			self.assertIn('default_intent: "filter"', snippet)
 
+	def test_filter_intent_does_not_advance_account_level(self):
+		"""v4.6.3 — Analyze / filter keeps presentation level; navigate alone advances."""
+		graph = self.src["graph"]
+		self.assertIn("presentation level unchanged", graph)
+		self.assertIn("advance_level is navigate-only", graph)
+		for node in ("AccountGroup", "GeneralLedger"):
+			# filter edges for these nodes must be apply_filter only (no advance_level).
+			needle = f'from_node: "{node}",\n\t\t\t\tintent: "filter",\n\t\t\t\tedge_type: "advance_level"'
+			self.assertNotIn(needle, graph)
+			apply_needle = f'from_node: "{node}",\n\t\t\t\tintent: "filter",\n\t\t\t\tedge_type: "apply_filter"'
+			self.assertIn(apply_needle, graph)
+			nav_needle = f'from_node: "{node}",\n\t\t\t\tintent: "navigate",\n\t\t\t\tedge_type: "advance_level"'
+			self.assertIn(nav_needle, graph)
+
 	def test_explicit_analyze_actions(self):
 		page = self.src["page"]
 		self.assertIn("analyze_row_as_filter", page)
