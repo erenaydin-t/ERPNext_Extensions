@@ -89,6 +89,36 @@ def _effective_submitted_docstatus(doc) -> int:
 	return ds
 
 
+def _active_clearance_names_for_request(pm_request: str) -> list[str]:
+	"""Clearances that currently reserve this PM Request (same rules as sum_prior)."""
+	from erpnext_extensions.petty_management.services.clearance_reservation import (
+		clearance_reserves_pm_request_balance_sql,
+		pm_request_allocation_sql_filter,
+	)
+
+	res_clause = clearance_reserves_pm_request_balance_sql("p")
+	rows = frappe.db.sql(
+		f"""
+		SELECT DISTINCT p.name
+		FROM `tabPM Clearance Request Allocation` c
+		INNER JOIN `tabPM Clearance` p ON p.name = c.parent AND c.parenttype = 'PM Clearance'
+		WHERE c.parentfield = 'request_allocations'
+			AND IFNULL(c.is_legacy_row, 0) = 0
+			AND c.pm_request = %s
+			AND {pm_request_allocation_sql_filter("c")}
+			AND {res_clause}
+		ORDER BY p.name
+		""",
+		(pm_request,),
+		as_dict=True,
+	)
+	return [r.name for r in rows]
+
+
+def _format_money(amount: float) -> str:
+	return frappe.format_value(flt(amount), {"fieldtype": "Currency"})
+
+
 def on_payment_entry_before_cancel(doc, method=None):
 	"""Block cancel when clearance reservations exceed funded amount after cancel."""
 	if doc.payment_type != "Pay" or _effective_submitted_docstatus(doc) != 1:
@@ -100,9 +130,23 @@ def on_payment_entry_before_cancel(doc, method=None):
 		paid_after = paid_total - this_amount
 		reserved = flt(sum_prior_pm_request_allocations(pm_request, None))
 		if reserved > paid_after + _EPS:
+			blocking = _active_clearance_names_for_request(pm_request)
+			clearance_part = ""
+			if blocking:
+				clearance_part = " " + _("Blocking PM Clearance(s): {0}.").format(
+					", ".join(frappe.bold(n) for n in blocking)
+				)
 			frappe.throw(
 				_(
-					"This Payment Entry cannot be cancelled because allocated petty cash settlements exceed the remaining funded amount. Please cancel or reduce PM Clearance allocations first."
+					"Cannot cancel Payment Entry {0}: PM Request {1} would have submitted "
+					"funding of {2} after cancel, but {3} is reserved by active PM Clearance "
+					"allocations.{4} Cancel or reduce those clearances first."
+				).format(
+					frappe.bold(doc.name),
+					frappe.bold(pm_request),
+					frappe.bold(_format_money(paid_after)),
+					frappe.bold(_format_money(reserved)),
+					clearance_part,
 				),
 				title=_("Cannot cancel Payment Entry"),
 			)

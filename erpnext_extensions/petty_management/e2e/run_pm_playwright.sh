@@ -15,6 +15,7 @@ OUT="${1:-/tmp/pm_playwright_results.txt}"
 SCRIPTS=(
   "playwright_pm_request_form_smoke.mjs"
   "playwright_pm_request_pe_list_e2e.mjs"
+  "playwright_pm_pe_desk_cancel.mjs"
   "playwright_pm_request_actions_visibility.mjs"
   "playwright_pm_request_funding_status_ux.mjs"
   "playwright_pm_request_list_permission.mjs"

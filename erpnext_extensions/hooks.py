@@ -106,6 +106,8 @@ doctype_js = {
 	# Autoloads doctype JS; extras keep custom buttons clear_actions_menu-safe.
 	"PM Request": "public/js/pm_desk_workflow_actions.js",
 	"PM Clearance": "public/js/pm_desk_workflow_actions.js",
+	# v4.6.7: append PM Request to ignore_doctypes_on_cancel_all (Desk Cancel All).
+	"Payment Entry": "public/js/payment_entry_pm_request_cancel.js",
 }
 doctype_list_js = {
 	"PM Clearance": "erpnext_extensions/petty_management/doctype/pm_clearance/pm_clearance_list.js",
