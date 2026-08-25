@@ -23,6 +23,9 @@ from erpnext_extensions.iran_accounting.domain.riv_rate_guard import (
 	assert_erpnext_riv_rate_patch_supported,
 	collect_fingerprint_report,
 	make_update_rate_on_stock_entry_wrapper,
+	normalize_callable_signature,
+	normalize_function_source,
+	source_sha256,
 )
 from erpnext_extensions.iran_accounting.e2e_bootstrap import (
 	enable_perpetual_inventory,
@@ -197,6 +200,62 @@ class TestRivRateGuardUnit(unittest.TestCase):
 				self.assertIn("fingerprint mismatch", str(ctx.exception).lower())
 			finally:
 				pass
+
+	def test_annotation_variants_normalize_identically(self):
+		"""Shared normalize contract: (doc) / -> None / -> 'None' / param ann."""
+		import importlib.util
+		import tempfile
+		from pathlib import Path
+
+		def load(src: str):
+			path = Path(tempfile.mkdtemp()) / "riv_ann.py"
+			path.write_text(src)
+			spec = importlib.util.spec_from_file_location("riv_ann_stub", path)
+			mod = importlib.util.module_from_spec(spec)
+			assert spec.loader is not None
+			spec.loader.exec_module(mod)
+			return mod.f
+
+		variants = [
+			load("def f(doc):\n\tpass\n"),
+			load("def f(doc) -> None:\n\tpass\n"),
+			load('def f(doc) -> "None":\n\tpass\n'),
+			load("def f(doc: object) -> None:\n\tpass\n"),
+		]
+		self.assertEqual(str(inspect.signature(variants[0])), "(doc)")
+		self.assertEqual(str(inspect.signature(variants[2])), "(doc) -> 'None'")
+		for fn in variants:
+			self.assertEqual(normalize_callable_signature(fn), "(doc)")
+		self.assertEqual(len({source_sha256(fn) for fn in variants}), 1)
+
+	def test_executable_and_default_changes_still_fail_closed(self):
+		import importlib.util
+		import tempfile
+		from pathlib import Path
+
+		def load(src: str):
+			path = Path(tempfile.mkdtemp()) / "riv_exec.py"
+			path.write_text(src)
+			spec = importlib.util.spec_from_file_location("riv_exec_stub", path)
+			mod = importlib.util.module_from_spec(spec)
+			assert spec.loader is not None
+			spec.loader.exec_module(mod)
+			return mod.f
+
+		plain = load("def f(doc):\n\tpass\n")
+		returned = load("def f(doc):\n\treturn doc\n")
+		with_default = load("def f(doc=None):\n\tpass\n")
+		annassign_plain = load("def f(doc):\n\tx = 1\n\treturn x\n")
+		annassign_typed = load("def f(doc):\n\tx: int = 1\n\treturn x\n")
+
+		self.assertNotEqual(source_sha256(plain), source_sha256(returned))
+		self.assertNotEqual(
+			normalize_callable_signature(plain), normalize_callable_signature(with_default)
+		)
+		self.assertEqual(
+			normalize_function_source(annassign_plain),
+			normalize_function_source(annassign_typed),
+		)
 
 
 class TestRivRateFirstIntegration(unittest.TestCase):

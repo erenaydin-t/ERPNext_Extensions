@@ -18,6 +18,9 @@ from erpnext_extensions.iran_accounting.domain.uvr_regional_guard import (
 	_FN_FINGERPRINTS,
 	assert_erpnext_uvr_regional_patch_supported,
 	collect_fingerprint_report,
+	normalize_callable_signature,
+	normalize_function_source,
+	source_sha256,
 )
 
 
@@ -142,7 +145,11 @@ class TestUvrRegionalGuardUnit(unittest.TestCase):
 		orig = buying_controller._iran_original_regional_valuation_rate
 		self.assertIsNotNone(orig)
 		self.assertNotEqual(orig.__module__, first.__module__)
-		self.assertEqual(str(inspect.signature(orig)), "(doc)")
+		from erpnext_extensions.iran_accounting.domain.uvr_regional_guard import (
+			normalize_callable_signature,
+		)
+
+		self.assertEqual(normalize_callable_signature(orig), "(doc)")
 
 	def test_wrapper_not_installed_on_failure(self):
 		import erpnext.controllers.buying_controller as buying_controller
@@ -195,6 +202,154 @@ class TestUvrRegionalGuardUnit(unittest.TestCase):
 		digest = hashlib.sha256(normalize_function_source(orig).encode()).hexdigest()
 		self.assertEqual(
 			digest, _FN_FINGERPRINTS["update_regional_item_valuation_rate"]["source_sha256"]
+		)
+
+
+class TestUvrFingerprintAnnotationInsensitive(unittest.TestCase):
+	"""Regression: type hints must not diverge UVR regional fingerprints."""
+
+	@staticmethod
+	def _load_fn(source: str, name: str = "update_regional_item_valuation_rate"):
+		"""Compile *source* to a real function with inspectable source lines."""
+		import importlib.util
+		import tempfile
+		from pathlib import Path
+
+		path = Path(tempfile.mkdtemp()) / "regional_stub.py"
+		path.write_text(source)
+		spec = importlib.util.spec_from_file_location(f"regional_stub_{path.stem}", path)
+		mod = importlib.util.module_from_spec(spec)
+		assert spec.loader is not None
+		spec.loader.exec_module(mod)
+		return getattr(mod, name)
+
+	def test_doc_and_doc_arrow_none_same_fingerprint(self):
+		header = "def allow_regional(fn):\n\treturn fn\n\n"
+		plain = self._load_fn(
+			header
+			+ "@allow_regional\n"
+			+ "def update_regional_item_valuation_rate(doc):\n"
+			+ "\tpass\n"
+		)
+		ret_none = self._load_fn(
+			header
+			+ "@allow_regional\n"
+			+ "def update_regional_item_valuation_rate(doc) -> None:\n"
+			+ "\tpass\n"
+		)
+		ret_str_none = self._load_fn(
+			header
+			+ "@allow_regional\n"
+			+ 'def update_regional_item_valuation_rate(doc) -> "None":\n'
+			+ "\tpass\n"
+		)
+		param_ann = self._load_fn(
+			header
+			+ "@allow_regional\n"
+			+ "def update_regional_item_valuation_rate(doc: object) -> None:\n"
+			+ "\tpass\n"
+		)
+
+		self.assertEqual(str(inspect.signature(plain)), "(doc)")
+		self.assertEqual(str(inspect.signature(ret_none)), "(doc) -> None")
+		self.assertEqual(str(inspect.signature(ret_str_none)), "(doc) -> 'None'")
+
+		for fn in (plain, ret_none, ret_str_none, param_ann):
+			self.assertEqual(normalize_callable_signature(fn), "(doc)")
+
+		digests = {source_sha256(fn) for fn in (plain, ret_none, ret_str_none, param_ann)}
+		self.assertEqual(len(digests), 1, digests)
+		norms = {normalize_function_source(fn) for fn in (plain, ret_none, ret_str_none, param_ann)}
+		self.assertEqual(len(norms), 1, norms)
+		self.assertIn("allow_regional", next(iter(norms)))
+		self.assertIn("pass", next(iter(norms)))
+		self.assertNotIn("->", next(iter(norms)))
+
+	def test_executable_body_change_still_diverges(self):
+		header = "def allow_regional(fn):\n\treturn fn\n\n"
+		vanilla = self._load_fn(
+			header
+			+ "@allow_regional\n"
+			+ "def update_regional_item_valuation_rate(doc) -> None:\n"
+			+ "\tpass\n"
+		)
+		changed = self._load_fn(
+			header
+			+ "@allow_regional\n"
+			+ "def update_regional_item_valuation_rate(doc) -> None:\n"
+			+ "\treturn doc\n"
+		)
+		self.assertEqual(normalize_callable_signature(vanilla), normalize_callable_signature(changed))
+		self.assertNotEqual(source_sha256(vanilla), source_sha256(changed))
+
+	def test_guard_accepts_return_annotation_variant(self):
+		"""Simulate production (doc) -> 'None' against allow-list signature (doc)."""
+		header = "def allow_regional(fn):\n\treturn fn\n\n"
+		annotated = self._load_fn(
+			header
+			+ "@allow_regional\n"
+			+ 'def update_regional_item_valuation_rate(doc) -> "None":\n'
+			+ "\tpass\n"
+		)
+		expected = _FN_FINGERPRINTS["update_regional_item_valuation_rate"]["signature"]
+		self.assertEqual(normalize_callable_signature(annotated), expected)
+		# Raw inspect still shows the production-shaped divergence.
+		self.assertEqual(str(inspect.signature(annotated)), "(doc) -> 'None'")
+		self.assertNotEqual(str(inspect.signature(annotated)), expected)
+
+	def test_default_and_param_name_changes_diverge(self):
+		header = "def allow_regional(fn):\n\treturn fn\n\n"
+		base = self._load_fn(
+			header + "@allow_regional\ndef update_regional_item_valuation_rate(doc):\n\tpass\n"
+		)
+		with_default = self._load_fn(
+			header
+			+ "@allow_regional\n"
+			+ "def update_regional_item_valuation_rate(doc=None):\n"
+			+ "\tpass\n"
+		)
+		renamed = self._load_fn(
+			header + "@allow_regional\ndef update_regional_item_valuation_rate(document):\n\tpass\n"
+		)
+		self.assertEqual(normalize_callable_signature(base), "(doc)")
+		self.assertEqual(normalize_callable_signature(with_default), "(doc=None)")
+		self.assertEqual(normalize_callable_signature(renamed), "(document)")
+		self.assertNotEqual(
+			normalize_callable_signature(base), normalize_callable_signature(with_default)
+		)
+		self.assertNotEqual(
+			normalize_callable_signature(base), normalize_callable_signature(renamed)
+		)
+
+	def test_annassign_annotation_only_normalizes_to_assign(self):
+		plain = self._load_fn(
+			"def sample(doc):\n"
+			"\tx = 1\n"
+			"\treturn x\n",
+			name="sample",
+		)
+		annotated = self._load_fn(
+			"def sample(doc):\n"
+			"\tx: int = 1\n"
+			"\treturn x\n",
+			name="sample",
+		)
+		self.assertEqual(normalize_function_source(plain), normalize_function_source(annotated))
+		self.assertEqual(source_sha256(plain), source_sha256(annotated))
+
+	def test_live_allowlist_digest_unchanged_for_unannotated_regional(self):
+		"""Existing ERPNext stub without annotations must keep allow-list digest."""
+		import erpnext.controllers.buying_controller as buying_controller
+
+		from erpnext_extensions.iran_accounting.domain.uvr_regional_guard import (
+			_resolve_vanilla_regional,
+		)
+
+		regional = _resolve_vanilla_regional(buying_controller)
+		self.assertEqual(normalize_callable_signature(regional), "(doc)")
+		self.assertEqual(
+			source_sha256(regional),
+			_FN_FINGERPRINTS["update_regional_item_valuation_rate"]["source_sha256"],
 		)
 
 
@@ -463,6 +618,9 @@ def run_uvr_regional_guard_suite():
 
 	apply()
 	suite = unittest.defaultTestLoader.loadTestsFromTestCase(TestUvrRegionalGuardUnit)
+	suite.addTests(
+		unittest.defaultTestLoader.loadTestsFromTestCase(TestUvrFingerprintAnnotationInsensitive)
+	)
 	suite.addTests(
 		unittest.defaultTestLoader.loadTestsFromTestCase(TestUvrRegionalGuardIntegration)
 	)

@@ -61,8 +61,75 @@ def major_minor(version: str | None) -> str:
 	return f"{parts[0]}.{parts[1]}"
 
 
+def normalize_callable_signature(fn) -> str:
+	"""Signature fingerprint ignoring type hints.
+
+	Compares parameter names, kinds, and defaults only. Return annotations and
+	parameter annotations are stripped so ``(doc)``, ``(doc) -> None``, and
+	``(doc) -> 'None'`` fingerprint identically. Executable arity / defaults
+	mismatches still fail.
+	"""
+	sig = inspect.signature(fn)
+	params = [p.replace(annotation=inspect.Parameter.empty) for p in sig.parameters.values()]
+	clean = sig.replace(parameters=params, return_annotation=inspect.Signature.empty)
+	return str(clean)
+
+
+def _strip_type_hints(tree: ast.AST) -> ast.AST:
+	"""Drop type hints from an AST while preserving executable structure.
+
+	Strips:
+	- function / async function return annotations
+	- parameter annotations
+	- function type parameters (PEP 695)
+	- converts ``AnnAssign`` with a value to plain ``Assign``
+	- drops annotation-only ``AnnAssign`` declarations
+
+	Does **not** remove: calls, control flow, SQL/string constants used in calls,
+	assignments, or other executable statements.
+	"""
+
+	for node in ast.walk(tree):
+		if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+			node.returns = None
+			if hasattr(node, "type_comment"):
+				node.type_comment = None
+			if hasattr(node, "type_params"):
+				node.type_params = []
+			arg_nodes = [
+				*node.args.posonlyargs,
+				*node.args.args,
+				*node.args.kwonlyargs,
+			]
+			if node.args.vararg is not None:
+				arg_nodes.append(node.args.vararg)
+			if node.args.kwarg is not None:
+				arg_nodes.append(node.args.kwarg)
+			for arg in arg_nodes:
+				arg.annotation = None
+				if hasattr(arg, "type_comment"):
+					arg.type_comment = None
+
+	class _AnnAssignToAssign(ast.NodeTransformer):
+		def visit_AnnAssign(self, node: ast.AnnAssign):
+			self.generic_visit(node)
+			if node.value is None:
+				return None
+			return ast.copy_location(
+				ast.Assign(targets=[node.target], value=node.value),
+				node,
+			)
+
+	tree = _AnnAssignToAssign().visit(tree)
+	ast.fix_missing_locations(tree)
+	return tree
+
+
 def normalize_function_source(fn) -> str:
-	"""Dedent + drop leading docstring + AST-unparse + collapse whitespace."""
+	"""Dedent + drop docstring + strip type hints + AST-unparse + collapse whitespace.
+
+	Fingerprints executable behavior, not annotations/formatting/comments.
+	"""
 	src = textwrap.dedent(inspect.getsource(fn))
 	tree = ast.parse(src)
 	for node in ast.walk(tree):
@@ -74,6 +141,7 @@ def normalize_function_source(fn) -> str:
 				and isinstance(node.body[0].value.value, str)
 			):
 				node.body = node.body[1:]
+	tree = _strip_type_hints(tree)
 	out = ast.unparse(tree)
 	return re.sub(r"\s+", " ", out).strip()
 
@@ -109,7 +177,7 @@ def collect_fingerprint_report() -> dict[str, Any]:
 	for name, fn in fns.items():
 		norm = normalize_function_source(fn)
 		methods[name] = {
-			"signature": str(inspect.signature(fn)),
+			"signature": normalize_callable_signature(fn),
 			"source_sha256": hashlib.sha256(norm.encode()).hexdigest(),
 			"normalized_source": norm,
 		}
@@ -159,7 +227,7 @@ def assert_erpnext_riv_rate_patch_supported() -> None:
 	errors: list[str] = []
 	for name, expected in _FN_FINGERPRINTS.items():
 		fn = targets[name]
-		sig = str(inspect.signature(fn))
+		sig = normalize_callable_signature(fn)
 		if sig != expected["signature"]:
 			errors.append(f"{name}: signature {sig!r} != {expected['signature']!r}")
 			continue
