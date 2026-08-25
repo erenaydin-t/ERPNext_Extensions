@@ -35,8 +35,8 @@ SKIP_MISSING_FIELD = "SKIP_MISSING_FIELD"
 SKIP_INCOMPATIBLE_FIELDTYPE = "SKIP_INCOMPATIBLE_FIELDTYPE"
 
 # Explicit static allowlist only — never scan DocType fields at runtime.
-# Currency/Float monetary amounts only. Exchange rates, tax rates, and virtual
-# fields (no DB column) are excluded.
+# Covers EVERY DB-backed monetary amount on Payment Entry + child tables.
+# Excluded (not amounts): exchange/tax rates; virtual fields with no SQL column.
 PAYMENT_ENTRY_FIELDS_BY_DOCTYPE: dict[str, tuple[str, ...]] = {
 	"Payment Entry": (
 		"paid_amount",
@@ -74,6 +74,20 @@ PAYMENT_ENTRY_FIELDS_BY_DOCTYPE: dict[str, tuple[str, ...]] = {
 		"taxable_amount",
 		"withholding_amount",
 	),
+}
+
+
+# Rates / percentages intentionally left at default DECIMAL(21,9).
+EXCLUDED_RATE_FIELDS_BY_DOCTYPE: dict[str, tuple[str, ...]] = {
+	"Payment Entry": ("source_exchange_rate", "target_exchange_rate"),
+	"Payment Entry Reference": ("exchange_rate",),
+	"Advance Taxes and Charges": ("rate",),
+	"Tax Withholding Entry": ("tax_rate", "conversion_rate"),
+}
+
+# Present in DocType meta but not stored (is_virtual=1) — no ALTER target.
+EXCLUDED_VIRTUAL_FIELDS_BY_DOCTYPE: dict[str, tuple[str, ...]] = {
+	"Payment Entry Reference": ("payment_request_outstanding",),
 }
 
 

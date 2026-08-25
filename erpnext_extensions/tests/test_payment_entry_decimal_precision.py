@@ -55,16 +55,12 @@ class TestPaymentEntryDecimalPrecision(unittest.TestCase):
 		self.assertEqual(len(mod.payment_entry_field_targets()), 28)
 
 	def test_excludes_exchange_and_tax_rates(self):
-		pe = mod.PAYMENT_ENTRY_FIELDS_BY_DOCTYPE["Payment Entry"]
-		self.assertNotIn("source_exchange_rate", pe)
-		self.assertNotIn("target_exchange_rate", pe)
-		ref = mod.PAYMENT_ENTRY_FIELDS_BY_DOCTYPE["Payment Entry Reference"]
-		self.assertNotIn("exchange_rate", ref)
-		taxes = mod.PAYMENT_ENTRY_FIELDS_BY_DOCTYPE["Advance Taxes and Charges"]
-		self.assertNotIn("rate", taxes)
-		tw = mod.PAYMENT_ENTRY_FIELDS_BY_DOCTYPE["Tax Withholding Entry"]
-		self.assertNotIn("tax_rate", tw)
-		self.assertNotIn("conversion_rate", tw)
+		for doctype, fields in mod.EXCLUDED_RATE_FIELDS_BY_DOCTYPE.items():
+			for field in fields:
+				self.assertNotIn(field, mod.PAYMENT_ENTRY_FIELDS_BY_DOCTYPE.get(doctype, ()))
+		for doctype, fields in mod.EXCLUDED_VIRTUAL_FIELDS_BY_DOCTYPE.items():
+			for field in fields:
+				self.assertNotIn(field, mod.PAYMENT_ENTRY_FIELDS_BY_DOCTYPE.get(doctype, ()))
 
 	def test_no_runtime_field_scanning(self):
 		source = Path(inspect.getsourcefile(mod)).read_text(encoding="utf-8")
