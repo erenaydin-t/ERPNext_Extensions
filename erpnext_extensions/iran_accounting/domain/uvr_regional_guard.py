@@ -4,11 +4,14 @@
 Fail-closed twin of riv_rate_guard:
 1. Explicit ERPNext/Frappe major.minor allow-list (no wildcards).
 2. Fingerprint BuyingController.update_valuation_rate + vanilla
-   update_regional_item_valuation_rate (signature + normalized AST/source).
+   update_regional_item_valuation_rate (annotation-insensitive signature +
+   normalized AST/source of executable body).
 3. Assert UVR still invokes update_regional_item_valuation_rate (token + AST).
 4. Monkey patch installs only after every check passes.
 
-Uses the same normalize_function_source strategy as riv_rate_guard.
+Uses the same normalize_function_source / normalize_callable_signature strategy
+as riv_rate_guard. Type hints (``(doc)`` vs ``(doc) -> None``) do not diverge
+fingerprints; executable control-flow / call / assignment changes still fail closed.
 No accounting / rounding / Class A·B changes — upgrade safety only.
 """
 
@@ -25,6 +28,7 @@ from frappe import _
 
 from erpnext_extensions.iran_accounting.domain.riv_rate_guard import (
 	major_minor,
+	normalize_callable_signature,
 	normalize_function_source,
 	source_sha256,
 )
@@ -115,7 +119,7 @@ def collect_fingerprint_report() -> dict[str, Any]:
 	):
 		norm = normalize_function_source(fn)
 		methods[name] = {
-			"signature": str(inspect.signature(fn)),
+			"signature": normalize_callable_signature(fn),
 			"source_sha256": hashlib.sha256(norm.encode()).hexdigest(),
 			"normalized_source": norm,
 		}
@@ -177,7 +181,8 @@ def assert_erpnext_uvr_regional_patch_supported() -> None:
 	errors: list[str] = []
 	for name, expected in _FN_FINGERPRINTS.items():
 		fn = targets[name]
-		sig = str(inspect.signature(fn))
+		# Annotation-insensitive: (doc) and (doc) -> 'None' must match.
+		sig = normalize_callable_signature(fn)
 		if sig != expected["signature"]:
 			errors.append(f"{name}: signature {sig!r} != {expected['signature']!r}")
 			continue
@@ -215,6 +220,7 @@ __all__ = [
 	"assert_erpnext_uvr_regional_patch_supported",
 	"collect_fingerprint_report",
 	"major_minor",
+	"normalize_callable_signature",
 	"normalize_function_source",
 	"source_sha256",
 ]
