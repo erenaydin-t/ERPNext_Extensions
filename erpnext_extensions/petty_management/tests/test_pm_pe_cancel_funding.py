@@ -217,7 +217,118 @@ class TestPECancelFunding(unittest.TestCase):
 
 		with self.assertRaises(frappe.ValidationError) as ctx:
 			frappe.get_doc("Payment Entry", pe1).cancel()
-		self.assertIn("allocated petty cash settlements", str(ctx.exception).lower())
+		msg = str(ctx.exception).lower()
+		self.assertIn("cannot cancel payment entry", msg)
+		self.assertIn(pe1.lower(), msg)
+		self.assertIn(req.lower(), msg)
+		self.assertIn("reserved", msg)
+		# Decision unchanged: still blocked when reserved > funded_after.
+		self.assertNotIn("successfully", msg)
+
+	# ── Scenario 6b: allocation ok when remaining funding covers reserved ─
+
+	def test_cancel_allowed_when_remaining_covers_allocations(self):
+		"""PE1+PE2 fund 100k; 40k reserved; cancel PE1 (50k) → remaining 50k ≥ reserved."""
+		emp = tpm._make_employee()
+		tpm._make_holder(emp)
+		req = _new_submitted_request(emp, 100_000)
+		ws_before = frappe.db.get_value("PM Request", req, "workflow_state")
+		approvers_before = frappe.db.get_value(
+			"PM Request", req, list(_APPROVAL_FIELDS), as_dict=True
+		) if all(frappe.get_meta("PM Request").has_field(f) for f in _APPROVAL_FIELDS) else None
+
+		pe1 = _create_funding_pe(req, 50_000)
+		pe2 = _create_funding_pe(req, 50_000)
+		_sync_funding_fields(req)
+
+		pi = tpm._make_pi_outstanding(40_000)
+		pi.insert()
+		pi.submit()
+		cl = frappe.new_doc("PM Clearance")
+		cl.company = tpm.COMPANY
+		cl.employee = emp
+		cl.transaction_date = today()
+		cl.append(
+			"details",
+			{
+				"settlement_type": "Purchase Invoice",
+				"purchase_invoice": pi.name,
+				"allocated_amount": 40_000,
+				**tpm._pm_clearance_detail_policy_fields(),
+			},
+		)
+		cl.append("request_allocations", {"pm_request": req, "allocated_amount": 40_000})
+		cl.insert()
+		cl.submit()
+		tpm._approve_pm_clearance_for_reservation(cl.name)
+
+		frappe.get_doc("Payment Entry", pe1).cancel()
+		frappe.db.commit()
+
+		r = _row(req)
+		self.assertEqual(r.docstatus, 1)
+		self.assertEqual(r.workflow_state, ws_before)
+		self.assertAlmostEqual(flt(r.total_paid_amount), 50_000, places=2)
+		self.assertEqual(r.payment_status, "Partially Paid")
+		self.assertEqual(r.payment_entry, pe2)
+		self.assertEqual(cint(frappe.db.get_value("Payment Entry", pe1, "docstatus")), 2)
+		if approvers_before:
+			approvers_after = frappe.db.get_value(
+				"PM Request", req, list(_APPROVAL_FIELDS), as_dict=True
+			)
+			for f in _APPROVAL_FIELDS:
+				self.assertEqual(approvers_after.get(f), approvers_before.get(f))
+
+	# ── Scenario 6c: Desk cancel-all ignore list includes PM Request ─────
+
+	def test_desk_cancel_ignores_pm_request_link(self):
+		"""get_submitted_linked_docs must omit PM Request when ignore list includes it."""
+		from frappe.desk.form.linked_with import get_submitted_linked_docs
+
+		emp = tpm._make_employee()
+		tpm._make_holder(emp)
+		req = _new_submitted_request(emp, 10_000)
+		pe = _create_funding_pe(req, 10_000)
+		_sync_funding_fields(req)
+		self.assertEqual(frappe.db.get_value("PM Request", req, "payment_entry"), pe)
+
+		# Without ignore: PM Request appears as a submitted reverse link.
+		raw = get_submitted_linked_docs("Payment Entry", pe, ignore_doctypes_on_cancel_all=[])
+		raw_doctypes = {d.get("doctype") for d in (raw.get("docs") or [])}
+		self.assertIn("PM Request", raw_doctypes)
+
+		# With Desk ignore list (ERPNext defaults + PM Request): Request omitted.
+		erpnext_defaults = [
+			"Sales Invoice",
+			"Purchase Invoice",
+			"Journal Entry",
+			"Repost Payment Ledger",
+			"Repost Accounting Ledger",
+			"Unreconcile Payment",
+			"Unreconcile Payment Entries",
+			"Bank Transaction",
+			"PM Request",
+		]
+		ignored = get_submitted_linked_docs(
+			"Payment Entry", pe, ignore_doctypes_on_cancel_all=erpnext_defaults
+		)
+		ignored_doctypes = {d.get("doctype") for d in (ignored.get("docs") or [])}
+		self.assertNotIn("PM Request", ignored_doctypes)
+
+		# Hook registration + client script must be additive.
+		from erpnext_extensions import hooks as app_hooks
+
+		pe_js = app_hooks.doctype_js.get("Payment Entry")
+		self.assertTrue(pe_js)
+		js_path = pe_js if isinstance(pe_js, str) else pe_js[0]
+		self.assertIn("payment_entry_pm_request_cancel.js", js_path)
+		js_full = frappe.get_app_path("erpnext_extensions", js_path)
+		js_src = open(js_full).read()
+		self.assertIn('push("PM Request")', js_src)
+		self.assertIn("ignore_doctypes_on_cancel_all", js_src)
+		self.assertIn(".includes(", js_src)
+		# Additive only — must not assign a replacement SI/PI/JE array.
+		self.assertNotIn('"Sales Invoice"', js_src)
 
 	# ── Scenario 7: full cancel → business status = Waiting for Payment ──
 
