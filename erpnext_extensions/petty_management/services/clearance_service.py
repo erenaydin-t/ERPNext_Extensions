@@ -52,6 +52,11 @@ def normalize_funding_allocation_rows(doc: Document) -> None:
 
 
 def validate_clearance(doc: Document) -> None:
+	from erpnext_extensions.petty_management.services.draft_approval_guards import (
+		assert_pending_not_editable,
+	)
+
+	assert_pending_not_editable(doc)
 	doc.je_clearance_date = getdate(doc.transaction_date or today())
 	sync_clearance_holder_fields(doc)
 	ensure_petty_cash_account_filled(doc)

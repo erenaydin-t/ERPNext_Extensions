@@ -116,11 +116,13 @@ class PMClearance(Document):
 		validate_clearance(self)
 
 	def before_submit(self):
+		# v4.7.2: Approve submits. Manager stamp set on Draft→Pending; do not
+		# clear finance_approver (stamped after finance act).
 		from erpnext_extensions.petty_management.services.approver_stamp_service import (
-			stamp_pm_clearance_approvers,
+			ensure_pm_clearance_manager_stamp,
 		)
 
-		stamp_pm_clearance_approvers(self)
+		ensure_pm_clearance_manager_stamp(self)
 
 	def on_submit(self):
 		on_submit_clearance(self)
@@ -130,6 +132,13 @@ class PMClearance(Document):
 
 	def on_cancel(self):
 		on_cancel_clearance(self)
+
+	def on_trash(self):
+		from erpnext_extensions.petty_management.services.draft_approval_guards import (
+			assert_pending_not_deletable,
+		)
+
+		assert_pending_not_deletable(self)
 
 	def _ensure_petty_cash_account_filled(self):
 		ensure_petty_cash_account_filled(self)
