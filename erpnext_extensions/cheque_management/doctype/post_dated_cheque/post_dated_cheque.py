@@ -2283,6 +2283,26 @@ class PostDatedCheque(Document):
 	def on_cancel(self):
 		self._apply_cheque_leaf_on_cancel()
 
+	def on_trash(self):
+		"""Draft Payable delete: release owned temporary Cheque Leaf reservation."""
+		self._release_cheque_leaf_reservation_on_trash()
+
+	def _release_cheque_leaf_reservation_on_trash(self) -> None:
+		"""Release this Draft PDC's owned Reserved leaf before the document row is removed.
+
+		Registered→Draft rollback keeps the leaf Reserved while the Draft still exists.
+		Deleting that Draft must return the leaf to Available. Submitted/cancelled docs
+		do not use this path (cancel already handles leaf via ``on_cancel``).
+		"""
+		if cint(getattr(self, "docstatus", 0) or 0) != 0:
+			return
+		if (getattr(self, "cheque_direction", None) or "").strip() != CHEQUE_DIRECTION_PAYABLE:
+			return
+		leaf = (getattr(self, "cheque_leaf", None) or "").strip()
+		if not leaf or not self.name:
+			return
+		_pdc_assert_and_release_leaf_on_draft_trash(leaf, self)
+
 	def _validate_important_dates_not_in_future(self) -> None:
 		"""Important Dates must not be in the future (backend authority)."""
 		from frappe.utils import getdate, nowdate
@@ -4345,6 +4365,8 @@ def _pdc_release_leaf_if_reserved_by_pdc(leaf_name: str, pdc_name: str) -> None:
 		return
 	if row.linked_post_dated_cheque or "":
 		return
+	if (getattr(row, "linked_guarantee_document", None) or "").strip():
+		return
 
 	frappe.db.set_value(
 		"Cheque Leaf",
@@ -4352,6 +4374,86 @@ def _pdc_release_leaf_if_reserved_by_pdc(leaf_name: str, pdc_name: str) -> None:
 		{"status": "Available", "reserved_by_pdc": None, "reserved_on": None},
 		update_modified=False,
 	)
+
+
+def _pdc_leaf_ownership_conflict_message(pdc, leaf_name: str, row) -> str:
+	return frappe._(
+		"Cannot delete Post Dated Cheque {0}: Cheque Leaf {1} cannot be safely released "
+		"(status={2}, reserved_by_pdc={3}, linked_post_dated_cheque={4}, "
+		"linked_guarantee_document={5})."
+	).format(
+		pdc.name,
+		leaf_name,
+		(getattr(row, "status", None) or "") if row else "",
+		(getattr(row, "reserved_by_pdc", None) or "") if row else "",
+		(getattr(row, "linked_post_dated_cheque", None) or "") if row else "",
+		(getattr(row, "linked_guarantee_document", None) or "") if row else "",
+	)
+
+
+def _pdc_assert_and_release_leaf_on_draft_trash(leaf_name: str, pdc: "PostDatedCheque") -> None:
+	"""Fail-closed release of a Draft PDC's owned temporary leaf reservation on trash.
+
+	Releases only when the leaf is Reserved by this PDC with no operational/Guarantee
+	ownership. Available leaves with no conflicting owner are allowed (normalize stale
+	self-reservation fields). Any other state blocks deletion.
+	"""
+	row = _pdc_get_cheque_leaf_row_for_update(leaf_name)
+	if not row:
+		frappe.throw(
+			frappe._("Cannot delete Post Dated Cheque {0}: Cheque Leaf {1} does not exist.").format(
+				pdc.name, leaf_name
+			),
+			title=frappe._("Cheque Leaf"),
+		)
+
+	status = (row.status or "").strip()
+	reserved_by = (row.reserved_by_pdc or "").strip()
+	linked_pdc = (row.linked_post_dated_cheque or "").strip()
+	linked_gd = (getattr(row, "linked_guarantee_document", None) or "").strip()
+
+	if linked_gd or status == "Used for Guarantee":
+		frappe.throw(_pdc_leaf_ownership_conflict_message(pdc, leaf_name, row), title=frappe._("Cheque Leaf"))
+	if linked_pdc:
+		frappe.throw(_pdc_leaf_ownership_conflict_message(pdc, leaf_name, row), title=frappe._("Cheque Leaf"))
+	if status in ("Used", "Void", "Used for Guarantee"):
+		frappe.throw(_pdc_leaf_ownership_conflict_message(pdc, leaf_name, row), title=frappe._("Cheque Leaf"))
+
+	if status == "Reserved":
+		if reserved_by != (pdc.name or ""):
+			frappe.throw(_pdc_leaf_ownership_conflict_message(pdc, leaf_name, row), title=frappe._("Cheque Leaf"))
+		_pdc_release_leaf_if_reserved_by_pdc(leaf_name, pdc.name)
+		after = frappe.db.get_value(
+			"Cheque Leaf",
+			leaf_name,
+			["status", "reserved_by_pdc", "reserved_on", "linked_post_dated_cheque", "used_on"],
+			as_dict=True,
+		)
+		if not after or (after.status or "").strip() != "Available" or (after.reserved_by_pdc or "").strip():
+			frappe.throw(
+				_pdc_leaf_ownership_conflict_message(pdc, leaf_name, after or row),
+				title=frappe._("Cheque Leaf"),
+			)
+		return
+
+	if status == "Available":
+		if reserved_by and reserved_by != (pdc.name or ""):
+			frappe.throw(_pdc_leaf_ownership_conflict_message(pdc, leaf_name, row), title=frappe._("Cheque Leaf"))
+		if reserved_by == (pdc.name or "") or row.reserved_on or row.used_on:
+			frappe.db.set_value(
+				"Cheque Leaf",
+				leaf_name,
+				{
+					"status": "Available",
+					"reserved_by_pdc": None,
+					"reserved_on": None,
+					"used_on": None,
+				},
+				update_modified=False,
+			)
+		return
+
+	frappe.throw(_pdc_leaf_ownership_conflict_message(pdc, leaf_name, row), title=frappe._("Cheque Leaf"))
 
 
 def _pdc_mark_leaf_used_for_pdc(leaf_name: str, pdc: "PostDatedCheque") -> None:
