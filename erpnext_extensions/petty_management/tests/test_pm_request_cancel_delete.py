@@ -1,6 +1,8 @@
 # Copyright (c) 2026, ERPNext Extensions contributors
 """v4.6.8 — PM Request cancel / delete eligibility.
 
+Cancel = open financial process. Delete = history (independent).
+
 Run::
 
 	bench --site development.localhost run-tests \\
@@ -37,12 +39,11 @@ def _draft_pe(req: str, amount: float) -> str:
 	pe_name = rs.create_payment_entry(req, paid_amount=amount)
 	pe = frappe.get_doc("Payment Entry", pe_name)
 	if pe.docstatus != 0:
-		# Site may auto-submit; cancel and recreate is messy — force draft via new PE amount split
 		frappe.throw(f"Expected draft PE, got docstatus={pe.docstatus}")
 	return pe_name
 
 
-def _make_clearance(emp: str, req: str, amount: float, *, submit: bool = False, approve: bool = False):
+def _make_clearance(emp: str, req: str, amount: float, *, submit: bool = False):
 	pi = tpm._make_pi_outstanding(amount)
 	pi.insert()
 	pi.submit()
@@ -63,8 +64,6 @@ def _make_clearance(emp: str, req: str, amount: float, *, submit: bool = False, 
 	cl.insert()
 	if submit:
 		cl.submit()
-	if approve:
-		tpm._approve_pm_clearance_for_reservation(cl.name)
 	return cl.name
 
 
@@ -80,18 +79,40 @@ def _force_clearance_cancelled(name: str):
 	frappe.db.set_value(
 		"PM Clearance", name, {"docstatus": 2, "status": "Cancelled"}, update_modified=False
 	)
-	for table in ("PM Clearance Request Allocation", "PM Clearance Detail"):
-		if frappe.db.table_exists(f"tab{table}"):
+	for doctype in ("PM Clearance Request Allocation", "PM Clearance Detail"):
+		if frappe.db.table_exists(doctype):
 			frappe.db.sql(
-				f"UPDATE `tab{table}` SET docstatus=2 WHERE parent=%s AND parenttype='PM Clearance'",
+				f"UPDATE `tab{doctype}` SET docstatus=2 WHERE parent=%s AND parenttype='PM Clearance'",
 				(name,),
 			)
+
+
+def _funded_request(emp: str, amount: float) -> tuple[str, str]:
+	req = _new_submitted_request(emp, amount)
+	pe = _create_funding_pe(req, amount)
+	_sync_funding_fields(req)
+	return req, pe
+
+
+def _cancel_pe(pe: str, req: str) -> None:
+	frappe.get_doc("Payment Entry", pe).cancel()
+	_sync_funding_fields(req)
+
+
+def _assert_blocked_with(self, req: str, *needles: str):
+	with self.assertRaises(ValidationError) as ctx:
+		assert_pm_request_cancel_allowed(req)
+	msg = str(ctx.exception).lower()
+	for n in needles:
+		self.assertIn(n.lower(), msg, msg=f"expected {n!r} in {msg!r}")
 
 
 class TestPmRequestCancelEligibility(unittest.TestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		_require_site_ready(self)
+
+	# --- Payment Entry matrix ---
 
 	def test_cancel_no_pe(self):
 		emp = tpm._make_employee()
@@ -101,6 +122,7 @@ class TestPmRequestCancelEligibility(unittest.TestCase):
 		approvers = frappe.db.get_value(
 			"PM Request", req, ["manager_approver", "ceo_approver", "finance_approver"], as_dict=True
 		)
+		version_count = frappe.db.count("Version", {"ref_doctype": "PM Request", "docname": req})
 		assert_pm_request_cancel_allowed(req)
 		frappe.get_doc("PM Request", req).cancel()
 		frappe.db.commit()
@@ -114,6 +136,10 @@ class TestPmRequestCancelEligibility(unittest.TestCase):
 			"PM Request", req, ["manager_approver", "ceo_approver", "finance_approver"], as_dict=True
 		)
 		self.assertEqual(after, approvers)
+		self.assertGreaterEqual(
+			frappe.db.count("Version", {"ref_doctype": "PM Request", "docname": req}),
+			version_count,
+		)
 
 	def test_cancel_blocked_draft_pe(self):
 		emp = tpm._make_employee()
@@ -123,105 +149,38 @@ class TestPmRequestCancelEligibility(unittest.TestCase):
 			pe = _draft_pe(req, 5_000)
 		except Exception:
 			self.skipTest("Could not create draft PE (auto-submit?)")
-		with self.assertRaises(ValidationError) as ctx:
-			assert_pm_request_cancel_allowed(req)
-		self.assertIn("draft", str(ctx.exception).lower())
+		_assert_blocked_with(self, req, "draft", "payment entry")
 		self.assertTrue(frappe.db.exists("Payment Entry", pe))
 
 	def test_cancel_blocked_submitted_pe(self):
 		emp = tpm._make_employee()
 		tpm._make_holder(emp)
-		req = _new_submitted_request(emp, 15_000)
-		_create_funding_pe(req, 15_000)
-		_sync_funding_fields(req)
-		with self.assertRaises(ValidationError) as ctx:
-			frappe.get_doc("PM Request", req).cancel()
-		self.assertIn("submitted", str(ctx.exception).lower())
+		req, pe = _funded_request(emp, 15_000)
+		_assert_blocked_with(self, req, "submitted", "payment entry")
+		self.assertEqual(cint(frappe.db.get_value("Payment Entry", pe, "docstatus")), 1)
 
 	def test_cancel_after_all_pe_cancelled(self):
 		emp = tpm._make_employee()
 		tpm._make_holder(emp)
-		req = _new_submitted_request(emp, 12_000)
-		pe = _create_funding_pe(req, 12_000)
-		_sync_funding_fields(req)
-		frappe.get_doc("Payment Entry", pe).cancel()
-		_sync_funding_fields(req)
-		self.assertAlmostEqual(flt(frappe.db.get_value("PM Request", req, "total_paid_amount")), 0)
+		req, pe = _funded_request(emp, 12_000)
+		_cancel_pe(pe, req)
+		self.assertEqual(cint(frappe.db.get_value("Payment Entry", pe, "docstatus")), 2)
 		assert_pm_request_cancel_allowed(req)
 		frappe.get_doc("PM Request", req).cancel()
 		self.assertEqual(cint(frappe.db.get_value("PM Request", req, "docstatus")), 2)
+		self.assertEqual(cint(frappe.db.get_value("Payment Entry", pe, "docstatus")), 2)
 
 	def test_cancel_multi_pe_partial_blocks(self):
 		emp = tpm._make_employee()
 		tpm._make_holder(emp)
 		req = _new_submitted_request(emp, 100_000)
 		pe1 = _create_funding_pe(req, 40_000)
-		_create_funding_pe(req, 60_000)
+		pe2 = _create_funding_pe(req, 60_000)
 		_sync_funding_fields(req)
 		frappe.get_doc("Payment Entry", pe1).cancel()
 		_sync_funding_fields(req)
-		# still partially funded
-		self.assertGreater(flt(frappe.db.get_value("PM Request", req, "total_paid_amount")), 0)
-		with self.assertRaises(ValidationError):
-			assert_pm_request_cancel_allowed(req)
-
-	def test_cancel_blocked_draft_clearance(self):
-		emp = tpm._make_employee()
-		tpm._make_holder(emp)
-		req = _new_submitted_request(emp, 30_000)
-		pe = _create_funding_pe(req, 30_000)
-		_sync_funding_fields(req)
-		_make_clearance(emp, req, 5_000, submit=False)
-		frappe.get_doc("Payment Entry", pe).cancel()
-		_sync_funding_fields(req)
-		with self.assertRaises(ValidationError) as ctx:
-			assert_pm_request_cancel_allowed(req)
-		self.assertIn("clearance", str(ctx.exception).lower())
-
-	def test_cancel_blocked_approved_clearance(self):
-		emp = tpm._make_employee()
-		tpm._make_holder(emp)
-		req = _new_submitted_request(emp, 40_000)
-		pe = _create_funding_pe(req, 40_000)
-		_sync_funding_fields(req)
-		cl = _make_clearance(emp, req, 10_000, submit=False)
-		frappe.get_doc("Payment Entry", pe).cancel()
-		_sync_funding_fields(req)
-		frappe.db.set_value(
-			"PM Clearance", cl, {"docstatus": 1, "status": "Approved"}, update_modified=False
-		)
-		with self.assertRaises(ValidationError) as ctx:
-			assert_pm_request_cancel_allowed(req)
-		self.assertIn("clearance", str(ctx.exception).lower())
-
-	def test_cancel_blocked_pending_clearance(self):
-		emp = tpm._make_employee()
-		tpm._make_holder(emp)
-		req = _new_submitted_request(emp, 35_000)
-		pe = _create_funding_pe(req, 35_000)
-		_sync_funding_fields(req)
-		cl = _make_clearance(emp, req, 4_000, submit=True)
-		_set_clearance_status(cl, "Pending Finance Review")
-		frappe.get_doc("Payment Entry", pe).cancel()
-		_sync_funding_fields(req)
-		with self.assertRaises(ValidationError) as ctx:
-			assert_pm_request_cancel_allowed(req)
-		self.assertIn("clearance", str(ctx.exception).lower())
-
-	def test_cancel_blocked_settled_clearance(self):
-		emp = tpm._make_employee()
-		tpm._make_holder(emp)
-		req = _new_submitted_request(emp, 36_000)
-		pe = _create_funding_pe(req, 36_000)
-		_sync_funding_fields(req)
-		# Draft clearance so PE can cancel (Settled reserves funding and blocks PE cancel).
-		cl = _make_clearance(emp, req, 4_000, submit=False)
-		frappe.get_doc("Payment Entry", pe).cancel()
-		_sync_funding_fields(req)
-		_set_clearance_status(cl, "Settled", docstatus=1)
-		with self.assertRaises(ValidationError) as ctx:
-			assert_pm_request_cancel_allowed(req)
-		self.assertIn("clearance", str(ctx.exception).lower())
+		_assert_blocked_with(self, req, "submitted", "payment entry")
+		self.assertEqual(cint(frappe.db.get_value("Payment Entry", pe2, "docstatus")), 1)
 
 	def test_cancel_multi_pe_all_cancelled_allows(self):
 		emp = tpm._make_employee()
@@ -237,39 +196,117 @@ class TestPmRequestCancelEligibility(unittest.TestCase):
 		frappe.get_doc("PM Request", req).cancel()
 		self.assertEqual(cint(frappe.db.get_value("PM Request", req, "docstatus")), 2)
 
+	def test_cancel_not_pointer_authoritative(self):
+		"""Clear pointer while submitted PE remains → still blocked via PE list."""
+		emp = tpm._make_employee()
+		tpm._make_holder(emp)
+		req, pe = _funded_request(emp, 10_000)
+		frappe.db.set_value("PM Request", req, "payment_entry", None, update_modified=False)
+		self.assertTrue(frappe.db.exists("Payment Entry", pe))
+		blockers = get_pm_request_cancel_blockers(req)
+		self.assertTrue(any("submitted" in b.lower() and "payment entry" in b.lower() for b in blockers))
+
+	# --- Clearance matrix (open process, not reservation) ---
+	# Clearance insert requires submitted PE; cancel PE only while Clearance is non-reserving
+	# (Draft), then set the target open status for the cancel check.
+
+	def _req_with_open_clearance_after_pe_cancel(self, status: str) -> str:
+		emp = tpm._make_employee()
+		tpm._make_holder(emp)
+		req, pe = _funded_request(emp, 40_000)
+		cl = _make_clearance(emp, req, 4_000, submit=False)
+		_cancel_pe(pe, req)
+		if status == "Draft":
+			_set_clearance_status(cl, "Draft", docstatus=0)
+		else:
+			_set_clearance_status(cl, status, docstatus=1)
+		return req
+
+	def test_cancel_blocked_draft_clearance(self):
+		req = self._req_with_open_clearance_after_pe_cancel("Draft")
+		_assert_blocked_with(self, req, "draft", "clearance")
+
+	def test_cancel_blocked_pending_manager_clearance(self):
+		req = self._req_with_open_clearance_after_pe_cancel("Pending Approval")
+		_assert_blocked_with(self, req, "pending", "clearance")
+
+	def test_cancel_blocked_pending_finance_clearance(self):
+		req = self._req_with_open_clearance_after_pe_cancel("Pending Finance Review")
+		_assert_blocked_with(self, req, "pending finance", "clearance")
+
+	def test_cancel_blocked_approved_clearance(self):
+		req = self._req_with_open_clearance_after_pe_cancel("Approved")
+		_assert_blocked_with(self, req, "approved", "clearance")
+
+	def test_cancel_blocked_pending_je_clearance(self):
+		req = self._req_with_open_clearance_after_pe_cancel("Pending Journal Entry Submission")
+		_assert_blocked_with(self, req, "pending journal", "clearance")
+
+	def test_cancel_blocked_settled_clearance(self):
+		req = self._req_with_open_clearance_after_pe_cancel("Settled")
+		_assert_blocked_with(self, req, "settled", "clearance")
+
+	def test_cancel_allowed_with_rejected_clearance_only(self):
+		emp = tpm._make_employee()
+		tpm._make_holder(emp)
+		req, pe = _funded_request(emp, 25_000)
+		cl = _make_clearance(emp, req, 5_000, submit=True)
+		_set_clearance_status(cl, "Rejected")  # terminal → PE cancel allowed; Request cancel allowed
+		_cancel_pe(pe, req)
+		assert_pm_request_cancel_allowed(req)
+		frappe.get_doc("PM Request", req).cancel()
+		self.assertEqual(cint(frappe.db.get_value("PM Request", req, "docstatus")), 2)
+		self.assertEqual(frappe.db.get_value("PM Clearance", cl, "status"), "Rejected")
+		self.assertEqual(cint(frappe.db.get_value("Payment Entry", pe, "docstatus")), 2)
+
+	def test_cancel_allowed_with_cancelled_clearance_only(self):
+		emp = tpm._make_employee()
+		tpm._make_holder(emp)
+		req, pe = _funded_request(emp, 25_000)
+		cl = _make_clearance(emp, req, 5_000, submit=True)
+		_force_clearance_cancelled(cl)
+		_cancel_pe(pe, req)
+		assert_pm_request_cancel_allowed(req)
+		frappe.get_doc("PM Request", req).cancel()
+		self.assertEqual(cint(frappe.db.get_value("PM Request", req, "docstatus")), 2)
+		self.assertEqual(cint(frappe.db.get_value("PM Clearance", cl, "docstatus")), 2)
+		self.assertEqual(cint(frappe.db.get_value("Payment Entry", pe, "docstatus")), 2)
+
+	# --- Mixed ---
+
+	def test_cancel_cancelled_pe_rejected_clearance_allows(self):
+		emp = tpm._make_employee()
+		tpm._make_holder(emp)
+		req, pe = _funded_request(emp, 22_000)
+		cl = _make_clearance(emp, req, 3_000, submit=True)
+		_set_clearance_status(cl, "Rejected")
+		_cancel_pe(pe, req)
+		assert_pm_request_cancel_allowed(req)
+		self.assertEqual(get_pm_request_cancel_blockers(req), [])
+
+	def test_cancel_cancelled_pe_draft_clearance_blocks(self):
+		emp = tpm._make_employee()
+		tpm._make_holder(emp)
+		req, pe = _funded_request(emp, 22_000)
+		_make_clearance(emp, req, 3_000, submit=False)
+		_cancel_pe(pe, req)
+		_assert_blocked_with(self, req, "draft", "clearance")
+
+	def test_cancel_submitted_pe_rejected_clearance_blocks(self):
+		emp = tpm._make_employee()
+		tpm._make_holder(emp)
+		req, pe = _funded_request(emp, 28_000)
+		cl = _make_clearance(emp, req, 3_000, submit=True)
+		_set_clearance_status(cl, "Rejected")
+		_assert_blocked_with(self, req, "submitted", "payment entry")
+		self.assertEqual(cint(frappe.db.get_value("Payment Entry", pe, "docstatus")), 1)
+		self.assertEqual(frappe.db.get_value("PM Clearance", cl, "status"), "Rejected")
+
 	def test_cancel_permission_accountant_has_docperm(self):
 		meta = frappe.get_meta("PM Request")
 		acct = next((p for p in meta.permissions if p.role == "Petty Management Accountant"), None)
 		self.assertTrue(acct)
 		self.assertTrue(cint(acct.cancel))
-
-	def test_cancel_allowed_with_rejected_clearance_only(self):
-		emp = tpm._make_employee()
-		tpm._make_holder(emp)
-		req = _new_submitted_request(emp, 25_000)
-		pe = _create_funding_pe(req, 25_000)
-		_sync_funding_fields(req)
-		cl = _make_clearance(emp, req, 5_000, submit=True)
-		_set_clearance_status(cl, "Rejected")
-		frappe.get_doc("Payment Entry", pe).cancel()
-		_sync_funding_fields(req)
-		assert_pm_request_cancel_allowed(req)
-		frappe.get_doc("PM Request", req).cancel()
-		self.assertEqual(cint(frappe.db.get_value("PM Request", req, "docstatus")), 2)
-
-	def test_cancel_allowed_with_cancelled_clearance_only(self):
-		emp = tpm._make_employee()
-		tpm._make_holder(emp)
-		req = _new_submitted_request(emp, 25_000)
-		pe = _create_funding_pe(req, 25_000)
-		_sync_funding_fields(req)
-		cl = _make_clearance(emp, req, 5_000, submit=True)
-		_force_clearance_cancelled(cl)
-		frappe.get_doc("Payment Entry", pe).cancel()
-		_sync_funding_fields(req)
-		assert_pm_request_cancel_allowed(req)
-		frappe.get_doc("PM Request", req).cancel()
-		self.assertEqual(cint(frappe.db.get_value("PM Request", req, "docstatus")), 2)
 
 	def test_cancel_permission_user_lacks_docperm(self):
 		meta = frappe.get_meta("PM Request")
@@ -277,23 +314,10 @@ class TestPmRequestCancelEligibility(unittest.TestCase):
 		self.assertTrue(user_perm)
 		self.assertFalse(cint(user_perm.cancel))
 
-	def test_cancel_not_pointer_authoritative(self):
-		"""Clear pointer while submitted PE remains → still blocked via funding sum."""
-		from erpnext_extensions.petty_management.services.funding_queries import sum_submitted_pe_amount
-
-		emp = tpm._make_employee()
-		tpm._make_holder(emp)
-		req = _new_submitted_request(emp, 10_000)
-		pe = _create_funding_pe(req, 10_000)
-		_sync_funding_fields(req)
-		frappe.db.set_value("PM Request", req, "payment_entry", None, update_modified=False)
-		self.assertTrue(frappe.db.exists("Payment Entry", pe))
-		self.assertGreater(flt(sum_submitted_pe_amount(req)), 0)
-		blockers = get_pm_request_cancel_blockers(req)
-		self.assertTrue(any("submitted" in b.lower() for b in blockers))
-
 
 class TestPmRequestDeleteEligibility(unittest.TestCase):
+	"""Delete remains history-based; unchanged by Cancel open-process rule."""
+
 	def setUp(self):
 		frappe.set_user("Administrator")
 		_require_site_ready(self)
@@ -330,7 +354,6 @@ class TestPmRequestDeleteEligibility(unittest.TestCase):
 		req = _new_submitted_request(emp, 9_500)
 		_create_funding_pe(req, 9_500)
 		_sync_funding_fields(req)
-		# Cannot cancel Request while funded — delete also blocked while submitted
 		with self.assertRaises(ValidationError) as ctx:
 			assert_pm_request_delete_allowed(req)
 		self.assertIn("submitted", str(ctx.exception).lower())
@@ -343,7 +366,6 @@ class TestPmRequestDeleteEligibility(unittest.TestCase):
 			_draft_pe(req, 1_000)
 		except Exception:
 			self.skipTest("Could not create draft PE (auto-submit?)")
-		# Simulate cancelled Request that still has a draft PE linked (history).
 		frappe.db.set_value("PM Request", req, {"docstatus": 2, "status": "Cancelled"}, update_modified=False)
 		frappe.db.commit()
 		with self.assertRaises(ValidationError) as ctx:
@@ -357,7 +379,7 @@ class TestPmRequestDeleteEligibility(unittest.TestCase):
 		pe = _create_funding_pe(req, 11_000)
 		_sync_funding_fields(req)
 		cl = _make_clearance(emp, req, 3_000, submit=False)
-		_set_clearance_status(cl, "Rejected")  # allow Request cancel
+		_set_clearance_status(cl, "Rejected")
 		frappe.get_doc("Payment Entry", pe).cancel()
 		_sync_funding_fields(req)
 		frappe.get_doc("PM Request", req).cancel()
@@ -404,7 +426,6 @@ class TestPmRequestDeleteEligibility(unittest.TestCase):
 		self.assertFalse(frappe.db.exists("PM Request", name))
 
 	def test_delete_draft_blocked_with_clearance(self):
-		"""Mistaken draft cleanup blocked when a Clearance allocation row points at the draft."""
 		tpm._ensure_petty_account()
 		emp = tpm._make_employee()
 		tpm._make_holder(emp)
@@ -414,7 +435,6 @@ class TestPmRequestDeleteEligibility(unittest.TestCase):
 		draft.transaction_date = today()
 		draft.append("details", {"advance_amount": 2_000})
 		draft.insert()
-		# Funded sibling so Clearance can be created, then retarget allocation at draft via DB.
 		sib = _new_submitted_request(emp, 20_000)
 		pe = _create_funding_pe(sib, 20_000)
 		_sync_funding_fields(sib)
@@ -430,11 +450,9 @@ class TestPmRequestDeleteEligibility(unittest.TestCase):
 		with self.assertRaises(ValidationError) as ctx:
 			assert_pm_request_delete_allowed(draft.name)
 		self.assertIn("clearance", str(ctx.exception).lower())
-		# cleanup sibling funding so site stays tidy
 		frappe.get_doc("Payment Entry", pe).cancel()
 
 	def test_delete_draft_blocked_with_pe(self):
-		"""Draft Request with any linked PE must not be deleted."""
 		from erpnext_extensions.petty_management.services.funding_queries import (
 			list_payment_entries_for_pm_request,
 		)
@@ -442,8 +460,6 @@ class TestPmRequestDeleteEligibility(unittest.TestCase):
 		tpm._ensure_petty_account()
 		emp = tpm._make_employee()
 		tpm._make_holder(emp)
-		# Use submitted funded request, then force Request back to draft after PE exists —
-		# simulates historical PE linked to a draft-looking doc for delete policy.
 		req = _new_submitted_request(emp, 6_000)
 		pe = _create_funding_pe(req, 6_000)
 		frappe.db.set_value("PM Request", req, "docstatus", 0, update_modified=False)

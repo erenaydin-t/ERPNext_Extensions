@@ -1,28 +1,36 @@
 # Copyright (c) 2026, ERPNext Extensions contributors
 """v4.6.8 — PM Request cancel / delete eligibility (independent helpers).
 
-Cancel and delete rules must never share decision logic beyond shared PE/Clearance lookups.
+Cancel = open financial process only (not reservation, not history).
+Delete = history-based; must never share cancel decision logic.
 """
 
 from __future__ import annotations
 
-from typing import Any
-
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import cint, flt
+from frappe.utils import cint
 
 from erpnext_extensions.petty_management.services.funding_queries import (
-	has_draft_payment_entry,
 	list_payment_entries_for_pm_request,
-	sum_submitted_pe_amount,
 )
 
-_EPS = 1e-6
+# Terminal Clearance states — historical only; do not block Request cancel.
+_CANCEL_CLEARANCE_TERMINAL_STATUSES = frozenset({"Cancelled", "Rejected"})
 
-# Clearance statuses that do NOT block Request cancel (approved design matrix).
-_CANCEL_CLEARANCE_ALLOW_STATUSES = frozenset({"Cancelled", "Rejected"})
+# Open Clearance processes (business/workflow status). Not reservation SQL.
+_CANCEL_CLEARANCE_OPEN_STATUSES = frozenset(
+	{
+		"Draft",
+		"Pending Approval",
+		"Pending Manager Approval",  # workflow title alias → treat as open
+		"Pending Finance Review",
+		"Approved",
+		"Pending Journal Entry Submission",
+		"Settled",
+	}
+)
 
 
 def _pm_request_name(doc: Document | str) -> str:
@@ -58,21 +66,20 @@ def _clearance_allocations_for_request(pm_request: str) -> list[dict]:
 	)
 
 
-def _blocking_clearances_for_cancel(pm_request: str) -> list[dict]:
-	"""Clearances that block Request cancel (approved matrix).
+def _is_open_clearance_for_cancel(row: dict) -> bool:
+	"""True when Clearance is still an open financial process (blocks Request cancel)."""
+	status = (row.clearance_status or "").strip()
+	ds = cint(row.clearance_docstatus)
+	if ds == 2 or status in _CANCEL_CLEARANCE_TERMINAL_STATUSES:
+		return False
+	if status in _CANCEL_CLEARANCE_OPEN_STATUSES:
+		return True
+	# Unknown non-terminal status with submitted/draft parent → fail closed (treat as open).
+	return ds in (0, 1)
 
-	Block: Draft, Pending*, Approved, Pending JE, Settled (any non-Rejected/Cancelled).
-	Allow: Rejected, Cancelled (docstatus=2 or status Cancelled/Rejected).
-	"""
-	rows = _clearance_allocations_for_request(pm_request)
-	blocking: list[dict] = []
-	for row in rows:
-		status = (row.clearance_status or "").strip()
-		ds = cint(row.clearance_docstatus)
-		if ds == 2 or status in _CANCEL_CLEARANCE_ALLOW_STATUSES:
-			continue
-		blocking.append(row)
-	return blocking
+
+def _open_clearances_for_cancel(pm_request: str) -> list[dict]:
+	return [row for row in _clearance_allocations_for_request(pm_request) if _is_open_clearance_for_cancel(row)]
 
 
 def _format_names(names: list[str], limit: int = 8) -> str:
@@ -87,8 +94,20 @@ def _format_names(names: list[str], limit: int = 8) -> str:
 	return text
 
 
+def _clearance_status_label(status: str) -> str:
+	"""Human label for messages (Pending Approval ≈ Pending Manager Approval in product copy)."""
+	s = (status or "").strip() or _("Unknown")
+	if s == "Pending Approval":
+		return _("Pending Manager Approval")
+	return s
+
+
 def get_pm_request_cancel_blockers(doc: Document | str) -> list[str]:
-	"""Return human-readable cancel blockers (empty ⇒ eligible). Does not check DocPerm."""
+	"""Return cancel blockers for open financial processes (empty ⇒ eligible).
+
+	Does not check DocPerm. Does not use reservation SQL or payment_entry pointer.
+	Cancelled PEs and Rejected/Cancelled Clearances are historical for Cancel only.
+	"""
 	name = _pm_request_name(doc)
 	if isinstance(doc, str):
 		row = frappe.db.get_value("PM Request", name, ["docstatus", "journal_entry"], as_dict=True)
@@ -113,33 +132,39 @@ def get_pm_request_cancel_blockers(doc: Document | str) -> list[str]:
 
 	blockers: list[str] = []
 	if docstatus != 1:
-		blockers.append(_("Only a submitted PM Request can be cancelled (current docstatus={0}).").format(docstatus))
+		blockers.append(
+			_("Only a submitted PM Request can be cancelled (current docstatus={0}).").format(docstatus)
+		)
 		return blockers
 
-	submitted = flt(sum_submitted_pe_amount(name))
-	if submitted > _EPS:
-		pes = [r["payment_entry"] for r in _linked_payment_entries(name) if (r.get("status") or "") == "Submitted"]
-		msg = _("Cannot cancel: submitted funding is {0}.").format(frappe.bold(frappe.format_value(submitted, {"fieldtype": "Currency"})))
-		if pes:
-			msg += " " + _("Submitted Payment Entry(ies): {0}.").format(_format_names(pes))
-		blockers.append(msg)
+	# --- Payment Entry: open process = Draft or Submitted (authoritative PE list) ---
+	pes = _linked_payment_entries(name)
+	draft_pes = [r["payment_entry"] for r in pes if (r.get("status") or "") == "Draft"]
+	submitted_pes = [r["payment_entry"] for r in pes if (r.get("status") or "") == "Submitted"]
+	# Cancelled PEs intentionally ignored for Cancel.
 
-	if has_draft_payment_entry(name):
-		drafts = [r["payment_entry"] for r in _linked_payment_entries(name) if (r.get("status") or "") == "Draft"]
+	if draft_pes:
 		blockers.append(
-			_("Cannot cancel: draft Payment Entry(ies) exist: {0}. Submit or cancel them first.").format(
-				_format_names(drafts) or _("(draft)")
-			)
+			_("Cannot cancel: Draft Payment Entry exists: {0}.").format(_format_names(draft_pes))
+		)
+	if submitted_pes:
+		blockers.append(
+			_("Cannot cancel: Submitted Payment Entry exists: {0}.").format(_format_names(submitted_pes))
 		)
 
-	blocking_clr = _blocking_clearances_for_cancel(name)
-	if blocking_clr:
+	# --- Clearance: open workflow/business state (not reservation) ---
+	open_clr = _open_clearances_for_cancel(name)
+	by_status: dict[str, list[str]] = {}
+	for row in open_clr:
+		st = (row.clearance_status or "").strip() or _("Unknown")
+		by_status.setdefault(st, []).append(row.clearance)
+	for status, names in sorted(by_status.items(), key=lambda x: x[0]):
+		label = _clearance_status_label(status)
 		blockers.append(
-			_("Cannot cancel: blocking PM Clearance(s): {0}.").format(
-				_format_names([r.clearance for r in blocking_clr])
-			)
+			_("Cannot cancel: {0} Clearance exists: {1}.").format(label, _format_names(names))
 		)
 
+	# --- Request-level submitted JE ---
 	meta = frappe.get_meta("PM Request")
 	if meta.has_field("journal_entry") and journal_entry:
 		je_ds = cint(frappe.db.get_value("Journal Entry", journal_entry, "docstatus"))
@@ -154,7 +179,7 @@ def get_pm_request_cancel_blockers(doc: Document | str) -> list[str]:
 
 
 def assert_pm_request_cancel_allowed(doc: Document | str) -> None:
-	"""Throw if PM Request cancel is not allowed (v4.6.8)."""
+	"""Throw if PM Request cancel is not allowed (open financial process remains)."""
 	blockers = get_pm_request_cancel_blockers(doc)
 	if blockers:
 		frappe.throw("<br>".join(blockers), title=_("Cannot cancel PM Request"))
@@ -163,7 +188,7 @@ def assert_pm_request_cancel_allowed(doc: Document | str) -> None:
 def get_pm_request_delete_blockers(doc: Document | str) -> list[str]:
 	"""Return human-readable delete blockers (empty ⇒ eligible). Does not check DocPerm.
 
-	Policy:
+	Policy (history-based; independent of Cancel):
 	- Submitted (docstatus=1): never.
 	- Cancelled (docstatus=2): only if zero PE (any status) and zero Clearance allocations.
 	- Draft (docstatus=0): mistaken cleanup only — same zero PE / zero Clearance rule.

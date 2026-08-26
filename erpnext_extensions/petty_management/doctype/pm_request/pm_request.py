@@ -48,9 +48,9 @@ class PMRequest(Document):
 
 	def before_cancel(self):
 		validate_request_cancel(self)
-		# Eligibility already allows only Rejected/Cancelled Clearances. Rejected parents
-		# keep submitted child Link rows, which Frappe's cancel back-link check would block.
-		# ERPNext pattern: ignore those links after our own guard (see PE ignore for PM Request).
+		# Terminal Clearances (Rejected/Cancelled) are historical for Cancel, but Rejected
+		# parents keep submitted child Link rows. After open-process eligibility passes,
+		# ignore PM Clearance reverse-links for Frappe's cancel back-link check (ERPNext pattern).
 		ignored = list(getattr(self, "ignore_linked_doctypes", None) or [])
 		if "PM Clearance" not in ignored:
 			ignored.append("PM Clearance")

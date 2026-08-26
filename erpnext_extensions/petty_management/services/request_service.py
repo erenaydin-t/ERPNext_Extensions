@@ -213,7 +213,7 @@ def validate_payment_accounts(doc: Document) -> None:
 
 
 def validate_request_cancel(doc: Document) -> None:
-	"""v4.6.8 — amount-aware cancel eligibility (not payment_entry pointer)."""
+	"""v4.6.8 — cancel only when no open financial process (not payment_entry pointer)."""
 	from erpnext_extensions.petty_management.services.request_lifecycle_eligibility import (
 		assert_pm_request_cancel_allowed,
 	)
