@@ -14,6 +14,10 @@ from erpnext_extensions.petty_management.services.holder_service import get_hold
 from erpnext_extensions.petty_management.services.request_service import (
 	create_payment_entry as create_payment_entry_service,
 )
+from erpnext_extensions.petty_management.services.request_lifecycle_eligibility import (
+	apply_cancelled_business_status,
+	assert_pm_request_delete_allowed,
+)
 from erpnext_extensions.petty_management.services.request_service import (
 	get_pm_request_action_flags_for_doc,
 	validate_request,
@@ -44,6 +48,21 @@ class PMRequest(Document):
 
 	def before_cancel(self):
 		validate_request_cancel(self)
+		# Terminal Clearances (Rejected/Cancelled) are historical for Cancel, but Rejected
+		# parents keep submitted child Link rows. After open-process eligibility passes,
+		# ignore PM Clearance reverse-links for Frappe's cancel back-link check (ERPNext pattern).
+		ignored = list(getattr(self, "ignore_linked_doctypes", None) or [])
+		if "PM Clearance" not in ignored:
+			ignored.append("PM Clearance")
+		self.ignore_linked_doctypes = ignored
+
+	def on_cancel(self):
+		"""Business status → Cancelled; never rewrite workflow_state or approvers."""
+		apply_cancelled_business_status(self)
+
+	def on_trash(self):
+		"""v4.6.8 delete eligibility — independent from cancel rules."""
+		assert_pm_request_delete_allowed(self)
 
 
 @frappe.whitelist()

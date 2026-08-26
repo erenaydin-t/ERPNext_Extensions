@@ -5,13 +5,20 @@ from __future__ import annotations
 from typing import Any
 
 import frappe
+from frappe import _
+from frappe.exceptions import ValidationError
 from frappe.utils import flt
 
 OUTSTANDING_VOUCHERS = frozenset({"Sales Invoice", "Purchase Invoice"})
 
 
 def cancel_journal_entry_voucher(je_name: str) -> None:
-	"""Cancel submitted JE (reverses GL/PLE via ERPNext)."""
+	"""Cancel submitted JE (reverses GL/PLE via ERPNext).
+
+	Does not set ignore_links / ignore_linked_doctypes — rollback must detach
+	operational PDC Journal References first. Lifecycle Event.journal_entry is
+	audit Data (v4.7.0+) and must not block cancel.
+	"""
 	je = frappe.get_doc("Journal Entry", je_name)
 	if je.docstatus == 1:
 		je.flags.ignore_permissions = True
@@ -106,8 +113,103 @@ def journal_entry_impact_snapshot(je_name: str) -> dict[str, Any]:
 
 
 def rollback_journal_reference_row(row_name: str | None) -> None:
-	if row_name:
+	if row_name and frappe.db.exists("PDC Journal Reference", row_name):
 		frappe.delete_doc("PDC Journal Reference", row_name, force=1, ignore_permissions=True)
+
+
+def find_journal_reference_rows_for_je(pdc_name: str, je_name: str) -> list[str]:
+	"""Return PDC Journal Reference names on ``pdc_name`` pointing at ``je_name``."""
+	pdc_name = (pdc_name or "").strip()
+	je_name = (je_name or "").strip()
+	if not pdc_name or not je_name:
+		return []
+	return frappe.get_all(
+		"PDC Journal Reference",
+		filters={
+			"parent": pdc_name,
+			"parenttype": "Post Dated Cheque",
+			"journal_entry": je_name,
+		},
+		pluck="name",
+		order_by="idx asc",
+	)
+
+
+def resolve_journal_reference_row_for_rollback(
+	pdc_name: str,
+	je_name: str,
+	*,
+	preferred_row: str | None = None,
+	require_row: bool = True,
+) -> str | None:
+	"""Resolve the operational JR row to remove before cancelling ``je_name``.
+
+	- Prefer ``preferred_row`` when it still exists and points at this JE on this PDC.
+	- Otherwise resolve by parent + journal_entry.
+	- Exactly one match → return it.
+	- Zero matches → fail closed when ``require_row`` (accounting undo expects a JR).
+	- Multiple matches → always fail closed (ambiguous).
+	"""
+	pdc_name = (pdc_name or "").strip()
+	je_name = (je_name or "").strip()
+	preferred = (preferred_row or "").strip() or None
+
+	if preferred and frappe.db.exists("PDC Journal Reference", preferred):
+		row = frappe.db.get_value(
+			"PDC Journal Reference",
+			preferred,
+			["name", "parent", "parenttype", "journal_entry"],
+			as_dict=True,
+		)
+		if (
+			row
+			and (row.parent or "") == pdc_name
+			and (row.parenttype or "") == "Post Dated Cheque"
+			and (row.journal_entry or "").strip() == je_name
+		):
+			return preferred
+
+	matches = find_journal_reference_rows_for_je(pdc_name, je_name)
+	if len(matches) > 1:
+		raise ValidationError(
+			_(
+				"Rollback is blocked: Journal Entry {0} has multiple PDC Journal References "
+				"on {1}. Refusing ambiguous cleanup."
+			).format(je_name, pdc_name)
+		)
+	if len(matches) == 1:
+		return matches[0]
+	if require_row:
+		raise ValidationError(
+			_(
+				"Rollback is blocked: no PDC Journal Reference found for Journal Entry {0} "
+				"on {1}. Cannot safely detach the operational link before cancellation."
+			).format(je_name, pdc_name)
+		)
+	return None
+
+
+def remove_operational_journal_reference_for_step(pdc_name: str, step) -> str | None:
+	"""Delete the rollback-owned PDC Journal Reference for an accounting step.
+
+	Returns the removed row name (if any). Fail-closed on ambiguous/missing links
+	when the step has a Journal Entry to cancel.
+	"""
+	je_name = (getattr(step, "journal_entry", None) or "").strip()
+	if not je_name:
+		return None
+	preferred = (getattr(step, "journal_reference_row", None) or "").strip() or None
+	row_name = resolve_journal_reference_row_for_rollback(
+		pdc_name,
+		je_name,
+		preferred_row=preferred,
+		require_row=True,
+	)
+	if row_name:
+		rollback_journal_reference_row(row_name)
+		if preferred and preferred != row_name:
+			step.journal_reference_row = row_name
+	return row_name
 
 
 def cancel_exchange_gain_loss_for_pair(

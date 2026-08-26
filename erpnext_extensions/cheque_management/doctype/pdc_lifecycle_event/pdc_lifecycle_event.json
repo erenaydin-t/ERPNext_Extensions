@@ -88,11 +88,11 @@
   {
    "allow_on_submit": 1,
    "fieldname": "journal_entry",
-   "fieldtype": "Link",
+   "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Journal Entry",
-   "options": "Journal Entry",
-   "read_only": 1
+   "read_only": 1,
+   "description": "Audit-only Journal Entry name for this occurrence. Stored as Data so lifecycle history does not block rollback-owned JE cancellation."
   },
   {
    "allow_on_submit": 1,

@@ -47,8 +47,9 @@ class JournalEntryTransitionHandler(TransitionRollbackHandler):
 	def rollback_accounting(self, step, pdc, *, dry_run: bool) -> list[dict]:
 		if not step.journal_entry or dry_run:
 			return []
-		if step.journal_reference_row:
-			erpnext_accounting.rollback_journal_reference_row(step.journal_reference_row)
+		# Detach operational PDC → JE link before cancel. Lifecycle Event.journal_entry
+		# is audit Data (v4.7.0+) and must not be treated as an operational dependency.
+		erpnext_accounting.remove_operational_journal_reference_for_step(pdc.name, step)
 		erpnext_accounting.cancel_journal_entry_voucher(step.journal_entry)
 		return erpnext_accounting.refresh_outstanding_for_journal_entry(step.journal_entry)
 
