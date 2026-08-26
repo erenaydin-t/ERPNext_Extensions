@@ -213,35 +213,12 @@ def validate_payment_accounts(doc: Document) -> None:
 
 
 def validate_request_cancel(doc: Document) -> None:
-	if doc.payment_entry and frappe.db.get_value("Payment Entry", doc.payment_entry, "docstatus") == 1:
-		frappe.throw(_("Cancel the linked Payment Entry first"))
-	if (
-		getattr(doc, "journal_entry", None)
-		and frappe.db.get_value("Journal Entry", doc.journal_entry, "docstatus") == 1
-	):
-		frappe.throw(_("Cancel the linked Journal Entry first"))
-	from erpnext_extensions.petty_management.services.allocation_service import (
-		clearance_reserves_pm_request_balance_sql,
+	"""v4.6.8 — amount-aware cancel eligibility (not payment_entry pointer)."""
+	from erpnext_extensions.petty_management.services.request_lifecycle_eligibility import (
+		assert_pm_request_cancel_allowed,
 	)
 
-	res_clause = clearance_reserves_pm_request_balance_sql("cl")
-	alloc_refs = frappe.db.sql(
-		f"""
-		select count(*) from `tabPM Clearance Request Allocation` a
-		inner join `tabPM Clearance` cl on cl.name = a.parent and a.parenttype = 'PM Clearance'
-		where a.parentfield = 'request_allocations'
-			and ifnull(a.is_legacy_row, 0) = 0
-			and a.pm_request = %s
-			and {res_clause}
-		""",
-		doc.name,
-	)[0][0]
-	if alloc_refs:
-		frappe.throw(
-			_(
-				"Cannot cancel: this PM Request is still referenced on submitted PM Clearance allocation lines."
-			)
-		)
+	assert_pm_request_cancel_allowed(doc)
 
 
 def request_ready_for_payment_entry(doc: Document) -> tuple[bool, str]:
