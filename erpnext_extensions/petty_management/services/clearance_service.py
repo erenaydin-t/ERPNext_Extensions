@@ -377,11 +377,15 @@ def workflow_state_link_for_title(document_type: str, state_title: str) -> str |
 
 
 def approve_pm_clearance_for_reservation(cl_name: str) -> None:
-	"""Mark submitted clearance Approved for funding reservation SQL (tests, E2E, ops).
+	"""Mark clearance Approved + submitted for funding reservation SQL (tests, E2E, ops).
 
 	v4.1.5: must pass the same Finance Approval PI readiness gate as
 	``validate_apply_workflow_action`` — never set Approved / activate reservation
 	while Draft (or otherwise unready) Purchase Invoices remain.
+
+	v4.7.2: Pending* stay docstatus=0 until Finance Approve; this bypass helper
+	must therefore set ``docstatus=1`` so reservation SQL (requires submitted)
+	matches the real Finance Approve submit path.
 	"""
 	doc = frappe.get_doc("PM Clearance", cl_name)
 	from erpnext_extensions.petty_management.services.purchase_invoice_readiness import (
@@ -391,9 +395,12 @@ def approve_pm_clearance_for_reservation(cl_name: str) -> None:
 	validate_purchase_invoices_for_finance_approval(doc)
 
 	st = workflow_state_link_for_title("PM Clearance", "Approved")
+	values: dict = {"status": "Approved"}
 	if st:
-		frappe.db.set_value("PM Clearance", cl_name, "workflow_state", st, update_modified=False)
-	frappe.db.set_value("PM Clearance", cl_name, "status", "Approved", update_modified=False)
+		values["workflow_state"] = st
+	if cint(doc.docstatus) == 0:
+		values["docstatus"] = 1
+	frappe.db.set_value("PM Clearance", cl_name, values, update_modified=False)
 
 
 def prepare_doc_for_je_preview(doc: Document) -> None:

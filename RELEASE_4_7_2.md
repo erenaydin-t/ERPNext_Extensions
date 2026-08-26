@@ -7,11 +7,14 @@ Draft approval until final Finance submit for PM Request and PM Clearance.
 - **Pending*** workflow states stay at **docstatus=0** (not submitted).
 - **Finance Approve** / **Clearance Approve** are the only transitions that **submit** (docstatus=1).
 - **PM Return for Correction** sends Pending* → **Draft** on the **same document** (no Cancel / Amend).
+- Timeline comment records: returned by user, previous stage, timestamp, optional reason.
 - Pre-finance **PM Reject** from Pending* is replaced by Return for Correction.
 - Request **PM Reject** from **Finance Approved → Rejected** remains for post-submit rejection.
 - Approver stamps are applied on **Draft → Pending Manager** (submit-for-approval), not as the first stamp on Finance submit.
 - Pending* documents are **not editable** and **not deletable** until returned to Draft.
 - Payment Entry remains blocked until finance-approved **and** docstatus=1.
+- Clearance reservation / settle / JE remain blocked until Approved **and** docstatus=1.
+- Return for Correction never auto-skips.
 
 ## Hard cutover
 
@@ -30,3 +33,6 @@ Draft approval until final Finance submit for PM Request and PM Clearance.
 - Multi-level Manager → CEO → Finance chain
 - Clearance finance role queue (v4.5.3)
 - Auto-skip consecutive same-user Approves (v4.1.4)
+- Cancel/Delete eligibility (v4.6.8) for submitted/final documents
+- Draft PI readiness (v4.1.5)
+- PE Desk cancel ignore (v4.6.7)

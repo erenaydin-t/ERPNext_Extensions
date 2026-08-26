@@ -39,12 +39,19 @@ def _in_workflow_apply() -> bool:
 
 
 def assert_pending_not_editable(doc: Document) -> None:
-	"""Block edits while Pending* and docstatus=0 unless inside workflow apply."""
+	"""Block edits while Pending* and docstatus=0 unless inside workflow apply.
+
+	Ordinary Desk saves (requester / casual edits) are blocked. Workflow apply
+	and privileged ``ignore_permissions`` saves (ops helpers / stamped field
+	refresh) are allowed.
+	"""
 	if cint(getattr(doc, "docstatus", 0)) != 0:
 		return
 	if not is_pending_approval_workflow(doc):
 		return
 	if _in_workflow_apply():
+		return
+	if cint(getattr(doc.flags, "ignore_permissions", 0)):
 		return
 	if doc.is_new():
 		return

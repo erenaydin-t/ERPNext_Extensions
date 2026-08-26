@@ -130,7 +130,11 @@ def apply_workflow(doc, action):
 				from_title = (
 					frappe.db.get_value("Workflow State", from_state, "workflow_state_name") or from_state
 				)
-			result = handle_return_for_correction(doc_obj, from_state=from_title)
+			reason = (
+				getattr(frappe.flags, "pm_return_reason", None)
+				or (frappe.form_dict.get("reason") if getattr(frappe, "form_dict", None) else None)
+			)
+			result = handle_return_for_correction(doc_obj, from_state=from_title, reason=reason)
 		elif (
 			doctype in ("PM Request", "PM Clearance")
 			and name

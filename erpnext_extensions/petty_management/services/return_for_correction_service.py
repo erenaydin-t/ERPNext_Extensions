@@ -61,14 +61,35 @@ def assign_requester(doc: Document) -> None:
 		frappe.log_error(frappe.get_traceback(), "PM Return for Correction assign_requester")
 
 
-def add_return_timeline_comment(doc: Document, *, from_state: str | None = None) -> None:
-	msg = _("Returned for correction")
-	if from_state:
-		msg = _("Returned for correction from {0}").format(from_state)
-	doc.add_comment("Info", msg)
+def add_return_timeline_comment(
+	doc: Document,
+	*,
+	from_state: str | None = None,
+	reason: str | None = None,
+) -> None:
+	"""Timeline: who returned, previous stage, timestamp, optional reason."""
+	from frappe.utils import now_datetime
+
+	user = frappe.session.user
+	full_name = frappe.db.get_value("User", user, "full_name") or user
+	when = now_datetime()
+	lines = [
+		_("Returned for correction by {0}").format(full_name),
+		_("Previous workflow stage: {0}").format(from_state or _("(unknown)")),
+		_("Timestamp: {0}").format(when),
+	]
+	reason_s = (reason or getattr(frappe.flags, "pm_return_reason", None) or "").strip()
+	if reason_s:
+		lines.append(_("Reason: {0}").format(reason_s))
+	doc.add_comment("Info", "<br>".join(lines))
 
 
-def handle_return_for_correction(doc: Document, *, from_state: str | None = None) -> Document:
+def handle_return_for_correction(
+	doc: Document,
+	*,
+	from_state: str | None = None,
+	reason: str | None = None,
+) -> Document:
 	"""After successful Return transition: clear stamps, close ToDos, assign owner, sync Draft."""
 	if doc.doctype not in ("PM Request", "PM Clearance"):
 		return doc
@@ -76,7 +97,7 @@ def handle_return_for_correction(doc: Document, *, from_state: str | None = None
 	clear_approver_stamps(doc)
 	close_todos_for_doc(doc.doctype, doc.name)
 	assign_requester(doc)
-	add_return_timeline_comment(doc, from_state=from_state)
+	add_return_timeline_comment(doc, from_state=from_state, reason=reason)
 
 	if doc.doctype == "PM Request":
 		from erpnext_extensions.petty_management.services.business_status_service import (

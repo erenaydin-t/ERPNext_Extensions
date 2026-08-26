@@ -185,8 +185,9 @@ class TestPMDraftApprovalV472(unittest.TestCase):
 		out = apply_pm_workflow(req, "PM Submit for Approval")
 		out.reload()
 		out.close_reason_detail = "should not save while pending"
+		# Ordinary Desk save (no ignore_permissions) must be blocked
 		with self.assertRaises(frappe.ValidationError):
-			out.save(ignore_permissions=True)
+			out.save()
 
 	def test_delete_lock_while_pending(self):
 		req = self._make_draft_request()
@@ -217,3 +218,108 @@ class TestPMDraftApprovalV472(unittest.TestCase):
 			self.assertEqual(str(s.doc_status), "0")
 		actions = {t.action for t in wf.transitions}
 		self.assertIn("PM Return for Correction", actions)
+
+	def test_return_timeline_comment_and_resubmit(self):
+		req = self._make_draft_request()
+		name = req.name
+		out = apply_pm_workflow(req, "PM Submit for Approval")
+		frappe.db.set_value(
+			"PM Request", out.name, "manager_approver", frappe.session.user, update_modified=False
+		)
+		out.reload()
+		frappe.flags.pm_return_reason = "fix amount"
+		try:
+			out = apply_pm_workflow(out, "PM Return for Correction")
+		finally:
+			frappe.flags.pm_return_reason = None
+		out.reload()
+		comments = frappe.get_all(
+			"Comment",
+			filters={"reference_doctype": "PM Request", "reference_name": name, "comment_type": "Info"},
+			pluck="content",
+			order_by="creation desc",
+			limit=5,
+		)
+		joined = " ".join(comments)
+		self.assertIn("Returned for correction by", joined)
+		self.assertIn("Pending Manager Approval", joined)
+		self.assertIn("fix amount", joined)
+
+		# Resubmit restarts at Manager with fresh stamps
+		out = apply_pm_workflow(out, "PM Submit for Approval")
+		out.reload()
+		title = frappe.db.get_value("Workflow State", out.workflow_state, "workflow_state_name")
+		self.assertEqual(title, "Pending Manager Approval")
+		self.assertEqual(out.name, name)
+		self.assertTrue(out.manager_approver)
+
+	def test_clearance_pending_stays_draft_and_return(self):
+		emp = pm_ct._make_employee()
+		pm_ct._make_holder(emp)
+		self._configure_approvers(emp)
+		pm_request, _pe = pm_ct._fund_pm_request(emp, 10_000.0)
+		fa = resolve_workflow_state_link("Finance Approved")
+		frappe.db.set_value(
+			"PM Request",
+			pm_request,
+			{"workflow_state": fa, "status": "Paid", "payment_status": "Paid"},
+			update_modified=False,
+		)
+		pi = pm_ct._make_pi_outstanding(1_000)
+		pi.insert(ignore_permissions=True)
+		pi.submit()
+		cl = frappe.new_doc("PM Clearance")
+		cl.company = pm_ct.COMPANY
+		cl.employee = emp
+		cl.transaction_date = today()
+		pm_ct._append_pm_clearance_detail_row(
+			cl,
+			{
+				"settlement_type": "Purchase Invoice",
+				"purchase_invoice": pi.name,
+				"allocated_amount": 1000,
+			},
+		)
+		cl.append(
+			"request_allocations",
+			{
+				"funding_source_type": "PM Request",
+				"pm_request": pm_request,
+				"allocated_amount": 1000,
+			},
+		)
+		cl.insert(ignore_permissions=True)
+		frappe.db.set_value(
+			"PM Clearance",
+			cl.name,
+			"workflow_state",
+			resolve_workflow_state_link("Draft"),
+			update_modified=False,
+		)
+		cl.reload()
+		out = apply_pm_workflow(cl, "PM Submit Finance Review")
+		self.assertEqual(out.docstatus, 0)
+		title = frappe.db.get_value("Workflow State", out.workflow_state, "workflow_state_name")
+		self.assertEqual(title, "Pending Manager Approval")
+		frappe.db.set_value(
+			"PM Clearance", out.name, "manager_approver", frappe.session.user, update_modified=False
+		)
+		out.reload()
+		name = out.name
+		out = apply_pm_workflow(out, "PM Return for Correction")
+		out.reload()
+		self.assertEqual(out.name, name)
+		self.assertEqual(out.docstatus, 0)
+		title = frappe.db.get_value("Workflow State", out.workflow_state, "workflow_state_name")
+		self.assertEqual(title, "Draft")
+		self.assertFalse((out.manager_approver or "").strip())
+
+	def test_clearance_workflow_pending_doc_status_zero(self):
+		wf = frappe.get_doc("Workflow", "PM Clearance Workflow")
+		for s in wf.states:
+			title = frappe.db.get_value("Workflow State", s.state, "workflow_state_name") or s.state
+			if title and "Pending" in title:
+				self.assertEqual(str(s.doc_status), "0")
+			if title == "Approved":
+				self.assertEqual(str(s.doc_status), "1")
+		self.assertIn("PM Return for Correction", {t.action for t in wf.transitions})
