@@ -16,7 +16,7 @@ import unittest
 
 import frappe
 from frappe.exceptions import ValidationError
-from frappe.utils import cint, flt, today
+from frappe.utils import cint, today
 
 from erpnext_extensions.petty_management.services.request_lifecycle_eligibility import (
 	assert_pm_request_cancel_allowed,
@@ -97,6 +97,51 @@ def _funded_request(emp: str, amount: float) -> tuple[str, str]:
 def _cancel_pe(pe: str, req: str) -> None:
 	frappe.get_doc("Payment Entry", pe).cancel()
 	_sync_funding_fields(req)
+
+
+def _require_journal_entry_field(testcase: unittest.TestCase) -> None:
+	"""Skip when schema lacks journal_entry (production uses meta.has_field)."""
+	if not frappe.get_meta("PM Request").has_field("journal_entry"):
+		testcase.skipTest(
+			'PM Request has no field journal_entry; '
+			'production cancel/delete guards with meta.has_field("journal_entry")'
+		)
+
+
+def _stub_journal_entry(*, company: str, docstatus: int) -> str:
+	"""Minimal submitted/cancelled JE row for Request-level link tests (no GL)."""
+	name = f"_PM-TEST-JE-{frappe.generate_hash(length=8)}"
+	now = frappe.utils.now()
+	frappe.db.sql(
+		"""
+		INSERT INTO `tabJournal Entry`
+			(name, creation, modified, modified_by, owner, docstatus, idx,
+			 company, voucher_type, naming_series, posting_date, title,
+			 total_debit, total_credit, difference, multi_currency)
+		VALUES
+			(%s, %s, %s, %s, %s, %s, 0,
+			 %s, 'Journal Entry', 'ACC-JV-.YYYY.-', %s, %s,
+			 0, 0, 0, 0)
+		""",
+		(
+			name,
+			now,
+			now,
+			"Administrator",
+			"Administrator",
+			int(docstatus),
+			company,
+			today(),
+			name,
+		),
+	)
+	return name
+
+
+def _link_request_journal_entry(req: str, je: str | None) -> None:
+	frappe.db.set_value("PM Request", req, "journal_entry", je, update_modified=False)
+	frappe.db.commit()
+
 
 
 def _assert_blocked_with(self, req: str, *needles: str):
@@ -302,6 +347,32 @@ class TestPmRequestCancelEligibility(unittest.TestCase):
 		self.assertEqual(cint(frappe.db.get_value("Payment Entry", pe, "docstatus")), 1)
 		self.assertEqual(frappe.db.get_value("PM Clearance", cl, "status"), "Rejected")
 
+
+	# --- Request-level Journal Entry (open process = submitted JE only) ---
+
+	def test_cancel_blocked_submitted_request_journal_entry(self):
+		_require_journal_entry_field(self)
+		emp = tpm._make_employee()
+		tpm._make_holder(emp)
+		req = _new_submitted_request(emp, 7_500)
+		je = _stub_journal_entry(company=tpm.COMPANY, docstatus=1)
+		_link_request_journal_entry(req, je)
+		_assert_blocked_with(self, req, "journal")
+		self.assertEqual(cint(frappe.db.get_value("Journal Entry", je, "docstatus")), 1)
+
+	def test_cancel_allowed_cancelled_request_journal_entry(self):
+		_require_journal_entry_field(self)
+		emp = tpm._make_employee()
+		tpm._make_holder(emp)
+		req = _new_submitted_request(emp, 7_600)
+		je = _stub_journal_entry(company=tpm.COMPANY, docstatus=1)
+		_link_request_journal_entry(req, je)
+		frappe.db.set_value("Journal Entry", je, "docstatus", 2, update_modified=False)
+		frappe.db.commit()
+		assert_pm_request_cancel_allowed(req)
+		frappe.get_doc("PM Request", req).cancel()
+		self.assertEqual(cint(frappe.db.get_value("PM Request", req, "docstatus")), 2)
+
 	def test_cancel_permission_accountant_has_docperm(self):
 		meta = frappe.get_meta("PM Request")
 		acct = next((p for p in meta.permissions if p.role == "Petty Management Accountant"), None)
@@ -469,6 +540,22 @@ class TestPmRequestDeleteEligibility(unittest.TestCase):
 			assert_pm_request_delete_allowed(req)
 		self.assertIn("payment entry", str(ctx.exception).lower())
 		self.assertTrue(frappe.db.exists("Payment Entry", pe))
+
+
+	def test_delete_blocked_cancelled_with_linked_journal_entry(self):
+		"""Delete remains history-based: existing JE on Request still blocks (unchanged)."""
+		_require_journal_entry_field(self)
+		emp = tpm._make_employee()
+		tpm._make_holder(emp)
+		req = _new_submitted_request(emp, 7_700)
+		je = _stub_journal_entry(company=tpm.COMPANY, docstatus=2)
+		_link_request_journal_entry(req, je)
+		assert_pm_request_cancel_allowed(req)
+		frappe.get_doc("PM Request", req).cancel()
+		with self.assertRaises(ValidationError) as ctx:
+			assert_pm_request_delete_allowed(req)
+		self.assertIn("journal", str(ctx.exception).lower())
+		self.assertTrue(frappe.db.exists("Journal Entry", je))
 
 	def test_delete_permission_accountant_lacks_docperm(self):
 		meta = frappe.get_meta("PM Request")
