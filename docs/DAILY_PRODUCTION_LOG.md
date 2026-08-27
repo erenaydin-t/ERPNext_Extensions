@@ -1,4 +1,4 @@
-# Daily Production Log — Workflow (v4.7.2 – v4.7.4)
+# Daily Production Log — Workflow (v4.7.2 – v4.7.5)
 
 **Module:** `erpnext_extensions/daily_production/` · **DocType:** `Daily Production Log` (`DPL-YYYY-#####`)
 **Branch:** `feature/daily-production-log` · **Target:** ERPNext v16 with *Track Semi Finished Goods* Work Orders
@@ -96,8 +96,8 @@ Order … is running right now."*
 | 1 | The operation row exists and has a **Finished Good** | *Operation … has no Finished Good* |
 | 2 | `qty > 0`, `to_time > from_time`, Employee is *Active* | |
 | 3 | **Pending qty of the operation ≥ qty** where `pending = WO qty − completed − process loss − qty claimed by other open draft cards of this operation` | *Only P of Q is still pending for operation …* |
-| 4 | **Previous operation's output is available** in this operation's source warehouse — batch-aware, counting only lots this Work Order produced (`get_previous_operation_output_sn_batch`); plain `Bin.actual_qty` for untracked items | *Only A of ITEM (output of the previous operation) is available in WH; this cycle needs N* |
-| 5 | The operator has **no running timer** on any draft Job Card | *Employee … still has a running timer on Job Card …* |
+| 4 | **Previous operation's output is available** in this operation's source warehouse — for batch/serial-tracked items only lots **this Work Order** produced count, even when that is zero (`get_previous_operation_output_sn_batch`); plain `Bin.actual_qty` for untracked items | *Only A of ITEM (output of the previous operation) is available in WH; this cycle needs N* |
+| 5 | The operator has **no running timer** (a `time_logs` row without *To*) on any draft Job Card. Rows of the card's *Employee* multi-select live in the same child table and are ignored (v4.7.5) | *Employee … still has a running timer on Job Card …* |
 | 6 | No other log for the same Work Order + operation row is *Running* | |
 
 Check 4 enforces the "downstream card qty" rule up front instead of failing inside the
@@ -163,8 +163,9 @@ then:
   lot**:
   - `lot_no = <GMP no>-Lnn` — GMP no = card `custom_batch_number` → WO `custom_fg_batch_no` →
     WO name; `nn` = number of *Done* logs for this WO + operation row + 1 (the cycle number).
-  - Batch id follows the site's batch-script convention `<counter>-<item>-<lot_no>` so the
-    duplicate validator and reports keep working; `custom_batch_no = lot_no`,
+  - Batch id follows the site's batch-script convention `<counter>-<item>-<lot_no>` (counter =
+    highest numeric prefix in use + 1) so the duplicate validator and reports keep working;
+    `custom_batch_no = lot_no`,
     `custom_is_placeholder_lot = 1`, manufacturing date = posting date, expiry from the item's
     shelf life, reference = the Work Order.
   - An existing Batch with the same `custom_batch_no` is reused.
@@ -239,19 +240,23 @@ Patches are idempotent. Version history on this branch:
 | 4.7.2 | Feature: DocTypes, runner, Job Card guards, Batch custom field, e2e test plan |
 | 4.7.3 | `bench migrate` does not create Module Defs for a module added to an already-installed app and may serve a cached module list, so `daily_production/` was skipped by `sync_for` on staging (app at 4.7.2, patch applied, no DocTypes). A **pre-model-sync** patch now creates the *Daily Production* Module Def and rebuilds the module map |
 | 4.7.4 | Transfer falls back to the Work Order item's (BOM) source warehouse when the card's is short — first staging run failed op 1 with *Not enough batched stock of 13100023 in the raw-material store* (packaging in another store). Test plan retries transient TLS errors and creates the FG batch idempotently for `--work-order` reruns |
+| 4.7.5 | Operator-timer guard ignores the Job Card *Employee* multi-select rows (false "running timer" on any draft card listing the operator); tracked previous-operation inputs count only this Work Order's lots even when zero; placeholder-lot counter = highest prefix in use + 1. Test plan: free test days chosen automatically (`--start-day`), Material Transfer for the manual card, `DPL_MAX_SECONDS`. See `RELEASE_4_7_5.md` |
 
 ## 6. End-to-end test plan (staging)
 
 ```bash
 ERP_URL=https://erpstage… ERP_API_KEY=… ERP_API_SECRET=… \
-  [DPL_EMP1=HR-EMP-0537 DPL_EMP2=HR-EMP-0538] \
+  [DPL_EMP1=HR-EMP-0537 DPL_EMP2=HR-EMP-0538] [DPL_MAX_SECONDS=10] \
   python -m erpnext_extensions.daily_production.e2e.run_test_plan \
-      [--bom BOM-20100067-017] [--work-order WO-…]
+      [--bom BOM-20100067-017] [--work-order WO-…] [--start-day 2026-09-01]
 ```
 
 Runs the whole **Alcarisa-28** batch (`BOM-20100067-017`, 2756 units, company اسپاد فارمد دارو,
 `FG - Test - E` / `WIP Filling - Test - E`) purely through Daily Production Logs and exits
-non-zero if any expectation fails. Covered:
+non-zero if any expectation fails. The five test days are picked automatically as the day
+after the operators' last time log (core refuses overlapping employee time logs), so the plan
+can be re-run on a site that still holds earlier runs; `--work-order` reuses a submitted Work
+Order nothing was produced on yet. Covered:
 
 - **Failure cases (nothing may be created):** qty > pending; `to_time < from_time` rejected at
   save; downstream operation asking for more than the previous operation produced (600 with 0,
@@ -263,11 +268,15 @@ non-zero if any expectation fails. Covered:
 - **Concurrency:** two logs for the same WO + op started in parallel → one *Done*, one *Failed*
   that created nothing; the failed one is re-run after fixing its inputs.
 - **Idempotency:** `run()` twice on a *Done* log → no-op, no duplicate Job Card.
-- **Timing:** every cycle under 10 s.
+- **Timing:** every cycle under `DPL_MAX_SECONDS` (default 10 s).
 - **Final report:** Work Order *Completed*, produced 2756; **12 Job Cards** (2+1+3+3+3), every
   card `for_quantity == total_completed_qty`, `semi_fg_bom` on all cards; per-operation planned
   vs actual minutes/cost with **booked-to-stock operating cost == Work Order actual cost** (delta
   < 1); valuation chain of every Manufacture entry with its lot.
+
+**Last staging result (2026-08-27, erpstage, app 4.7.4):** `MFG-WO-2026-00441` — Completed,
+2756 produced, 12 cards, every functional expectation passed; only op 5 (packaging, 21
+materials) exceeded the 10 s budget at 11–12.5 s per cycle.
 
 ## 7. Known limitations / open points
 
@@ -280,3 +289,8 @@ non-zero if any expectation fails. Covered:
   lot of the previous operation's output fails the run.
 - Operations with *Skip Material Transfer* produce no transfer entry; their Manufacture entry
   consumes directly.
+- **Data finding (staging, mirrors prod):** BOM-20100067-017 sources the packaging items
+  `13200412` and `13200317` from the *primary* packaging store while stock is held in the
+  *secondary* store. The runner fails closed (card warehouse → BOM warehouse only). Correct
+  either the BOM source warehouse or the stock location before packaging cycles run on prod.
+- Packaging cycles with ~20 materials take 11–12.5 s on staging (FEFO pick per material).
