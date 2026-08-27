@@ -1,4 +1,4 @@
-# ERPNext Extensions v4.7.5
+# ERPNext Extensions v4.8.1
 
 Daily Production Log — fixes found while running the end-to-end plan on staging after 4.7.4.
 

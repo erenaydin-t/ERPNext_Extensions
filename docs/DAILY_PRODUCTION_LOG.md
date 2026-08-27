@@ -1,4 +1,4 @@
-# Daily Production Log — Workflow (v4.7.2 – v4.7.5)
+# Daily Production Log — Workflow (v4.7.2 – v4.8.1)
 
 **Module:** `erpnext_extensions/daily_production/` · **DocType:** `Daily Production Log` (`DPL-YYYY-#####`)
 **Branch:** `feature/daily-production-log` · **Target:** ERPNext v16 with *Track Semi Finished Goods* Work Orders
@@ -97,7 +97,7 @@ Order … is running right now."*
 | 2 | `qty > 0`, `to_time > from_time`, Employee is *Active* | |
 | 3 | **Pending qty of the operation ≥ qty** where `pending = WO qty − completed − process loss − qty claimed by other open draft cards of this operation` | *Only P of Q is still pending for operation …* |
 | 4 | **Previous operation's output is available** in this operation's source warehouse — for batch/serial-tracked items only lots **this Work Order** produced count, even when that is zero (`get_previous_operation_output_sn_batch`); plain `Bin.actual_qty` for untracked items | *Only A of ITEM (output of the previous operation) is available in WH; this cycle needs N* |
-| 5 | The operator has **no running timer** (a `time_logs` row without *To*) on any draft Job Card. Rows of the card's *Employee* multi-select live in the same child table and are ignored (v4.7.5) | *Employee … still has a running timer on Job Card …* |
+| 5 | The operator has **no running timer** (a `time_logs` row without *To*) on any draft Job Card. Rows of the card's *Employee* multi-select live in the same child table and are ignored (v4.8.1) | *Employee … still has a running timer on Job Card …* |
 | 6 | No other log for the same Work Order + operation row is *Running* | |
 
 Check 4 enforces the "downstream card qty" rule up front instead of failing inside the
@@ -240,7 +240,8 @@ Patches are idempotent. Version history on this branch:
 | 4.7.2 | Feature: DocTypes, runner, Job Card guards, Batch custom field, e2e test plan |
 | 4.7.3 | `bench migrate` does not create Module Defs for a module added to an already-installed app and may serve a cached module list, so `daily_production/` was skipped by `sync_for` on staging (app at 4.7.2, patch applied, no DocTypes). A **pre-model-sync** patch now creates the *Daily Production* Module Def and rebuilds the module map |
 | 4.7.4 | Transfer falls back to the Work Order item's (BOM) source warehouse when the card's is short — first staging run failed op 1 with *Not enough batched stock of 13100023 in the raw-material store* (packaging in another store). Test plan retries transient TLS errors and creates the FG batch idempotently for `--work-order` reruns |
-| 4.7.5 | Operator-timer guard ignores the Job Card *Employee* multi-select rows (false "running timer" on any draft card listing the operator); tracked previous-operation inputs count only this Work Order's lots even when zero; placeholder-lot counter = highest prefix in use + 1. Test plan: free test days chosen automatically (`--start-day`), Material Transfer for the manual card, `DPL_MAX_SECONDS`. See `RELEASE_4_7_5.md` |
+| 4.8.0 | (develop) ERPNext 16.33 / Frappe 16.32 compatibility — not Daily Production specific |
+| 4.8.1 | Operator-timer guard ignores the Job Card *Employee* multi-select rows (false "running timer" on any draft card listing the operator); tracked previous-operation inputs count only this Work Order's lots even when zero; placeholder-lot counter = highest prefix in use + 1. Test plan: free test days chosen automatically (`--start-day`), Material Transfer for the manual card, `DPL_MAX_SECONDS`. See `RELEASE_4_8_1.md` |
 
 ## 6. End-to-end test plan (staging)
 
