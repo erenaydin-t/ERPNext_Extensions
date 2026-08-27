@@ -1,5 +1,5 @@
 # Copyright (c) 2026, ERPNext Extensions contributors
-"""v4.7.2: register the new "Daily Production" module before its DocTypes are synced.
+"""v4.7.3: register the new "Daily Production" module before its DocTypes are synced.
 
 ``bench migrate`` never calls ``add_module_defs`` for an already-installed app (only
 ``install-app`` does), and the module map may be served from a cache built before the
