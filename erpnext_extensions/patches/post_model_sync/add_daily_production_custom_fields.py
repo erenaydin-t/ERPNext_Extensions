@@ -1,5 +1,5 @@
 # Copyright (c) 2026, ERPNext Extensions contributors
-"""v4.8.0: flag on Batch for placeholder lots created by Daily Production Log (idempotent)."""
+"""v4.7.2: flag on Batch for placeholder lots created by Daily Production Log (idempotent)."""
 
 from __future__ import annotations
 
