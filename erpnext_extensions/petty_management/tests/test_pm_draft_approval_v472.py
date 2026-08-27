@@ -109,6 +109,56 @@ class TestPMDraftApprovalV472(unittest.TestCase):
 			self.assertIn("1", msg)
 			self.assertIn("REQ-A", msg)
 
+	def test_draft_approval_workflow_detected_after_rebuild(self):
+		from erpnext_extensions.patches.post_model_sync.migrate_pm_draft_approval_v472 import (
+			is_draft_approval_workflow_applied,
+		)
+
+		self.assertTrue(is_draft_approval_workflow_applied())
+
+	def test_execute_already_applied_skips_in_flight_gate(self):
+		from erpnext_extensions.patches.post_model_sync import migrate_pm_draft_approval_v472 as mod
+
+		with (
+			patch.object(mod, "is_draft_approval_workflow_applied", return_value=True),
+			patch.object(mod, "assert_no_in_flight_pending_pm_docs") as assert_gate,
+			patch.object(mod, "_rebuild_pm_request_workflow") as rebuild_req,
+			patch.object(mod, "_rebuild_pm_clearance_workflow") as rebuild_clr,
+			patch.object(mod, "_seed_assignment_rules", return_value=[]),
+			patch.object(mod, "_set_site_flag"),
+			patch.object(mod, "_clear_site_flag"),
+		):
+			mod.execute()
+			assert_gate.assert_not_called()
+			rebuild_req.assert_not_called()
+			rebuild_clr.assert_not_called()
+
+	def test_execute_defers_when_in_flight_and_not_applied(self):
+		from erpnext_extensions.patches.post_model_sync import migrate_pm_draft_approval_v472 as mod
+
+		with (
+			patch.object(mod, "is_draft_approval_workflow_applied", return_value=False),
+			patch.object(
+				mod,
+				"count_in_flight_pending_pm_docs",
+				return_value={
+					"request_count": 2,
+					"clearance_count": 1,
+					"request_names": ["REQ-A", "REQ-B"],
+					"clearance_names": ["CLR-A"],
+				},
+			),
+			patch.object(mod, "_rebuild_pm_request_workflow") as rebuild_req,
+			patch.object(mod, "_rebuild_pm_clearance_workflow") as rebuild_clr,
+			patch.object(mod, "_set_site_flag") as set_flag,
+			patch.object(mod, "_clear_site_flag"),
+		):
+			mod.execute()  # must not throw
+			rebuild_req.assert_not_called()
+			rebuild_clr.assert_not_called()
+			self.assertTrue(set_flag.called)
+			self.assertEqual(set_flag.call_args[0][0], mod.DEFERRED_FLAG_KEY)
+
 	def test_count_in_flight_returns_dict(self):
 		stats = count_in_flight_pending_pm_docs()
 		self.assertIn("request_count", stats)
