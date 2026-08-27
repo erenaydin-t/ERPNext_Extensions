@@ -43,6 +43,14 @@ The reset is skipped rather than re-filtered by ``operation_id`` on purpose:
 ``Work Order Operation.process_loss_qty`` aggregates every Job Card of the
 operation (``JobCard.get_current_operation_data``), so an operation run over
 several Job Cards would still over-apply the loss.
+
+**ERPNext 16.33+ (frappe/erpnext#58262):** upstream now derives the loss through
+``StockEntry.get_pending_process_loss_qty`` — the Job Card's own unbooked loss for
+card entries, and for Work Order level entries only the portion of the largest
+operation loss that the Work Order has *not booked yet* (loss booked once across
+partial Manufacture entries). That supersedes this patch; installing it there
+would re-apply the full operation loss on every partial Work Order level entry.
+``apply_patch`` therefore stands down when that method exists.
 """
 
 from __future__ import annotations
@@ -59,8 +67,19 @@ def apply_patch() -> None:
 		# Idempotent: apply_monkey_patches may run on every request.
 		return
 
+	if upstream_scopes_process_loss(StockEntry):
+		# ERPNext 16.33+ already keeps the loss scoped to the Job Card and books it once;
+		# leave upstream in charge (see module docstring).
+		StockEntry._job_card_process_loss_patched = True
+		return
+
 	StockEntry.set_process_loss_qty = set_process_loss_qty
 	StockEntry._job_card_process_loss_patched = True
+
+
+def upstream_scopes_process_loss(stock_entry_class) -> bool:
+	"""True when upstream ``set_process_loss_qty`` is the Job-Card-aware version."""
+	return callable(getattr(stock_entry_class, "get_pending_process_loss_qty", None))
 
 
 def set_process_loss_qty(self):

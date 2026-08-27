@@ -241,6 +241,7 @@ Patches are idempotent. Version history on this branch:
 | 4.7.3 | `bench migrate` does not create Module Defs for a module added to an already-installed app and may serve a cached module list, so `daily_production/` was skipped by `sync_for` on staging (app at 4.7.2, patch applied, no DocTypes). A **pre-model-sync** patch now creates the *Daily Production* Module Def and rebuilds the module map |
 | 4.7.4 | Transfer falls back to the Work Order item's (BOM) source warehouse when the card's is short — first staging run failed op 1 with *Not enough batched stock of 13100023 in the raw-material store* (packaging in another store). Test plan retries transient TLS errors and creates the FG batch idempotently for `--work-order` reruns |
 | 4.8.0 | (develop) ERPNext 16.33 / Frappe 16.32 compatibility — not Daily Production specific |
+| 4.8.2 | ERPNext 16.33 review (see `RELEASE_4_8_2.md`): runner compatible as is; the 3.8.8 `job_card_process_loss` override stands down where upstream already scopes process loss to the Job Card (#58262) |
 | 4.8.1 | Operator-timer guard ignores the Job Card *Employee* multi-select rows (false "running timer" on any draft card listing the operator); tracked previous-operation inputs count only this Work Order's lots even when zero; placeholder-lot counter = highest prefix in use + 1. Test plan: free test days chosen automatically (`--start-day`), Material Transfer for the manual card, `DPL_MAX_SECONDS`. See `RELEASE_4_8_1.md` |
 
 ## 6. End-to-end test plan (staging)

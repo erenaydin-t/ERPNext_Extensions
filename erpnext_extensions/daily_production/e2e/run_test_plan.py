@@ -141,6 +141,9 @@ def make_work_order(bom):
 	)
 	r = run_doc_method("Work Order", wo["name"], "get_items_and_operations_from_bom")
 	doc = next(x for x in r["docs"] if x["doctype"] == "Work Order")
+	# One GMP number per test batch: the placeholder lots (<GMP>-Lnn) are keyed on it, and a
+	# shared number would make a new run reuse the lots of an earlier one.
+	doc["custom_fg_batch_no"] = f"DPLTEST-{wo['name'][-5:]}"
 	doc = save(doc)
 	doc = submit(doc)
 	print(
