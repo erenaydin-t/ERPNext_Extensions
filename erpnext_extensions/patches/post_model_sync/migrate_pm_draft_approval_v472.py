@@ -110,6 +110,8 @@ def execute():
 		realign_doctype_workflow_states("PM Request")
 		realign_doctype_workflow_states("PM Clearance")
 		report["assignment_rules"] = _seed_assignment_rules()
+		# Bulk-apply while still inside the patch transaction (Frappe commits after Patch Log).
+		report["bulk_apply"] = _bulk_apply_pending_assignments()
 	except Exception:
 		report["aborted"] = True
 		frappe.flags.in_patch = False
@@ -118,7 +120,5 @@ def execute():
 	finally:
 		frappe.flags.in_patch = False
 
-	report["bulk_apply"] = _bulk_apply_pending_assignments()
-	frappe.db.commit()
 	frappe.cache().set_value("pm_draft_approval_v472_migration_report", report)
 	print(json.dumps({"pm_draft_approval_v472": report}, indent=2, default=str))

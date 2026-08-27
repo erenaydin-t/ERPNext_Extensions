@@ -377,30 +377,53 @@ def workflow_state_link_for_title(document_type: str, state_title: str) -> str |
 
 
 def approve_pm_clearance_for_reservation(cl_name: str) -> None:
-	"""Mark clearance Approved + submitted for funding reservation SQL (tests, E2E, ops).
+	"""Apply final Clearance Finance Approve via the legitimate workflow submit path.
 
-	v4.1.5: must pass the same Finance Approval PI readiness gate as
-	``validate_apply_workflow_action`` — never set Approved / activate reservation
-	while Draft (or otherwise unready) Purchase Invoices remain.
+	v4.7.2: MUST NOT write docstatus/workflow_state via db.set_value.
+	Finance Approve is the only real Submit (Pending Finance Review 0 → Approved 1).
 
-	v4.7.2: Pending* stay docstatus=0 until Finance Approve; this bypass helper
-	must therefore set ``docstatus=1`` so reservation SQL (requires submitted)
-	matches the real Finance Approve submit path.
+	Requires the document to already be in Pending Finance Review (or already Approved).
 	"""
+	from erpnext_extensions.petty_management.services.workflow_utils import apply_pm_workflow
+
 	doc = frappe.get_doc("PM Clearance", cl_name)
+	ws = (getattr(doc, "workflow_state", None) or "").strip()
+	title = (
+		frappe.db.get_value("Workflow State", ws, "workflow_state_name") if ws else ""
+	) or ws
+
+	if title == "Approved" and cint(doc.docstatus) == 1:
+		return
+
+	if title != "Pending Finance Review":
+		frappe.throw(
+			_(
+				"Cannot approve PM Clearance {0} for reservation: expected Pending Finance Review, got {1}. "
+				"Use the normal approval workflow (Manager → Finance Approve)."
+			).format(cl_name, title or _("(blank)")),
+			title=_("Finance Approve required"),
+		)
+
 	from erpnext_extensions.petty_management.services.purchase_invoice_readiness import (
 		validate_purchase_invoices_for_finance_approval,
 	)
 
 	validate_purchase_invoices_for_finance_approval(doc)
 
-	st = workflow_state_link_for_title("PM Clearance", "Approved")
-	values: dict = {"status": "Approved"}
-	if st:
-		values["workflow_state"] = st
-	if cint(doc.docstatus) == 0:
-		values["docstatus"] = 1
-	frappe.db.set_value("PM Clearance", cl_name, values, update_modified=False)
+	try:
+		apply_pm_workflow(doc, "PM Finance Approve")
+	except Exception:
+		doc.reload()
+		apply_pm_workflow(doc, "PM Approve")
+
+	doc.reload()
+	if cint(doc.docstatus) != 1:
+		frappe.throw(
+			_("Finance Approve did not submit PM Clearance {0} (docstatus={1}).").format(
+				cl_name, doc.docstatus
+			),
+			title=_("Submit failed"),
+		)
 
 
 def prepare_doc_for_je_preview(doc: Document) -> None:

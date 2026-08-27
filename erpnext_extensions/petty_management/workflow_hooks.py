@@ -91,6 +91,24 @@ def apply_workflow(doc, action):
 			validate_pm_request_workflow_action(req_doc, action_s)
 			from_state = req_doc.workflow_state
 
+		# v4.7.2: serialize Return — lock row, re-read state, reject if already Draft
+		if (
+			doctype in ("PM Request", "PM Clearance")
+			and name
+			and action_s == "PM Return for Correction"
+		):
+			from erpnext_extensions.petty_management.services.return_for_correction_service import (
+				assert_return_allowed_under_lock,
+				lock_pm_document_for_return,
+			)
+
+			locked = lock_pm_document_for_return(doctype, name)
+			from_title_locked = assert_return_allowed_under_lock(doctype, locked)
+			from_state = locked.get("workflow_state") or from_state
+			# Keep locked title for timeline if from_state link was blank
+			if not from_state:
+				from_state = from_title_locked
+
 		if doctype in ("PM Request", "PM Clearance") and name:
 			_stamp_before_submit_for_approval(doctype, name, action_s)
 

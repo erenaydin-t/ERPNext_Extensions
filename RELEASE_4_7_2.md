@@ -36,3 +36,10 @@ Draft approval until final Finance submit for PM Request and PM Clearance.
 - Cancel/Delete eligibility (v4.6.8) for submitted/final documents
 - Draft PI readiness (v4.1.5)
 - PE Desk cancel ignore (v4.6.7)
+
+## Release-blocker hardenings (post-audit)
+
+- Return for Correction is fully atomic: assignment/timeline/stamp failures raise and roll back the request transaction (no swallowed assign errors).
+- Return acquires `SELECT … FOR UPDATE`, re-reads state, rejects second caller when already Draft.
+- `approve_pm_clearance_for_reservation` / settlement whitelist apply **PM Finance Approve** via workflow only — no raw `docstatus=1` writes.
+- v4.7.2 migration no longer calls `frappe.db.commit()`; Frappe patch handler owns commit/rollback.
